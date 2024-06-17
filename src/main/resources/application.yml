@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://c2v3jin4rntblb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/d5tv608e314onp
-    username: uempaqhqle5ht
-    password: pde3ccde8ac8d8ba6c2b45448d5506e5c6e68fc0b6106ff130fd8167747ed47e2
+    url: jdbc:postgresql://${PROD_DB_HOST}:${PROD_DB_PORT}/${PROD_DB_NAME}
+    username: ${PROD_DB_USERNAME}
+    password: ${PROD_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
