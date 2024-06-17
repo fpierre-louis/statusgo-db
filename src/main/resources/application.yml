@@ -3,31 +3,4 @@ spring:
     url: jdbc:postgresql://${PROD_DB_HOST}:${PROD_DB_PORT}/${PROD_DB_NAME}
     username: ${PROD_DB_USERNAME}
     password: ${PROD_DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
-  jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
-    generate-ddl: true
-    show-sql: true
-    hibernate:
-      ddl-auto: update
-    properties:
-      hibernate:
-        default_schema: statusgo
-        globally_quoted_identifiers: true
-        format_sql: true
-
-  servlet:
-    multipart:
-      enabled: true
-      max-file-size: 1000MB
-      max-request-size: 1000MB
-  mvc:
-    throw-exception-if-no-handler-found: true
-    async:
-      request-timeout: 3600000
-server:
-  port: 5000
-  error:
-    path: /user/error
-    whitelabel:
-      enabled: false
+    name: statusgo
