@@ -4,3 +4,9 @@ spring:
     username: ${PROD_DB_USERNAME}
     password: ${PROD_DB_PASSWORD}
     name: statusgo
+server:
+  port: 5432
+  error:
+    path: /user/error
+    whitelabel:
+      enabled: false
