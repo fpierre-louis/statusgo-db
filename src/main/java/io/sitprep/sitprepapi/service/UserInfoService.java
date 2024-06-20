@@ -47,8 +47,8 @@ public class UserInfoService {
         }
     }
 
-    public UserInfo updateUserFcmToken(String email, String fcmToken) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
+    public UserInfo updateUserFcmToken(String id, String fcmToken) {
+        Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
         if (optionalUser.isPresent()) {
             UserInfo user = optionalUser.get();
             if (user.getFCMTokens() == null) {
@@ -60,4 +60,5 @@ public class UserInfoService {
             throw new RuntimeException("User not found");
         }
     }
+
 }

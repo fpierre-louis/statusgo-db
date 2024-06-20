@@ -89,6 +89,7 @@ public class UserInfoResource {
         }
     }
 
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
         userInfoService.deleteUser(id);
