@@ -78,11 +78,11 @@ public class UserInfoResource {
         }
     }
 
-    @PutMapping("/fcm-token/{email}")
-    public ResponseEntity<UserInfo> updateFcmToken(@PathVariable String email, @RequestBody Map<String, String> fcmTokenData) {
+    @PutMapping("/fcm-token/{id}")
+    public ResponseEntity<UserInfo> updateFcmToken(@PathVariable String id, @RequestBody Map<String, String> fcmTokenData) {
         try {
             String fcmToken = fcmTokenData.get("fcmToken");
-            UserInfo updatedUser = userInfoService.updateUserFcmToken(email, fcmToken);
+            UserInfo updatedUser = userInfoService.updateUserFcmToken(id, fcmToken);
             return ResponseEntity.ok(updatedUser);
         } catch (Exception e) {
             return ResponseEntity.status(404).body(null);
