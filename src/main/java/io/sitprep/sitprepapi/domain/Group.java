@@ -23,6 +23,7 @@ public class Group {
     private String description;
     private String groupName;
     private String groupType;
+    private String groupCode;
     private String lastUpdatedBy;
     private Integer memberCount;
 

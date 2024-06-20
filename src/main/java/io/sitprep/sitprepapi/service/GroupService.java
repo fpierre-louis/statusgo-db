@@ -7,6 +7,8 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,6 +17,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class GroupService {
+
+    private static final Logger logger = LoggerFactory.getLogger(GroupService.class);
 
     @Autowired
     private GroupRepo groupRepo;
@@ -45,6 +49,9 @@ public class GroupService {
         group.setSubGroupIDs(groupDetails.getSubGroupIDs());
         group.setUpdatedAt(LocalDateTime.now());
         group.setZipCode(groupDetails.getZipCode());
+        group.setOwnerName(groupDetails.getOwnerName());
+        group.setOwnerEmail(groupDetails.getOwnerEmail());
+        group.setGroupCode(groupDetails.getGroupCode());
 
         Group updatedGroup = groupRepo.save(group);
 
@@ -60,7 +67,20 @@ public class GroupService {
         Set<String> tokens = users.stream()
                 .flatMap(user -> user.getFCMTokens().stream())
                 .collect(Collectors.toSet());
-        notificationService.sendNotification("Group Alert", "The group " + group.getGroupName() + " is now Active. Please update your status.", tokens);
+
+        if (tokens.isEmpty()) {
+            logger.warn("No FCM tokens found for group members.");
+            return;
+        }
+
+        String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
+        String notificationBody = "URGENT: " + owner + " here. Checking in to make sure you are safe. Click or Tap here and let me know your status.";
+
+        try {
+            notificationService.sendNotification("Status Now!", notificationBody, tokens);
+        } catch (Exception e) {
+            logger.error("Error sending notification: ", e);
+        }
     }
 
     public List<Group> getGroupsByAdminEmail(String adminEmail) {

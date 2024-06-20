@@ -14,12 +14,13 @@ public class NotificationService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationService.class);
 
-    public void sendNotification(String title, String message, Set<String> tokens) {
+    public void sendNotification(String title, String body, Set<String> tokens) {
         for (String token : tokens) {
             Message notificationMessage = Message.builder()
                     .setToken(token)
                     .putData("title", title)
-                    .putData("message", message)
+                    .putData("body", body)
+                    .putData("image", "/icon-120.png")
                     .build();
 
             try {

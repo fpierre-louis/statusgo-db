@@ -79,8 +79,9 @@ public class UserInfoResource {
     }
 
     @PutMapping("/fcm-token/{email}")
-    public ResponseEntity<UserInfo> updateFcmToken(@PathVariable String email, @RequestParam String fcmToken) {
+    public ResponseEntity<UserInfo> updateFcmToken(@PathVariable String email, @RequestBody Map<String, String> fcmTokenData) {
         try {
+            String fcmToken = fcmTokenData.get("fcmToken");
             UserInfo updatedUser = userInfoService.updateUserFcmToken(email, fcmToken);
             return ResponseEntity.ok(updatedUser);
         } catch (Exception e) {
