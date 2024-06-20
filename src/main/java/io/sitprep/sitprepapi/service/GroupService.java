@@ -65,7 +65,7 @@ public class GroupService {
     private void notifyGroupMembers(Group group) {
         List<UserInfo> users = userInfoRepo.findByJoinedGroupIDsContaining(group.getGroupId().toString());
         Set<String> tokens = users.stream()
-                .flatMap(user -> user.getFCMTokens().stream())
+                .map(UserInfo::getFCMTokens)  // Changed to map to getFCMTokens directly
                 .collect(Collectors.toSet());
 
         if (tokens.isEmpty()) {
