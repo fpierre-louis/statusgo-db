@@ -5,7 +5,6 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,7 +50,7 @@ public class UserInfoService {
         Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
         if (optionalUser.isPresent()) {
             UserInfo user = optionalUser.get();
-            user.setFCMTokens(fcmToken);
+            user.setFcmtoken(fcmToken);
             return userInfoRepo.save(user);
         } else {
             throw new RuntimeException("User not found");

@@ -50,7 +50,7 @@ public class UserInfo {
     private String profileImageURL;
 
     @Column(name = "fcm_token")
-    private String FCMTokens;
+    private String fcmtoken;
 
     @ElementCollection
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))

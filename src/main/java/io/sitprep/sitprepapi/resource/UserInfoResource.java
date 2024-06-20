@@ -55,7 +55,7 @@ public class UserInfoResource {
             userInfo.setSubscription(userDetails.getSubscription());
             userInfo.setSubscriptionPackage(userDetails.getSubscriptionPackage());
             userInfo.setDateSubscribed(userDetails.getDateSubscribed());
-            userInfo.setFCMTokens(userDetails.getFCMTokens());
+            userInfo.setFcmtoken(userDetails.getFcmtoken());
             userInfo.setManagedGroupIDs(userDetails.getManagedGroupIDs());
             userInfo.setGroupAlert(userDetails.getGroupAlert());
             userInfo.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
