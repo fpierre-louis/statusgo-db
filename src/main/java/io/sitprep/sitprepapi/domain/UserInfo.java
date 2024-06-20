@@ -49,10 +49,8 @@ public class UserInfo {
     @Column(name = "profile_image_url")
     private String profileImageURL;
 
-    @ElementCollection
-    @CollectionTable(name = "user_fcm_tokens", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "fcm_token")
-    private Set<String> FCMTokens;
+    private String FCMTokens;
 
     @ElementCollection
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))

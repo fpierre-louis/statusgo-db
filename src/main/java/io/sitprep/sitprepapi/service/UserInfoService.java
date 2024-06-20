@@ -51,14 +51,10 @@ public class UserInfoService {
         Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
         if (optionalUser.isPresent()) {
             UserInfo user = optionalUser.get();
-            if (user.getFCMTokens() == null) {
-                user.setFCMTokens(new HashSet<>());
-            }
-            user.getFCMTokens().add(fcmToken);
+            user.setFCMTokens(fcmToken);
             return userInfoRepo.save(user);
         } else {
             throw new RuntimeException("User not found");
         }
     }
-
 }
