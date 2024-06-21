@@ -3,11 +3,8 @@ package io.sitprep.sitprepapi.service;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
-import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
@@ -33,10 +30,6 @@ public class NotificationService {
             } catch (FirebaseMessagingException e) {
                 logger.error("Error sending message: {}", e.getMessage(), e);
 
-                // Check for unregistered token error and remove the token from your database
-                if ("UNREGISTERED".equals(e.getErrorCode())) {
-                    // Handle the unregistered token case
-                }
             }
         }
     }
