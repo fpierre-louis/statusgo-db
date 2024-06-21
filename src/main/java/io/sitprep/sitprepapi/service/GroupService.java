@@ -36,6 +36,7 @@ public class GroupService {
 
         boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
 
+
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
         group.setCreatedAt(groupDetails.getCreatedAt());
