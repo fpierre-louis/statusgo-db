@@ -24,7 +24,8 @@ public class NotificationService {
                     .setToken(token)
                     .putData("title", title)
                     .putData("body", body)
-                    .putData("image", "/icon-120.png")
+                    .putData("icon", "/images/icon-120.png")
+                    .putData("badge", "/images/icon-512.png")
                     .build();
 
             try {
@@ -34,7 +35,7 @@ public class NotificationService {
                 logger.error("Error sending message: {}", e.getMessage(), e);
 
                 // Check for unregistered token error and remove the token from your database
-                if (e.getErrorCode().equals("UNREGISTERED")) {
+                if ("UNREGISTERED".equals(e.getErrorCode())) {
                     // Handle the unregistered token case
                 }
             }
