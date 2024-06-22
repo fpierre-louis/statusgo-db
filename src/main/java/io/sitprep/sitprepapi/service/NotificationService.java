@@ -17,6 +17,10 @@ public class NotificationService {
     public void sendNotification(String title, String body, Set<String> tokens) {
         for (String token : tokens) {
             logger.info("Sending notification to token: {}", token);
+
+            // Log the payload being sent
+            logger.info("Notification Payload - Title: {}, Body: {}, Token: {}", title, body, token);
+
             Message notificationMessage = Message.builder()
                     .setToken(token)
                     .putData("title", title)

@@ -86,13 +86,14 @@ public class GroupService {
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String notificationBody = "URGENT: " + owner + " here. Checking in to make sure you are safe. Click or Tap here and let me know your status.";
 
+        logger.info("Notification Payload - Title: Status Now!, Body: {}, Tokens: {}", notificationBody, tokens);
+
         try {
             notificationService.sendNotification("Status Now!", notificationBody, tokens);
         } catch (Exception e) {
             logger.error("Error sending notification: ", e);
         }
     }
-
 
     public List<Group> getGroupsByAdminEmail(String adminEmail) {
         return groupRepo.findByAdminEmailsContaining(adminEmail);
