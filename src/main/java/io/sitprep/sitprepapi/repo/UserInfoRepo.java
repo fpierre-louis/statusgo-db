@@ -10,6 +10,6 @@ import java.util.Optional;
 @Repository
 public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
     Optional<UserInfo> findByUserEmail(String email);
-    List<UserInfo> findByJoinedGroupIDsContaining(String groupId);
+    List<UserInfo> findByUserEmailIn(List<String> emails);
     Optional<UserInfo> findByFcmtoken(String fcmtoken);
 }

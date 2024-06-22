@@ -16,6 +16,7 @@ public class NotificationService {
 
     public void sendNotification(String title, String body, Set<String> tokens) {
         for (String token : tokens) {
+            logger.info("Sending notification to token: {}", token);
             Message notificationMessage = Message.builder()
                     .setToken(token)
                     .putData("title", title)
@@ -29,7 +30,6 @@ public class NotificationService {
                 logger.info("Successfully sent message: {}", response);
             } catch (FirebaseMessagingException e) {
                 logger.error("Error sending message: {}", e.getMessage(), e);
-
             }
         }
     }

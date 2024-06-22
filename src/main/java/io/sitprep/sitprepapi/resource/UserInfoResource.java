@@ -78,16 +78,7 @@ public class UserInfoResource {
         }
     }
 
-    @PutMapping("/fcm-token/{id}")
-    public ResponseEntity<UserInfo> updateFcmToken(@PathVariable String id, @RequestBody Map<String, String> fcmTokenData) {
-        try {
-            String fcmToken = fcmTokenData.get("fcmToken");
-            UserInfo updatedUser = userInfoService.updateUserFcmToken(id, fcmToken);
-            return ResponseEntity.ok(updatedUser);
-        } catch (Exception e) {
-            return ResponseEntity.status(404).body(null);
-        }
-    }
+
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {

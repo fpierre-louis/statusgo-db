@@ -36,6 +36,7 @@ public class GroupService {
 
         boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
 
+        logger.info("Updating group {} with new details. Alert changed to active: {}", groupId, alertChangedToActive);
 
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
@@ -64,7 +65,12 @@ public class GroupService {
     }
 
     private void notifyGroupMembers(Group group) {
-        List<UserInfo> users = userInfoRepo.findByJoinedGroupIDsContaining(group.getGroupId().toString());
+        List<String> memberEmails = group.getMemberEmails();
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+
+        // Log the users retrieved and their FCM tokens
+        users.forEach(user -> logger.info("User: {}, FCM Token: {}", user.getUserEmail(), user.getFcmtoken()));
+
         Set<String> tokens = users.stream()
                 .map(UserInfo::getFcmtoken)
                 .filter(token -> token != null && !token.isEmpty())
@@ -74,6 +80,8 @@ public class GroupService {
             logger.warn("No FCM tokens found for group members.");
             return;
         }
+
+        logger.info("Sending notifications to tokens: {}", tokens);
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String notificationBody = "URGENT: " + owner + " here. Checking in to make sure you are safe. Click or Tap here and let me know your status.";
