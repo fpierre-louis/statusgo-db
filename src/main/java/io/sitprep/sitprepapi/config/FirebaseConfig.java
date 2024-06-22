@@ -19,8 +19,10 @@ public class FirebaseConfig {
                     .setCredentials(GoogleCredentials.fromStream(new ClassPathResource("sitprep-new-firebase-adminsdk.json").getInputStream()))
                     .build();
             FirebaseApp.initializeApp(options);
+            System.out.println("FirebaseApp initialized successfully.");
         } catch (IOException e) {
             e.printStackTrace();
+            System.err.println("Failed to initialize FirebaseApp.");
         }
     }
 }
