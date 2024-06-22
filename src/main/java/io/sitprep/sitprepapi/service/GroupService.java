@@ -29,6 +29,9 @@ public class GroupService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private UserInfoService userInfoService;
+
     @Transactional
     public Group updateGroup(Long groupId, Group groupDetails) {
         Group group = groupRepo.findById(groupId)
@@ -114,5 +117,15 @@ public class GroupService {
 
     public Group getGroupById(Long groupId) {
         return groupRepo.findById(groupId).orElseThrow(() -> new RuntimeException("Group not found"));
+    }
+
+    public void joinGroup(String userEmail, Long groupId, String fcmToken) {
+        Group group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new RuntimeException("Group not found"));
+
+        group.getMemberEmails().add(userEmail);
+        groupRepo.save(group);
+
+        userInfoService.updateUserFcmToken(userEmail, fcmToken);
     }
 }

@@ -46,11 +46,22 @@ public class UserInfoService {
         }
     }
 
-    public UserInfo updateUserFcmToken(String id, String fcmToken) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
+    public UserInfo updateUserFcmToken(String email, String fcmToken) {
+        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
         if (optionalUser.isPresent()) {
             UserInfo user = optionalUser.get();
             user.setFcmtoken(fcmToken);
+            return userInfoRepo.save(user);
+        } else {
+            throw new RuntimeException("User not found");
+        }
+    }
+
+    public UserInfo removeUserFcmToken(String email) {
+        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
+        if (optionalUser.isPresent()) {
+            UserInfo user = optionalUser.get();
+            user.setFcmtoken(null);
             return userInfoRepo.save(user);
         } else {
             throw new RuntimeException("User not found");
