@@ -58,6 +58,7 @@ public class GroupService {
         Group updatedGroup = groupRepo.save(group);
 
         if (alertChangedToActive) {
+            logger.info("Alert changed to active for group {}. Sending notifications...", groupId);
             notifyGroupMembers(updatedGroup);
         }
 
@@ -68,7 +69,6 @@ public class GroupService {
         List<String> memberEmails = group.getMemberEmails();
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
 
-        // Log the users retrieved and their FCM tokens
         users.forEach(user -> logger.info("User: {}, FCM Token: {}", user.getUserEmail(), user.getFcmtoken()));
 
         Set<String> tokens = users.stream()
@@ -92,6 +92,7 @@ public class GroupService {
             logger.error("Error sending notification: ", e);
         }
     }
+
 
     public List<Group> getGroupsByAdminEmail(String adminEmail) {
         return groupRepo.findByAdminEmailsContaining(adminEmail);
