@@ -7,7 +7,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -61,24 +60,12 @@ public class UserInfoResource {
             userInfo.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
             userInfo.setProfileImageURL(userDetails.getProfileImageURL());
             userInfo.setStatusColor(userDetails.getStatusColor());
-            UserInfo updatedUser = userInfoService.saveUser(userInfo);
+            UserInfo updatedUser = userInfoService.updateUser(userInfo);
             return ResponseEntity.ok(updatedUser);
         } else {
             return ResponseEntity.notFound().build();
         }
     }
-
-    @PutMapping("/email/{email}/status")
-    public ResponseEntity<UserInfo> updateUserStatus(@PathVariable String email, @RequestBody Map<String, String> statusData) {
-        try {
-            UserInfo updatedUser = userInfoService.updateUserStatus(email, statusData.get("userStatus"), statusData.get("statusColor"));
-            return ResponseEntity.ok(updatedUser);
-        } catch (Exception e) {
-            return ResponseEntity.status(404).body(null);
-        }
-    }
-
-
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {

@@ -33,4 +33,8 @@ public class UserInfoService {
     public void deleteUser(String id) {
         userInfoRepo.deleteById(id);
     }
+
+    public UserInfo updateUser(UserInfo userInfo) {
+        return userInfoRepo.save(userInfo);
+    }
 }
