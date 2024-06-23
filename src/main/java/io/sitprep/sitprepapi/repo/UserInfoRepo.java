@@ -11,5 +11,6 @@ import java.util.Optional;
 public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
     Optional<UserInfo> findByUserEmail(String email);
     List<UserInfo> findByUserEmailIn(List<String> emails);
-    Optional<UserInfo> findByFcmtoken(String fcmtoken);
+
+
 }

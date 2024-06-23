@@ -33,38 +33,4 @@ public class UserInfoService {
     public void deleteUser(String id) {
         userInfoRepo.deleteById(id);
     }
-
-    public UserInfo updateUserStatus(String email, String status, String color) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
-        if (optionalUser.isPresent()) {
-            UserInfo user = optionalUser.get();
-            user.setUserStatus(status);
-            user.setStatusColor(color);
-            return userInfoRepo.save(user);
-        } else {
-            throw new RuntimeException("User not found");
-        }
-    }
-
-    public UserInfo updateUserFcmToken(String email, String fcmToken) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
-        if (optionalUser.isPresent()) {
-            UserInfo user = optionalUser.get();
-            user.setFcmtoken(fcmToken);
-            return userInfoRepo.save(user);
-        } else {
-            throw new RuntimeException("User not found");
-        }
-    }
-
-    public UserInfo removeUserFcmToken(String email) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findByUserEmail(email);
-        if (optionalUser.isPresent()) {
-            UserInfo user = optionalUser.get();
-            user.setFcmtoken(null);
-            return userInfoRepo.save(user);
-        } else {
-            throw new RuntimeException("User not found");
-        }
-    }
 }
