@@ -38,7 +38,7 @@ public class UserInfoResource {
 
     @PostMapping
     public UserInfo createUser(@RequestBody UserInfo userInfo) {
-        return userInfoService.saveUser(userInfo);
+        return userInfoService.createUser(userInfo);
     }
 
     @PutMapping("/{id}")

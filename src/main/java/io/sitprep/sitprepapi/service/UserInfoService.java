@@ -14,7 +14,7 @@ public class UserInfoService {
     @Autowired
     private UserInfoRepo userInfoRepo;
 
-    public UserInfo saveUser(UserInfo userInfo) {
+    public UserInfo createUser(UserInfo userInfo) {
         return userInfoRepo.save(userInfo);
     }
 
