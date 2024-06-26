@@ -65,7 +65,7 @@ public class GroupService {
         return updatedGroup;
     }
 
-    private void notifyGroupMembers(Group group) {
+    public void notifyGroupMembers(Group group) {
         List<String> memberEmails = group.getMemberEmails();
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
 
