@@ -46,6 +46,8 @@ public class UserInfoResource {
         Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
         if (optionalUser.isPresent()) {
             UserInfo userInfo = optionalUser.get();
+
+            // Updating the existing user information with new details provided
             userInfo.setUserEmail(userDetails.getUserEmail());
             userInfo.setUserFirstName(userDetails.getUserFirstName());
             userInfo.setUserLastName(userDetails.getUserLastName());
@@ -60,12 +62,18 @@ public class UserInfoResource {
             userInfo.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
             userInfo.setProfileImageURL(userDetails.getProfileImageURL());
             userInfo.setStatusColor(userDetails.getStatusColor());
+
+            // Ensure these fields are being set from the request
+            userInfo.setPhone(userDetails.getPhone());
+            userInfo.setAddress(userDetails.getAddress());
+
             UserInfo updatedUser = userInfoService.updateUser(userInfo);
             return ResponseEntity.ok(updatedUser);
         } else {
             return ResponseEntity.notFound().build();
         }
     }
+
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
