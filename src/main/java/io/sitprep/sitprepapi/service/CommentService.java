@@ -64,7 +64,7 @@ public class CommentService {
                 if (token != null && !token.isEmpty()) {
                     notificationService.sendNotification(
                             "New Comment on Your Post",
-                            "Someone commented on your post in " + post.getGroupId(),
+                            "Someone commented on your post in group " + post.getGroupId(),
                             Set.of(token)
                     );
                 }
