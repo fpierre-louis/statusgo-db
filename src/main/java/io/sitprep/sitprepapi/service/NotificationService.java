@@ -18,6 +18,9 @@ public class NotificationService {
         for (String token : tokens) {
             logger.info("Sending notification to token: {}", token);
 
+            // Log the payload being sent
+            logger.info("Notification Payload - Title: {}, Body: {}, Token: {}", title, body, token);
+
             Message notificationMessage = Message.builder()
                     .setToken(token)
                     .putData("title", title)
@@ -33,48 +36,5 @@ public class NotificationService {
                 logger.error("Error sending message: {}", e.getMessage(), e);
             }
         }
-    }
-
-    // Specific notification methods
-    public void sendNewMemberNotification(String groupName, String memberName, Set<String> adminTokens) {
-        String title = "New Member Joined";
-        String body = memberName + " has joined your group " + groupName;
-        sendNotification(title, body, adminTokens);
-    }
-
-    public void sendMemberLeftNotification(String groupName, String memberName, Set<String> adminTokens) {
-        String title = "Member Left";
-        String body = memberName + " has left your group " + groupName;
-        sendNotification(title, body, adminTokens);
-    }
-
-    public void sendEmergencyCheckInReminder(Set<String> adminTokens) {
-        String title = "Check-In Reminder";
-        String body = "It's time to check in with your group members.";
-        sendNotification(title, body, adminTokens);
-    }
-
-    public void sendGroupEventReminder(String eventName, String date, Set<String> memberTokens) {
-        String title = "Event Reminder";
-        String body = "Reminder: Upcoming event " + eventName + " on " + date;
-        sendNotification(title, body, memberTokens);
-    }
-
-    public void sendWelcomeMessage(String groupName, String memberName, Set<String> memberTokens) {
-        String title = "Welcome to the Group";
-        String body = "Welcome " + memberName + " to " + groupName + "! We’re glad to have you.";
-        sendNotification(title, body, memberTokens);
-    }
-
-    public void sendNewCommentNotification(String postId, String commentAuthor, Set<String> postAuthorToken) {
-        String title = "New Comment on Your Post";
-        String body = commentAuthor + " commented on your post with ID: " + postId;
-        sendNotification(title, body, postAuthorToken);
-    }
-
-    public void sendNewPostNotification(String groupName, Set<String> memberTokens) {
-        String title = "New Post in Your Group";
-        String body = "There is a new post in your group " + groupName;
-        sendNotification(title, body, memberTokens);
     }
 }
