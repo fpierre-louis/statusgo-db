@@ -123,5 +123,35 @@ public class GroupService {
 
         group.getMemberEmails().add(userEmail);
         groupRepo.save(group);
+
+        // Fetch new member's details
+        UserInfo newMember = userInfoRepo.findByUserEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Notify admins about the new member
+        notifyAdminsOfNewMember(group, newMember);
+    }
+
+    private void notifyAdminsOfNewMember(Group group, UserInfo newMember) {
+        List<String> adminEmails = group.getAdminEmails();
+        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
+
+        Set<String> tokens = admins.stream()
+                .map(UserInfo::getFcmtoken)
+                .filter(token -> token != null && !token.isEmpty())
+                .collect(Collectors.toSet());
+
+        if (tokens.isEmpty()) {
+            logger.warn("No FCM tokens found for group admins.");
+            return;
+        }
+
+        String notificationBody = "New member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " has joined your group " + group.getGroupName() + ".";
+
+        try {
+            notificationService.sendNotification("New Member Joined", notificationBody, tokens);
+        } catch (Exception e) {
+            logger.error("Error sending notification: ", e);
+        }
     }
 }
