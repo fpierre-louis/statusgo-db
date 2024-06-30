@@ -26,7 +26,7 @@ public class NotificationService {
                     .putData("title", title)
                     .putData("body", body)
                     .putData("icon", "/images/icon-120.png")
-                    .putData("badge", "/images/icon-512.png")
+//                    .putData("badge", "/images/icon-512.png")
                     .build();
 
             try {
