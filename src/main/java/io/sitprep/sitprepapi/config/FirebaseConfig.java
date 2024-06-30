@@ -57,3 +57,19 @@ public class FirebaseConfig {
         }
     }
 }
+
+//
+//    @PostConstruct
+//    public void initialize() {
+//        try {
+//            FirebaseOptions options = FirebaseOptions.builder()
+//                    .setCredentials(GoogleCredentials.fromStream(new ClassPathResource("FIREBASE_CONFIG_PATH").getInputStream()))
+//                    .build();
+//            FirebaseApp.initializeApp(options);
+//            System.out.println("FirebaseApp initialized successfully.");
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//            System.err.println("Failed to initialize FirebaseApp.");
+//        }
+//    }
+//}
