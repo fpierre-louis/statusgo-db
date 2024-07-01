@@ -88,12 +88,12 @@ public class GroupService {
         logger.info("Sending notifications to tokens: {}", tokens);
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        String notificationBody = "URGENT: " + owner + " here. Checking in to make sure you are safe. Click or Tap here and let me know your status.";
+        String notificationBody = owner + " here! Checking in on the group. Reply to this notification or click here to update your status.";
 
-        logger.info("Notification Payload - Title: Status Now!, Body: {}, Tokens: {}", notificationBody, tokens);
+        logger.info("Notification Payload - Title: Important! Group check-in from {}, Body: {}, Tokens: {}", group.getGroupName(), notificationBody, tokens);
 
         try {
-            notificationService.sendNotification("Status Now!", notificationBody, tokens);
+            notificationService.sendNotification("Important! Group check-in from " + group.getGroupName(), notificationBody, tokens);
         } catch (Exception e) {
             logger.error("Error sending notification: ", e);
         }
@@ -122,7 +122,7 @@ public class GroupService {
                 }
 
                 String notificationTitle = "Hi " + admin.getUserFirstName();
-                String notificationBody = "New member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " has joined your group " + group.getGroupName() + ".";
+                String notificationBody = "🎉 A warm welcome to our new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
 
                 try {
                     notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
@@ -182,7 +182,7 @@ public class GroupService {
             }
 
             String notificationTitle = "Hi " + admin.getUserFirstName();
-            String notificationBody = "New member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " has joined your group " + group.getGroupName() + ".";
+            String notificationBody = "🎉 A warm welcome to our new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
 
             try {
                 notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
