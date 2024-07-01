@@ -12,14 +12,13 @@ import java.time.LocalDateTime;
 @Getter
 @Entity
 public class Post {
-    // Getters and setters
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private Long groupId;
     private String author;
     private String content;
+    private Long groupId;
+    private String groupName; // Add this field to store the group's name
     private LocalDateTime timestamp;
-
 }

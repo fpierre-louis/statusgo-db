@@ -6,12 +6,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "groups")
+@Table(name = "groups")  // Changed table name from "group" to "groups"
 @Data
 public class Group {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long groupId; // Changed to Long for typical ID type
+    private Long groupId;
 
     @ElementCollection
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
@@ -21,9 +21,9 @@ public class Group {
     private String alert;
     private LocalDateTime createdAt;
     private String description;
+    private String groupCode;
     private String groupName;
     private String groupType;
-    private String groupCode;
     private String lastUpdatedBy;
     private Integer memberCount;
 

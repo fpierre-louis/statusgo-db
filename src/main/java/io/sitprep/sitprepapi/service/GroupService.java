@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -36,7 +35,6 @@ public class GroupService {
                 .orElseThrow(() -> new RuntimeException("Group not found for this id :: " + groupId));
 
         boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
-        Set<String> oldMemberEmails = new HashSet<>(group.getMemberEmails());
 
         logger.info("Updating group {} with new details. Alert changed to active: {}", groupId, alertChangedToActive);
 
@@ -64,8 +62,6 @@ public class GroupService {
             notifyGroupMembers(updatedGroup);
         }
 
-        notifyAdminsOfNewMembers(updatedGroup, oldMemberEmails);
-
         return updatedGroup;
     }
 
@@ -88,53 +84,19 @@ public class GroupService {
         logger.info("Sending notifications to tokens: {}", tokens);
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        String notificationBody = "Important!" + owner + " here. Checking in on the group. Click here to let me know your status.";
+        String notificationBody = "URGENT: " + owner + " here. Checking in to make sure you are safe. Click or Tap here and let me know your status.";
 
-        logger.info("Notification Payload - Title: Important! Group check-in from {}, Body: {}, Tokens: {}", group.getGroupName(), notificationBody, tokens);
+        logger.info("Notification Payload - Title: Status Now!, Body: {}, Tokens: {}", notificationBody, tokens);
 
         try {
-            notificationService.sendNotification("From group " + group.getGroupName(), notificationBody, tokens);
+            notificationService.sendNotification("Status Now!", notificationBody, tokens);
         } catch (Exception e) {
             logger.error("Error sending notification: ", e);
         }
     }
 
-    private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
-        Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
-        newMemberEmails.removeAll(oldMemberEmails);
-
-        if (newMemberEmails.isEmpty()) {
-            return;
-        }
-
-        for (String newMemberEmail : newMemberEmails) {
-            UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + newMemberEmail));
-
-            List<String> adminEmails = group.getAdminEmails();
-            List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
-
-            for (UserInfo admin : admins) {
-                String token = admin.getFcmtoken();
-                if (token == null || token.isEmpty()) {
-                    logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
-                    continue;
-                }
-
-                String notificationTitle = "Hi " + admin.getUserFirstName();
-                String notificationBody = "🎉 Give a warm welcome to your new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
-
-                try {
-                    notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
-                } catch (Exception e) {
-                    logger.error("Error sending notification: ", e);
-                }
-            }
-        }
-    }
-
     public List<Group> getGroupsByAdminEmail(String adminEmail) {
-        return groupRepo.findByAdminEmailsContaining(adminEmail);
+        return groupRepo.findByAdminEmail(adminEmail);
     }
 
     public Group createGroup(Group group) {
@@ -174,21 +136,22 @@ public class GroupService {
         List<String> adminEmails = group.getAdminEmails();
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
 
-        for (UserInfo admin : admins) {
-            String token = admin.getFcmtoken();
-            if (token == null || token.isEmpty()) {
-                logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
-                continue;
-            }
+        Set<String> tokens = admins.stream()
+                .map(UserInfo::getFcmtoken)
+                .filter(token -> token != null && !token.isEmpty())
+                .collect(Collectors.toSet());
 
-            String notificationTitle = "Hi " + admin.getUserFirstName();
-            String notificationBody = "🎉 A warm welcome to our new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
+        if (tokens.isEmpty()) {
+            logger.warn("No FCM tokens found for group admins.");
+            return;
+        }
 
-            try {
-                notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
-            } catch (Exception e) {
-                logger.error("Error sending notification: ", e);
-            }
+        String notificationBody = "New member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " has joined your group " + group.getGroupName() + ".";
+
+        try {
+            notificationService.sendNotification("Hi " + newMember.getUserFirstName(), notificationBody, tokens);
+        } catch (Exception e) {
+            logger.error("Error sending notification: ", e);
         }
     }
 }

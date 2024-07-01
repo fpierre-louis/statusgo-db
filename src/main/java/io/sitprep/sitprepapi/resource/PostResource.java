@@ -1,4 +1,3 @@
-// PostResource.java
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Post;
@@ -13,32 +12,38 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/posts")
 public class PostResource {
-    private final PostService postService;
 
     @Autowired
-    public PostResource(PostService postService) {
-        this.postService = postService;
-    }
+    private PostService postService;
 
     @PostMapping
-    public ResponseEntity<Post> createPost(@RequestBody Post post) {
-        Post newPost = postService.createPost(post);
-        return ResponseEntity.ok(newPost);
+    public Post createPost(@RequestBody Post post) {
+        return postService.createPost(post);
     }
 
-    @GetMapping("/{groupId}")
-    public ResponseEntity<List<Post>> getPostsByGroupId(@PathVariable Long groupId) {
-        List<Post> posts = postService.getPostsByGroupId(groupId);
-        return ResponseEntity.ok(posts);
+    @GetMapping("/group/{groupId}")
+    public List<Post> getPostsByGroupId(@PathVariable Long groupId) {
+        return postService.getPostsByGroupId(groupId);
     }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<Post> updatePost(@PathVariable Long id, @RequestBody Post postDetails) {
-        Optional<Post> optionalPost = postService.getPostById(id);
-        if (optionalPost.isPresent()) {
-            Post post = optionalPost.get();
+    @GetMapping("/{postId}")
+    public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
+        Optional<Post> postOpt = postService.getPostById(postId);
+        return postOpt.map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/{postId}")
+    public ResponseEntity<Post> updatePost(@PathVariable Long postId, @RequestBody Post postDetails) {
+        Optional<Post> postOpt = postService.getPostById(postId);
+        if (postOpt.isPresent()) {
+            Post post = postOpt.get();
+            post.setAuthor(postDetails.getAuthor());
             post.setContent(postDetails.getContent());
+            post.setGroupId(postDetails.getGroupId());
+            post.setGroupName(postDetails.getGroupName());
             post.setTimestamp(postDetails.getTimestamp());
+
             Post updatedPost = postService.updatePost(post);
             return ResponseEntity.ok(updatedPost);
         } else {
@@ -46,9 +51,9 @@ public class PostResource {
         }
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deletePost(@PathVariable Long id) {
-        postService.deletePost(id);
+    @DeleteMapping("/{postId}")
+    public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
+        postService.deletePost(postId);
         return ResponseEntity.noContent().build();
     }
 }

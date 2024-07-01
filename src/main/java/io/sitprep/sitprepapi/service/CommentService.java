@@ -1,9 +1,11 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Comment;
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.CommentRepo;
+import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,13 +20,15 @@ import java.util.stream.Collectors;
 public class CommentService {
     private final CommentRepo commentRepo;
     private final PostRepo postRepo;
+    private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
 
     @Autowired
-    public CommentService(CommentRepo commentRepo, PostRepo postRepo, UserInfoRepo userInfoRepo, NotificationService notificationService) {
+    public CommentService(CommentRepo commentRepo, PostRepo postRepo, GroupRepo groupRepo, UserInfoRepo userInfoRepo, NotificationService notificationService) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
+        this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
     }
@@ -32,6 +36,7 @@ public class CommentService {
     public Comment createComment(Comment comment) {
         Comment savedComment = commentRepo.save(comment);
         notifyPostAuthor(savedComment);
+        notifyGroupMembersForComment(savedComment);
         return savedComment;
     }
 
@@ -50,6 +55,7 @@ public class CommentService {
     public Comment updateComment(Comment comment) {
         Comment updatedComment = commentRepo.save(comment);
         notifyPostAuthor(updatedComment);
+        notifyGroupMembersForComment(updatedComment);
         return updatedComment;
     }
 
@@ -64,9 +70,32 @@ public class CommentService {
                 if (token != null && !token.isEmpty()) {
                     notificationService.sendNotification(
                             "New Comment on Your Post",
-                            "Someone commented on your post in group " + post.getGroupId(),
+                            "Someone commented on your post in group " + post.getGroupName(),
                             Set.of(token)
                     );
+                }
+            }
+        }
+    }
+
+    private void notifyGroupMembersForComment(Comment comment) {
+        Optional<Post> postOpt = postRepo.findById(comment.getPostId());
+        if (postOpt.isPresent()) {
+            Post post = postOpt.get();
+            Optional<Group> groupOpt = groupRepo.findById(post.getGroupId());
+            if (groupOpt.isPresent()) {
+                Group group = groupOpt.get();
+                List<String> memberEmails = group.getMemberEmails();
+                List<UserInfo> members = userInfoRepo.findByUserEmailIn(memberEmails);
+
+                for (UserInfo member : members) {
+                    String token = member.getFcmtoken();
+                    if (token != null && !token.isEmpty()) {
+                        String notificationTitle = "Hi " + member.getUserFirstName();
+                        String notificationBody = post.getAuthor() + " just posted in " + group.getGroupName() + ": " + post.getContent().substring(0, Math.min(50, post.getContent().length())) + "...";
+
+                        notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
+                    }
                 }
             }
         }
