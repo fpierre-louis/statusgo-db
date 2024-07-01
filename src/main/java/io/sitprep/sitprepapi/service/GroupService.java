@@ -88,12 +88,12 @@ public class GroupService {
         logger.info("Sending notifications to tokens: {}", tokens);
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        String notificationBody = owner + " here! Checking in on the group. Reply to this notification or click here to update your status.";
+        String notificationBody = "Important!" + owner + " here. Checking in on the group. Click here to let me know your status.";
 
         logger.info("Notification Payload - Title: Important! Group check-in from {}, Body: {}, Tokens: {}", group.getGroupName(), notificationBody, tokens);
 
         try {
-            notificationService.sendNotification("Important! Group check-in from " + group.getGroupName(), notificationBody, tokens);
+            notificationService.sendNotification("From group " + group.getGroupName(), notificationBody, tokens);
         } catch (Exception e) {
             logger.error("Error sending notification: ", e);
         }
@@ -122,7 +122,7 @@ public class GroupService {
                 }
 
                 String notificationTitle = "Hi " + admin.getUserFirstName();
-                String notificationBody = "🎉 A warm welcome to our new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
+                String notificationBody = "🎉 Give a warm welcome to your new member " + newMember.getUserFirstName() + " " + newMember.getUserLastName() + " who just joined " + group.getGroupName() + "!";
 
                 try {
                     notificationService.sendNotification(notificationTitle, notificationBody, Set.of(token));
