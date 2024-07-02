@@ -23,7 +23,7 @@ public class NotificationService {
                     .putData("title", title)
                     .putData("body", body)
                     .putData("icon", "/images/icon-120.png")
-                    .putData("from", from)
+
                     .build();
 
             try {
