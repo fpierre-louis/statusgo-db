@@ -70,11 +70,17 @@ public class PostService {
             return;
         }
 
+        // Fetch the author's first name
+        UserInfo authorInfo = userInfoRepo.findByUserEmail(post.getAuthor())
+                .orElseThrow(() -> new RuntimeException("Author not found for this email :: " + post.getAuthor()));
+
+        String authorFirstName = authorInfo.getUserFirstName();
+
         String notificationTitle = "Hi " + users.get(0).getUserFirstName(); // Using the first member's name for simplicity
-        String notificationBody = post.getAuthor() + " just posted in " + post.getGroupName() + ": " + post.getContent().substring(0, Math.min(post.getContent().length(), 100)) + "...";
+        String notificationBody = authorFirstName + " just posted in " + group.getGroupName() + ": " + post.getContent().substring(0, Math.min(post.getContent().length(), 100)) + "...";
 
         try {
-            notificationService.sendNotification(notificationTitle, notificationBody, tokens);
+            notificationService.sendNotification(notificationTitle, notificationBody, authorFirstName, tokens);
         } catch (Exception e) {
             e.printStackTrace();
         }
