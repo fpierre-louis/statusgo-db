@@ -70,11 +70,32 @@ public class GroupService {
         return updatedGroup;
     }
 
+    public Group createGroup(Group group) {
+        return groupRepo.save(group);
+    }
+
+    public void deleteGroup(Long groupId) {
+        Group group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new RuntimeException("Group not found for this id :: " + groupId));
+        groupRepo.delete(group);
+    }
+
+    public List<Group> getGroupsByAdminEmail(String adminEmail) {
+        return groupRepo.findByAdminEmail(adminEmail);
+    }
+
+    public List<Group> getAllGroups() {
+        return groupRepo.findAll();
+    }
+
+    public Group getGroupById(Long groupId) {
+        return groupRepo.findById(groupId)
+                .orElseThrow(() -> new RuntimeException("Group not found for this id :: " + groupId));
+    }
+
     private void notifyGroupMembers(Group group) {
         List<String> memberEmails = group.getMemberEmails();
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
-
-        users.forEach(user -> logger.info("User: {}, FCM Token: {}", user.getUserEmail(), user.getFcmtoken()));
 
         Set<String> tokens = users.stream()
                 .map(UserInfo::getFcmtoken)
@@ -86,20 +107,22 @@ public class GroupService {
             return;
         }
 
-        logger.info("Sending notifications to tokens: {}", tokens);
-
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String notificationBody = "🚨 Important: " + owner + " here! Checking in on the group. Click here and let me know your status.";
 
-        logger.info("Notification Payload - Title: Important! Group check-in from {}, Body: {}, Tokens: {}", group.getGroupName(), notificationBody, tokens);
-
         try {
-            notificationService.sendNotification(group.getGroupName(), notificationBody, "Group Alert", tokens);
+            notificationService.sendNotification(
+                    group.getGroupName(),
+                    notificationBody,
+                    "Group Alert",
+                    tokens,
+                    "alert",
+                    String.valueOf(group.getGroupId())
+            );
         } catch (Exception e) {
             logger.error("Error sending notification: ", e);
         }
     }
-
 
     private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
@@ -123,75 +146,14 @@ public class GroupService {
                     continue;
                 }
 
-                String notificationTitle = "Hi "+ admin.getUserFirstName() + "👋";
-                String notificationBody =  newMember.getUserFirstName() + " " + newMember.getUserLastName() + " is now a member of your group, " + group.getGroupName() + "!" + " Don't forget to give them a warm welcome.😊";
+                String notificationTitle = "Hi " + admin.getUserFirstName() + "👋";
+                String notificationBody = newMember.getUserFirstName() + " " + newMember.getUserLastName() + " is now a member of your group, " + group.getGroupName() + "! Don't forget to give them a warm welcome.😊";
 
                 try {
-                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin", Set.of(token));
+                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin", Set.of(token), "new_member", String.valueOf(group.getGroupId()));
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
-            }
-        }
-    }
-
-    public List<Group> getGroupsByAdminEmail(String adminEmail) {
-        return groupRepo.findByAdminEmail(adminEmail);
-    }
-
-    public Group createGroup(Group group) {
-        return groupRepo.save(group);
-    }
-
-    public void deleteGroup(Long groupId) {
-        Group group = groupRepo.findById(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found"));
-        groupRepo.delete(group);
-    }
-
-    public List<Group> getAllGroups() {
-        return groupRepo.findAll();
-    }
-
-    public Group getGroupById(Long groupId) {
-        return groupRepo.findById(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found"));
-    }
-
-    @Transactional
-    public void joinGroup(String userEmail, Long groupId) {
-        Group group = groupRepo.findById(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found"));
-
-        group.getMemberEmails().add(userEmail);
-        groupRepo.save(group);
-
-        // Fetch new member's details
-        UserInfo newMember = userInfoRepo.findByUserEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // Notify admins about the new member
-        notifyAdminsOfNewMember(group, newMember);
-    }
-
-    private void notifyAdminsOfNewMember(Group group, UserInfo newMember) {
-        List<String> adminEmails = group.getAdminEmails();
-        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
-
-        for (UserInfo admin : admins) {
-            String token = admin.getFcmtoken();
-            if (token == null || token.isEmpty()) {
-                logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
-                continue;
-            }
-
-            String notificationTitle = "Hi "+ admin.getUserFirstName() + "👋";
-            String notificationBody =  newMember.getUserFirstName() + " " + newMember.getUserLastName() + " is now a member of your group, " + group.getGroupName() + "!" +" Don't forget to give them a warm welcome.";
-
-            try {
-                notificationService.sendNotification(notificationTitle, notificationBody, "Admin", Set.of(token));
-            } catch (Exception e) {
-                logger.error("Error sending notification: ", e);
             }
         }
     }

@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class CommentService {
@@ -66,7 +65,9 @@ public class CommentService {
                             "New Comment on Your Post",
                             "Someone commented on your post in group " + post.getGroupName(),
                             user.getUserFirstName(), // Use the first name as the "from" field
-                            Set.of(token)
+                            Set.of(token),
+                            "post_notification",
+                            String.valueOf(post.getGroupId())
                     );
                 }
             }

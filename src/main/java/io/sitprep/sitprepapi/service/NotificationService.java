@@ -14,7 +14,7 @@ public class NotificationService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationService.class);
 
-    public void sendNotification(String title, String body, String from, Set<String> tokens) {
+    public void sendNotification(String title, String body, String from, Set<String> tokens, String type, String groupId) {
         for (String token : tokens) {
             logger.info("Sending notification to token: {}", token);
 
@@ -23,7 +23,8 @@ public class NotificationService {
                     .putData("title", title)
                     .putData("body", body)
                     .putData("icon", "/images/icon-120.png")
-
+                    .putData("type", type)
+                    .putData("groupId", groupId)
                     .build();
 
             try {

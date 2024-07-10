@@ -80,7 +80,14 @@ public class PostService {
         String notificationBody = authorFirstName + " posted in " + group.getGroupName() + ": \"" + post.getContent().substring(0, Math.min(post.getContent().length(), 100)) + "\"...";
 
         try {
-            notificationService.sendNotification(notificationTitle, notificationBody, authorFirstName, tokens);
+            notificationService.sendNotification(
+                    notificationTitle,
+                    notificationBody,
+                    authorFirstName,
+                    tokens,
+                    "post_notification",
+                    String.valueOf(group.getGroupId())
+            );
         } catch (Exception e) {
             e.printStackTrace();
         }
