@@ -50,6 +50,7 @@ public class GroupService {
         group.setLastUpdatedBy(groupDetails.getLastUpdatedBy());
         group.setMemberCount(groupDetails.getMemberCount());
         group.setMemberEmails(groupDetails.getMemberEmails());
+        group.setPendingMemberEmails(groupDetails.getPendingMemberEmails());
         group.setPrivacy(groupDetails.getPrivacy());
         group.setSubGroupIDs(groupDetails.getSubGroupIDs());
         group.setUpdatedAt(LocalDateTime.now());

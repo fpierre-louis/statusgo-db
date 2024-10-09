@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "groups")  // Changed table name from "group" to "groups"
+@Table(name = "groups")
 @Data
 public class Group {
     @Id
@@ -31,6 +31,11 @@ public class Group {
     @CollectionTable(name = "group_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "member_email")
     private List<String> memberEmails;
+
+    @ElementCollection
+    @CollectionTable(name = "group_pending_member_emails", joinColumns = @JoinColumn(name = "group_id"))
+    @Column(name = "pending_member_email")
+    private List<String> pendingMemberEmails; // New field for pending members
 
     private String privacy;
 
