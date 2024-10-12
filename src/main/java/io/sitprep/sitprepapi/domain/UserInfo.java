@@ -62,8 +62,12 @@ public class UserInfo {
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;
 
-    @Column(name = "group_alert")
-    private String groupAlert;
+    // New fields for active group alert count and timestamp
+    @Column(name = "active_group_alert_count")
+    private int activeGroupAlertCount;
+
+    @Column(name = "group_alert_last_updated")
+    private LocalDateTime groupAlertLastUpdated;
 
     @Column(name = "subscription")
     private String subscription;

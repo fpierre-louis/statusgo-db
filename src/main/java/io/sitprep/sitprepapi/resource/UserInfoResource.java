@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,7 +48,7 @@ public class UserInfoResource {
         if (optionalUser.isPresent()) {
             UserInfo userInfo = optionalUser.get();
 
-            // Updating the existing user information with new details provided
+            // Update all the fields including the new ones
             userInfo.setUserEmail(userDetails.getUserEmail());
             userInfo.setUserFirstName(userDetails.getUserFirstName());
             userInfo.setUserLastName(userDetails.getUserLastName());
@@ -58,10 +59,13 @@ public class UserInfoResource {
             userInfo.setDateSubscribed(userDetails.getDateSubscribed());
             userInfo.setFcmtoken(userDetails.getFcmtoken());
             userInfo.setManagedGroupIDs(userDetails.getManagedGroupIDs());
-            userInfo.setGroupAlert(userDetails.getGroupAlert());
             userInfo.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
             userInfo.setProfileImageURL(userDetails.getProfileImageURL());
             userInfo.setStatusColor(userDetails.getStatusColor());
+
+            // Set the new fields
+            userInfo.setActiveGroupAlertCount(userDetails.getActiveGroupAlertCount());
+            userInfo.setGroupAlertLastUpdated(LocalDateTime.now());
 
             // Ensure these fields are being set from the request
             userInfo.setPhone(userDetails.getPhone());
@@ -73,7 +77,6 @@ public class UserInfoResource {
             return ResponseEntity.notFound().build();
         }
     }
-
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
