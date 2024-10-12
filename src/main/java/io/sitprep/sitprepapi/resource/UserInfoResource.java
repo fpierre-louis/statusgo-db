@@ -63,8 +63,8 @@ public class UserInfoResource {
             userInfo.setProfileImageURL(userDetails.getProfileImageURL());
             userInfo.setStatusColor(userDetails.getStatusColor());
 
-            // Set the new fields
-            userInfo.setActiveGroupAlertCount(userDetails.getActiveGroupAlertCount());
+            // Set the new fields, no need to check for null since activeGroupAlertCount is an int and defaults to 0
+            userInfo.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
             userInfo.setGroupAlertLastUpdated(LocalDateTime.now());
 
             // Ensure these fields are being set from the request
@@ -77,6 +77,8 @@ public class UserInfoResource {
             return ResponseEntity.notFound().build();
         }
     }
+
+
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
