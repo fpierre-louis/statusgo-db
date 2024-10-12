@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime; // <-- Add this import statement
 import java.util.List;
 import java.util.Optional;
 
@@ -34,7 +35,41 @@ public class UserInfoService {
         userInfoRepo.deleteById(id);
     }
 
-    public UserInfo updateUser(UserInfo userInfo) {
-        return userInfoRepo.save(userInfo);
+    // Updated logic to increment activeGroupAlertCounts
+    public UserInfo updateUser(UserInfo userDetails) {
+        Optional<UserInfo> optionalUser = userInfoRepo.findById(userDetails.getId());
+        if (optionalUser.isPresent()) {
+            UserInfo existingUser = optionalUser.get();
+
+            // Update all the fields including the new ones from the request
+            existingUser.setUserEmail(userDetails.getUserEmail());
+            existingUser.setUserFirstName(userDetails.getUserFirstName());
+            existingUser.setUserLastName(userDetails.getUserLastName());
+            existingUser.setUserStatus(userDetails.getUserStatus());
+            existingUser.setTitle(userDetails.getTitle());
+            existingUser.setSubscription(userDetails.getSubscription());
+            existingUser.setSubscriptionPackage(userDetails.getSubscriptionPackage());
+            existingUser.setDateSubscribed(userDetails.getDateSubscribed());
+            existingUser.setFcmtoken(userDetails.getFcmtoken());
+            existingUser.setManagedGroupIDs(userDetails.getManagedGroupIDs());
+            existingUser.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
+            existingUser.setProfileImageURL(userDetails.getProfileImageURL());
+            existingUser.setStatusColor(userDetails.getStatusColor());
+
+            // Increment activeGroupAlertCounts instead of setting it directly
+            int newActiveGroupAlertCounts = existingUser.getActiveGroupAlertCounts() + userDetails.getActiveGroupAlertCounts();
+            existingUser.setActiveGroupAlertCounts(newActiveGroupAlertCounts);
+
+            // Update the timestamp
+            existingUser.setGroupAlertLastUpdated(LocalDateTime.now()); // This line requires the LocalDateTime import
+
+            // Ensure phone and address fields are being updated
+            existingUser.setPhone(userDetails.getPhone());
+            existingUser.setAddress(userDetails.getAddress());
+
+            return userInfoRepo.save(existingUser);
+        } else {
+            throw new RuntimeException("User not found");
+        }
     }
 }
