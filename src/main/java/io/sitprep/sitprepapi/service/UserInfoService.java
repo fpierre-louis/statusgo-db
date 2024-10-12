@@ -41,7 +41,7 @@ public class UserInfoService {
         if (optionalUser.isPresent()) {
             UserInfo existingUser = optionalUser.get();
 
-            // Update all the fields including the new ones from the request
+            // Update the fields from the request
             existingUser.setUserEmail(userDetails.getUserEmail());
             existingUser.setUserFirstName(userDetails.getUserFirstName());
             existingUser.setUserLastName(userDetails.getUserLastName());
@@ -56,12 +56,11 @@ public class UserInfoService {
             existingUser.setProfileImageURL(userDetails.getProfileImageURL());
             existingUser.setStatusColor(userDetails.getStatusColor());
 
-            // Increment activeGroupAlertCounts instead of setting it directly
-            int newActiveGroupAlertCounts = existingUser.getActiveGroupAlertCounts() + userDetails.getActiveGroupAlertCounts();
-            existingUser.setActiveGroupAlertCounts(newActiveGroupAlertCounts);
+            // Update the group alert count increment or decrement based on the request
+            existingUser.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
 
             // Update the timestamp
-            existingUser.setGroupAlertLastUpdated(LocalDateTime.now()); // This line requires the LocalDateTime import
+            existingUser.setGroupAlertLastUpdated(LocalDateTime.now());
 
             // Ensure phone and address fields are being updated
             existingUser.setPhone(userDetails.getPhone());
