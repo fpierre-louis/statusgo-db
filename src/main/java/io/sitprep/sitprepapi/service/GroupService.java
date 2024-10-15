@@ -109,7 +109,7 @@ public class GroupService {
         }
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        String notificationBody = "🚨 Important: " + owner + " here! Checking in on the group. Click here and let me know your status.";
+        String notificationBody = "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.";
 
         try {
             notificationService.sendNotification(
