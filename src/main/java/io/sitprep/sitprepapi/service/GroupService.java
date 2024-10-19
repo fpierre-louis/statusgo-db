@@ -137,21 +137,24 @@ public class GroupService {
             return;
         }
 
-        // For each new pending member, notify the admins
-        for (String newPendingMemberEmail : newPendingMemberEmails) {
-            UserInfo newPendingMember = userInfoRepo.findByUserEmail(newPendingMemberEmail)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + newPendingMemberEmail));
+        // Log the pending member addition
+        logger.info("New pending members detected in group {}: {}", group.getGroupName(), newPendingMemberEmails);
 
-            // Get the group admins' email addresses
-            List<String> adminEmails = group.getAdminEmails();
-            List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
+        // Get the group admins' email addresses
+        List<String> adminEmails = group.getAdminEmails();
+        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
 
-            for (UserInfo admin : admins) {
-                String token = admin.getFcmtoken();
-                if (token == null || token.isEmpty()) {
-                    logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
-                    continue;
-                }
+        // Notify each admin about the new pending member(s)
+        for (UserInfo admin : admins) {
+            String token = admin.getFcmtoken();
+            if (token == null || token.isEmpty()) {
+                logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
+                continue;
+            }
+
+            for (String newPendingMemberEmail : newPendingMemberEmails) {
+                UserInfo newPendingMember = userInfoRepo.findByUserEmail(newPendingMemberEmail)
+                        .orElseThrow(() -> new RuntimeException("User not found: " + newPendingMemberEmail));
 
                 // Customize the notification message for pending members
                 String notificationTitle = "Hi " + admin.getUserFirstName() + "👋";
@@ -163,12 +166,18 @@ public class GroupService {
                     // Send notification to the admin
                     notificationService.sendNotification(notificationTitle, notificationBody, "Admin",
                             Set.of(token), "pending_member", String.valueOf(group.getGroupId()));
+
+                    // Log the notification event
+                    logger.info("Notification sent to admin {} for new pending member {} in group {}",
+                            admin.getUserEmail(), newPendingMemberEmail, group.getGroupName());
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
             }
         }
     }
+
+
 
     private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
