@@ -33,14 +33,20 @@ public class GroupService {
 
     @Transactional
     public Group updateGroup(Long groupId, Group groupDetails) {
+        // Fetch the existing group from the database
         Group group = groupRepo.findById(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found for this id :: " + groupId));
 
-        boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
+        // Capture the old member emails before making any changes
         Set<String> oldMemberEmails = new HashSet<>(group.getMemberEmails());
 
-        logger.info("Updating group {} with new details. Alert changed to active: {}", groupId, alertChangedToActive);
+        // Capture the old pending member emails before making any changes
+        Set<String> oldPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
 
+        // Check if the group's alert changed to "Active"
+        boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
+
+        // Update group details with the new groupDetails values
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
         group.setCreatedAt(groupDetails.getCreatedAt());
@@ -59,14 +65,22 @@ public class GroupService {
         group.setOwnerEmail(groupDetails.getOwnerEmail());
         group.setGroupCode(groupDetails.getGroupCode());
 
+        // Save the updated group details in the database
         Group updatedGroup = groupRepo.save(group);
 
+        // Notify group members if the alert was changed to "Active"
         if (alertChangedToActive) {
-            logger.info("Alert changed to active for group {}. Sending notifications...", groupId);
-            notifyGroupMembers(updatedGroup);
+            notifyGroupMembers(updatedGroup); // Add this line to notify members
         }
 
+        // Notify newly added members
+        notifyNewMembers(updatedGroup, oldMemberEmails);
+
+        // Notify admins of new members added
         notifyAdminsOfNewMembers(updatedGroup, oldMemberEmails);
+
+        // Notify admins of new pending members
+        notifyAdminsOfPendingMembers(updatedGroup, oldPendingMemberEmails);
 
         return updatedGroup;
     }
@@ -173,6 +187,42 @@ public class GroupService {
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
+            }
+        }
+    }
+
+    private void notifyNewMembers(Group group, Set<String> oldMemberEmails) {
+        Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
+        newMemberEmails.removeAll(oldMemberEmails); // These are the newly added members
+
+        if (newMemberEmails.isEmpty()) {
+            return;
+        }
+
+        // Notify the newly added members
+        for (String newMemberEmail : newMemberEmails) {
+            UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + newMemberEmail));
+
+            String token = newMember.getFcmtoken();
+            if (token == null || token.isEmpty()) {
+                logger.warn("No FCM token found for user: {}", newMember.getUserEmail());
+                continue;
+            }
+
+            // Customize the notification message for the new member
+            String notificationTitle = "Welcome to " + group.getGroupName() + "!";
+            String notificationBody = "Hi " + newMember.getUserFirstName() + "👋, you've been added to the group " + group.getGroupName() + ". Check out the latest updates!";
+
+            try {
+                // Send notification to the newly added member
+                notificationService.sendNotification(notificationTitle, notificationBody, "User",
+                        Set.of(token), "new_member", String.valueOf(group.getGroupId()));
+
+                // Log the notification event
+                logger.info("Notification sent to new member {} in group {}", newMember.getUserEmail(), group.getGroupName());
+            } catch (Exception e) {
+                logger.error("Error sending notification to new member: ", e);
             }
         }
     }
