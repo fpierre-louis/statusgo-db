@@ -125,6 +125,51 @@ public class GroupService {
         }
     }
 
+    private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
+        // Get the current pending member emails
+        Set<String> newPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
+
+        // Find the new pending members by removing the old ones from the current list
+        newPendingMemberEmails.removeAll(oldPendingMemberEmails);
+
+        // If there are no new pending members, exit the method
+        if (newPendingMemberEmails.isEmpty()) {
+            return;
+        }
+
+        // For each new pending member, notify the admins
+        for (String newPendingMemberEmail : newPendingMemberEmails) {
+            UserInfo newPendingMember = userInfoRepo.findByUserEmail(newPendingMemberEmail)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + newPendingMemberEmail));
+
+            // Get the group admins' email addresses
+            List<String> adminEmails = group.getAdminEmails();
+            List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
+
+            for (UserInfo admin : admins) {
+                String token = admin.getFcmtoken();
+                if (token == null || token.isEmpty()) {
+                    logger.warn("No FCM token found for admin: {}", admin.getUserEmail());
+                    continue;
+                }
+
+                // Customize the notification message for pending members
+                String notificationTitle = "Hi " + admin.getUserFirstName() + "👋";
+                String notificationBody = "A new member request from " + newPendingMember.getUserFirstName()
+                        + " " + newPendingMember.getUserLastName() + " is pending approval for your group, "
+                        + group.getGroupName() + ". Please review their request.";
+
+                try {
+                    // Send notification to the admin
+                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin",
+                            Set.of(token), "pending_member", String.valueOf(group.getGroupId()));
+                } catch (Exception e) {
+                    logger.error("Error sending notification: ", e);
+                }
+            }
+        }
+    }
+
     private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
         newMemberEmails.removeAll(oldMemberEmails);
@@ -159,3 +204,5 @@ public class GroupService {
         }
     }
 }
+
+
