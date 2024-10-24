@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,18 +37,31 @@ public class PostResource {
         return postService.createPost(post, imageFile);
     }
 
-    // Get posts by groupId
+    // Get posts by groupId with base64 encoded images
     @GetMapping("/group/{groupId}")
     public List<Post> getPostsByGroupId(@PathVariable Long groupId) {
-        return postService.getPostsByGroupId(groupId);
+        List<Post> posts = postService.getPostsByGroupId(groupId);
+        // Convert image byte[] to base64 string for each post
+        for (Post post : posts) {
+            if (post.getImage() != null) {
+                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
+                post.setBase64Image("data:image/jpeg;base64," + base64Image);
+            }
+        }
+        return posts;
     }
 
     // Get post by id
     @GetMapping("/{postId}")
     public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
         Optional<Post> postOpt = postService.getPostById(postId);
-        return postOpt.map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        return postOpt.map(post -> {
+            if (post.getImage() != null) {
+                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
+                post.setBase64Image("data:image/jpeg;base64," + base64Image);
+            }
+            return ResponseEntity.ok(post);
+        }).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     // Update post, including support for updating image
