@@ -39,7 +39,7 @@ public class PostResource {
         post.setTimestamp(java.time.LocalDateTime.now());
         post.setTags(tags);
         post.setMentions(mentions);
-        post.setPinned(pinned);
+
         return postService.createPost(post, imageFile);
     }
 
@@ -78,7 +78,7 @@ public class PostResource {
             post.setGroupName(groupName);
             post.setTags(tags);
             post.setMentions(mentions);
-            post.setPinned(pinned);
+
             post.setEditedAt(java.time.LocalDateTime.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);

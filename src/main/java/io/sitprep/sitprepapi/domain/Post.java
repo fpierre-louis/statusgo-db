@@ -39,8 +39,6 @@ public class Post {
     @ElementCollection
     private Map<String, Integer> reactions = new HashMap<>();
 
-    // Pinned flag to mark post as highlighted
-    private boolean pinned = false;
 
 
     // Timestamp for when the post was last edited
@@ -50,9 +48,8 @@ public class Post {
     @ElementCollection
     private List<String> tags = new ArrayList<>();
 
-    // Count of comments associated with the post
+    // Ensure that the field is initialized with a default value of 0
     private int commentsCount = 0;
-
 
     // Mentions of users in the post
     @ElementCollection
