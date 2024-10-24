@@ -42,6 +42,7 @@ public class Post {
     // Pinned flag to mark post as highlighted
     private boolean pinned = false;
 
+
     // Timestamp for when the post was last edited
     private LocalDateTime editedAt;
 
@@ -50,7 +51,8 @@ public class Post {
     private List<String> tags = new ArrayList<>();
 
     // Count of comments associated with the post
-    private int commentsCount;
+    private int commentsCount = 0;
+
 
     // Mentions of users in the post
     @ElementCollection
