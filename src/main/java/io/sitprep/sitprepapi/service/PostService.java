@@ -44,4 +44,11 @@ public class PostService {
     public void deletePost(Long id) {
         postRepo.deleteById(id);
     }
+
+    // Add or update reaction
+    @Transactional
+    public void addReaction(Post post, String reaction) {
+        post.getReactions().put(reaction, post.getReactions().getOrDefault(reaction, 0) + 1);
+        postRepo.save(post);
+    }
 }

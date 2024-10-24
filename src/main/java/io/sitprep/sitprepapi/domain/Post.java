@@ -1,14 +1,19 @@
 package io.sitprep.sitprepapi.domain;
 
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Transient;  // Correct import for Transient
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Setter
 @Getter
@@ -29,4 +34,25 @@ public class Post {
     // Transient field for base64 encoded image for frontend
     @Transient
     private String base64Image;
+
+    // Field for reactions with emoji keys and their counts
+    @ElementCollection
+    private Map<String, Integer> reactions = new HashMap<>();
+
+    // Pinned flag to mark post as highlighted
+    private boolean pinned = false;
+
+    // Timestamp for when the post was last edited
+    private LocalDateTime editedAt;
+
+    // Tags or hashtags for categorizing posts
+    @ElementCollection
+    private List<String> tags = new ArrayList<>();
+
+    // Count of comments associated with the post
+    private int commentsCount;
+
+    // Mentions of users in the post
+    @ElementCollection
+    private List<String> mentions = new ArrayList<>();
 }

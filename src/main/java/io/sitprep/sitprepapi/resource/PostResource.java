@@ -19,14 +19,17 @@ public class PostResource {
     @Autowired
     private PostService postService;
 
-    // Create post with file upload support
+    // Create post with file upload support and additional fields
     @PostMapping(consumes = { "multipart/form-data" })
     public Post createPost(
             @RequestParam("author") String author,
             @RequestParam("content") String content,
             @RequestParam("groupId") Long groupId,
             @RequestParam("groupName") String groupName,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "mentions", required = false) List<String> mentions,
+            @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
     ) throws IOException {
         Post post = new Post();
         post.setAuthor(author);
@@ -34,6 +37,9 @@ public class PostResource {
         post.setGroupId(groupId);
         post.setGroupName(groupName);
         post.setTimestamp(java.time.LocalDateTime.now());
+        post.setTags(tags);
+        post.setMentions(mentions);
+        post.setPinned(pinned);
         return postService.createPost(post, imageFile);
     }
 
@@ -41,7 +47,6 @@ public class PostResource {
     @GetMapping("/group/{groupId}")
     public List<Post> getPostsByGroupId(@PathVariable Long groupId) {
         List<Post> posts = postService.getPostsByGroupId(groupId);
-        // Convert image byte[] to base64 string for each post
         for (Post post : posts) {
             if (post.getImage() != null) {
                 String base64Image = Base64.getEncoder().encodeToString(post.getImage());
@@ -51,20 +56,7 @@ public class PostResource {
         return posts;
     }
 
-    // Get post by id
-    @GetMapping("/{postId}")
-    public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
-        Optional<Post> postOpt = postService.getPostById(postId);
-        return postOpt.map(post -> {
-            if (post.getImage() != null) {
-                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
-                post.setBase64Image("data:image/jpeg;base64," + base64Image);
-            }
-            return ResponseEntity.ok(post);
-        }).orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    // Update post, including support for updating image
+    // Update post, including support for updating image and new fields
     @PutMapping("/{postId}")
     public ResponseEntity<Post> updatePost(
             @PathVariable Long postId,
@@ -72,7 +64,10 @@ public class PostResource {
             @RequestParam("content") String content,
             @RequestParam("groupId") Long groupId,
             @RequestParam("groupName") String groupName,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "mentions", required = false) List<String> mentions,
+            @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
     ) throws IOException {
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isPresent()) {
@@ -81,7 +76,10 @@ public class PostResource {
             post.setContent(content);
             post.setGroupId(groupId);
             post.setGroupName(groupName);
-            post.setTimestamp(java.time.LocalDateTime.now());
+            post.setTags(tags);
+            post.setMentions(mentions);
+            post.setPinned(pinned);
+            post.setEditedAt(java.time.LocalDateTime.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);
             return ResponseEntity.ok(updatedPost);
@@ -95,5 +93,21 @@ public class PostResource {
     public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
         postService.deletePost(postId);
         return ResponseEntity.noContent().build();
+    }
+
+    // Add or update reaction to a post
+    @PostMapping("/{postId}/reaction")
+    public ResponseEntity<Post> addReaction(
+            @PathVariable Long postId,
+            @RequestParam("reaction") String reaction
+    ) {
+        Optional<Post> postOpt = postService.getPostById(postId);
+        if (postOpt.isPresent()) {
+            Post post = postOpt.get();
+            postService.addReaction(post, reaction);
+            return ResponseEntity.ok(post);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
     }
 }
