@@ -21,4 +21,6 @@ public class Post {
     private Long groupId;
     private String groupName; // Add this field to store the group's name
     private LocalDateTime timestamp;
+
+    private byte[] image;
 }
