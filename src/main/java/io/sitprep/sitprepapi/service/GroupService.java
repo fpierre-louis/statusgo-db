@@ -64,6 +64,7 @@ public class GroupService {
         group.setOwnerName(groupDetails.getOwnerName());
         group.setOwnerEmail(groupDetails.getOwnerEmail());
         group.setGroupCode(groupDetails.getGroupCode());
+        group.setAddress(groupDetails.getAddress());
 
         // Save the updated group details in the database
         Group updatedGroup = groupRepo.save(group);

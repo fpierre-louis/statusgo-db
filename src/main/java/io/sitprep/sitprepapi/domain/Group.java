@@ -45,6 +45,7 @@ public class Group {
     private List<String> subGroupIDs;
 
     private LocalDateTime updatedAt;
+    private String address;
     private String zipCode;
 
     private String ownerName;
