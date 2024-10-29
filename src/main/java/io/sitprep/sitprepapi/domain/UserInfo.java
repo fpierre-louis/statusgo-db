@@ -40,6 +40,12 @@ public class UserInfo {
     @Column(name = "address")
     private String address;
 
+    @Column(name = "longitude")
+    private String longitude;
+
+    @Column(name = "latitude")
+    private String latitude;
+
     @Column(name = "user_status")
     private String userStatus;
 

@@ -70,6 +70,8 @@ public class UserInfoResource {
             // Ensure these fields are being set from the request
             userInfo.setPhone(userDetails.getPhone());
             userInfo.setAddress(userDetails.getAddress());
+            userInfo.setLongitude(userDetails.getLongitude());
+            userInfo.setLatitude(userDetails.getLatitude());
 
             UserInfo updatedUser = userInfoService.updateUser(userInfo);
             return ResponseEntity.ok(updatedUser);

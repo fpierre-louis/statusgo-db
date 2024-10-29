@@ -65,6 +65,8 @@ public class UserInfoService {
             // Ensure phone and address fields are being updated
             existingUser.setPhone(userDetails.getPhone());
             existingUser.setAddress(userDetails.getAddress());
+            existingUser.setLongitude(userDetails.getLongitude());
+            existingUser.setLatitude(userDetails.getLatitude());
 
             return userInfoRepo.save(existingUser);
         } else {

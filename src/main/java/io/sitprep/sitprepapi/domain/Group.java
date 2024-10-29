@@ -46,6 +46,9 @@ public class Group {
 
     private LocalDateTime updatedAt;
     private String address;
+    private String longitude;
+    private String latitude;
+
     private String zipCode;
 
     private String ownerName;
