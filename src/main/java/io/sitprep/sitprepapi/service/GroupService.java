@@ -59,6 +59,7 @@ public class GroupService {
         group.setPendingMemberEmails(groupDetails.getPendingMemberEmails());
         group.setPrivacy(groupDetails.getPrivacy());
         group.setSubGroupIDs(groupDetails.getSubGroupIDs());
+        group.setParentGroupIDs(groupDetails.getParentGroupIDs());
         group.setUpdatedAt(LocalDateTime.now());
         group.setZipCode(groupDetails.getZipCode());
         group.setOwnerName(groupDetails.getOwnerName());

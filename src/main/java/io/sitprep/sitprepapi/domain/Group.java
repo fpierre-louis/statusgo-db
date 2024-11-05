@@ -35,7 +35,7 @@ public class Group {
     @ElementCollection
     @CollectionTable(name = "group_pending_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "pending_member_email")
-    private List<String> pendingMemberEmails; // New field for pending members
+    private List<String> pendingMemberEmails;
 
     private String privacy;
 
@@ -43,6 +43,12 @@ public class Group {
     @CollectionTable(name = "group_sub_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "sub_group_id")
     private List<String> subGroupIDs;
+
+    // New parent group IDs field
+    @ElementCollection
+    @CollectionTable(name = "group_parent_group_ids", joinColumns = @JoinColumn(name = "group_id"))
+    @Column(name = "parent_group_id")
+    private List<String> parentGroupIDs;
 
     private LocalDateTime updatedAt;
     private String address;
