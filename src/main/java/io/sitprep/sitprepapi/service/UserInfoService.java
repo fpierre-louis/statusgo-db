@@ -41,6 +41,11 @@ public class UserInfoService {
         if (optionalUser.isPresent()) {
             UserInfo existingUser = optionalUser.get();
 
+            // Check if userStatus has changed and update the timestamp
+            if (!existingUser.getUserStatus().equals(userDetails.getUserStatus())) {
+                existingUser.setUserStatusLastUpdated(LocalDateTime.now());
+            }
+
             // Update the fields from the request
             existingUser.setUserEmail(userDetails.getUserEmail());
             existingUser.setUserFirstName(userDetails.getUserFirstName());

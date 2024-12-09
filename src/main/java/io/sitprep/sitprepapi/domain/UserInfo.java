@@ -49,6 +49,9 @@ public class UserInfo {
     @Column(name = "user_status")
     private String userStatus;
 
+    @Column(name = "user_status_last_updated")
+    private LocalDateTime userStatusLastUpdated;
+
     @Column(name = "status_color")
     private String statusColor;
 
