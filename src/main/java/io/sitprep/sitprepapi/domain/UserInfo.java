@@ -1,12 +1,12 @@
 package io.sitprep.sitprepapi.domain;
 
+import io.sitprep.sitprepapi.listener.UserInfoListener;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
-
 import java.time.LocalDateTime;
 import java.util.Set;
 
@@ -16,6 +16,7 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "user_info")
+@EntityListeners(UserInfoListener.class)
 public class UserInfo {
     @Id
     @UuidGenerator

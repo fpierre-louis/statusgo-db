@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime; // <-- Add this import statement
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 
 @Service
 public class UserInfoService {
@@ -42,8 +43,9 @@ public class UserInfoService {
             UserInfo existingUser = optionalUser.get();
 
             // Check if userStatus has changed and update the timestamp
-            if (!existingUser.getUserStatus().equals(userDetails.getUserStatus())) {
-                existingUser.setUserStatusLastUpdated(LocalDateTime.now());
+            if (!Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
+                existingUser.setUserStatus(userDetails.getUserStatus());
+                existingUser.setUserStatusLastUpdated(LocalDateTime.now()); // Update the status change timestamp
             }
 
             // Update the fields from the request
