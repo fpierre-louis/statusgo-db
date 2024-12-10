@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,7 +65,7 @@ public class UserInfoResource {
 
             // Set the new fields, no need to check for null since activeGroupAlertCount is an int and defaults to 0
             userInfo.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
-            userInfo.setGroupAlertLastUpdated(LocalDateTime.now());
+            userInfo.setGroupAlertLastUpdated(Instant.now());
 
             // Ensure these fields are being set from the request
             userInfo.setPhone(userDetails.getPhone());
