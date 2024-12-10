@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Set;
 
 @Entity
@@ -51,7 +51,7 @@ public class UserInfo {
     private String userStatus;
 
     @Column(name = "user_status_last_updated")
-    private LocalDateTime userStatusLastUpdated;
+    private Instant userStatusLastUpdated;
 
     @Column(name = "status_color")
     private String statusColor;
@@ -78,7 +78,7 @@ public class UserInfo {
 
 
     @Column(name = "group_alert_last_updated")
-    private LocalDateTime groupAlertLastUpdated;
+    private Instant groupAlertLastUpdated;
 
     @Column(name = "subscription")
     private String subscription;
@@ -87,5 +87,5 @@ public class UserInfo {
     private String subscriptionPackage;
 
     @Column(name = "date_subscribed")
-    private LocalDateTime dateSubscribed;
+    private Instant dateSubscribed;
 }

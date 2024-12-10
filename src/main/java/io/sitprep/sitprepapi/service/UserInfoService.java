@@ -5,7 +5,7 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime; // <-- Add this import statement
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
@@ -45,7 +45,7 @@ public class UserInfoService {
             // Check if userStatus has changed and update the timestamp
             if (!Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
                 existingUser.setUserStatus(userDetails.getUserStatus());
-                existingUser.setUserStatusLastUpdated(LocalDateTime.now()); // Update the status change timestamp
+                existingUser.setUserStatusLastUpdated(Instant.now()); // Store as UTC timestamp // Update the status change timestamp
             }
 
             // Update the fields from the request
@@ -67,7 +67,7 @@ public class UserInfoService {
             existingUser.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
 
             // Update the timestamp
-            existingUser.setGroupAlertLastUpdated(LocalDateTime.now());
+            existingUser.setGroupAlertLastUpdated(Instant.now());
 
             // Ensure phone and address fields are being updated
             existingUser.setPhone(userDetails.getPhone());
