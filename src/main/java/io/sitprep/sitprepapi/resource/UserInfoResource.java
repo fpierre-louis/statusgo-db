@@ -96,33 +96,17 @@ public class UserInfoResource {
      */
     @PatchMapping("/{id}")
     public ResponseEntity<UserInfo> patchUser(@PathVariable String id, @RequestBody Map<String, Object> updates) {
-        Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
-        if (optionalUser.isPresent()) {
-            UserInfo userInfo = optionalUser.get();
+        if (updates.isEmpty()) {
+            return ResponseEntity.badRequest().body(null);
+        }
 
-            // Update only the fields provided in the "updates" map
-            updates.forEach((key, value) -> {
-                try {
-                    Field field = ReflectionUtils.findField(UserInfo.class, key);
-                    if (field != null) {
-                        field.setAccessible(true);
-                        ReflectionUtils.setField(field, userInfo, value);
-                    } else {
-                        System.out.println("Field not found: " + key);
-                    }
-                } catch (Exception e) {
-                    System.out.println("Error updating field " + key + ": " + e.getMessage());
-                }
-            });
-
-            // Optionally, update the group alert timestamp if any fields were updated
-            userInfo.setGroupAlertLastUpdated(Instant.now());
-
-            // Save the updated user
-            UserInfo updatedUser = userInfoService.updateUser(userInfo);
+        try {
+            UserInfo updatedUser = userInfoService.patchUser(id, updates);
             return ResponseEntity.ok(updatedUser);
-        } else {
+        } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(500).build();
         }
     }
 }
