@@ -1,6 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
-import io.sitprep.sitprepapi.listener.UserInfoListener;
+
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -16,7 +16,7 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "user_info")
-@EntityListeners(UserInfoListener.class)
+
 public class UserInfo {
     @Id
     @UuidGenerator
