@@ -4,11 +4,8 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.*;
 
-import java.lang.reflect.Field;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,34 +47,7 @@ public class UserInfoResource {
     public ResponseEntity<UserInfo> updateUser(@PathVariable String id, @RequestBody UserInfo userDetails) {
         Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
         if (optionalUser.isPresent()) {
-            UserInfo userInfo = optionalUser.get();
-
-            // Update all the fields including the new ones
-            userInfo.setUserEmail(userDetails.getUserEmail());
-            userInfo.setUserFirstName(userDetails.getUserFirstName());
-            userInfo.setUserLastName(userDetails.getUserLastName());
-            userInfo.setUserStatus(userDetails.getUserStatus());
-            userInfo.setTitle(userDetails.getTitle());
-            userInfo.setSubscription(userDetails.getSubscription());
-            userInfo.setSubscriptionPackage(userDetails.getSubscriptionPackage());
-            userInfo.setDateSubscribed(userDetails.getDateSubscribed());
-            userInfo.setFcmtoken(userDetails.getFcmtoken());
-            userInfo.setManagedGroupIDs(userDetails.getManagedGroupIDs());
-            userInfo.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
-            userInfo.setProfileImageURL(userDetails.getProfileImageURL());
-            userInfo.setStatusColor(userDetails.getStatusColor());
-
-            // Set the new fields, no need to check for null since activeGroupAlertCount is an int and defaults to 0
-            userInfo.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
-            userInfo.setGroupAlertLastUpdated(Instant.now());
-
-            // Ensure these fields are being set from the request
-            userInfo.setPhone(userDetails.getPhone());
-            userInfo.setAddress(userDetails.getAddress());
-            userInfo.setLongitude(userDetails.getLongitude());
-            userInfo.setLatitude(userDetails.getLatitude());
-
-            UserInfo updatedUser = userInfoService.updateUser(userInfo);
+            UserInfo updatedUser = userInfoService.updateUser(userDetails);
             return ResponseEntity.ok(updatedUser);
         } else {
             return ResponseEntity.notFound().build();
@@ -97,7 +67,7 @@ public class UserInfoResource {
     @PatchMapping("/{id}")
     public ResponseEntity<UserInfo> patchUser(@PathVariable String id, @RequestBody Map<String, Object> updates) {
         if (updates.isEmpty()) {
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().build();
         }
 
         try {
