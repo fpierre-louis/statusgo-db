@@ -72,11 +72,6 @@ public class UserInfoService {
                             ReflectionUtils.setField(field, userInfo, value);
                             System.out.println("Updated field: " + key + " from " + oldValue + " to " + value);
 
-                            // Update timestamps based on which field was updated
-                            if ("userStatus".equals(key)) {
-                                userInfo.setUserStatusLastUpdated(Instant.now());
-                                System.out.println("Updated userStatusLastUpdated because userStatus changed.");
-                            }
 
                             if ("activeGroupAlertCounts".equals(key)) {
                                 userInfo.setGroupAlertLastUpdated(Instant.now());
