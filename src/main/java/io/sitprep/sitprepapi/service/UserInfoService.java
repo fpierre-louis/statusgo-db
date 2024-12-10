@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 
 @Service
 public class UserInfoService {
@@ -22,44 +23,26 @@ public class UserInfoService {
         this.userInfoRepo = userInfoRepo;
     }
 
-    /**
-     * Get all users
-     */
     public List<UserInfo> getAllUsers() {
         return userInfoRepo.findAll();
     }
 
-    /**
-     * Get user by ID
-     */
     public Optional<UserInfo> getUserById(String id) {
         return userInfoRepo.findById(id);
     }
 
-    /**
-     * Get user by Email
-     */
     public Optional<UserInfo> getUserByEmail(String email) {
         return userInfoRepo.findByUserEmail(email);
     }
 
-    /**
-     * Create a new user
-     */
     public UserInfo createUser(UserInfo userInfo) {
         return userInfoRepo.save(userInfo);
     }
 
-    /**
-     * Update an entire UserInfo object (used in PUT)
-     */
     public UserInfo updateUser(UserInfo userInfo) {
         return userInfoRepo.save(userInfo);
     }
 
-    /**
-     * Delete a user by ID
-     */
     public void deleteUser(String id) {
         userInfoRepo.deleteById(id);
     }
@@ -68,11 +51,10 @@ public class UserInfoService {
      * Partially update a UserInfo object (used in PATCH)
      */
     public UserInfo patchUser(String id, Map<String, Object> updates) {
-        Optional<UserInfo> optionalUser = getUserById(id);
+        Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
         if (optionalUser.isPresent()) {
             UserInfo userInfo = optionalUser.get();
 
-            // Update only the fields provided in the "updates" map
             updates.forEach((key, value) -> {
                 try {
                     if (key == null || value == null) {
@@ -85,15 +67,23 @@ public class UserInfoService {
                         field.setAccessible(true);
                         Object oldValue = ReflectionUtils.getField(field, userInfo);
 
-                        // Update the field if the new value is different
-                        ReflectionUtils.setField(field, userInfo, value);
-                        System.out.println("Updated field: " + key + " from " + oldValue + " to " + value);
+                        // Update the field only if the value is different
+                        if (!Objects.equals(oldValue, value)) {
+                            ReflectionUtils.setField(field, userInfo, value);
+                            System.out.println("Updated field: " + key + " from " + oldValue + " to " + value);
 
+                            // Update timestamps based on which field was updated
+                            if ("userStatus".equals(key)) {
+                                userInfo.setUserStatusLastUpdated(Instant.now());
+                                System.out.println("Updated userStatusLastUpdated because userStatus changed.");
+                            }
 
-                        // Always update the groupAlertLastUpdated if "activeGroupAlertCounts" is included
-                        if ("activeGroupAlertCounts".equals(key)) {
-                            userInfo.setGroupAlertLastUpdated(Instant.now());
-                            System.out.println("Updated groupAlertLastUpdated because activeGroupAlertCounts changed.");
+                            if ("activeGroupAlertCounts".equals(key)) {
+                                userInfo.setGroupAlertLastUpdated(Instant.now());
+                                System.out.println("Updated groupAlertLastUpdated because activeGroupAlertCounts changed.");
+                            }
+                        } else {
+                            System.out.println("No change detected for field: " + key);
                         }
                     } else {
                         System.out.println("Field not found: " + key);
@@ -110,3 +100,6 @@ public class UserInfoService {
         }
     }
 }
+
+
+
