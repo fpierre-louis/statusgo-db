@@ -89,19 +89,21 @@ public class UserInfoService {
                         // Update the field only if the value is different
                         if (!Objects.equals(oldValue, value)) {
                             ReflectionUtils.setField(field, userInfo, value);
-                            System.out.println("Updated field: " + key + " to value: " + value);
+                            System.out.println("Updated field: " + key + " from " + oldValue + " to " + value);
 
-                            // Check if we updated the "userStatus" and update the timestamp
-                            if ("userStatus".equals(key)) {
+                            // Check if "userStatus" was updated, then update the userStatusLastUpdated timestamp
+                            if ("userStatus".equals(key) && !Objects.equals(oldValue, value)) {
                                 userInfo.setUserStatusLastUpdated(Instant.now());
-                                System.out.println("Updated userStatusLastUpdated for field: " + key);
+                                System.out.println("Updated userStatusLastUpdated because userStatus changed.");
                             }
 
                             // Check if "activeGroupAlertCounts" was updated, then update the alert timestamp
-                            if ("activeGroupAlertCounts".equals(key)) {
+                            if ("activeGroupAlertCounts".equals(key) && !Objects.equals(oldValue, value)) {
                                 userInfo.setGroupAlertLastUpdated(Instant.now());
-                                System.out.println("Updated groupAlertLastUpdated for field: " + key);
+                                System.out.println("Updated groupAlertLastUpdated because activeGroupAlertCounts changed.");
                             }
+                        } else {
+                            System.out.println("No change detected for field: " + key);
                         }
                     } else {
                         System.out.println("Field not found: " + key);
@@ -117,6 +119,7 @@ public class UserInfoService {
             throw new IllegalArgumentException("User with ID " + id + " not found");
         }
     }
+
 
     /**
      * Update only the user status (no need to load the full object)
