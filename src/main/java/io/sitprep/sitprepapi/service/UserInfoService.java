@@ -4,83 +4,138 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.ReflectionUtils;
 
+import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 public class UserInfoService {
 
+    private final UserInfoRepo userInfoRepo;
+
     @Autowired
-    private UserInfoRepo userInfoRepo;
-
-    public UserInfo createUser(UserInfo userInfo) {
-        return userInfoRepo.save(userInfo);
+    public UserInfoService(UserInfoRepo userInfoRepo) {
+        this.userInfoRepo = userInfoRepo;
     }
 
-    public Optional<UserInfo> getUserById(String id) {
-        return userInfoRepo.findById(id);
-    }
-
-    public Optional<UserInfo> getUserByEmail(String email) {
-        return userInfoRepo.findByUserEmail(email);
-    }
-
+    /**
+     * Get all users
+     */
     public List<UserInfo> getAllUsers() {
         return userInfoRepo.findAll();
     }
 
+    /**
+     * Get user by ID
+     */
+    public Optional<UserInfo> getUserById(String id) {
+        return userInfoRepo.findById(id);
+    }
+
+    /**
+     * Get user by Email
+     */
+    public Optional<UserInfo> getUserByEmail(String email) {
+        return userInfoRepo.findByUserEmail(email);
+    }
+
+    /**
+     * Create a new user
+     */
+    public UserInfo createUser(UserInfo userInfo) {
+        return userInfoRepo.save(userInfo);
+    }
+
+    /**
+     * Update an entire UserInfo object (used in PUT)
+     */
+    public UserInfo updateUser(UserInfo userInfo) {
+        return userInfoRepo.save(userInfo);
+    }
+
+    /**
+     * Delete a user by ID
+     */
     public void deleteUser(String id) {
         userInfoRepo.deleteById(id);
     }
 
-    // Updated logic to increment activeGroupAlertCounts
-    public UserInfo updateUser(UserInfo userDetails) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findById(userDetails.getId());
+    /**
+     * Partially update a UserInfo object (used in PATCH)
+     */
+    public UserInfo patchUser(String id, Map<String, Object> updates) {
+        Optional<UserInfo> optionalUser = getUserById(id);
         if (optionalUser.isPresent()) {
-            UserInfo existingUser = optionalUser.get();
+            UserInfo userInfo = optionalUser.get();
 
-            // Check if userStatus has changed and update the timestamp
-            if (!Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
-                existingUser.setUserStatus(userDetails.getUserStatus());
-                existingUser.setUserStatusLastUpdated(Instant.now()); // ✅ Only update timestamp if the user status changes
-            }
+            // Update only the fields provided in the "updates" map
+            updates.forEach((key, value) -> {
+                try {
+                    if (key == null || value == null) {
+                        System.out.println("Key or Value is null for key: " + key);
+                        return;
+                    }
 
+                    Field field = ReflectionUtils.findField(UserInfo.class, key);
+                    if (field != null) {
+                        field.setAccessible(true);
+                        Object oldValue = ReflectionUtils.getField(field, userInfo);
 
+                        // Update the field only if the value is different
+                        if (!Objects.equals(oldValue, value)) {
+                            ReflectionUtils.setField(field, userInfo, value);
+                            System.out.println("Updated field: " + key + " to value: " + value);
 
+                            // Check if we updated the "userStatus" and update the timestamp
+                            if ("userStatus".equals(key)) {
+                                userInfo.setUserStatusLastUpdated(Instant.now());
+                                System.out.println("Updated userStatusLastUpdated for field: " + key);
+                            }
 
-            // Update the fields from the request
-            existingUser.setUserEmail(userDetails.getUserEmail());
-            existingUser.setUserFirstName(userDetails.getUserFirstName());
-            existingUser.setUserLastName(userDetails.getUserLastName());
-            existingUser.setUserStatus(userDetails.getUserStatus());
-            existingUser.setTitle(userDetails.getTitle());
-            existingUser.setSubscription(userDetails.getSubscription());
-            existingUser.setSubscriptionPackage(userDetails.getSubscriptionPackage());
-            existingUser.setDateSubscribed(userDetails.getDateSubscribed());
-            existingUser.setFcmtoken(userDetails.getFcmtoken());
-            existingUser.setManagedGroupIDs(userDetails.getManagedGroupIDs());
-            existingUser.setJoinedGroupIDs(userDetails.getJoinedGroupIDs());
-            existingUser.setProfileImageURL(userDetails.getProfileImageURL());
-            existingUser.setStatusColor(userDetails.getStatusColor());
+                            // Check if "activeGroupAlertCounts" was updated, then update the alert timestamp
+                            if ("activeGroupAlertCounts".equals(key)) {
+                                userInfo.setGroupAlertLastUpdated(Instant.now());
+                                System.out.println("Updated groupAlertLastUpdated for field: " + key);
+                            }
+                        }
+                    } else {
+                        System.out.println("Field not found: " + key);
+                    }
+                } catch (Exception e) {
+                    System.out.println("Error updating field " + key + ": " + e.getMessage());
+                }
+            });
 
-            // Update the group alert count increment or decrement based on the request
-            existingUser.setActiveGroupAlertCounts(userDetails.getActiveGroupAlertCounts());
-
-            // Update the timestamp
-            existingUser.setGroupAlertLastUpdated(Instant.now());
-
-            // Ensure phone and address fields are being updated
-            existingUser.setPhone(userDetails.getPhone());
-            existingUser.setAddress(userDetails.getAddress());
-            existingUser.setLongitude(userDetails.getLongitude());
-            existingUser.setLatitude(userDetails.getLatitude());
-
-            return userInfoRepo.save(existingUser);
+            // Save and return the updated user
+            return userInfoRepo.save(userInfo);
         } else {
-            throw new RuntimeException("User not found");
+            throw new IllegalArgumentException("User with ID " + id + " not found");
         }
+    }
+
+    /**
+     * Update only the user status (no need to load the full object)
+     */
+    public void updateUserStatus(String id, String status) {
+        userInfoRepo.updateUserStatus(id, status);
+    }
+
+    /**
+     * Update user status and status color (no need to load the full object)
+     */
+    public void updateUserStatusAndColor(String id, String status, String color) {
+        userInfoRepo.updateUserStatusAndColor(id, status, color);
+    }
+
+    /**
+     * Update user status and status color using native query (fastest method)
+     */
+    public void updateUserStatusAndColorNative(String id, String status, String color) {
+        userInfoRepo.updateUserStatusAndColorNative(id, status, color);
     }
 }
