@@ -32,9 +32,32 @@ public class UserInfoResource {
         return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/email/{email}")
+    public ResponseEntity<UserInfo> getUserByEmail(@PathVariable String email) {
+        Optional<UserInfo> userInfo = userInfoService.getUserByEmail(email);
+        return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @PostMapping
     public UserInfo createUser(@RequestBody UserInfo userInfo) {
         return userInfoService.createUser(userInfo);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<UserInfo> updateUser(@PathVariable String id, @RequestBody UserInfo userDetails) {
+        Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
+        if (optionalUser.isPresent()) {
+            UserInfo updatedUser = userInfoService.updateUser(userDetails);
+            return ResponseEntity.ok(updatedUser);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable String id) {
+        userInfoService.deleteUser(id);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -44,7 +67,7 @@ public class UserInfoResource {
     @PatchMapping("/{id}")
     public ResponseEntity<UserInfo> patchUser(@PathVariable String id, @RequestBody Map<String, Object> updates) {
         if (updates.isEmpty()) {
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().build();
         }
 
         try {
