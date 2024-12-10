@@ -4,15 +4,19 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/userinfo")
 public class UserInfoResource {
+
     private final UserInfoService userInfoService;
 
     @Autowired
@@ -80,11 +84,45 @@ public class UserInfoResource {
         }
     }
 
-
-
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
         userInfoService.deleteUser(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * PATCH method for updating specific fields in UserInfo
+     * Only updates the fields provided in the `updates` map.
+     */
+    @PatchMapping("/{id}")
+    public ResponseEntity<UserInfo> patchUser(@PathVariable String id, @RequestBody Map<String, Object> updates) {
+        Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
+        if (optionalUser.isPresent()) {
+            UserInfo userInfo = optionalUser.get();
+
+            // Update only the fields provided in the "updates" map
+            updates.forEach((key, value) -> {
+                try {
+                    Field field = ReflectionUtils.findField(UserInfo.class, key);
+                    if (field != null) {
+                        field.setAccessible(true);
+                        ReflectionUtils.setField(field, userInfo, value);
+                    } else {
+                        System.out.println("Field not found: " + key);
+                    }
+                } catch (Exception e) {
+                    System.out.println("Error updating field " + key + ": " + e.getMessage());
+                }
+            });
+
+            // Optionally, update the group alert timestamp if any fields were updated
+            userInfo.setGroupAlertLastUpdated(Instant.now());
+
+            // Save the updated user
+            UserInfo updatedUser = userInfoService.updateUser(userInfo);
+            return ResponseEntity.ok(updatedUser);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
     }
 }
