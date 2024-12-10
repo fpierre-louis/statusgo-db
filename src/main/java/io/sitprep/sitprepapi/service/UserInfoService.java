@@ -45,8 +45,9 @@ public class UserInfoService {
             // Check if userStatus has changed and update the timestamp
             if (!Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
                 existingUser.setUserStatus(userDetails.getUserStatus());
-                existingUser.setUserStatusLastUpdated(Instant.now()); // Only update when status actually changes
+                existingUser.setUserStatusLastUpdated(Instant.now()); // ✅ Only update timestamp if the user status changes
             }
+
 
 
 
