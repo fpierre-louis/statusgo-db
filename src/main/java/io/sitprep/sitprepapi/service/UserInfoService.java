@@ -43,10 +43,15 @@ public class UserInfoService {
             UserInfo existingUser = optionalUser.get();
 
             // Check if userStatus has changed and update the timestamp
-            if (!Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
+            if (userDetails.getUserStatus() != null &&
+                    !Objects.equals(existingUser.getUserStatus(), userDetails.getUserStatus())) {
+                System.out.println("Updating userStatus from " + existingUser.getUserStatus() + " to " + userDetails.getUserStatus());
                 existingUser.setUserStatus(userDetails.getUserStatus());
-                existingUser.setUserStatusLastUpdated(Instant.now()); // Store as UTC timestamp // Update the status change timestamp
+                existingUser.setUserStatusLastUpdated(Instant.now());
+            } else {
+                System.out.println("No change in userStatus, skipping update for user: " + existingUser.getUserEmail());
             }
+
 
             // Update the fields from the request
             existingUser.setUserEmail(userDetails.getUserEmail());
