@@ -9,7 +9,7 @@ import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -27,7 +27,7 @@ public class Post {
     private String content;
     private Long groupId;
     private String groupName;
-    private LocalDateTime timestamp;
+    private Instant timestamp;
 
     private byte[] image; // Binary data of the image
 
@@ -42,7 +42,7 @@ public class Post {
 
 
     // Timestamp for when the post was last edited
-    private LocalDateTime editedAt;
+    private Instant editedAt;
 
     // Tags or hashtags for categorizing posts
     @ElementCollection

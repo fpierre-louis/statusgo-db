@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
+import java.time.ZoneId;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -36,7 +38,7 @@ public class PostResource {
         post.setContent(content);
         post.setGroupId(groupId);
         post.setGroupName(groupName);
-        post.setTimestamp(java.time.LocalDateTime.now());
+        post.setTimestamp(Instant.now());
         post.setTags(tags);
         post.setMentions(mentions);
 
@@ -79,7 +81,7 @@ public class PostResource {
             post.setTags(tags);
             post.setMentions(mentions);
 
-            post.setEditedAt(java.time.LocalDateTime.now());
+            post.setEditedAt(Instant.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);
             return ResponseEntity.ok(updatedPost);

@@ -11,7 +11,7 @@ import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -60,7 +60,7 @@ public class GroupService {
         group.setPrivacy(groupDetails.getPrivacy());
         group.setSubGroupIDs(groupDetails.getSubGroupIDs());
         group.setParentGroupIDs(groupDetails.getParentGroupIDs());
-        group.setUpdatedAt(LocalDateTime.now());
+        group.setUpdatedAt(Instant.now());
         group.setZipCode(groupDetails.getZipCode());
         group.setOwnerName(groupDetails.getOwnerName());
         group.setOwnerEmail(groupDetails.getOwnerEmail());

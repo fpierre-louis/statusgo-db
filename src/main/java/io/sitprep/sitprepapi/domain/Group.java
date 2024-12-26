@@ -2,7 +2,7 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Entity
@@ -19,7 +19,7 @@ public class Group {
     private List<String> adminEmails;
 
     private String alert;
-    private LocalDateTime createdAt;
+    private Instant createdAt;
     private String description;
     private String groupCode;
     private String groupName;
@@ -50,7 +50,7 @@ public class Group {
     @Column(name = "parent_group_id")
     private List<String> parentGroupIDs;
 
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
     private String address;
     private String longitude;
     private String latitude;

@@ -6,7 +6,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import lombok.Getter;
 import lombok.Setter;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Setter
 @Getter
@@ -19,5 +19,5 @@ public class Comment {
     private Long postId;
     private String author;
     private String content;
-    private LocalDateTime timestamp;
+    private Instant timestamp;
 }
