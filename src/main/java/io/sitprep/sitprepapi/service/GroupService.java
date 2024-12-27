@@ -134,6 +134,7 @@ public class GroupService {
                     group.getGroupName(),
                     notificationBody,
                     "Group Alert",
+                    "/images/group-alert-icon.png", // Add an appropriate icon URL
                     tokens,
                     "alert",
                     String.valueOf(group.getGroupId())
@@ -143,26 +144,18 @@ public class GroupService {
         }
     }
 
-    private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
-        // Get the current pending member emails
-        Set<String> newPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
 
-        // Find the new pending members by removing the old ones from the current list
+    private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
+        Set<String> newPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
         newPendingMemberEmails.removeAll(oldPendingMemberEmails);
 
-        // If there are no new pending members, exit the method
         if (newPendingMemberEmails.isEmpty()) {
             return;
         }
 
-        // Log the pending member addition
-        logger.info("New pending members detected in group {}: {}", group.getGroupName(), newPendingMemberEmails);
-
-        // Get the group admins' email addresses
         List<String> adminEmails = group.getAdminEmails();
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(adminEmails);
 
-        // Notify each admin about the new pending member(s)
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
             if (token == null || token.isEmpty()) {
@@ -174,26 +167,28 @@ public class GroupService {
                 UserInfo newPendingMember = userInfoRepo.findByUserEmail(newPendingMemberEmail)
                         .orElseThrow(() -> new RuntimeException("User not found: " + newPendingMemberEmail));
 
-                // Customize the notification message for pending members
                 String notificationTitle = "Hi " + admin.getUserFirstName() + "👋";
                 String notificationBody = "A new member request from " + newPendingMember.getUserFirstName()
                         + " " + newPendingMember.getUserLastName() + " is pending approval for your group, "
                         + group.getGroupName() + ". Please review their request.";
 
                 try {
-                    // Send notification to the admin
-                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin",
-                            Set.of(token), "pending_member", String.valueOf(group.getGroupId()));
-
-                    // Log the notification event
-                    logger.info("Notification sent to admin {} for new pending member {} in group {}",
-                            admin.getUserEmail(), newPendingMemberEmail, group.getGroupName());
+                    notificationService.sendNotification(
+                            notificationTitle,
+                            notificationBody,
+                            "Admin",
+                            "/images/admin-icon.png", // Add an appropriate icon URL
+                            Set.of(token),
+                            "pending_member",
+                            String.valueOf(group.getGroupId())
+                    );
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
             }
         }
     }
+
 
     private void notifyNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
@@ -217,11 +212,14 @@ public class GroupService {
             // Customize the notification message for the new member
             String notificationTitle = "Welcome to " + group.getGroupName() + "!";
             String notificationBody = "Hi " + newMember.getUserFirstName() + "👋, you've been added to the group " + group.getGroupName() + ". Check out the latest updates!";
+            String iconUrl = newMember.getProfileImageURL() != null
+                    ? newMember.getProfileImageURL()
+                    : "/images/default-user-icon.png"; // Fallback to default icon if missing
 
             try {
                 // Send notification to the newly added member
                 notificationService.sendNotification(notificationTitle, notificationBody, "User",
-                        Set.of(token), "new_member", String.valueOf(group.getGroupId()));
+                        iconUrl, Set.of(token), "new_member", String.valueOf(group.getGroupId()));
 
                 // Log the notification event
                 logger.info("Notification sent to new member {} in group {}", newMember.getUserEmail(), group.getGroupName());
@@ -230,6 +228,7 @@ public class GroupService {
             }
         }
     }
+
 
 
 
@@ -255,17 +254,24 @@ public class GroupService {
                     continue;
                 }
 
+                // Customize the notification message for the admin
                 String notificationTitle = "Hi " + admin.getUserFirstName() + "👋";
-                String notificationBody = newMember.getUserFirstName() + " " + newMember.getUserLastName() + " is now a member of your group, " + group.getGroupName() + "! Don't forget to give them a warm welcome.😊";
+                String notificationBody = newMember.getUserFirstName() + " " + newMember.getUserLastName()
+                        + " is now a member of your group, " + group.getGroupName() + "! Don't forget to give them a warm welcome.😊";
+                String iconUrl = newMember.getProfileImageURL() != null
+                        ? newMember.getProfileImageURL()
+                        : "/images/default-user-icon.png"; // Fallback to default icon if missing
 
                 try {
-                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin", Set.of(token), "new_member", String.valueOf(group.getGroupId()));
+                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin",
+                            iconUrl, Set.of(token), "new_member", String.valueOf(group.getGroupId()));
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
             }
         }
     }
+
 }
 
 

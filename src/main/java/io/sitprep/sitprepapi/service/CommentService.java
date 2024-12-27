@@ -75,7 +75,7 @@ public class CommentService {
                         String notificationBody = "\"" + comment.getContent() + "\"";
                         String commentAuthorImage = commentAuthor.getProfileImageURL() != null
                                 ? commentAuthor.getProfileImageURL()
-                                : "/images/default-profile.png"; // Fallback icon if profile image is missing
+                                : "/images/icon-120.png"; // Fallback icon if profile image is missing
 
                         // Send the notification using the updated NotificationService
                         notificationService.sendNotification(
