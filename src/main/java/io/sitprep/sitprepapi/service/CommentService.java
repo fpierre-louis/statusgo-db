@@ -77,11 +77,12 @@ public class CommentService {
                                 ? commentAuthor.getProfileImageURL()
                                 : "/images/default-profile.png"; // Fallback icon if profile image is missing
 
-                        // Send the notification using the existing NotificationService
+                        // Send the notification using the updated NotificationService
                         notificationService.sendNotification(
                                 notificationTitle,
                                 notificationBody,
                                 commentAuthor.getUserFirstName(), // Pass comment author's name as "from"
+                                commentAuthorImage, // Pass the profile image URL as the icon
                                 Set.of(token),
                                 "post_notification",
                                 String.valueOf(post.getGroupId())
