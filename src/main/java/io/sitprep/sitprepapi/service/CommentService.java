@@ -53,22 +53,40 @@ public class CommentService {
     }
 
     private void notifyPostAuthor(Comment comment) {
+        // Fetch the post associated with the comment
         Optional<Post> postOpt = postRepo.findById(comment.getPostId());
         if (postOpt.isPresent()) {
             Post post = postOpt.get();
-            Optional<UserInfo> userOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-            if (userOpt.isPresent()) {
-                UserInfo user = userOpt.get();
-                String token = user.getFcmtoken();
-                if (token != null && !token.isEmpty()) {
-                    notificationService.sendNotification(
-                            "New Comment on Your Post",
-                            "Someone commented on your post in group " + post.getGroupName(),
-                            user.getUserFirstName(), // Use the first name as the "from" field
-                            Set.of(token),
-                            "post_notification",
-                            String.valueOf(post.getGroupId())
-                    );
+
+            // Fetch the user who authored the post
+            Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
+            if (postAuthorOpt.isPresent()) {
+                UserInfo postAuthor = postAuthorOpt.get();
+
+                // Fetch the comment author's profile
+                Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
+                if (commentAuthorOpt.isPresent()) {
+                    UserInfo commentAuthor = commentAuthorOpt.get();
+
+                    // Prepare the notification details
+                    String token = postAuthor.getFcmtoken();
+                    if (token != null && !token.isEmpty()) {
+                        String notificationTitle = commentAuthor.getUserFirstName() + " commented on your post";
+                        String notificationBody = "\"" + comment.getContent() + "\"";
+                        String commentAuthorImage = commentAuthor.getProfileImageURL() != null
+                                ? commentAuthor.getProfileImageURL()
+                                : "/images/default-profile.png"; // Fallback icon if profile image is missing
+
+                        // Send the notification using the existing NotificationService
+                        notificationService.sendNotification(
+                                notificationTitle,
+                                notificationBody,
+                                commentAuthor.getUserFirstName(), // Pass comment author's name as "from"
+                                Set.of(token),
+                                "post_notification",
+                                String.valueOf(post.getGroupId())
+                        );
+                    }
                 }
             }
         }
