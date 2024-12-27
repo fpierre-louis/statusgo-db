@@ -1,20 +1,25 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.CommentRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 @Service
 public class CommentService {
+    private static final Logger logger = LoggerFactory.getLogger(CommentService.class); // Add this line
     private final CommentRepo commentRepo;
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
@@ -73,9 +78,11 @@ public class CommentService {
                     if (token != null && !token.isEmpty()) {
                         String notificationTitle = commentAuthor.getUserFirstName() + " commented on your post";
                         String notificationBody = "\"" + comment.getContent() + "\"";
+
+                        // Resize the profile image dynamically
                         String commentAuthorImage = commentAuthor.getProfileImageURL() != null
-                                ? commentAuthor.getProfileImageURL()
-                                : "/images/icon-120.png"; // Fallback icon if profile image is missing
+                                ? resizeImage(commentAuthor.getProfileImageURL())
+                                : "/images/default-user-icon.png"; // Fallback icon if profile image is missing
 
                         // Send the notification using the updated NotificationService
                         notificationService.sendNotification(
@@ -92,4 +99,16 @@ public class CommentService {
             }
         }
     }
+
+    private String resizeImage(String imageUrl) {
+        try {
+            byte[] resizedImageBytes = InMemoryImageResizer.resizeImageFromUrl(imageUrl, "png", 120, 120);
+            return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(resizedImageBytes);
+        } catch (IOException e) {
+            // Use SLF4J logger instead of MessageUtil
+            logger.warn("Failed to resize image: {}", e.getMessage());
+            return "/images/default-user-icon.png"; // Fallback to default icon if resizing fails
+        }
+    }
+
 }
