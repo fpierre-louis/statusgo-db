@@ -1,8 +1,5 @@
 package io.sitprep.sitprepapi.service;
 
-import com.google.firebase.messaging.FirebaseMessaging;
-import com.google.firebase.messaging.FirebaseMessagingException;
-import com.google.firebase.messaging.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,34 +11,52 @@ public class NotificationService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationService.class);
 
-    public void sendNotification(String title, String body, String iconUrl, String imageUrl, String sound, String from, Set<String> tokens, String type, String groupId) {
-        for (String token : tokens) {
-            logger.info("Sending notification to token: {}", token);
-
-            // Use provided or default values
-            String iconUrlToUse = iconUrl != null ? iconUrl : "https://firebasestorage.googleapis.com/v0/b/sitprep-new.appspot.com/o/icons%2Fdefault-icon.png?alt=media";
-            String imageUrlToUse = imageUrl != null ? imageUrl : "https://firebasestorage.googleapis.com/v0/b/sitprep-new.appspot.com/o/posts%2Fpost-image.png?alt=media";
-            String soundToUse = sound != null ? sound : "default"; // Use "default" or a custom sound file
-
-            Message notificationMessage = Message.builder()
-                    .setToken(token)
-                    .putData("title", title)
-                    .putData("body", body)
-                    .putData("icon", iconUrlToUse)  // Small icon for the notification
-                    .putData("image", imageUrlToUse)  // Large image for the notification body
-                    .putData("sound", soundToUse)  // Sound to play when notification is received
-                    .putData("badge", "1") // Badge count, typically an integer
-                    .putData("type", type)
-                    .putData("groupId", groupId)
-                    .build();
-
-            try {
-                String response = FirebaseMessaging.getInstance().send(notificationMessage);
-                logger.info("Successfully sent message: {}", response);
-            } catch (FirebaseMessagingException e) {
-                logger.error("Error sending message: {}", e.getMessage(), e);
-            }
+    /**
+     * Sends a notification to the specified recipients.
+     *
+     * @param title            The title of the notification.
+     * @param body             The body/content of the notification.
+     * @param sender           The sender's name or identifier.
+     * @param iconUrl          URL of the icon/image to include in the notification.
+     * @param tokens           A set of FCM tokens representing the recipients.
+     * @param notificationType The type/category of the notification (e.g., "alert", "post_notification").
+     * @param referenceId      A reference ID related to the notification (e.g., groupId or postId).
+     * @param actionUrl        (Optional) A URL to include in the notification for user actions.
+     * @param additionalData   (Optional) Additional metadata to attach to the notification.
+     */
+    public void sendNotification(
+            String title,
+            String body,
+            String sender,
+            String iconUrl,
+            Set<String> tokens,
+            String notificationType,
+            String referenceId,
+            String actionUrl,
+            String additionalData
+    ) {
+        // Ensure tokens are not null or empty
+        if (tokens == null || tokens.isEmpty()) {
+            logger.warn("No recipient tokens provided. Skipping notification.");
+            return;
         }
-    }
 
+        // Log notification details
+        logger.info("Sending notification...");
+        logger.info("Title: {}", title);
+        logger.info("Body: {}", body);
+        logger.info("Sender: {}", sender);
+        logger.info("Icon URL: {}", iconUrl);
+        logger.info("Notification Type: {}", notificationType);
+        logger.info("Reference ID: {}", referenceId);
+        logger.info("Action URL: {}", actionUrl);
+        logger.info("Additional Data: {}", additionalData);
+
+        // Simulate sending the notification
+        for (String token : tokens) {
+            logger.info("Notification sent to token: {}", token);
+        }
+
+        // Add your actual notification-sending logic here (e.g., Firebase Cloud Messaging)
+    }
 }

@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.annotations.GenericGenerator;
 import java.time.Instant;
 import java.util.Set;
 
@@ -15,10 +15,10 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "user_info")
-
 public class UserInfo {
     @Id
-    @UuidGenerator
+    @GeneratedValue(generator = "UUID")
+    @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     @Column(name = "user_id", unique = true, updatable = false)
     private String id;
 
@@ -71,10 +71,8 @@ public class UserInfo {
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;
 
-    // New fields for active group alert count and timestamp
     @Column(name = "active_group_alert_count", nullable = false)
-    private int activeGroupAlertCounts = 0;  // Ensure the field is initialized with 0
-
+    private int activeGroupAlertCounts = 0;
 
     @Column(name = "group_alert_last_updated")
     private Instant groupAlertLastUpdated;
@@ -87,4 +85,14 @@ public class UserInfo {
 
     @Column(name = "date_subscribed")
     private Instant dateSubscribed;
+
+    // Add the many-to-many relationship for MealPlan
+    @ManyToMany(cascade = CascadeType.ALL)
+    @JoinTable(
+            name = "user_meal_plan",
+            joinColumns = @JoinColumn(name = "user_id", referencedColumnName = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "meal_plan_id", referencedColumnName = "id")
+    )
+    private Set<MealPlan> mealPlans;
+
 }

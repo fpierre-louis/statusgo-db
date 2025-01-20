@@ -58,47 +58,38 @@ public class CommentService {
     }
 
     private void notifyPostAuthor(Comment comment) {
-        // Fetch the post associated with the comment
         Optional<Post> postOpt = postRepo.findById(comment.getPostId());
         if (postOpt.isPresent()) {
             Post post = postOpt.get();
-
-            // Fetch the user who authored the post
             Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
             if (postAuthorOpt.isPresent()) {
                 UserInfo postAuthor = postAuthorOpt.get();
-
-                // Fetch the comment author's profile
                 Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
                 if (commentAuthorOpt.isPresent()) {
                     UserInfo commentAuthor = commentAuthorOpt.get();
 
-                    // Prepare the notification details
                     String token = postAuthor.getFcmtoken();
                     if (token != null && !token.isEmpty()) {
-                        String notificationTitle = commentAuthor.getUserFirstName() + " commented on your post";
-                        String notificationBody = "\"" + comment.getContent() + "\"";
-
-                        // Resize the profile image dynamically
-                        String commentAuthorImage = commentAuthor.getProfileImageURL() != null
-                                ? resizeImage(commentAuthor.getProfileImageURL())
-                                : "/images/default-user-icon.png"; // Fallback icon if profile image is missing
-
-                        // Send the notification using the updated NotificationService
                         notificationService.sendNotification(
-                                notificationTitle,
-                                notificationBody,
-                                commentAuthor.getUserFirstName(), // Pass comment author's name as "from"
-                                commentAuthorImage, // Pass the profile image URL as the icon
-                                Set.of(token),
+                                commentAuthor.getUserFirstName() + " commented on your post",
+                                "\"" + comment.getContent() + "\"",
+                                commentAuthor.getUserFirstName(),
+                                commentAuthor.getProfileImageURL() != null
+                                        ? resizeImage(commentAuthor.getProfileImageURL())
+                                        : "/images/default-user-icon.png",
+                                Set.of(token), // Ensure this is a Set<String>
                                 "post_notification",
-                                String.valueOf(post.getGroupId())
+                                String.valueOf(post.getGroupId()),
+                                "/posts/" + post.getId(),
+                                null
                         );
                     }
                 }
             }
         }
     }
+
+
 
     private String resizeImage(String imageUrl) {
         try {

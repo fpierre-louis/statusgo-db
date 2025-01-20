@@ -127,22 +127,19 @@ public class GroupService {
         }
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        String notificationBody = "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.";
-
-        try {
-            notificationService.sendNotification(
-                    group.getGroupName(),
-                    notificationBody,
-                    "Group Alert",
-                    "/images/group-alert-icon.png", // Add an appropriate icon URL
-                    tokens,
-                    "alert",
-                    String.valueOf(group.getGroupId())
-            );
-        } catch (Exception e) {
-            logger.error("Error sending notification: ", e);
-        }
+        notificationService.sendNotification(
+                group.getGroupName(),
+                "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.",
+                "Group Alert",
+                "/images/group-alert-icon.png",
+                tokens,
+                "alert",
+                String.valueOf(group.getGroupId()),
+                "/groups/" + group.getGroupId(), // Example action URL
+                null // Additional data (if any)
+        );
     }
+
 
 
     private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
@@ -177,10 +174,12 @@ public class GroupService {
                             notificationTitle,
                             notificationBody,
                             "Admin",
-                            "/images/admin-icon.png", // Add an appropriate icon URL
+                            "/images/admin-icon.png",
                             Set.of(token),
                             "pending_member",
-                            String.valueOf(group.getGroupId())
+                            String.valueOf(group.getGroupId()),
+                            null, // Action URL
+                            null  // Additional Data
                     );
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
@@ -188,7 +187,6 @@ public class GroupService {
             }
         }
     }
-
 
     private void notifyNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
@@ -218,8 +216,17 @@ public class GroupService {
 
             try {
                 // Send notification to the newly added member
-                notificationService.sendNotification(notificationTitle, notificationBody, "User",
-                        iconUrl, Set.of(token), "new_member", String.valueOf(group.getGroupId()));
+                notificationService.sendNotification(
+                        notificationTitle,
+                        notificationBody,
+                        "User",
+                        iconUrl,
+                        Set.of(token),
+                        "new_member",
+                        String.valueOf(group.getGroupId()),
+                        null, // actionUrl
+                        null  // additionalData
+                );
 
                 // Log the notification event
                 logger.info("Notification sent to new member {} in group {}", newMember.getUserEmail(), group.getGroupName());
@@ -228,9 +235,6 @@ public class GroupService {
             }
         }
     }
-
-
-
 
     private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
@@ -263,14 +267,24 @@ public class GroupService {
                         : "/images/default-user-icon.png"; // Fallback to default icon if missing
 
                 try {
-                    notificationService.sendNotification(notificationTitle, notificationBody, "Admin",
-                            iconUrl, Set.of(token), "new_member", String.valueOf(group.getGroupId()));
+                    notificationService.sendNotification(
+                            notificationTitle,
+                            notificationBody,
+                            "Admin",
+                            iconUrl,
+                            Set.of(token),
+                            "new_member",
+                            String.valueOf(group.getGroupId()),
+                            null, // actionUrl
+                            null  // additionalData
+                    );
                 } catch (Exception e) {
                     logger.error("Error sending notification: ", e);
                 }
             }
         }
     }
+
 
 }
 
