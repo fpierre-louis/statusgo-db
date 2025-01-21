@@ -3,17 +3,17 @@ package io.sitprep.sitprepapi.domain;
 import jakarta.persistence.*;
 import java.util.ArrayList;
 import java.util.List;
-
 @Entity
 public class MealPlan {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Embedded // Embeddable structure for plan duration (quantity and unit)
+    @Embedded
     private PlanDuration planDuration;
 
-    private int numberOfMenuOptions;
+    @Column(nullable = false) // Ensures the column is always set
+    private int numberOfMenuOptions = 3; // Default value
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Menu> menus = new ArrayList<>();
@@ -27,11 +27,10 @@ public class MealPlan {
     private List<UserInfo> admins = new ArrayList<>();
 
     @ManyToOne
-    @JoinColumn(name = "owner_id", nullable = false, unique = true) // Enforce uniqueness
+    @JoinColumn(name = "owner_id", nullable = false, unique = true)
     private UserInfo owner;
 
     // Getters and Setters
-
     public Long getId() {
         return id;
     }

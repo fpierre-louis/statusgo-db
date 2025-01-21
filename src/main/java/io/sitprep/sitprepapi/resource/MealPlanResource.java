@@ -5,8 +5,6 @@ import io.sitprep.sitprepapi.service.MealPlanService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.HttpStatus;
-
 
 import java.util.List;
 
@@ -24,12 +22,11 @@ public class MealPlanResource {
     @PostMapping
     public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
         try {
-            System.out.println("Incoming Meal Plan: " + mealPlan);
             MealPlan savedMealPlan = mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
             return ResponseEntity.ok(savedMealPlan);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        } catch (IllegalArgumentException e) {
+            System.err.println("Error creating meal plan: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
     }
 
