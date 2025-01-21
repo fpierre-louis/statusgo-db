@@ -25,6 +25,13 @@ public class MealPlanService {
     }
 
     public MealPlan saveMealPlan(MealPlan mealPlan) {
+        if (mealPlan.getMenus() == null || mealPlan.getMenus().isEmpty()) {
+            throw new IllegalArgumentException("Menus cannot be null or empty");
+        }
+        if (mealPlan.getOwnerEmail() == null || mealPlan.getOwnerEmail().isBlank()) {
+            throw new IllegalArgumentException("Owner email is required");
+        }
         return mealPlanRepo.save(mealPlan);
     }
+
 }
