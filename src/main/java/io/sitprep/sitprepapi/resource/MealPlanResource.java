@@ -20,9 +20,10 @@ public class MealPlanResource {
     }
 
     @PostMapping
-    public MealPlan createMealPlan(@RequestBody MealPlan mealPlan) {
-        return mealPlanService.saveMealPlan(mealPlan);
+    public MealPlan createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
+        return mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
     }
+
 
     @GetMapping
     public List<MealPlan> getAllMealPlans() {

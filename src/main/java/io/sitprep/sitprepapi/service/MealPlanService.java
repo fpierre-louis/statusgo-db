@@ -27,8 +27,20 @@ public class MealPlanService {
                 .orElseThrow(() -> new IllegalArgumentException("Owner with email " + ownerEmail + " not found"));
 
         mealPlan.setOwner(owner);
+
+        // Ensure menus are properly initialized
+        if (mealPlan.getMenus() != null) {
+            mealPlan.getMenus().forEach(menu -> {
+                if (menu.getId() != null) {
+                    // Detach menu to avoid conflicts if it already exists
+                    menu.setId(null);
+                }
+            });
+        }
+
         return mealPlanRepository.save(mealPlan);
     }
+
 
     public List<MealPlan> getMealPlansByOwnerEmail(String email) {
         return mealPlanRepository.findMealPlansByOwnerEmail(email);
