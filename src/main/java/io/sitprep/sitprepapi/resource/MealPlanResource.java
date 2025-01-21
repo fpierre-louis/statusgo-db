@@ -11,7 +11,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/meal-plans")
 public class MealPlanResource {
-
     private final MealPlanService mealPlanService;
 
     @Autowired
@@ -20,19 +19,18 @@ public class MealPlanResource {
     }
 
     @PostMapping
-    public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
-        try {
-            MealPlan savedMealPlan = mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
-            return ResponseEntity.ok(savedMealPlan);
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error creating meal plan: " + e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan) {
+        MealPlan savedMealPlan = mealPlanService.saveMealPlan(mealPlan);
+        return ResponseEntity.ok(savedMealPlan);
     }
 
-    @GetMapping
-    public List<MealPlan> getAllMealPlans() {
-        return mealPlanService.getAllMealPlans();
+    @GetMapping("/by-owner/{email}")
+    public ResponseEntity<List<MealPlan>> getMealPlansByOwnerEmail(@PathVariable String email) {
+        List<MealPlan> mealPlans = mealPlanService.getMealPlansByOwnerEmail(email);
+        if (mealPlans.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(mealPlans);
     }
 
     @GetMapping("/{id}")
@@ -40,52 +38,5 @@ public class MealPlanResource {
         return mealPlanService.getMealPlanById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<MealPlan> updateMealPlan(@PathVariable Long id, @RequestBody MealPlan mealPlan) {
-        if (mealPlanService.getMealPlanById(id).isPresent()) {
-            mealPlan.setId(id);
-            return ResponseEntity.ok(mealPlanService.saveMealPlan(mealPlan));
-        } else {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteMealPlan(@PathVariable Long id) {
-        try {
-            mealPlanService.deleteMealPlan(id);
-            return ResponseEntity.noContent().build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/{id}/admins")
-    public ResponseEntity<MealPlan> addAdminsToMealPlan(@PathVariable Long id, @RequestBody List<String> adminEmails) {
-        try {
-            MealPlan updatedMealPlan = mealPlanService.addAdminsToMealPlan(id, adminEmails);
-            return ResponseEntity.ok(updatedMealPlan);
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error adding admins to meal plan: " + e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @GetMapping("/admin/{email}")
-    public List<MealPlan> getMealPlansByAdmin(@PathVariable String email) {
-        return mealPlanService.getMealPlansByAdminEmail(email);
-    }
-
-    @GetMapping("/owner/{email}")
-    public ResponseEntity<MealPlan> getOrCreateMealPlanByOwner(@PathVariable String email) {
-        try {
-            MealPlan mealPlan = mealPlanService.getOrCreateMealPlanForUser(email);
-            return ResponseEntity.ok(mealPlan);
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error fetching or creating meal plan: " + e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
     }
 }

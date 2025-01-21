@@ -1,8 +1,8 @@
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
-import java.util.ArrayList;
 import java.util.List;
+
 @Entity
 public class MealPlan {
     @Id
@@ -12,25 +12,16 @@ public class MealPlan {
     @Embedded
     private PlanDuration planDuration;
 
-    @Column(nullable = false) // Ensures the column is always set
-    private int numberOfMenuOptions = 3; // Default value
+    @Column(nullable = false)
+    private int numberOfMenuOptions = 3;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Menu> menus = new ArrayList<>();
+    private List<Menu> menus;
 
-    @ManyToMany
-    @JoinTable(
-            name = "meal_plan_admins",
-            joinColumns = @JoinColumn(name = "meal_plan_id"),
-            inverseJoinColumns = @JoinColumn(name = "user_id")
-    )
-    private List<UserInfo> admins = new ArrayList<>();
+    @Column(nullable = false)
+    private String ownerEmail;
 
-    @ManyToOne
-    @JoinColumn(name = "owner_id", nullable = false, unique = true)
-    private UserInfo owner;
-
-    // Getters and Setters
+    // Standard getters and setters
     public Long getId() {
         return id;
     }
@@ -63,19 +54,11 @@ public class MealPlan {
         this.menus = menus;
     }
 
-    public List<UserInfo> getAdmins() {
-        return admins;
+    public String getOwnerEmail() {
+        return ownerEmail;
     }
 
-    public void setAdmins(List<UserInfo> admins) {
-        this.admins = admins;
-    }
-
-    public UserInfo getOwner() {
-        return owner;
-    }
-
-    public void setOwner(UserInfo owner) {
-        this.owner = owner;
+    public void setOwnerEmail(String ownerEmail) {
+        this.ownerEmail = ownerEmail;
     }
 }
