@@ -23,6 +23,12 @@ public class MealPlan {
     )
     private List<UserInfo> admins = new ArrayList<>();
 
+    @ManyToOne
+    @JoinColumn(name = "owner_id", nullable = false)
+    private UserInfo owner;
+
+    // Getters and Setters
+
     public Long getId() {
         return id;
     }
@@ -53,5 +59,13 @@ public class MealPlan {
 
     public void setAdmins(List<UserInfo> admins) {
         this.admins = admins;
+    }
+
+    public UserInfo getOwner() {
+        return owner;
+    }
+
+    public void setOwner(UserInfo owner) {
+        this.owner = owner;
     }
 }

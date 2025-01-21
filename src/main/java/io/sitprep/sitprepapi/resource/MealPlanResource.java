@@ -71,4 +71,9 @@ public class MealPlanResource {
     public List<MealPlan> getMealPlansByAdmin(@PathVariable String email) {
         return mealPlanService.getMealPlansByAdminEmail(email);
     }
+    @GetMapping("/owner/{email}")
+    public List<MealPlan> getMealPlansByOwner(@PathVariable String email) {
+        return mealPlanService.getMealPlansByOwnerEmail(email);
+    }
+
 }

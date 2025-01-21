@@ -22,6 +22,18 @@ public class MealPlanService {
         this.userInfoRepo = userInfoRepo;
     }
 
+    public MealPlan saveMealPlanWithOwner(MealPlan mealPlan, String ownerEmail) {
+        UserInfo owner = userInfoRepo.findByUserEmail(ownerEmail)
+                .orElseThrow(() -> new IllegalArgumentException("Owner with email " + ownerEmail + " not found"));
+
+        mealPlan.setOwner(owner);
+        return mealPlanRepository.save(mealPlan);
+    }
+
+    public List<MealPlan> getMealPlansByOwnerEmail(String email) {
+        return mealPlanRepository.findMealPlansByOwnerEmail(email);
+    }
+
     public MealPlan saveMealPlan(MealPlan mealPlan) {
         return mealPlanRepository.save(mealPlan);
     }
