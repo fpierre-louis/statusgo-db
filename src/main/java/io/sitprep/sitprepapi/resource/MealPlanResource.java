@@ -22,11 +22,12 @@ public class MealPlanResource {
     @PostMapping
     public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
         try {
+            System.out.println("Incoming Meal Plan: " + mealPlan);
             MealPlan savedMealPlan = mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
             return ResponseEntity.ok(savedMealPlan);
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error creating meal plan: " + e.getMessage());
-            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 

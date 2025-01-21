@@ -36,15 +36,19 @@ public class MealPlanService {
         mealPlan.setOwner(owner);
 
         if (mealPlan.getPlanDuration() == null) {
-            // Set a default plan duration if not provided
             PlanDuration defaultDuration = new PlanDuration();
             defaultDuration.setQuantity(3);
             defaultDuration.setUnit("Days");
             mealPlan.setPlanDuration(defaultDuration);
         }
 
+        if (mealPlan.getMenus() == null || mealPlan.getMenus().isEmpty()) {
+            throw new IllegalArgumentException("Meal Plan must include at least one menu.");
+        }
+
         return mealPlanRepo.save(mealPlan);
     }
+
 
     public MealPlan getOrCreateMealPlanForUser(String ownerEmail) {
         List<MealPlan> mealPlans = mealPlanRepo.findMealPlansByOwnerEmail(ownerEmail);
