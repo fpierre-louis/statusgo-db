@@ -22,7 +22,6 @@ public class MealPlanResource {
     @PostMapping
     public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
         try {
-            // Save or update the meal plan for the owner
             MealPlan savedMealPlan = mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
             return ResponseEntity.ok(savedMealPlan);
         } catch (IllegalArgumentException e) {
@@ -46,7 +45,7 @@ public class MealPlanResource {
     @PutMapping("/{id}")
     public ResponseEntity<MealPlan> updateMealPlan(@PathVariable Long id, @RequestBody MealPlan mealPlan) {
         if (mealPlanService.getMealPlanById(id).isPresent()) {
-            mealPlan.setId(id); // Ensure the ID is set for update
+            mealPlan.setId(id);
             return ResponseEntity.ok(mealPlanService.saveMealPlan(mealPlan));
         } else {
             return ResponseEntity.notFound().build();
@@ -70,7 +69,7 @@ public class MealPlanResource {
             return ResponseEntity.ok(updatedMealPlan);
         } catch (IllegalArgumentException e) {
             System.err.println("Error adding admins to meal plan: " + e.getMessage());
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().build();
         }
     }
 

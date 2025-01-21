@@ -10,7 +10,10 @@ public class MealPlan {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private int planDuration;
+    @Embedded // Embeddable structure for plan duration (quantity and unit)
+    private PlanDuration planDuration;
+
+    private int numberOfMenuOptions;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Menu> menus = new ArrayList<>();
@@ -27,7 +30,6 @@ public class MealPlan {
     @JoinColumn(name = "owner_id", nullable = false, unique = true) // Enforce uniqueness
     private UserInfo owner;
 
-
     // Getters and Setters
 
     public Long getId() {
@@ -38,12 +40,20 @@ public class MealPlan {
         this.id = id;
     }
 
-    public int getPlanDuration() {
+    public PlanDuration getPlanDuration() {
         return planDuration;
     }
 
-    public void setPlanDuration(int planDuration) {
+    public void setPlanDuration(PlanDuration planDuration) {
         this.planDuration = planDuration;
+    }
+
+    public int getNumberOfMenuOptions() {
+        return numberOfMenuOptions;
+    }
+
+    public void setNumberOfMenuOptions(int numberOfMenuOptions) {
+        this.numberOfMenuOptions = numberOfMenuOptions;
     }
 
     public List<Menu> getMenus() {

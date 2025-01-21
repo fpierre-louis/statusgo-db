@@ -1,9 +1,8 @@
 package io.sitprep.sitprepapi.domain;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 public class Menu {
@@ -15,6 +14,18 @@ public class Menu {
     private String lunch;
     private String dinner;
     private String snack;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<String> breakfastIngredients = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<String> lunchIngredients = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<String> dinnerIngredients = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    private List<String> snackIngredients = new ArrayList<>();
 
     // Getters and setters
     public Long getId() {
@@ -55,5 +66,37 @@ public class Menu {
 
     public void setSnack(String snack) {
         this.snack = snack;
+    }
+
+    public List<String> getBreakfastIngredients() {
+        return breakfastIngredients;
+    }
+
+    public void setBreakfastIngredients(List<String> breakfastIngredients) {
+        this.breakfastIngredients = breakfastIngredients;
+    }
+
+    public List<String> getLunchIngredients() {
+        return lunchIngredients;
+    }
+
+    public void setLunchIngredients(List<String> lunchIngredients) {
+        this.lunchIngredients = lunchIngredients;
+    }
+
+    public List<String> getDinnerIngredients() {
+        return dinnerIngredients;
+    }
+
+    public void setDinnerIngredients(List<String> dinnerIngredients) {
+        this.dinnerIngredients = dinnerIngredients;
+    }
+
+    public List<String> getSnackIngredients() {
+        return snackIngredients;
+    }
+
+    public void setSnackIngredients(List<String> snackIngredients) {
+        this.snackIngredients = snackIngredients;
     }
 }
