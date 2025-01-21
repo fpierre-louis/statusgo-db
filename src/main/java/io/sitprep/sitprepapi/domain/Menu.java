@@ -2,7 +2,9 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Entity
 public class Menu {
@@ -26,6 +28,36 @@ public class Menu {
 
     @ElementCollection(fetch = FetchType.EAGER)
     private List<String> snackIngredients = new ArrayList<>();
+
+    @Transient
+    private Map<String, List<String>> ingredients = new HashMap<>();
+
+    @PostLoad
+    public void populateIngredients() {
+        ingredients.put("breakfast", mapMealToIngredients(breakfast));
+        ingredients.put("lunch", mapMealToIngredients(lunch));
+        ingredients.put("dinner", mapMealToIngredients(dinner));
+        ingredients.put("snack", mapMealToIngredients(snack));
+    }
+
+    private List<String> mapMealToIngredients(String meal) {
+        Map<String, List<String>> mealMapping = new HashMap<>();
+        mealMapping.put("Cereal with Milk and Fruit", List.of("Cereal", "Milk", "Fruit", "Juice"));
+        mealMapping.put("Cereal with Milk, Fruit, and Nuts", List.of("Cereal", "Milk", "Fruit", "Nuts", "Juice"));
+        mealMapping.put("Cereal with Milk, Fruit, and Granola Bar", List.of("Cereal", "Milk", "Fruit", "Granola Bar", "Juice"));
+        mealMapping.put("Cereal with Milk, Fruit, and Peanut Butter", List.of("Cereal", "Milk", "Fruit", "Peanut Butter", "Juice"));
+        mealMapping.put("Tuna and Crackers Combo", List.of("Tuna", "Crackers", "Fruit", "Veggies", "Juice"));
+        mealMapping.put("Chilli and Crackers", List.of("Chili", "Crackers", "Fruit", "Veggies", "Juice"));
+        mealMapping.put("Beef Stew and Crackers Combo", List.of("Beef Stew", "Crackers", "Fruit", "Veggies", "Juice"));
+        mealMapping.put("Tofu with Veggies and Crackers", List.of("Tofu", "Veggies", "Crackers", "Juice"));
+        mealMapping.put("Ravioli with Fruits and Crackers", List.of("Ravioli", "Fruit", "Crackers", "Juice"));
+        mealMapping.put("Granola Bar", List.of("Granola Bar"));
+        mealMapping.put("Nuts or Dried Fruits", List.of("Nuts", "Dried Fruits"));
+        mealMapping.put("Crackers", List.of("Crackers"));
+        mealMapping.put("Peanut Butter and Crackers", List.of("Peanut Butter", "Crackers"));
+
+        return mealMapping.getOrDefault(meal, List.of());
+    }
 
     // Getters and setters
     public Long getId() {
@@ -98,5 +130,9 @@ public class Menu {
 
     public void setSnackIngredients(List<String> snackIngredients) {
         this.snackIngredients = snackIngredients;
+    }
+
+    public Map<String, List<String>> getIngredients() {
+        return ingredients;
     }
 }
