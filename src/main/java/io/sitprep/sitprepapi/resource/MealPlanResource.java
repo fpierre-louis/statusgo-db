@@ -20,10 +20,16 @@ public class MealPlanResource {
     }
 
     @PostMapping
-    public MealPlan createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
-        return mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
+    public ResponseEntity<MealPlan> createMealPlan(@RequestBody MealPlan mealPlan, @RequestParam String ownerEmail) {
+        try {
+            // Save or update the meal plan for the owner
+            MealPlan savedMealPlan = mealPlanService.saveMealPlanWithOwner(mealPlan, ownerEmail);
+            return ResponseEntity.ok(savedMealPlan);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Error creating meal plan: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
     }
-
 
     @GetMapping
     public List<MealPlan> getAllMealPlans() {
@@ -72,9 +78,15 @@ public class MealPlanResource {
     public List<MealPlan> getMealPlansByAdmin(@PathVariable String email) {
         return mealPlanService.getMealPlansByAdminEmail(email);
     }
-    @GetMapping("/owner/{email}")
-    public List<MealPlan> getMealPlansByOwner(@PathVariable String email) {
-        return mealPlanService.getMealPlansByOwnerEmail(email);
-    }
 
+    @GetMapping("/owner/{email}")
+    public ResponseEntity<MealPlan> getOrCreateMealPlanByOwner(@PathVariable String email) {
+        try {
+            MealPlan mealPlan = mealPlanService.getOrCreateMealPlanForUser(email);
+            return ResponseEntity.ok(mealPlan);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Error fetching or creating meal plan: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
 }

@@ -7,6 +7,7 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,22 +24,59 @@ public class MealPlanService {
     }
 
     public MealPlan saveMealPlanWithOwner(MealPlan mealPlan, String ownerEmail) {
+        // Fetch the user by email
         UserInfo owner = userInfoRepo.findByUserEmail(ownerEmail)
                 .orElseThrow(() -> new IllegalArgumentException("Owner with email " + ownerEmail + " not found"));
 
-        mealPlan.setOwner(owner);
+        // Check if the user already owns a meal plan
+        List<MealPlan> existingPlans = mealPlanRepository.findMealPlansByOwnerEmail(ownerEmail);
+        MealPlan existingMealPlan;
 
-        // Ensure menus are properly initialized
+        if (!existingPlans.isEmpty()) {
+            // Assuming one-to-one relationship, update the first plan
+            existingMealPlan = existingPlans.get(0);
+        } else {
+            // Create a new meal plan if none exists
+            existingMealPlan = new MealPlan();
+            existingMealPlan.setOwner(owner);
+        }
+
+        // Update plan details
+        existingMealPlan.setPlanDuration(mealPlan.getPlanDuration());
+
         if (mealPlan.getMenus() != null) {
+            // Clear existing menus and add new ones
+            existingMealPlan.getMenus().clear();
             mealPlan.getMenus().forEach(menu -> {
                 if (menu.getId() != null) {
-                    // Detach menu to avoid conflicts if it already exists
-                    menu.setId(null);
+                    menu.setId(null); // Detach existing menu IDs
                 }
+                existingMealPlan.getMenus().add(menu);
             });
         }
 
-        return mealPlanRepository.save(mealPlan);
+        return mealPlanRepository.save(existingMealPlan);
+    }
+
+    public MealPlan getOrCreateMealPlanForUser(String ownerEmail) {
+        // Fetch the user by email
+        UserInfo owner = userInfoRepo.findByUserEmail(ownerEmail)
+                .orElseThrow(() -> new IllegalArgumentException("Owner with email " + ownerEmail + " not found"));
+
+        // Check if the user already owns a meal plan
+        List<MealPlan> existingPlans = mealPlanRepository.findMealPlansByOwnerEmail(ownerEmail);
+        if (!existingPlans.isEmpty()) {
+            // Return the existing meal plan
+            return existingPlans.get(0);
+        }
+
+        // If no plan exists, create a new one
+        MealPlan newMealPlan = new MealPlan();
+        newMealPlan.setOwner(owner);
+        newMealPlan.setPlanDuration(3); // Default plan duration
+        newMealPlan.setMenus(new ArrayList<>()); // Start with empty menus
+
+        return mealPlanRepository.save(newMealPlan);
     }
 
 

@@ -24,8 +24,9 @@ public class MealPlan {
     private List<UserInfo> admins = new ArrayList<>();
 
     @ManyToOne
-    @JoinColumn(name = "owner_id", nullable = false)
+    @JoinColumn(name = "owner_id", nullable = false, unique = true) // Enforce uniqueness
     private UserInfo owner;
+
 
     // Getters and Setters
 
