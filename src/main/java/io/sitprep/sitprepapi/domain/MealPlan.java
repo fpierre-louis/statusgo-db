@@ -19,9 +19,10 @@ public class MealPlan {
 
     @ElementCollection
     @CollectionTable(name = "meal_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
-    @MapKeyColumn(name = "meal_type") // Maps mealType to its ingredients
+    @MapKeyColumn(name = "meal_type")
     @Column(name = "ingredient")
     private Map<String, List<String>> ingredients;
+
 
     // Getters and Setters
     public Long getId() {
