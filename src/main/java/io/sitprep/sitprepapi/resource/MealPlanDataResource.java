@@ -21,13 +21,19 @@ public class MealPlanDataResource {
         return service.getMealPlansByOwner(ownerEmail);
     }
 
+    @GetMapping
+    public List<MealPlanData> getAllMealPlans() {
+        return service.getAllMealPlans();
+    }
+
     @PostMapping
-    public MealPlanData saveMealPlan(@RequestBody MealPlanData mealPlanData) {
+    public MealPlanData saveOrUpdateMealPlan(@RequestBody MealPlanData mealPlanData) {
         if (mealPlanData.getOwnerEmail() == null || mealPlanData.getMealPlan() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
         System.out.println("Received MealPlanData: " + mealPlanData);
-        return service.saveMealPlanData(mealPlanData);
+        return service.saveOrUpdateMealPlan(mealPlanData);
     }
+
 
 }

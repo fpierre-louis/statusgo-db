@@ -18,16 +18,28 @@ public class MealPlanDataService {
         return repository.findByOwnerEmail(ownerEmail);
     }
 
-    public MealPlanData saveMealPlanData(MealPlanData mealPlanData) {
-        for (MealPlan plan : mealPlanData.getMealPlan()) {
-            if (plan.getId() != null) {
-                // Fetch and update existing entity logic (if necessary)
-            } else {
-                plan.setId(null); // Ensure new entities
-            }
-        }
-        return repository.save(mealPlanData);
+    public List<MealPlanData> getAllMealPlans() {
+        return repository.findAll();
     }
 
+    public MealPlanData saveOrUpdateMealPlan(MealPlanData mealPlanData) {
+        // Check if a meal plan already exists for this user
+        List<MealPlanData> existingPlans = repository.findByOwnerEmail(mealPlanData.getOwnerEmail());
+        if (!existingPlans.isEmpty()) {
+            // Assuming one meal plan per user, get the first one
+            MealPlanData existingPlan = existingPlans.get(0);
+
+            // Update the existing plan's details
+            existingPlan.setMealPlan(mealPlanData.getMealPlan());
+            existingPlan.setPlanDuration(mealPlanData.getPlanDuration());
+            existingPlan.setNumberOfMenuOptions(mealPlanData.getNumberOfMenuOptions());
+
+            // Save the updated plan
+            return repository.save(existingPlan);
+        } else {
+            // Create a new plan if none exists
+            return repository.save(mealPlanData);
+        }
+    }
 
 }
