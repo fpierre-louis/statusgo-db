@@ -27,13 +27,14 @@ public class MealPlanDataResource {
     }
 
     @PostMapping
-    public MealPlanData saveOrUpdateMealPlan(@RequestBody MealPlanData mealPlanData) {
+    public MealPlanData saveMealPlan(@RequestBody MealPlanData mealPlanData) {
         if (mealPlanData.getOwnerEmail() == null || mealPlanData.getMealPlan() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
         System.out.println("Received MealPlanData: " + mealPlanData);
-        return service.saveOrUpdateMealPlan(mealPlanData);
+        return service.saveMealPlanData(mealPlanData);
     }
+
 
 
 }
