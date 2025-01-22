@@ -2,7 +2,6 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
 import java.util.List;
-import java.util.Map;
 
 @Entity
 public class MealPlanData {
@@ -11,7 +10,11 @@ public class MealPlanData {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ElementCollection
+    @Column(nullable = false)
+    private String ownerEmail; // New field for user identification
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "meal_plan_data_id") // Foreign key in MealPlan table
     private List<MealPlan> mealPlan;
 
     private int numberOfMenuOptions;
@@ -20,13 +23,20 @@ public class MealPlanData {
     private PlanDuration planDuration;
 
     // Getters and Setters
-
     public Long getId() {
         return id;
     }
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getOwnerEmail() {
+        return ownerEmail;
+    }
+
+    public void setOwnerEmail(String ownerEmail) {
+        this.ownerEmail = ownerEmail;
     }
 
     public List<MealPlan> getMealPlan() {
@@ -53,55 +63,3 @@ public class MealPlanData {
         this.planDuration = planDuration;
     }
 }
-
-@Embeddable
-class PlanDuration {
-    private int quantity;
-    private String unit;
-
-    // Getters and Setters
-
-    public int getQuantity() {
-        return quantity;
-    }
-
-    public void setQuantity(int quantity) {
-        this.quantity = quantity;
-    }
-
-    public String getUnit() {
-        return unit;
-    }
-
-    public void setUnit(String unit) {
-        this.unit = unit;
-    }
-}
-
-@Embeddable
-class MealPlan {
-    @ElementCollection
-    private Map<String, String> meals; // breakfast, lunch, dinner, snack
-
-    @ElementCollection
-    private Map<String, List<String>> ingredients;
-
-    // Getters and Setters
-
-    public Map<String, String> getMeals() {
-        return meals;
-    }
-
-    public void setMeals(Map<String, String> meals) {
-        this.meals = meals;
-    }
-
-    public Map<String, List<String>> getIngredients() {
-        return ingredients;
-    }
-
-    public void setIngredients(Map<String, List<String>> ingredients) {
-        this.ingredients = ingredients;
-    }
-}
-

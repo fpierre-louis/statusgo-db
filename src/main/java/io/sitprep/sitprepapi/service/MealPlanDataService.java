@@ -1,21 +1,23 @@
-package io.sitprep.sitprepapi.resource;
+package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.MealPlanData;
+import io.sitprep.sitprepapi.repo.MealPlanDataRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
+import java.util.List;
 
 @Service
 public class MealPlanDataService {
 
     @Autowired
-    private MealPlanDataRepository repository;
+    private MealPlanDataRepo repository;
+
+    public List<MealPlanData> getMealPlansByOwner(String ownerEmail) {
+        return repository.findByOwnerEmail(ownerEmail);
+    }
 
     public MealPlanData saveMealPlanData(MealPlanData mealPlanData) {
         return repository.save(mealPlanData);
-    }
-
-    public Optional<MealPlanData> getMealPlanData(Long id) {
-        return repository.findById(id);
     }
 }
