@@ -17,9 +17,11 @@ public class MealPlan {
     @Column(name = "meal_name")
     private Map<String, String> meals;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
-    @JoinColumn(name = "meal_plan_id") // Links `Ingredient` to `MealPlan`
-    private List<Ingredient> ingredients;
+    @ElementCollection
+    @CollectionTable(name = "meal_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
+    @MapKeyColumn(name = "meal_type") // Maps mealType to its ingredients
+    @Column(name = "ingredient")
+    private Map<String, List<String>> ingredients;
 
     // Getters and Setters
     public Long getId() {
@@ -38,11 +40,11 @@ public class MealPlan {
         this.meals = meals;
     }
 
-    public List<Ingredient> getIngredients() {
+    public Map<String, List<String>> getIngredients() {
         return ingredients;
     }
 
-    public void setIngredients(List<Ingredient> ingredients) {
+    public void setIngredients(Map<String, List<String>> ingredients) {
         this.ingredients = ingredients;
     }
 }

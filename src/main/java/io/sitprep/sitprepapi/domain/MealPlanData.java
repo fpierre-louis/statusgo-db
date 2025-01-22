@@ -11,16 +11,16 @@ public class MealPlanData {
     private Long id;
 
     @Column(nullable = false)
-    private String ownerEmail; // New field for user identification
+    private String ownerEmail;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "meal_plan_data_id") // Foreign key in MealPlan table
     private List<MealPlan> mealPlan;
 
-    private int numberOfMenuOptions;
-
     @Embedded
     private PlanDuration planDuration;
+
+    private int numberOfMenuOptions;
 
     // Getters and Setters
     public Long getId() {
@@ -47,19 +47,19 @@ public class MealPlanData {
         this.mealPlan = mealPlan;
     }
 
-    public int getNumberOfMenuOptions() {
-        return numberOfMenuOptions;
-    }
-
-    public void setNumberOfMenuOptions(int numberOfMenuOptions) {
-        this.numberOfMenuOptions = numberOfMenuOptions;
-    }
-
     public PlanDuration getPlanDuration() {
         return planDuration;
     }
 
     public void setPlanDuration(PlanDuration planDuration) {
         this.planDuration = planDuration;
+    }
+
+    public int getNumberOfMenuOptions() {
+        return numberOfMenuOptions;
+    }
+
+    public void setNumberOfMenuOptions(int numberOfMenuOptions) {
+        this.numberOfMenuOptions = numberOfMenuOptions;
     }
 }
