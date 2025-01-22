@@ -86,13 +86,6 @@ public class UserInfo {
     @Column(name = "date_subscribed")
     private Instant dateSubscribed;
 
-    // Add the many-to-many relationship for MealPlan
-    @ManyToMany(cascade = CascadeType.ALL)
-    @JoinTable(
-            name = "user_meal_plan",
-            joinColumns = @JoinColumn(name = "user_id", referencedColumnName = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "meal_plan_id", referencedColumnName = "id")
-    )
-    private Set<MealPlan> mealPlans;
+
 
 }
