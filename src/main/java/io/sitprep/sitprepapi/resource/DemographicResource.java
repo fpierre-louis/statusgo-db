@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/demographics")
@@ -30,8 +31,9 @@ public class DemographicResource {
     }
 
     @GetMapping("/owner")
-    public ResponseEntity<List<Demographic>> getDemographicsByOwnerEmail(@RequestParam String ownerEmail) {
-        return ResponseEntity.ok(demographicService.getDemographicsByOwnerEmail(ownerEmail));
+    public ResponseEntity<Demographic> getDemographicByOwnerEmail(@RequestParam String ownerEmail) {
+        Optional<Demographic> demographic = demographicService.getDemographicByOwnerEmail(ownerEmail);
+        return demographic.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/admin")
