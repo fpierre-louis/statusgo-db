@@ -17,7 +17,8 @@ public class MeetingPlace {
     private String address;
     private String phoneNumber;
 
-    @Lob
+    // Replace @Lob with a standard String
+    @Column(length = 2048) // Optional: Set max length to a reasonable value
     private String additionalInfo;
 
     @Column(nullable = true)
@@ -27,6 +28,8 @@ public class MeetingPlace {
     private Double lng;
 
     private boolean deploy;
+
+
 
     // Getters and Setters
     public Long getId() {

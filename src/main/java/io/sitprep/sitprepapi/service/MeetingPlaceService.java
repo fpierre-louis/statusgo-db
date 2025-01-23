@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+import org.springframework.transaction.annotation.Transactional;
+
 @Service
 public class MeetingPlaceService {
 
@@ -15,14 +17,17 @@ public class MeetingPlaceService {
         this.meetingPlaceRepo = meetingPlaceRepo;
     }
 
-    public MeetingPlace saveMeetingPlace(MeetingPlace meetingPlace) {
-        return meetingPlaceRepo.save(meetingPlace);
-    }
-
+    @Transactional // Ensure all methods are executed within a transaction
     public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
         return meetingPlaceRepo.findByOwnerEmail(ownerEmail);
     }
 
+    @Transactional
+    public MeetingPlace saveMeetingPlace(MeetingPlace meetingPlace) {
+        return meetingPlaceRepo.save(meetingPlace);
+    }
+
+    @Transactional
     public void deleteMeetingPlace(Long id) {
         meetingPlaceRepo.deleteById(id);
     }
