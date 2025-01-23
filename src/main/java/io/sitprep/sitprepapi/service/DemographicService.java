@@ -17,11 +17,13 @@ public class DemographicService {
     }
 
     public Demographic saveDemographic(Demographic demographic) {
-        // Check if a demographic record already exists for this ownerEmail
-        Optional<Demographic> existingDemographic = demographicRepository.findByOwnerEmail(demographic.getOwnerEmail());
+        if (demographic.getId() != null) {
+            // Update existing record by ID
+            return demographicRepository.save(demographic);
+        }
 
+        Optional<Demographic> existingDemographic = demographicRepository.findByOwnerEmail(demographic.getOwnerEmail());
         if (existingDemographic.isPresent()) {
-            // Update the existing record
             Demographic existing = existingDemographic.get();
             existing.setInfants(demographic.getInfants());
             existing.setAdults(demographic.getAdults());
@@ -29,12 +31,14 @@ public class DemographicService {
             existing.setDogs(demographic.getDogs());
             existing.setCats(demographic.getCats());
             existing.setPets(demographic.getPets());
+            existing.setAdminEmails(demographic.getAdminEmails());
             return demographicRepository.save(existing);
-        } else {
-            // Save as a new record
-            return demographicRepository.save(demographic);
         }
+
+        // Create new record
+        return demographicRepository.save(demographic);
     }
+
 
     public List<Demographic> getAllDemographics() {
         return demographicRepository.findAll();
