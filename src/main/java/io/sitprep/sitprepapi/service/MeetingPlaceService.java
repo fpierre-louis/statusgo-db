@@ -6,29 +6,36 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-import org.springframework.transaction.annotation.Transactional;
-
 @Service
 public class MeetingPlaceService {
 
-    private final MeetingPlaceRepo meetingPlaceRepo;
+    private final MeetingPlaceRepo meetingPlaceRepository;
 
-    public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepo) {
-        this.meetingPlaceRepo = meetingPlaceRepo;
+    public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepository) {
+        this.meetingPlaceRepository = meetingPlaceRepository;
     }
 
-    @Transactional // Ensure all methods are executed within a transaction
-    public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
-        return meetingPlaceRepo.findByOwnerEmail(ownerEmail);
-    }
-
-    @Transactional
     public MeetingPlace saveMeetingPlace(MeetingPlace meetingPlace) {
-        return meetingPlaceRepo.save(meetingPlace);
+        return meetingPlaceRepository.save(meetingPlace);
     }
 
-    @Transactional
-    public void deleteMeetingPlace(Long id) {
-        meetingPlaceRepo.deleteById(id);
+    public MeetingPlace updateMeetingPlace(Long id, MeetingPlace updatedPlace) {
+        return meetingPlaceRepository.findById(id)
+                .map(existingPlace -> {
+                    existingPlace.setName(updatedPlace.getName());
+                    existingPlace.setLocation(updatedPlace.getLocation());
+                    existingPlace.setAddress(updatedPlace.getAddress());
+                    existingPlace.setPhoneNumber(updatedPlace.getPhoneNumber());
+                    existingPlace.setAdditionalInfo(updatedPlace.getAdditionalInfo());
+                    existingPlace.setLat(updatedPlace.getLat());
+                    existingPlace.setLng(updatedPlace.getLng());
+                    existingPlace.setDeploy(updatedPlace.isDeploy());
+                    return meetingPlaceRepository.save(existingPlace);
+                })
+                .orElseThrow(() -> new RuntimeException("Meeting place with id " + id + " not found"));
+    }
+
+    public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
+        return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
 }

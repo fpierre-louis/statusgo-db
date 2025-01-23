@@ -19,18 +19,22 @@ public class MeetingPlaceResource {
     }
 
     @PostMapping
-    public ResponseEntity<MeetingPlace> saveMeetingPlace(@RequestBody MeetingPlace meetingPlace) {
-        return ResponseEntity.ok(meetingPlaceService.saveMeetingPlace(meetingPlace));
+    public ResponseEntity<MeetingPlace> createMeetingPlace(@RequestBody MeetingPlace meetingPlace) {
+        MeetingPlace savedPlace = meetingPlaceService.saveMeetingPlace(meetingPlace);
+        return ResponseEntity.ok(savedPlace);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<MeetingPlace> updateMeetingPlace(
+            @PathVariable Long id,
+            @RequestBody MeetingPlace meetingPlace
+    ) {
+        MeetingPlace updatedPlace = meetingPlaceService.updateMeetingPlace(id, meetingPlace);
+        return ResponseEntity.ok(updatedPlace);
     }
 
     @GetMapping
     public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail(@RequestParam String ownerEmail) {
         return ResponseEntity.ok(meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteMeetingPlace(@PathVariable Long id) {
-        meetingPlaceService.deleteMeetingPlace(id);
-        return ResponseEntity.noContent().build();
     }
 }
