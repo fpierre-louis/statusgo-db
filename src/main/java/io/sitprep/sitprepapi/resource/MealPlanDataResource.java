@@ -10,7 +10,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/mealplans")
+@RequestMapping("/api/mealPlans")
 public class MealPlanDataResource {
 
     @Autowired
