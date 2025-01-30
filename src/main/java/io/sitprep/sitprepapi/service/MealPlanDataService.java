@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class MealPlanDataService {
@@ -23,21 +24,34 @@ public class MealPlanDataService {
     }
 
     public MealPlanData saveMealPlanData(MealPlanData mealPlanData) {
-        MealPlanData existing = repository.findByOwnerEmail(mealPlanData.getOwnerEmail())
-                .stream()
-                .findFirst()
-                .orElse(null);
-        if (existing != null) {
-            // Update fields on the existing entity
-            existing.getMealPlan().clear(); // Clear the existing list
-            existing.getMealPlan().addAll(mealPlanData.getMealPlan()); // Add new items
+        Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(mealPlanData.getOwnerEmail()).stream().findFirst();
+
+        if (existingOpt.isPresent()) {
+            // If existing, update it instead of creating a new one
+            MealPlanData existing = existingOpt.get();
+
+            // Update Plan Duration and Menu Options Count
             existing.setPlanDuration(mealPlanData.getPlanDuration());
             existing.setNumberOfMenuOptions(mealPlanData.getNumberOfMenuOptions());
-            return repository.save(existing);
-        }
-        return repository.save(mealPlanData); // Create new entry if no existing one
-    }
 
+            // Clear existing meal plan and update with new ones
+            existing.getMealPlan().clear();
+
+            for (int i = 0; i < mealPlanData.getMealPlan().size(); i++) {
+                MealPlan newMealPlan = mealPlanData.getMealPlan().get(i);
+                newMealPlan.setId((long) (i + 1)); // Explicit cast to Long
+                existing.getMealPlan().add(newMealPlan);
+            }
+
+            return repository.save(existing);
+        } else {
+            // Ensure IDs start from 1 for a new meal plan
+            for (int i = 0; i < mealPlanData.getMealPlan().size(); i++) {
+                mealPlanData.getMealPlan().get(i).setId((long) (i + 1)); // Explicit cast to Long
+            }
+            return repository.save(mealPlanData);
+        }
+    }
 
 
 }
