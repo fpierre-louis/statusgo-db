@@ -1,8 +1,8 @@
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
-import java.util.List;
 import java.util.Map;
+import java.util.List;
 
 @Entity
 public class MealPlan {
@@ -12,17 +12,16 @@ public class MealPlan {
     private Long id;
 
     @ElementCollection
-    @CollectionTable(name = "meal_items", joinColumns = @JoinColumn(name = "meal_plan_id"))
-    @MapKeyColumn(name = "meal_type") // breakfast, lunch, etc.
+    @CollectionTable(name = "meal_plan_meals", joinColumns = @JoinColumn(name = "meal_plan_id"))
+    @MapKeyColumn(name = "meal_type")
     @Column(name = "meal_name")
     private Map<String, String> meals;
 
     @ElementCollection
-    @CollectionTable(name = "meal_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
+    @CollectionTable(name = "meal_plan_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
-    @Column(name = "ingredient")
+    @Column(name = "ingredients", columnDefinition = "TEXT")
     private Map<String, List<String>> ingredients;
-
 
     // Getters and Setters
     public Long getId() {

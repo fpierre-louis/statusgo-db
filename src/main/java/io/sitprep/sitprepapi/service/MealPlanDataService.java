@@ -34,12 +34,14 @@ public class MealPlanDataService {
             existing.setPlanDuration(mealPlanData.getPlanDuration());
             existing.setNumberOfMenuOptions(mealPlanData.getNumberOfMenuOptions());
 
-            // Clear existing meal plan and update with new ones
+            // Clear old meal plan and replace with new ones
             existing.getMealPlan().clear();
 
             for (int i = 0; i < mealPlanData.getMealPlan().size(); i++) {
                 MealPlan newMealPlan = mealPlanData.getMealPlan().get(i);
-                newMealPlan.setId((long) (i + 1)); // Explicit cast to Long
+
+                // Set ID to null to ensure a fresh save
+                newMealPlan.setId(null);
                 existing.getMealPlan().add(newMealPlan);
             }
 
@@ -47,11 +49,10 @@ public class MealPlanDataService {
         } else {
             // Ensure IDs start from 1 for a new meal plan
             for (int i = 0; i < mealPlanData.getMealPlan().size(); i++) {
-                mealPlanData.getMealPlan().get(i).setId((long) (i + 1)); // Explicit cast to Long
+                mealPlanData.getMealPlan().get(i).setId(null);
             }
             return repository.save(mealPlanData);
         }
     }
-
-
 }
+

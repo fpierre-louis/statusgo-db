@@ -31,10 +31,14 @@ public class MealPlanDataResource {
         if (mealPlanData.getOwnerEmail() == null || mealPlanData.getMealPlan() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
-        System.out.println("Received MealPlanData: " + mealPlanData);
         return service.saveMealPlanData(mealPlanData);
     }
 
-
-
+    @PutMapping("/{ownerEmail}")
+    public MealPlanData updateMealPlan(@PathVariable String ownerEmail, @RequestBody MealPlanData updatedData) {
+        if (updatedData.getOwnerEmail() == null || updatedData.getMealPlan() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
+        }
+        return service.saveMealPlanData(updatedData);
+    }
 }

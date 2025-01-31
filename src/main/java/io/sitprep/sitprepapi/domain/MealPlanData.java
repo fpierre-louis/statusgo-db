@@ -13,7 +13,6 @@ public class MealPlanData {
     @Column(nullable = false, unique = true)
     private String ownerEmail;
 
-
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "meal_plan_data_id") // Foreign key in MealPlan table
     private List<MealPlan> mealPlan;
@@ -22,6 +21,7 @@ public class MealPlanData {
     private PlanDuration planDuration;
 
     private int numberOfMenuOptions;
+
 
     // Getters and Setters
     public Long getId() {
