@@ -15,9 +15,10 @@ public class MeetingPlaceService {
         this.meetingPlaceRepository = meetingPlaceRepository;
     }
 
-    public MeetingPlace saveMeetingPlace(MeetingPlace meetingPlace) {
-        return meetingPlaceRepository.save(meetingPlace);
+    public List<MeetingPlace> saveAllMeetingPlaces(List<MeetingPlace> meetingPlaces) {
+        return meetingPlaceRepository.saveAll(meetingPlaces);
     }
+
 
     public MeetingPlace updateMeetingPlace(Long id, MeetingPlace updatedPlace) {
         return meetingPlaceRepository.findById(id)
