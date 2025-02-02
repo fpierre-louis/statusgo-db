@@ -1,8 +1,10 @@
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
-import java.util.Map;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Entity
 public class MealPlan {
@@ -11,17 +13,22 @@ public class MealPlan {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @ManyToOne
+    @JoinColumn(name = "meal_plan_data_id", nullable = false)
+    @JsonBackReference  // Prevent infinite recursion when serializing
+    private MealPlanData mealPlanData;
+
     @ElementCollection
     @CollectionTable(name = "meal_plan_meals", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
     @Column(name = "meal_name")
-    private Map<String, String> meals;
+    private Map<String, String> meals = new HashMap<>();
 
     @ElementCollection
     @CollectionTable(name = "meal_plan_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
-    @Column(name = "ingredients", columnDefinition = "TEXT")
-    private Map<String, List<String>> ingredients;
+    @Column(name = "ingredients")
+    private Map<String, List<String>> ingredients = new HashMap<>();
 
     // Getters and Setters
     public Long getId() {
@@ -30,6 +37,14 @@ public class MealPlan {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public MealPlanData getMealPlanData() {
+        return mealPlanData;
+    }
+
+    public void setMealPlanData(MealPlanData mealPlanData) {
+        this.mealPlanData = mealPlanData;
     }
 
     public Map<String, String> getMeals() {
