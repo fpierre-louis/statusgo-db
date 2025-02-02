@@ -7,6 +7,7 @@ import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Entity
+@Table(name = "meal_plan_v2") // Renamed table
 public class MealPlan {
 
     @Id
@@ -15,17 +16,17 @@ public class MealPlan {
 
     @ManyToOne
     @JoinColumn(name = "meal_plan_data_id", nullable = false)
-    @JsonBackReference  // Prevent infinite recursion when serializing
+    @JsonBackReference
     private MealPlanData mealPlanData;
 
     @ElementCollection
-    @CollectionTable(name = "meal_plan_meals", joinColumns = @JoinColumn(name = "meal_plan_id"))
+    @CollectionTable(name = "meal_plan_meals_v2", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
     @Column(name = "meal_name")
     private Map<String, String> meals = new HashMap<>();
 
     @ElementCollection
-    @CollectionTable(name = "meal_plan_ingredients", joinColumns = @JoinColumn(name = "meal_plan_id"))
+    @CollectionTable(name = "meal_plan_ingredients_v2", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
     @Column(name = "ingredients")
     private Map<String, List<String>> ingredients = new HashMap<>();

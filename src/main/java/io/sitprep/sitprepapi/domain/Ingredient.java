@@ -2,16 +2,16 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
 
-
 @Entity
+@Table(name = "ingredient_v2") // Renamed table
 public class Ingredient {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String mealType; // e.g., breakfast, lunch, etc.
-    private String name;     // e.g., Milk, Cereal, etc.
+    private String mealType;
+    private String name;
 
     // Getters and Setters
     public Long getId() {

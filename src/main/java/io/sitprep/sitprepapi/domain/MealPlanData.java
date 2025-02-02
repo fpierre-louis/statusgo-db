@@ -8,9 +8,9 @@ import lombok.Getter;
 
 @Getter
 @Entity
+@Table(name = "meal_plan_data_v2") // Renamed table
 public class MealPlanData {
 
-    // Getters and Setters
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -19,7 +19,7 @@ public class MealPlanData {
     private String ownerEmail;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "mealPlanData", fetch = FetchType.LAZY)
-    @JsonManagedReference // Manages bidirectional reference to MealPlan
+    @JsonManagedReference
     private List<MealPlan> mealPlan = new ArrayList<>();
 
     @Embedded
@@ -50,14 +50,14 @@ public class MealPlanData {
 
     public void addMealPlan(MealPlan meal) {
         if (!this.mealPlan.contains(meal)) {
-            meal.setMealPlanData(this); // Ensure child references parent
+            meal.setMealPlanData(this);
             this.mealPlan.add(meal);
         }
     }
 
     public void removeMealPlan(MealPlan meal) {
         this.mealPlan.remove(meal);
-        meal.setMealPlanData(null); // Prevent orphan references
+        meal.setMealPlanData(null);
     }
 
     public void setPlanDuration(PlanDuration planDuration) {

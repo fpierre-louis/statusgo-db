@@ -11,7 +11,6 @@ public class PlanDuration {
     private String unit;
 
     // Getters and Setters
-
     public void setQuantity(int quantity) {
         this.quantity = quantity;
     }
