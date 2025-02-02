@@ -1,3 +1,4 @@
+
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
@@ -28,6 +29,7 @@ public class MeetingPlaceService {
         return meetingPlaceRepository.saveAll(meetingPlaces);
     }
 
+
     public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
         return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
@@ -47,4 +49,5 @@ public class MeetingPlaceService {
                 })
                 .orElseThrow(() -> new RuntimeException("Meeting place with id " + id + " not found"));
     }
+
 }

@@ -37,12 +37,11 @@ public class EvacuationPlanResource {
             plan.setDestination((String) data.get("destination"));
             plan.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
 
-            // Handling shelterDetails
             Map<String, Object> shelterDetails = (Map<String, Object>) data.get("shelterDetails");
             if (shelterDetails != null) {
-                plan.setShelterName((String) shelterDetails.getOrDefault("name", ""));
-                plan.setShelterAddress((String) shelterDetails.getOrDefault("address", ""));
-                plan.setShelterPhoneNumber((String) shelterDetails.getOrDefault("phoneNumber", ""));
+                plan.setShelterName((String) shelterDetails.get("name"));
+                plan.setShelterAddress((String) shelterDetails.get("address"));
+                plan.setShelterPhoneNumber((String) shelterDetails.get("phoneNumber"));
 
                 Map<String, Object> latLng = (Map<String, Object>) shelterDetails.get("latLng");
                 if (latLng != null) {
@@ -58,26 +57,7 @@ public class EvacuationPlanResource {
     }
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> getEvacuationPlansByOwner(@RequestParam String ownerEmail) {
-        List<EvacuationPlan> plans = evacuationPlanService.getEvacuationPlansByOwner(ownerEmail);
-
-        // Transform the response to match frontend expectations
-        List<Map<String, Object>> formattedPlans = plans.stream().map(plan -> Map.of(
-                "id", plan.getId(),
-                "ownerEmail", plan.getOwnerEmail(),
-                "name", plan.getName(),
-                "origin", plan.getOrigin(),
-                "destination", plan.getDestination(),
-                "deploy", plan.isDeploy(),
-                "shelterDetails", Map.of(
-                        "name", plan.getShelterName(),
-                        "address", plan.getShelterAddress(),
-                        "phoneNumber", plan.getShelterPhoneNumber(),
-                        "latLng", plan.getLat() != null && plan.getLng() != null ?
-                                Map.of("lat", plan.getLat(), "lng", plan.getLng()) : null
-                )
-        )).collect(Collectors.toList());
-
-        return ResponseEntity.ok(formattedPlans);
+    public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner(@RequestParam String ownerEmail) {
+        return ResponseEntity.ok(evacuationPlanService.getEvacuationPlansByOwner(ownerEmail));
     }
 }
