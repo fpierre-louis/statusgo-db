@@ -2,8 +2,6 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.service.MeetingPlaceService;
-
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,6 +33,7 @@ public class MeetingPlaceResource {
             return ResponseEntity.badRequest().build();
         }
 
+        // Convert request data into MeetingPlace objects
         List<MeetingPlace> meetingPlaces = placesData.stream().map(data -> {
             MeetingPlace place = new MeetingPlace();
             place.setOwnerEmail(ownerEmail);

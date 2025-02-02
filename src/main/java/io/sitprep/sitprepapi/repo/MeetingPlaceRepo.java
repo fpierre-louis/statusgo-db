@@ -10,5 +10,5 @@ public interface MeetingPlaceRepo extends JpaRepository<MeetingPlace, Long> {
     List<MeetingPlace> findByOwnerEmail(String ownerEmail);
 
     @Transactional
-    void deleteByOwnerEmail(String ownerEmail); // Delete all meeting places for a user
+    void deleteByOwnerEmail(String ownerEmail); // Ensure this exists!
 }
