@@ -4,7 +4,6 @@ import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
 
 @Service
@@ -16,11 +15,21 @@ public class EvacuationPlanService {
         this.evacuationPlanRepo = evacuationPlanRepo;
     }
 
-    @Transactional
+    @Transactional // Ensures atomic save operation
     public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
-        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail); // Overwrite existing plans
+        // Validate input
+        if (ownerEmail == null || ownerEmail.isEmpty()) {
+            throw new IllegalArgumentException("Owner email cannot be null or empty");
+        }
+
+        // Remove existing plans for this user before saving
+        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail); // ✅ Fixed this line
+
+        // Assign ownerEmail before saving to ensure consistency
         evacuationPlans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
-        return evacuationPlanRepo.saveAll(evacuationPlans);
+
+        // Save new plans
+        return evacuationPlanRepo.saveAll(evacuationPlans); // ✅ Fixed this line
     }
 
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {

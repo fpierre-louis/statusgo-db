@@ -26,7 +26,7 @@ public class EvacuationPlanResource {
         List<Map<String, Object>> plansData = (List<Map<String, Object>>) requestData.get("evacuationPlans");
 
         if (ownerEmail == null || plansData == null || plansData.isEmpty()) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(null);
         }
 
         List<EvacuationPlan> evacuationPlans = plansData.stream().map(data -> {
@@ -36,8 +36,19 @@ public class EvacuationPlanResource {
             plan.setOrigin((String) data.get("origin"));
             plan.setDestination((String) data.get("destination"));
             plan.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
-            plan.setShelterDetails(data.get("shelterDetails").toString());
-            plan.setDirections(data.get("directions") != null ? data.get("directions").toString() : null);
+
+            Map<String, Object> shelterDetails = (Map<String, Object>) data.get("shelterDetails");
+            if (shelterDetails != null) {
+                plan.setShelterName((String) shelterDetails.get("name"));
+                plan.setShelterAddress((String) shelterDetails.get("address"));
+                plan.setShelterPhoneNumber((String) shelterDetails.get("phoneNumber"));
+
+                Map<String, Object> latLng = (Map<String, Object>) shelterDetails.get("latLng");
+                if (latLng != null) {
+                    plan.setLat((Double) latLng.get("lat"));
+                    plan.setLng((Double) latLng.get("lng"));
+                }
+            }
             return plan;
         }).collect(Collectors.toList());
 

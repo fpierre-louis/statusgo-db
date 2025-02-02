@@ -16,34 +16,117 @@ public class EvacuationPlan {
     private String destination;
     private boolean deploy;
 
-    @Column(length = 2048)
-    private String shelterDetails; // Stored as JSON string
+    // Shelter Details
+    private String shelterName;
+    private String shelterAddress;
+    private String shelterPhoneNumber;
 
-    @Column(length = 4096)
-    private String directions; // Store route details as JSON
+    // Coordinates
+    @Column(nullable = true)
+    private Double lat;
+
+    @Column(nullable = true)
+    private Double lng;
 
     // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getId() {
+        return id;
+    }
 
-    public String getOwnerEmail() { return ownerEmail; }
-    public void setOwnerEmail(String ownerEmail) { this.ownerEmail = ownerEmail; }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String getOwnerEmail() {
+        return ownerEmail;
+    }
 
-    public String getOrigin() { return origin; }
-    public void setOrigin(String origin) { this.origin = origin; }
+    public void setOwnerEmail(String ownerEmail) {
+        this.ownerEmail = ownerEmail;
+    }
 
-    public String getDestination() { return destination; }
-    public void setDestination(String destination) { this.destination = destination; }
+    public String getName() {
+        return name;
+    }
 
-    public boolean isDeploy() { return deploy; }
-    public void setDeploy(boolean deploy) { this.deploy = deploy; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public String getShelterDetails() { return shelterDetails; }
-    public void setShelterDetails(String shelterDetails) { this.shelterDetails = shelterDetails; }
+    public String getOrigin() {
+        return origin;
+    }
 
-    public String getDirections() { return directions; }
-    public void setDirections(String directions) { this.directions = directions; }
+    public void setOrigin(String origin) {
+        this.origin = origin;
+    }
+
+    public String getDestination() {
+        return destination;
+    }
+
+    public void setDestination(String destination) {
+        this.destination = destination;
+    }
+
+    public boolean isDeploy() {
+        return deploy;
+    }
+
+    public void setDeploy(boolean deploy) {
+        this.deploy = deploy;
+    }
+
+    public String getShelterName() {
+        return shelterName;
+    }
+
+    public void setShelterName(String shelterName) {
+        this.shelterName = shelterName;
+    }
+
+    public String getShelterAddress() {
+        return shelterAddress;
+    }
+
+    public void setShelterAddress(String shelterAddress) {
+        this.shelterAddress = shelterAddress;
+    }
+
+    public String getShelterPhoneNumber() {
+        return shelterPhoneNumber;
+    }
+
+    public void setShelterPhoneNumber(String shelterPhoneNumber) {
+        this.shelterPhoneNumber = shelterPhoneNumber;
+    }
+
+    public Double getLat() {
+        return lat;
+    }
+
+    public void setLat(Double lat) {
+        this.lat = lat;
+    }
+
+    public Double getLng() {
+        return lng;
+    }
+
+    public void setLng(Double lng) {
+        this.lng = lng;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof EvacuationPlan)) return false;
+        EvacuationPlan that = (EvacuationPlan) o;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
+    }
 }
