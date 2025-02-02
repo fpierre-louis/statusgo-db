@@ -23,13 +23,13 @@ public class EvacuationPlanService {
         }
 
         // Remove existing plans for this user before saving
-        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail); // ✅ Fixed this line
+        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
 
         // Assign ownerEmail before saving to ensure consistency
         evacuationPlans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
 
         // Save new plans
-        return evacuationPlanRepo.saveAll(evacuationPlans); // ✅ Fixed this line
+        return evacuationPlanRepo.saveAll(evacuationPlans);
     }
 
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
