@@ -15,22 +15,18 @@ public class EvacuationPlanService {
         this.evacuationPlanRepo = evacuationPlanRepo;
     }
 
-    @Transactional // Ensures atomic save operation
+    @Transactional
     public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
-        // Validate input
         if (ownerEmail == null || ownerEmail.isEmpty()) {
             throw new IllegalArgumentException("Owner email cannot be null or empty");
         }
 
-        // Remove existing plans for this user before saving
         evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
-
-        // Assign ownerEmail before saving to ensure consistency
         evacuationPlans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
 
-        // Save new plans
         return evacuationPlanRepo.saveAll(evacuationPlans);
     }
+
 
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
         return evacuationPlanRepo.findByOwnerEmail(ownerEmail);

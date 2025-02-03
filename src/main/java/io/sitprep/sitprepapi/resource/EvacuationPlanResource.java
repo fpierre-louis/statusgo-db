@@ -37,14 +37,15 @@ public class EvacuationPlanResource {
             plan.setDestination((String) data.get("destination"));
             plan.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
 
-            // ✅ Extract shelter details directly (No nested `shelterDetails`)
             plan.setShelterName((String) data.get("shelterName"));
             plan.setShelterAddress((String) data.get("shelterAddress"));
             plan.setShelterPhoneNumber((String) data.get("shelterPhoneNumber"));
 
-            // ✅ Extract coordinates directly
             plan.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+
+            plan.setTravelMode((String) data.get("travelMode"));  // ✅ Added
+            plan.setShelterInfo((String) data.get("shelterInfo")); // ✅ Added
 
             return plan;
         }).collect(Collectors.toList());
@@ -52,6 +53,7 @@ public class EvacuationPlanResource {
         List<EvacuationPlan> savedPlans = evacuationPlanService.saveAllEvacuationPlans(ownerEmail, evacuationPlans);
         return ResponseEntity.ok(savedPlans);
     }
+
 
 
     @GetMapping

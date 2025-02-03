@@ -16,19 +16,22 @@ public class EvacuationPlan {
     private String destination;
     private boolean deploy;
 
-    // Shelter Details
     private String shelterName;
     private String shelterAddress;
     private String shelterPhoneNumber;
-
-    // Coordinates
-    @Column(nullable = true)
     private Double lat;
-
-    @Column(nullable = true)
     private Double lng;
 
+    private String travelMode;  // ✅ Added
+    private String shelterInfo; // ✅ Added
+
     // Getters and Setters
+    public String getTravelMode() { return travelMode; }
+    public void setTravelMode(String travelMode) { this.travelMode = travelMode; }
+
+    public String getShelterInfo() { return shelterInfo; }
+    public void setShelterInfo(String shelterInfo) { this.shelterInfo = shelterInfo; }
+
     public Long getId() {
         return id;
     }
