@@ -37,24 +37,22 @@ public class EvacuationPlanResource {
             plan.setDestination((String) data.get("destination"));
             plan.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
 
-            Map<String, Object> shelterDetails = (Map<String, Object>) data.get("shelterDetails");
-            if (shelterDetails != null) {
-                plan.setShelterName((String) shelterDetails.get("name"));
-                plan.setShelterAddress((String) shelterDetails.get("address"));
-                plan.setShelterPhoneNumber((String) shelterDetails.get("phoneNumber"));
+            // ✅ Extract shelter details directly (No nested `shelterDetails`)
+            plan.setShelterName((String) data.get("shelterName"));
+            plan.setShelterAddress((String) data.get("shelterAddress"));
+            plan.setShelterPhoneNumber((String) data.get("shelterPhoneNumber"));
 
-                Map<String, Object> latLng = (Map<String, Object>) shelterDetails.get("latLng");
-                if (latLng != null) {
-                    plan.setLat((Double) latLng.get("lat"));
-                    plan.setLng((Double) latLng.get("lng"));
-                }
-            }
+            // ✅ Extract coordinates directly
+            plan.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
+            plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+
             return plan;
         }).collect(Collectors.toList());
 
         List<EvacuationPlan> savedPlans = evacuationPlanService.saveAllEvacuationPlans(ownerEmail, evacuationPlans);
         return ResponseEntity.ok(savedPlans);
     }
+
 
     @GetMapping
     public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner(@RequestParam String ownerEmail) {
