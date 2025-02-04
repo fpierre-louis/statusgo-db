@@ -33,6 +33,7 @@ public class EmergencyContactGroupResource {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+
     @PostMapping
     public EmergencyContactGroup createGroup(@RequestBody EmergencyContactGroup group) {
         return groupService.createGroup(group);

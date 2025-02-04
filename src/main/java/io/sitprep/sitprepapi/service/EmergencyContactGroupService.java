@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.EmergencyContact;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,9 @@ public class EmergencyContactGroupService {
     }
 
     public EmergencyContactGroup createGroup(EmergencyContactGroup group) {
+        for (EmergencyContact contact : group.getContacts()) {
+            contact.setGroup(group); // ✅ Ensure contacts are correctly linked
+        }
         return groupRepo.save(group);
     }
 
@@ -34,9 +38,19 @@ public class EmergencyContactGroupService {
         return groupRepo.findById(id).map(group -> {
             group.setName(updatedGroup.getName());
             group.setOwnerEmail(updatedGroup.getOwnerEmail());
+
+            // ✅ Clear old contacts before updating
+            group.getContacts().clear();
+
+            for (EmergencyContact contact : updatedGroup.getContacts()) {
+                contact.setGroup(group); // Ensure the contact is linked correctly
+                group.getContacts().add(contact);
+            }
+
             return groupRepo.save(group);
         }).orElseThrow(() -> new RuntimeException("Group not found"));
     }
+
 
     public void deleteGroup(Long id) {
         groupRepo.deleteById(id);

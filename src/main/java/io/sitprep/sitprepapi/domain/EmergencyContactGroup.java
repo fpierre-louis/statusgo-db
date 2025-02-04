@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -19,21 +20,17 @@ public class EmergencyContactGroup {
     private Long id;
 
     @Column(nullable = false)
-    private String ownerEmail; // ✅ New field to associate groups with users
+    private String ownerEmail;
 
     @Column(nullable = false)
     private String name;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "group")
+    @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonManagedReference // ✅ Prevents infinite recursion
     private List<EmergencyContact> contacts = new ArrayList<>();
 
     public void addContact(EmergencyContact contact) {
         contacts.add(contact);
         contact.setGroup(this);
-    }
-
-    public void removeContact(EmergencyContact contact) {
-        contacts.remove(contact);
-        contact.setGroup(null);
     }
 }

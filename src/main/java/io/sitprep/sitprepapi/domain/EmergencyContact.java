@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -25,5 +26,6 @@ public class EmergencyContact {
 
     @ManyToOne
     @JoinColumn(name = "group_id", nullable = false)
+    @JsonBackReference // ✅ Prevents infinite recursion
     private EmergencyContactGroup group;
 }
