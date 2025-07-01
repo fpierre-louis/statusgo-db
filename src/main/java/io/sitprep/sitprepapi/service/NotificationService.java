@@ -57,7 +57,10 @@ public class NotificationService {
                         .putData("referenceId", referenceId)
                         .putData("sender", sender)
                         .putData("actionUrl", actionUrl != null ? actionUrl : "")
-                        .putData("additionalData", additionalData != null ? additionalData : "");
+                        .putData("additionalData", additionalData != null ? additionalData : "")
+                        .putData("title", title)
+                        .putData("body", body)
+                        .putData("icon", iconUrl != null ? iconUrl : "");
 
                 Message message = messageBuilder.build();
                 String response = FirebaseMessaging.getInstance().send(message);
