@@ -26,14 +26,14 @@ public class GroupResource {
     }
 
     @PutMapping("/{groupId}")
-    public ResponseEntity<Group> updateGroup(@PathVariable Long groupId, @RequestBody Group groupDetails) {
-        Group updatedGroup = groupService.updateGroup(groupId, groupDetails);
+    public ResponseEntity<Group> updateGroup(@PathVariable String groupId, @RequestBody Group groupDetails) {
+        Group updatedGroup = groupService.updateGroupByPublicId(groupId, groupDetails);
         return ResponseEntity.ok(updatedGroup);
     }
 
     @DeleteMapping("/{groupId}")
-    public void deleteGroup(@PathVariable Long groupId) {
-        groupService.deleteGroup(groupId);
+    public void deleteGroup(@PathVariable String groupId) {
+        groupService.deleteGroupByPublicId(groupId);
     }
 
     @GetMapping
@@ -42,7 +42,7 @@ public class GroupResource {
     }
 
     @GetMapping("/{groupId}")
-    public Group getGroupById(@PathVariable Long groupId) {
-        return groupService.getGroupById(groupId);
+    public Group getGroupById(@PathVariable String groupId) {
+        return groupService.getGroupByPublicId(groupId);
     }
 }

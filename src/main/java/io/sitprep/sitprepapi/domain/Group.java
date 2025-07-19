@@ -11,7 +11,10 @@ import java.util.List;
 public class Group {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long groupId;
+    private Long id;
+
+    @Column(name = "group_id", unique = true)
+    private String groupId;  // UUID as external ID
 
     @ElementCollection
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
