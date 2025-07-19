@@ -1,17 +1,21 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.Data;
+
 import java.time.Instant;
 import java.util.List;
 
 @Entity
 @Table(name = "groups")
 @Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Group {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "group_id", unique = true, nullable = false)
+    private String groupId;  // UUID as primary ID (VARCHAR)
 
     @ElementCollection
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
@@ -44,28 +48,17 @@ public class Group {
     @Column(name = "sub_group_id")
     private List<String> subGroupIDs;
 
-    // New parent group IDs field
     @ElementCollection
     @CollectionTable(name = "group_parent_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "parent_group_id")
     private List<String> parentGroupIDs;
 
     private Instant updatedAt;
-
-    @Column(name = "group_id", unique = true, nullable = false)
-    private String groupId;  // UUID, required
-
-    @Column(nullable = true)
     private String address;
-
-    @Column(nullable = true)
-    private String latitude;
-
-    @Column(nullable = true)
     private String longitude;
-
+    private String latitude;
     private String zipCode;
-
     private String ownerName;
     private String ownerEmail;
+
 }
