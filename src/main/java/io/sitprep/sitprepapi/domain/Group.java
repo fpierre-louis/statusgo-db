@@ -13,9 +13,6 @@ public class Group {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "group_id", unique = true, nullable = false)
-    private String groupId;
-
     @ElementCollection
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "admin_email")
@@ -54,9 +51,18 @@ public class Group {
     private List<String> parentGroupIDs;
 
     private Instant updatedAt;
+
+    @Column(name = "group_id", unique = true, nullable = false)
+    private String groupId;  // UUID, required
+
+    @Column(nullable = true)
     private String address;
-    private String longitude;
+
+    @Column(nullable = true)
     private String latitude;
+
+    @Column(nullable = true)
+    private String longitude;
 
     private String zipCode;
 
