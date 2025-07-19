@@ -22,6 +22,7 @@ public class GroupResource {
 
     @PostMapping
     public Group createGroup(@RequestBody Group group) {
+        System.out.println("Received group payload: " + group);
         return groupService.createGroup(group);
     }
 

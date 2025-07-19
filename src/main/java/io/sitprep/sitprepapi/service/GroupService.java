@@ -34,8 +34,12 @@ public class GroupService {
     // ✅ CRUD Operations Using Public UUID
 
     public Group createGroup(Group group) {
+        if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
+            throw new RuntimeException("Missing groupId. Ensure UUID is generated on frontend.");
+        }
         return groupRepo.save(group);
     }
+
 
     public List<Group> getAllGroups() {
         return groupRepo.findAll();
