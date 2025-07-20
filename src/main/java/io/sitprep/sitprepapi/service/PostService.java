@@ -29,9 +29,12 @@ public class PostService {
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes()); // Update image if provided
+        } else {
+            post.setImage(null); // ✅ Explicitly remove image if none sent
         }
         return postRepo.save(post);
     }
+
 
     public List<Post> getPostsByGroupId(Long groupId) {
         return postRepo.findByGroupId(groupId);
