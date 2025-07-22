@@ -1,11 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
-import jakarta.persistence.ElementCollection;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Transient;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -25,7 +20,9 @@ public class Post {
 
     private String author;
     private String content;
-    private Long groupId;
+    @Column(name = "group_id")
+    private String groupId;  // Change from Long to String
+
     private String groupName;
     private Instant timestamp;
 

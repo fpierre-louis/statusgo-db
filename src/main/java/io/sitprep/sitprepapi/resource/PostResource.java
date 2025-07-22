@@ -21,12 +21,11 @@ public class PostResource {
     @Autowired
     private PostService postService;
 
-    // Create post with file upload support and additional fields
     @PostMapping(consumes = { "multipart/form-data" })
     public Post createPost(
             @RequestParam("author") String author,
             @RequestParam("content") String content,
-            @RequestParam("groupId") Long groupId,
+            @RequestParam("groupId") String groupId,     // ✅ Use String
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
             @RequestParam(value = "tags", required = false) List<String> tags,
@@ -36,7 +35,7 @@ public class PostResource {
         Post post = new Post();
         post.setAuthor(author);
         post.setContent(content);
-        post.setGroupId(groupId);
+        post.setGroupId(groupId);      // ✅ Store UUID
         post.setGroupName(groupName);
         post.setTimestamp(Instant.now());
         post.setTags(tags);
@@ -45,9 +44,9 @@ public class PostResource {
         return postService.createPost(post, imageFile);
     }
 
-    // Get posts by groupId with base64 encoded images
+    // ✅ This is the ONLY correct endpoint for getting posts by group ID (UUID or otherwise)
     @GetMapping("/group/{groupId}")
-    public List<Post> getPostsByGroupId(@PathVariable Long groupId) {
+    public List<Post> getPostsByGroupId(@PathVariable String groupId) {
         List<Post> posts = postService.getPostsByGroupId(groupId);
         for (Post post : posts) {
             if (post.getImage() != null) {
@@ -58,13 +57,12 @@ public class PostResource {
         return posts;
     }
 
-    // Update post, including support for updating image and new fields
     @PutMapping("/{postId}")
     public ResponseEntity<Post> updatePost(
             @PathVariable Long postId,
             @RequestParam("author") String author,
             @RequestParam("content") String content,
-            @RequestParam("groupId") Long groupId,
+            @RequestParam("groupId") String groupId,     // ✅ Use String
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
             @RequestParam(value = "tags", required = false) List<String> tags,
@@ -80,7 +78,6 @@ public class PostResource {
             post.setGroupName(groupName);
             post.setTags(tags);
             post.setMentions(mentions);
-
             post.setEditedAt(Instant.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);
@@ -90,14 +87,12 @@ public class PostResource {
         }
     }
 
-    // Delete post by id
     @DeleteMapping("/{postId}")
     public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
         postService.deletePost(postId);
         return ResponseEntity.noContent().build();
     }
 
-    // Add or update reaction to a post
     @PostMapping("/{postId}/reaction")
     public ResponseEntity<Post> addReaction(
             @PathVariable Long postId,

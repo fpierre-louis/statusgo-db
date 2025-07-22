@@ -25,7 +25,7 @@ public class NotificationService {
      * @param tokens           A set of FCM tokens representing the recipients.
      * @param notificationType The type/category of the notification (e.g., "alert", "post_notification").
      * @param referenceId      A reference ID related to the notification (e.g., groupId or postId).
-     * @param actionUrl        (Optional) A URL to include in the notification for user actions.
+     * @param targetUrl        (Optional) The direct URL to navigate users when clicking the notification.
      * @param additionalData   (Optional) Additional metadata to attach to the notification.
      */
     public void sendNotification(
@@ -36,7 +36,7 @@ public class NotificationService {
             Set<String> tokens,
             String notificationType,
             String referenceId,
-            String actionUrl,
+            String targetUrl,      // <-- renamed for clarity from actionUrl
             String additionalData
     ) {
         if (tokens == null || tokens.isEmpty()) {
@@ -54,9 +54,9 @@ public class NotificationService {
                                 .setImage(iconUrl != null && iconUrl.startsWith("http") ? iconUrl : null)
                                 .build())
                         .putData("notificationType", notificationType)
-                        .putData("referenceId", referenceId)
-                        .putData("sender", sender)
-                        .putData("actionUrl", actionUrl != null ? actionUrl : "")
+                        .putData("referenceId", referenceId != null ? referenceId : "")
+                        .putData("sender", sender != null ? sender : "")
+                        .putData("targetUrl", targetUrl != null ? targetUrl : "")   // ✅ Important line
                         .putData("additionalData", additionalData != null ? additionalData : "")
                         .putData("title", title)
                         .putData("body", body)
@@ -70,7 +70,6 @@ public class NotificationService {
                 logger.error("Error sending FCM notification to token {}: {}", token, e.getMessage());
                 if ("registration-token-not-registered".equals(e.getMessagingErrorCode())) {
                     logger.warn("Token no longer valid. Should remove: {}", token);
-                    // You can implement token cleanup here if needed.
                 }
             } catch (Exception ex) {
                 logger.error("Unexpected error while sending notification to token {}", token, ex);

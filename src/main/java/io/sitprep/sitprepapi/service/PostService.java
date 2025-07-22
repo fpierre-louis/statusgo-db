@@ -36,8 +36,8 @@ public class PostService {
     }
 
 
-    public List<Post> getPostsByGroupId(Long groupId) {
-        return postRepo.findByGroupId(groupId);
+    public List<Post> getPostsByGroupId(String groupId) {  // Change Long to String
+        return postRepo.findPostsByGroupId(groupId);
     }
 
     public Optional<Post> getPostById(Long id) {
