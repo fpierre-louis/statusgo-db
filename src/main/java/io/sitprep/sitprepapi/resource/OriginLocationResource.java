@@ -21,28 +21,28 @@ public class OriginLocationResource {
 
     @PostMapping("/bulk")
     public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
-        String userEmail = (String) requestData.get("ownerEmail");
+        String ownerEmail = (String) requestData.get("ownerEmail");
         List<Map<String, Object>> originData = (List<Map<String, Object>>) requestData.get("origins");
 
-        if (userEmail == null || originData == null || originData.isEmpty()) {
+        if (ownerEmail == null || originData == null || originData.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
 
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
-            origin.setUserEmail(userEmail);
+            origin.setOwnerEmail(ownerEmail);
             origin.setAddress((String) data.get("address"));
             origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             origin.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
             return origin;
         }).collect(Collectors.toList());
 
-        return ResponseEntity.ok(originService.saveAll(userEmail, origins));
+        return ResponseEntity.ok(originService.saveAll(ownerEmail, origins));
     }
 
     @GetMapping
-    public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String userEmail) {
-        return ResponseEntity.ok(originService.getByUserEmail(userEmail));
+    public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String ownerEmail) {
+        return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
     }
 
 
