@@ -15,8 +15,9 @@ public class OriginLocationService {
     }
 
     public List<OriginLocation> getByOwnerEmail(String ownerEmail) {
-        return repo.findByOwnerEmail(ownerEmail);
+        return repo.findByOwnerEmailIgnoreCase(ownerEmail);
     }
+
 
     public OriginLocation save(OriginLocation origin) {
         return repo.save(origin);
@@ -32,7 +33,7 @@ public class OriginLocationService {
     }
 
     public List<OriginLocation> saveAll(String ownerEmail, List<OriginLocation> origins) {
-        repo.deleteAll(repo.findByOwnerEmail(ownerEmail));
+        repo.deleteAll(repo.findByOwnerEmailIgnoreCase(ownerEmail));
         origins.forEach(origin -> origin.setOwnerEmail(ownerEmail));
         return repo.saveAll(origins);
     }
