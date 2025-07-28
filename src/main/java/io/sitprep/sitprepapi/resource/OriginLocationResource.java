@@ -41,9 +41,10 @@ public class OriginLocationResource {
     }
 
     @GetMapping
-    public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String ownerEmail) {
-        return ResponseEntity.ok(originService.getByUserEmail(ownerEmail));
+    public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String userEmail) {
+        return ResponseEntity.ok(originService.getByUserEmail(userEmail));
     }
+
 
     @PutMapping("/{id}")
     public ResponseEntity<OriginLocation> update(@PathVariable Long id, @RequestBody OriginLocation origin) {
