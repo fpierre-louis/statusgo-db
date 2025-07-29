@@ -9,6 +9,7 @@ public class OriginLocation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private String name; // <-- 🔹 NEW: Label like "Home" or "Office"
     private String address;
     private Double lat;
     private Double lng;
@@ -18,50 +19,29 @@ public class OriginLocation {
 
     public OriginLocation() {}
 
-    public OriginLocation(String address, Double lat, Double lng, String ownerEmail) {
+    public OriginLocation(String name, String address, Double lat, Double lng, String ownerEmail) {
+        this.name = name;
         this.address = address;
         this.lat = lat;
         this.lng = lng;
         this.ownerEmail = ownerEmail;
     }
 
-    public Long getId() {
-        return id;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
 
-    public String getAddress() {
-        return address;
-    }
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
 
-    public void setAddress(String address) {
-        this.address = address;
-    }
+    public Double getLat() { return lat; }
+    public void setLat(Double lat) { this.lat = lat; }
 
-    public Double getLat() {
-        return lat;
-    }
+    public Double getLng() { return lng; }
+    public void setLng(Double lng) { this.lng = lng; }
 
-    public void setLat(Double lat) {
-        this.lat = lat;
-    }
-
-    public Double getLng() {
-        return lng;
-    }
-
-    public void setLng(Double lng) {
-        this.lng = lng;
-    }
-
-    public String getOwnerEmail() {
-        return ownerEmail;
-    }
-
-    public void setOwnerEmail(String ownerEmail) {
-        this.ownerEmail = ownerEmail;
-    }
+    public String getOwnerEmail() { return ownerEmail; }
+    public void setOwnerEmail(String ownerEmail) { this.ownerEmail = ownerEmail; }
 }

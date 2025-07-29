@@ -19,6 +19,7 @@ public class OriginLocationResource {
         this.originService = originService;
     }
 
+    // OriginLocationResource.java
     @PostMapping("/bulk")
     public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
         String ownerEmail = (String) requestData.get("ownerEmail");
@@ -31,6 +32,7 @@ public class OriginLocationResource {
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
             origin.setOwnerEmail(ownerEmail);
+            origin.setName((String) data.get("name")); // 🔹 NEW
             origin.setAddress((String) data.get("address"));
             origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             origin.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
@@ -39,6 +41,7 @@ public class OriginLocationResource {
 
         return ResponseEntity.ok(originService.saveAll(ownerEmail, origins));
     }
+
 
     @GetMapping
     public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String ownerEmail) {
