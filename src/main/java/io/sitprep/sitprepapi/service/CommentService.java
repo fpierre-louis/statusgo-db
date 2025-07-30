@@ -70,22 +70,21 @@ public class CommentService {
                     if (commentAuthorOpt.isPresent()) {
                         UserInfo commentAuthor = commentAuthorOpt.get();
 
-                        String token = postAuthor.getFcmtoken();
-                        if (token != null && !token.isEmpty()) {
+                        String token = postAuthor.getFcmtoken(); //
+                        if (token != null && !token.isEmpty()) { //
                             notificationService.sendNotification(
-                                    commentAuthor.getUserFirstName() + " commented on your post",
-                                    "\"" + comment.getContent() + "\"",
-                                    commentAuthor.getUserFirstName(),
-                                    commentAuthor.getProfileImageURL() != null
-                                            ? resizeImage(commentAuthor.getProfileImageURL())
-                                            : "/images/default-user-icon.png",
-                                    Set.of(token),
-                                    "comment_on_post", // More specific type
-                                    String.valueOf(post.getId()), // referenceId is Post ID
-                                    "/Linked/" + post.getGroupId() + "?postId=" + post.getId(), // Target URL to the group's posts, with post ID
-                                    null // Additional data could include comment ID if needed
+                                    commentAuthor.getUserFirstName() + " commented on your post", //
+                                    "\"" + comment.getContent() + "\"", //
+                                    commentAuthor.getUserFirstName(), //
+                                    commentAuthor.getProfileImageURL() != null //
+                                            ? resizeImage(commentAuthor.getProfileImageURL()) //
+                                            : "/images/default-user-icon.png", //
+                                    Set.of(token), //
+                                    "comment_on_post", //
+                                    String.valueOf(post.getId()), //
+                                    "/Linked/" + post.getGroupId() + "?postId=" + post.getId(), //
+                                    null //
                             );
-                            logger.info("Sent comment notification to post author {} for post {}.", post.getAuthor(), post.getId());
                         }
                     }
                 }

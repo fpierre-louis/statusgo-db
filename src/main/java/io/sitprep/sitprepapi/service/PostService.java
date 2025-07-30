@@ -100,9 +100,9 @@ public class PostService {
                 return;
             }
 
-            Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-            String authorFirstName = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
-            String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
+            Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor()); //
+            String authorFirstName = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone"); //
+            String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png"); //
 
             String notificationTitle = post.getGroupName();
             String notificationBody = String.format("%s posted in %s: '%s'",
@@ -114,12 +114,12 @@ public class PostService {
                     notificationTitle,
                     notificationBody,
                     authorFirstName,
-                    authorProfileImageUrl,
+                    authorProfileImageUrl, // ✅ Pass the author's profile image URL here
                     tokens,
                     "post_notification",
-                    post.getGroupId(), // referenceId is group ID
-                    "/Linked/" + post.getGroupId(), // Target URL for the group's posts feed
-                    String.valueOf(post.getId()) // additionalData for post ID to link directly
+                    post.getGroupId(),
+                    "/Linked/" + post.getGroupId() + "?postId=" + post.getId(),
+                    String.valueOf(post.getId())
             );
             logger.info("Sent new post notification for group {} to {} members.", group.getGroupName(), tokens.size());
         } else {

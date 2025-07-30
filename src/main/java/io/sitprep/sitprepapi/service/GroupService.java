@@ -102,6 +102,17 @@ public class GroupService {
         notifyAdminsOfPendingMembers(group, oldPendingMemberEmails);
     }
 
+    // Helper to determine the correct group URL based on groupType
+    private String getGroupTargetUrl(Group group) {
+        if ("Household".equalsIgnoreCase(group.getGroupType())) {
+            return "/household/h/4D-FwtX/household/" + group.getGroupId();
+        } else {
+            // Corrected route for non-Household groups
+            return "/Linked/lg/4D-FwtX/" + group.getGroupId();
+        }
+    }
+
+
     // ✅ Notification Methods (use UUID groupId)
     private void notifyGroupMembers(Group group) {
         List<String> memberEmails = group.getMemberEmails();
@@ -126,7 +137,7 @@ public class GroupService {
                 tokens,
                 "alert",
                 group.getGroupId(),           // ✅ Use UUID directly
-                "/groups/" + group.getGroupId(),
+                "/status-now", // 🎯 Keep this specific for alerts as per your last correction
                 null
         );
     }
@@ -138,6 +149,8 @@ public class GroupService {
         if (newPendingMemberEmails.isEmpty()) return;
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
+
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
@@ -156,7 +169,7 @@ public class GroupService {
                         Set.of(token),
                         "pending_member",
                         group.getGroupId(),     // ✅ Use UUID directly
-                        null,
+                        targetUrl, // 🎯 Use the dynamically determined URL
                         null
                 );
             }
@@ -168,6 +181,8 @@ public class GroupService {
         newMemberEmails.removeAll(oldMemberEmails);
 
         if (newMemberEmails.isEmpty()) return;
+
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
@@ -185,7 +200,7 @@ public class GroupService {
                     Set.of(token),
                     "new_member",
                     group.getGroupId(),   // ✅ Use UUID
-                    null,
+                    targetUrl, // 🎯 Use the dynamically determined URL
                     null
             );
         }
@@ -198,6 +213,8 @@ public class GroupService {
         if (newMemberEmails.isEmpty()) return;
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
+
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
@@ -218,7 +235,7 @@ public class GroupService {
                         Set.of(token),
                         "new_member",
                         group.getGroupId(),   // ✅ Use UUID
-                        null,
+                        targetUrl, // 🎯 Use the dynamically determined URL
                         null
                 );
             }
