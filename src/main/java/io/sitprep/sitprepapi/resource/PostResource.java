@@ -1,3 +1,4 @@
+// src/main/java/io/sitprep/sitprepapi/resource/PostResource.java
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Post;
@@ -56,6 +57,23 @@ public class PostResource {
         }
         return posts;
     }
+
+    // ✅ NEW ENDPOINT: Get a single post by ID
+    @GetMapping("/{postId}")
+    public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
+        Optional<Post> postOpt = postService.getPostById(postId);
+        if (postOpt.isPresent()) {
+            Post post = postOpt.get();
+            if (post.getImage() != null) {
+                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
+                post.setBase64Image("data:image/jpeg;base64," + base64Image);
+            }
+            return ResponseEntity.ok(post);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
 
     @PutMapping("/{postId}")
     public ResponseEntity<Post> updatePost(
