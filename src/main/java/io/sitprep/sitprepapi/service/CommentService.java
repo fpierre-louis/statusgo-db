@@ -19,7 +19,7 @@ import java.util.Set;
 
 @Service
 public class CommentService {
-    private static final Logger logger = LoggerFactory.getLogger(CommentService.class); // Add this line
+    private static final Logger logger = LoggerFactory.getLogger(CommentService.class);
     private final CommentRepo commentRepo;
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
@@ -61,34 +61,39 @@ public class CommentService {
         Optional<Post> postOpt = postRepo.findById(comment.getPostId());
         if (postOpt.isPresent()) {
             Post post = postOpt.get();
-            Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-            if (postAuthorOpt.isPresent()) {
-                UserInfo postAuthor = postAuthorOpt.get();
-                Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
-                if (commentAuthorOpt.isPresent()) {
-                    UserInfo commentAuthor = commentAuthorOpt.get();
+            // Only notify if the comment author is NOT the post author
+            if (!post.getAuthor().equalsIgnoreCase(comment.getAuthor())) {
+                Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
+                if (postAuthorOpt.isPresent()) {
+                    UserInfo postAuthor = postAuthorOpt.get();
+                    Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
+                    if (commentAuthorOpt.isPresent()) {
+                        UserInfo commentAuthor = commentAuthorOpt.get();
 
-                    String token = postAuthor.getFcmtoken();
-                    if (token != null && !token.isEmpty()) {
-                        notificationService.sendNotification(
-                                commentAuthor.getUserFirstName() + " commented on your post",
-                                "\"" + comment.getContent() + "\"",
-                                commentAuthor.getUserFirstName(),
-                                commentAuthor.getProfileImageURL() != null
-                                        ? resizeImage(commentAuthor.getProfileImageURL())
-                                        : "/images/default-user-icon.png",
-                                Set.of(token), // Ensure this is a Set<String>
-                                "post_notification",
-                                String.valueOf(post.getGroupId()),
-                                "/posts/" + post.getId(),
-                                null
-                        );
+                        String token = postAuthor.getFcmtoken();
+                        if (token != null && !token.isEmpty()) {
+                            notificationService.sendNotification(
+                                    commentAuthor.getUserFirstName() + " commented on your post",
+                                    "\"" + comment.getContent() + "\"",
+                                    commentAuthor.getUserFirstName(),
+                                    commentAuthor.getProfileImageURL() != null
+                                            ? resizeImage(commentAuthor.getProfileImageURL())
+                                            : "/images/default-user-icon.png",
+                                    Set.of(token),
+                                    "comment_on_post", // More specific type
+                                    String.valueOf(post.getId()), // referenceId is Post ID
+                                    "/Linked/" + post.getGroupId() + "?postId=" + post.getId(), // Target URL to the group's posts, with post ID
+                                    null // Additional data could include comment ID if needed
+                            );
+                            logger.info("Sent comment notification to post author {} for post {}.", post.getAuthor(), post.getId());
+                        }
                     }
                 }
+            } else {
+                logger.debug("Comment author is also post author. Skipping notification for post author.");
             }
         }
     }
-
 
 
     private String resizeImage(String imageUrl) {
@@ -96,10 +101,8 @@ public class CommentService {
             byte[] resizedImageBytes = InMemoryImageResizer.resizeImageFromUrl(imageUrl, "png", 120, 120);
             return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(resizedImageBytes);
         } catch (IOException e) {
-            // Use SLF4J logger instead of MessageUtil
             logger.warn("Failed to resize image: {}", e.getMessage());
             return "/images/default-user-icon.png"; // Fallback to default icon if resizing fails
         }
     }
-
 }
