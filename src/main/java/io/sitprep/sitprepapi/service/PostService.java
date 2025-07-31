@@ -47,24 +47,34 @@ public class PostService {
     }
 
     // Original createPost method - now includes DTO conversion and WebSocket send
-    @Transactional
     public Post createPost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
         }
         Post savedPost = postRepo.save(post);
 
-        // Convert to DTO for WebSocket broadcast
-        PostDto savedPostDto = convertToPostDto(savedPost); // ✅ Call conversion here
+        try {
+            // Convert to DTO for WebSocket broadcast
+            PostDto savedPostDto = convertToPostDto(savedPost);
 
-        // Trigger FCM notification (for background/offline users)
-        notifyGroupMembersOfNewPost(savedPost); // FCM still uses the original Post entity data
+            // Trigger FCM notification (for background/offline users)
+            notifyGroupMembersOfNewPost(savedPost);
 
-        // Trigger WebSocket message (for real-time update to active users)
-        webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto); // ✅ Send DTO
+            // Trigger WebSocket message (for real-time update to active users)
+            webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
+
+            logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId()); // ✅ NEW LOG
+
+        } catch (Exception e) {
+            // ✅ NEW: Log the exception to find the root cause of the silent failure
+            logger.error("❌ Failed to process or broadcast post with ID {}: {}", savedPost.getId(), e.getMessage(), e);
+            // Re-throw the exception to ensure the frontend gets a proper error response
+            throw new RuntimeException("Failed to create post due to an internal server error.", e);
+        }
 
         return savedPost; // Return entity for REST API consistency
     }
+
 
     // Original updatePost method - now includes DTO conversion and WebSocket send
     @Transactional

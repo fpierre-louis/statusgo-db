@@ -11,9 +11,9 @@ spring:
     properties:
       hibernate:
         format_sql: true
-server:
-  port: 8080
-  error:
-    path: /user/error
-    whitelabel:
-      enabled: false
+#server:
+#  port: 8080
+#  error:
+#    path: /user/error
+#    whitelabel:
+#      enabled: false
