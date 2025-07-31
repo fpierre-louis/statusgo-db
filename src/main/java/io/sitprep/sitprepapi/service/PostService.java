@@ -56,13 +56,16 @@ public class PostService {
 
         try {
             // Convert to DTO for WebSocket broadcast
-            PostDto savedPostDto = convertToPostDto(savedPost); // Call conversion here
+            logger.info("ℹ️ PostService: Starting DTO conversion for Post ID: {}", savedPost.getId());
+            PostDto savedPostDto = convertToPostDto(savedPost);
+            logger.info("✅ PostService: DTO conversion successful. DTO content: {}", savedPostDto); // ✅ NEW LOG
 
             // Trigger FCM notification (for background/offline users)
             notifyGroupMembersOfNewPost(savedPost);
 
             // Trigger WebSocket message (for real-time update to active users)
             webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
+
 
             // ✅ NEW LOG: Confirms successful execution of this block
             logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId());
