@@ -3,7 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.PostDto; // ✅ Import PostDto
+import io.sitprep.sitprepapi.dto.PostDto; //
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
@@ -56,28 +56,23 @@ public class PostService {
 
         try {
             // Convert to DTO for WebSocket broadcast
-            logger.info("ℹ️ PostService: Starting DTO conversion for Post ID: {}", savedPost.getId());
-            PostDto savedPostDto = convertToPostDto(savedPost);
-            logger.info("✅ PostService: DTO conversion successful. DTO content: {}", savedPostDto); // ✅ NEW LOG
+            PostDto savedPostDto = convertToPostDto(savedPost); //
 
             // Trigger FCM notification (for background/offline users)
-            notifyGroupMembersOfNewPost(savedPost);
+            notifyGroupMembersOfNewPost(savedPost); //
 
             // Trigger WebSocket message (for real-time update to active users)
-            webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
+            webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto); //
 
-
-            // ✅ NEW LOG: Confirms successful execution of this block
             logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId());
 
         } catch (Exception e) {
             // ✅ NEW LOG: Captures any exceptions that occur here
             logger.error("❌ Failed to process or broadcast post with ID {}: {}", savedPost.getId(), e.getMessage(), e);
-            // Optional: Re-throw to inform the frontend of the internal issue
-            // throw new RuntimeException("Failed to broadcast real-time update.", e);
+            throw new RuntimeException("Failed to create post due to an internal server error.", e);
         }
 
-        return savedPost;
+        return savedPost; // Return entity for REST API consistency
     }
 
     // Original updatePost method - now includes DTO conversion and WebSocket send
@@ -93,11 +88,19 @@ public class PostService {
         }
         Post updatedPost = postRepo.save(post);
 
-        // Convert to DTO for WebSocket broadcast
-        PostDto updatedPostDto = convertToPostDto(updatedPost); // ✅ Call conversion here
+        try {
+            // Convert to DTO for WebSocket broadcast
+            PostDto updatedPostDto = convertToPostDto(updatedPost); //
 
-        // Trigger WebSocket message for updated post
-        webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); // ✅ Send DTO
+            // Trigger WebSocket message for updated post
+            webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); //
+
+            logger.info("🚀 Successfully processed and broadcasted post update with ID: {}", updatedPost.getId());
+
+        } catch (Exception e) {
+            logger.error("❌ Failed to process or broadcast post update with ID {}: {}", updatedPost.getId(), e.getMessage(), e);
+            throw new RuntimeException("Failed to update post due to an internal server error.", e);
+        }
 
         return updatedPost; // Return entity for REST API consistency
     }
