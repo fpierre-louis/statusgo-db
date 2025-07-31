@@ -47,6 +47,7 @@ public class PostService {
     }
 
     // Original createPost method - now includes DTO conversion and WebSocket send
+    @Transactional
     public Post createPost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
@@ -55,7 +56,7 @@ public class PostService {
 
         try {
             // Convert to DTO for WebSocket broadcast
-            PostDto savedPostDto = convertToPostDto(savedPost);
+            PostDto savedPostDto = convertToPostDto(savedPost); // Call conversion here
 
             // Trigger FCM notification (for background/offline users)
             notifyGroupMembersOfNewPost(savedPost);
@@ -63,18 +64,18 @@ public class PostService {
             // Trigger WebSocket message (for real-time update to active users)
             webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
 
-            logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId()); // ✅ NEW LOG
+            // ✅ NEW LOG: Confirms successful execution of this block
+            logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId());
 
         } catch (Exception e) {
-            // ✅ NEW: Log the exception to find the root cause of the silent failure
+            // ✅ NEW LOG: Captures any exceptions that occur here
             logger.error("❌ Failed to process or broadcast post with ID {}: {}", savedPost.getId(), e.getMessage(), e);
-            // Re-throw the exception to ensure the frontend gets a proper error response
-            throw new RuntimeException("Failed to create post due to an internal server error.", e);
+            // Optional: Re-throw to inform the frontend of the internal issue
+            // throw new RuntimeException("Failed to broadcast real-time update.", e);
         }
 
-        return savedPost; // Return entity for REST API consistency
+        return savedPost;
     }
-
 
     // Original updatePost method - now includes DTO conversion and WebSocket send
     @Transactional
