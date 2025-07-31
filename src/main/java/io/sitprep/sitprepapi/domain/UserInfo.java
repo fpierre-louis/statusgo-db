@@ -5,7 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.GenericGenerator;
+import org.hibernate.annotations.GenericGenerator; // Keep import for now if other places use it
+import org.hibernate.annotations.UuidGenerator; // ✅ NEW: Import for UUID generation
 import java.time.Instant;
 import java.util.Set;
 
@@ -17,8 +18,8 @@ import java.util.Set;
 @Table(name = "user_info")
 public class UserInfo {
     @Id
-    @GeneratedValue(generator = "UUID")
-    @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
+    @GeneratedValue // ✅ FIX: Use default strategy or specify generation type
+    @UuidGenerator // ✅ FIX: Use @UuidGenerator for UUID generation strategy
     @Column(name = "user_id", unique = true, updatable = false)
     private String id;
 
@@ -85,7 +86,4 @@ public class UserInfo {
 
     @Column(name = "date_subscribed")
     private Instant dateSubscribed;
-
-
-
 }

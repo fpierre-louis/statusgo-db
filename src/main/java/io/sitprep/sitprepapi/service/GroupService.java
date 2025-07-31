@@ -103,11 +103,11 @@ public class GroupService {
     }
 
     // Helper to determine the correct group URL based on groupType
-    private String getGroupTargetUrl(Group group) {
+    // ✅ FIX: Change to public access modifier
+    public String getGroupTargetUrl(Group group) {
         if ("Household".equalsIgnoreCase(group.getGroupType())) {
             return "/household/h/4D-FwtX/household/" + group.getGroupId();
         } else {
-            // Corrected route for non-Household groups
             return "/Linked/lg/4D-FwtX/" + group.getGroupId();
         }
     }
@@ -137,7 +137,7 @@ public class GroupService {
                 tokens,
                 "alert",
                 group.getGroupId(),           // ✅ Use UUID directly
-                "/status-now", // 🎯 Keep this specific for alerts as per your last correction
+                "/status-now",
                 null
         );
     }
@@ -150,7 +150,7 @@ public class GroupService {
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
 
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
+        String targetUrl = getGroupTargetUrl(group);
 
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
@@ -168,8 +168,8 @@ public class GroupService {
                         "/images/admin-icon.png",
                         Set.of(token),
                         "pending_member",
-                        group.getGroupId(),     // ✅ Use UUID directly
-                        targetUrl, // 🎯 Use the dynamically determined URL
+                        group.getGroupId(),
+                        targetUrl,
                         null
                 );
             }
@@ -182,7 +182,7 @@ public class GroupService {
 
         if (newMemberEmails.isEmpty()) return;
 
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
+        String targetUrl = getGroupTargetUrl(group);
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
@@ -199,8 +199,8 @@ public class GroupService {
                     newMember.getProfileImageURL() != null ? newMember.getProfileImageURL() : "/images/default-user-icon.png",
                     Set.of(token),
                     "new_member",
-                    group.getGroupId(),   // ✅ Use UUID
-                    targetUrl, // 🎯 Use the dynamically determined URL
+                    group.getGroupId(),
+                    targetUrl,
                     null
             );
         }
@@ -214,7 +214,7 @@ public class GroupService {
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
 
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
+        String targetUrl = getGroupTargetUrl(group);
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
@@ -234,8 +234,8 @@ public class GroupService {
                         newMember.getProfileImageURL() != null ? newMember.getProfileImageURL() : "/images/default-user-icon.png",
                         Set.of(token),
                         "new_member",
-                        group.getGroupId(),   // ✅ Use UUID
-                        targetUrl, // 🎯 Use the dynamically determined URL
+                        group.getGroupId(),
+                        targetUrl,
                         null
                 );
             }
