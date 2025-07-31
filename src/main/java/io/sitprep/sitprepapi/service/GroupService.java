@@ -150,7 +150,7 @@ public class GroupService {
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
 
-        String targetUrl = getGroupTargetUrl(group);
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
@@ -182,7 +182,7 @@ public class GroupService {
 
         if (newMemberEmails.isEmpty()) return;
 
-        String targetUrl = getGroupTargetUrl(group);
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
@@ -214,7 +214,7 @@ public class GroupService {
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
 
-        String targetUrl = getGroupTargetUrl(group);
+        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
 
         for (String newMemberEmail : newMemberEmails) {
             UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)

@@ -5,8 +5,9 @@ import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.CommentDto; // ✅ Import CommentDto
 import io.sitprep.sitprepapi.repo.CommentRepo;
-import io.sitprep.sitprepapi.repo.GroupRepo; // Keep import for GroupRepo
+import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -28,30 +29,35 @@ public class CommentService {
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
     private final GroupService groupService;
-    private final GroupRepo groupRepo; // ✅ FIX: Declare groupRepo as a field
+    private final GroupRepo groupRepo;
     private final WebSocketMessageSender webSocketMessageSender;
 
     @Autowired
     public CommentService(CommentRepo commentRepo, PostRepo postRepo, UserInfoRepo userInfoRepo,
                           NotificationService notificationService, GroupService groupService,
-                          GroupRepo groupRepo, // Add GroupRepo to constructor
+                          GroupRepo groupRepo,
                           WebSocketMessageSender webSocketMessageSender) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
         this.groupService = groupService;
-        this.groupRepo = groupRepo; // ✅ FIX: Assign groupRepo
+        this.groupRepo = groupRepo;
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
+    // Original createComment method - now includes DTO conversion and WebSocket send
     public Comment createComment(Comment comment) {
         Comment savedComment = commentRepo.save(comment);
-        notifyPostAuthor(savedComment);
 
-        webSocketMessageSender.sendNewComment(savedComment.getPostId(), savedComment);
+        // Convert to DTO for WebSocket broadcast
+        CommentDto savedCommentDto = convertToCommentDto(savedComment); // ✅ Call conversion here
 
-        return savedComment;
+        notifyPostAuthor(savedComment); // FCM still uses the original Comment entity data
+
+        webSocketMessageSender.sendNewComment(savedComment.getPostId(), savedCommentDto); // ✅ Send DTO
+
+        return savedComment; // Return entity for REST API consistency
     }
 
     public List<Comment> getCommentsByPostId(Long postId) {
@@ -66,11 +72,16 @@ public class CommentService {
         commentRepo.deleteById(id);
     }
 
+    // Original updateComment method - now includes DTO conversion and WebSocket send
     public Comment updateComment(Comment comment) {
         Comment updatedComment = commentRepo.save(comment);
-        notifyPostAuthor(updatedComment);
 
-        webSocketMessageSender.sendNewComment(updatedComment.getPostId(), updatedComment);
+        // Convert to DTO for WebSocket broadcast
+        CommentDto updatedCommentDto = convertToCommentDto(updatedComment); // ✅ Call conversion here
+
+        notifyPostAuthor(updatedComment); // FCM still uses the original Comment entity data
+
+        webSocketMessageSender.sendNewComment(updatedComment.getPostId(), updatedCommentDto); // ✅ Send DTO
 
         return updatedComment;
     }
@@ -90,11 +101,10 @@ public class CommentService {
                         String token = postAuthor.getFcmtoken();
                         if (token != null && !token.isEmpty()) {
 
-                            // Fetch the group to get its type
-                            Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId()); // ✅ FIX: Use the injected groupRepo
+                            Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId());
                             String baseTargetUrl = "";
                             if (groupOpt.isPresent()) {
-                                baseTargetUrl = groupService.getGroupTargetUrl(groupOpt.get()); // ✅ FIX: groupService.getGroupTargetUrl is now public
+                                baseTargetUrl = groupService.getGroupTargetUrl(groupOpt.get());
                             } else {
                                 logger.warn("Group with ID {} not found for comment notification, using default path.", post.getGroupId());
                                 baseTargetUrl = "/Linked/" + post.getGroupId();
@@ -129,7 +139,26 @@ public class CommentService {
             return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(resizedImageBytes);
         } catch (IOException e) {
             logger.warn("Failed to resize image: {}", e.getMessage());
-            return "/images/default-user-icon.png";
+            return "/images/default-user-icon.png"; // Fallback to default icon if resizing fails
         }
+    }
+
+    // ✅ FIX: Ensure this DTO conversion method exists and is correctly implemented.
+    private CommentDto convertToCommentDto(Comment comment) {
+        CommentDto dto = new CommentDto();
+        dto.setId(comment.getId());
+        dto.setPostId(comment.getPostId());
+        dto.setAuthor(comment.getAuthor());
+        dto.setContent(comment.getContent());
+        dto.setTimestamp(comment.getTimestamp());
+        // dto.setEdited(comment.isEdited()); // Uncomment if your Comment entity has 'edited' field
+
+        userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
+            dto.setAuthorFirstName(authorInfo.getUserFirstName());
+            dto.setAuthorLastName(authorInfo.getUserLastName());
+            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
+        });
+
+        return dto;
     }
 }

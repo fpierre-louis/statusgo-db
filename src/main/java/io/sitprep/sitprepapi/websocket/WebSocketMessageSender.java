@@ -1,6 +1,8 @@
 // src/main/java/io/sitprep/sitprepapi/websocket/WebSocketMessageSender.java
 package io.sitprep.sitprepapi.websocket;
 
+import io.sitprep.sitprepapi.dto.PostDto; // Import DTO
+import io.sitprep.sitprepapi.dto.CommentDto; // Import DTO
 import io.sitprep.sitprepapi.domain.Post; // Import Post if you want to send full Post objects
 import io.sitprep.sitprepapi.domain.Comment; // Import Comment if you want to send full Comment objects
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,7 +56,17 @@ public class WebSocketMessageSender {
         logger.info("Sending new comment to WebSocket topic: {}", destination);
         messagingTemplate.convertAndSend(destination, comment);
     }
+    public void sendNewPost(String groupId, PostDto postDto) { // ✅ Change Post to PostDto
+        String destination = "/topic/posts/" + groupId;
+        logger.info("Sending new post DTO to WebSocket topic: {}", destination);
+        messagingTemplate.convertAndSend(destination, postDto); // Send DTO
+    }
 
+    public void sendNewComment(Long postId, CommentDto commentDto) { // ✅ Change Comment to CommentDto
+        String destination = "/topic/comments/" + postId;
+        logger.info("Sending new comment DTO to WebSocket topic: {}", destination);
+        messagingTemplate.convertAndSend(destination, commentDto); // Send DTO
+    }
     /**
      * Sends a generic update message to a specific topic.
      * This can be used for any other real-time updates (e.g., group status changes).

@@ -1,13 +1,13 @@
-// src/main/java/io/sitprep/sitprepapi/service/PostService.java
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.PostDto; // ✅ Import PostDto
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.websocket.WebSocketMessageSender; // ✅ Import WebSocketMessageSender
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -27,69 +27,66 @@ public class PostService {
 
     private static final Logger logger = LoggerFactory.getLogger(PostService.class);
 
-    @Autowired
-    private PostRepo postRepo;
-
-    @Autowired
-    private UserInfoRepo userInfoRepo;
-
-    @Autowired
-    private GroupRepo groupRepo;
-
-    @Autowired
-    private NotificationService notificationService;
-
-    @Autowired
-    private GroupService groupService; // For using getGroupTargetUrl
-
-    // ✅ NEW: Inject WebSocketMessageSender
+    private final PostRepo postRepo;
+    private final UserInfoRepo userInfoRepo;
+    private final GroupRepo groupRepo;
+    private final NotificationService notificationService;
+    private final GroupService groupService;
     private final WebSocketMessageSender webSocketMessageSender;
 
-    @Autowired // Modify constructor to inject WebSocketMessageSender
+    @Autowired
     public PostService(PostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
                        NotificationService notificationService, GroupService groupService,
-                       WebSocketMessageSender webSocketMessageSender) { // ✅ Add WebSocketMessageSender
+                       WebSocketMessageSender webSocketMessageSender) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
         this.groupService = groupService;
-        this.webSocketMessageSender = webSocketMessageSender; // ✅ Assign
+        this.webSocketMessageSender = webSocketMessageSender;
     }
 
-
+    // Original createPost method - now includes DTO conversion and WebSocket send
     @Transactional
     public Post createPost(Post post, MultipartFile imageFile) throws IOException {
-        // Ensure base64Image is populated for the WebSocket message before saving
         if (imageFile != null && !imageFile.isEmpty()) {
-            post.setImage(imageFile.getBytes()); // Save image as byte array
+            post.setImage(imageFile.getBytes());
         }
         Post savedPost = postRepo.save(post);
 
+        // Convert to DTO for WebSocket broadcast
+        PostDto savedPostDto = convertToPostDto(savedPost); // ✅ Call conversion here
+
         // Trigger FCM notification (for background/offline users)
-        notifyGroupMembersOfNewPost(savedPost);
+        notifyGroupMembersOfNewPost(savedPost); // FCM still uses the original Post entity data
 
-        // ✅ NEW: Trigger WebSocket message (for real-time update to active users)
-        webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPost);
+        // Trigger WebSocket message (for real-time update to active users)
+        webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto); // ✅ Send DTO
 
-        return savedPost;
+        return savedPost; // Return entity for REST API consistency
     }
 
+    // Original updatePost method - now includes DTO conversion and WebSocket send
     @Transactional
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
-            post.setImage(imageFile.getBytes()); // Update image if provided
+            post.setImage(imageFile.getBytes());
         } else {
-            post.setImage(null); // Explicitly remove image if none sent
+            // Check if there was an existing image and it should be removed (if imageFile is null and not just empty)
+            // This logic depends on your frontend's update behavior for images.
+            // For now, assuming null means 'no change' or 'keep existing' unless explicitly cleared.
+            // If the frontend sends null to explicitly clear, you'd load the existing post first.
         }
         Post updatedPost = postRepo.save(post);
 
-        // ✅ NEW: Trigger WebSocket message for updated post
-        webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPost);
+        // Convert to DTO for WebSocket broadcast
+        PostDto updatedPostDto = convertToPostDto(updatedPost); // ✅ Call conversion here
 
-        return updatedPost;
+        // Trigger WebSocket message for updated post
+        webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); // ✅ Send DTO
+
+        return updatedPost; // Return entity for REST API consistency
     }
-
 
     public List<Post> getPostsByGroupId(String groupId) {
         return postRepo.findPostsByGroupId(groupId);
@@ -101,16 +98,12 @@ public class PostService {
 
     public void deletePost(Long id) {
         postRepo.deleteById(id);
-        // You might want to send a WebSocket message for post deletion too if UI needs to react
-        // webSocketMessageSender.sendGenericUpdate("/topic/posts/deleted", id);
     }
 
-    // Add or update reaction
     @Transactional
     public void addReaction(Post post, String reaction) {
         post.getReactions().put(reaction, post.getReactions().getOrDefault(reaction, 0) + 1);
         Post updatedPost = postRepo.save(post);
-        // You might want to send a more granular WebSocket message for reactions
         webSocketMessageSender.sendGenericUpdate("/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(), updatedPost.getReactions());
     }
 
@@ -141,27 +134,52 @@ public class PostService {
             String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
 
             String notificationTitle = post.getGroupName();
-            String notificationBody = String.format("%s posted in %s: '%s'", //
-                    authorFirstName, //
-                    post.getGroupName(), //
-                    post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent()); //
+            String notificationBody = String.format("%s posted in %s: '%s'",
+                    authorFirstName,
+                    post.getGroupName(),
+                    post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
 
             String baseTargetUrl = groupService.getGroupTargetUrl(group);
 
             notificationService.sendNotification(
-                    notificationTitle, //
-                    notificationBody, //
-                    authorFirstName, //
-                    authorProfileImageUrl, //
-                    tokens, //
-                    "post_notification", //
-                    post.getGroupId(), // referenceId is group ID
-                    baseTargetUrl + "?postId=" + post.getId(), //
-                    String.valueOf(post.getId()) // additionalData for post ID to link directly
+                    notificationTitle,
+                    notificationBody,
+                    authorFirstName,
+                    authorProfileImageUrl,
+                    tokens,
+                    "post_notification",
+                    post.getGroupId(),
+                    baseTargetUrl + "?postId=" + post.getId(),
+                    String.valueOf(post.getId())
             );
             logger.info("Sent new post notification for group {} to {} members.", group.getGroupName(), tokens.size());
         } else {
             logger.warn("Group with ID {} not found for new post notification.", post.getGroupId());
         }
+    }
+
+    // ✅ FIX: Ensure this DTO conversion method exists and is correctly implemented.
+    private PostDto convertToPostDto(Post post) {
+        PostDto dto = new PostDto();
+        dto.setId(post.getId());
+        dto.setAuthor(post.getAuthor());
+        dto.setContent(post.getContent());
+        dto.setGroupId(post.getGroupId());
+        dto.setGroupName(post.getGroupName());
+        dto.setTimestamp(post.getTimestamp());
+        dto.setBase64Image(post.getBase64Image());
+        dto.setReactions(post.getReactions());
+        dto.setEditedAt(post.getEditedAt());
+        dto.setTags(post.getTags());
+        dto.setCommentsCount(post.getCommentsCount());
+        dto.setMentions(post.getMentions());
+
+        userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(authorInfo -> {
+            dto.setAuthorFirstName(authorInfo.getUserFirstName());
+            dto.setAuthorLastName(authorInfo.getUserLastName());
+            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
+        });
+
+        return dto;
     }
 }
