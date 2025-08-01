@@ -3,18 +3,22 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.PostDto; //
+import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.transaction.Transactional;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronizationAdapter;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
@@ -46,7 +50,6 @@ public class PostService {
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
-    // Original createPost method - now includes DTO conversion and WebSocket send
     @Transactional
     public Post createPost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
@@ -55,54 +58,51 @@ public class PostService {
         Post savedPost = postRepo.save(post);
 
         try {
-            // Convert to DTO for WebSocket broadcast
-            PostDto savedPostDto = convertToPostDto(savedPost); //
+            PostDto savedPostDto = convertToPostDto(savedPost);
+            notifyGroupMembersOfNewPost(savedPost);
 
-            // Trigger FCM notification (for background/offline users)
-            notifyGroupMembersOfNewPost(savedPost); //
+            // ✅ WebSocket broadcast after commit
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+                @Override
+                public void afterCommit() {
+                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
+                }
+            });
 
-            // Trigger WebSocket message (for real-time update to active users)
-            webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto); //
-
-            logger.info("🚀 Successfully processed and broadcasted post with ID: {}", savedPost.getId());
-
+            logger.info("🚀 Successfully processed and scheduled broadcast for post ID: {}", savedPost.getId());
         } catch (Exception e) {
-            // ✅ NEW LOG: Captures any exceptions that occur here
-            logger.error("❌ Failed to process or broadcast post with ID {}: {}", savedPost.getId(), e.getMessage(), e);
+            logger.error("❌ Failed to process post ID {}: {}", savedPost.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to create post due to an internal server error.", e);
         }
 
-        return savedPost; // Return entity for REST API consistency
+        return savedPost;
     }
 
-    // Original updatePost method - now includes DTO conversion and WebSocket send
     @Transactional
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
-        } else {
-            // Check if there was an existing image and it should be removed (if imageFile is null and not just empty)
-            // This logic depends on your frontend's update behavior for images.
-            // For now, assuming null means 'no change' or 'keep existing' unless explicitly cleared.
-            // If the frontend sends null to explicitly clear, you'd load the existing post first.
         }
         Post updatedPost = postRepo.save(post);
 
         try {
-            // Convert to DTO for WebSocket broadcast
-            PostDto updatedPostDto = convertToPostDto(updatedPost); //
+            PostDto updatedPostDto = convertToPostDto(updatedPost);
 
-            // Trigger WebSocket message for updated post
-            webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); //
+            // ✅ WebSocket broadcast after commit
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+                @Override
+                public void afterCommit() {
+                    webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto);
+                }
+            });
 
-            logger.info("🚀 Successfully processed and broadcasted post update with ID: {}", updatedPost.getId());
-
+            logger.info("🚀 Successfully processed and scheduled broadcast for updated post ID: {}", updatedPost.getId());
         } catch (Exception e) {
-            logger.error("❌ Failed to process or broadcast post update with ID {}: {}", updatedPost.getId(), e.getMessage(), e);
+            logger.error("❌ Failed to update post ID {}: {}", updatedPost.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to update post due to an internal server error.", e);
         }
 
-        return updatedPost; // Return entity for REST API consistency
+        return updatedPost;
     }
 
     public List<Post> getPostsByGroupId(String groupId) {
@@ -142,7 +142,7 @@ public class PostService {
                     .collect(Collectors.toSet());
 
             if (tokens.isEmpty()) {
-                logger.warn("No FCM tokens found for group members to notify about new post in group: {}", group.getGroupName());
+                logger.warn("No FCM tokens found for group members in group: {}", group.getGroupName());
                 return;
             }
 
@@ -169,13 +169,13 @@ public class PostService {
                     baseTargetUrl + "?postId=" + post.getId(),
                     String.valueOf(post.getId())
             );
-            logger.info("Sent new post notification for group {} to {} members.", group.getGroupName(), tokens.size());
+
+            logger.info("📣 Sent FCM notification for group '{}' to {} members.", group.getGroupName(), tokens.size());
         } else {
-            logger.warn("Group with ID {} not found for new post notification.", post.getGroupId());
+            logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId());
         }
     }
 
-    // ✅ FIX: Ensure this DTO conversion method exists and is correctly implemented.
     private PostDto convertToPostDto(Post post) {
         PostDto dto = new PostDto();
         dto.setId(post.getId());

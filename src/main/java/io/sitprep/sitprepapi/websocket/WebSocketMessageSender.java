@@ -1,83 +1,67 @@
-// src/main/java/io.sitprep.sitprepapi/websocket/WebSocketMessageSender.java
 package io.sitprep.sitprepapi.websocket;
 
-import com.fasterxml.jackson.core.JsonProcessingException; //
-import com.fasterxml.jackson.databind.ObjectMapper; //
-import io.sitprep.sitprepapi.domain.Post;
-import io.sitprep.sitprepapi.domain.Comment;
-import io.sitprep.sitprepapi.dto.CommentDto; //
-import io.sitprep.sitprepapi.dto.PostDto; //
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.CommentDto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.Base64;
-
-/**
- * A component responsible for sending real-time messages over WebSockets to connected clients.
- * This acts as a utility class for other services to broadcast updates.
- */
 @Component
 public class WebSocketMessageSender {
 
     private static final Logger logger = LoggerFactory.getLogger(WebSocketMessageSender.class);
 
     private final SimpMessagingTemplate messagingTemplate;
-    private final ObjectMapper objectMapper; //
+    private final ObjectMapper objectMapper;
 
     @Autowired
-    public WebSocketMessageSender(SimpMessagingTemplate messagingTemplate, ObjectMapper objectMapper) { //
+    public WebSocketMessageSender(SimpMessagingTemplate messagingTemplate, ObjectMapper objectMapper) {
         this.messagingTemplate = messagingTemplate;
-        this.objectMapper = objectMapper; //
+        this.objectMapper = objectMapper;
     }
 
     /**
-     * Sends a new Post event to clients subscribed to a specific group's post topic.
-     * The image is base64 encoded for direct embedding if present.
-     * @param groupId The ID of the group where the post was created.
-     * @param post The new or updated Post object.
+     * Sends a new post message to all subscribers of /topic/posts/{groupId}
      */
-    public void sendNewPost(String groupId, PostDto post) { // ✅ Updated to accept PostDto
+    public void sendNewPost(String groupId, PostDto postDto) {
         String destination = "/topic/posts/" + groupId;
-
         try {
-            String jsonPayload = objectMapper.writeValueAsString(post);
-            logger.info("🚀 WebSocket Broadcast: Attempting to send to {} with payload: {}", destination, jsonPayload);
+            String payload = objectMapper.writeValueAsString(postDto);
+            messagingTemplate.convertAndSend(destination, payload);
+            logger.info("🚀 WebSocket Broadcast: Sent to {} with payload: {}", destination, payload);
         } catch (JsonProcessingException e) {
-            logger.error("❌ WebSocket Broadcast: Failed to serialize PostDto for group {}", groupId, e);
+            logger.error("❌ Failed to serialize PostDto for WebSocket broadcast", e);
         }
-
-        messagingTemplate.convertAndSend(destination, post);
     }
 
     /**
-     * Sends a new Comment event to clients subscribed to a specific post's comment topic.
-     * @param postId The ID of the post to which the comment belongs.
-     * @param comment The new or updated Comment object.
+     * Sends a new comment to /topic/comments/{postId}
      */
-    public void sendNewComment(Long postId, CommentDto comment) { // ✅ Updated to accept CommentDto
+    public void sendNewComment(Long postId, CommentDto commentDto) {
         String destination = "/topic/comments/" + postId;
-
         try {
-            String jsonPayload = objectMapper.writeValueAsString(comment);
-            logger.info("🚀 WebSocket Broadcast: Attempting to send to {} with payload: {}", destination, jsonPayload);
+            String payload = objectMapper.writeValueAsString(commentDto);
+            messagingTemplate.convertAndSend(destination, payload);
+            logger.info("💬 WebSocket Comment Broadcast: Sent to {} with payload: {}", destination, payload);
         } catch (JsonProcessingException e) {
-            logger.error("❌ WebSocket Broadcast: Failed to serialize CommentDto for post {}", postId, e);
+            logger.error("❌ Failed to serialize CommentDto for WebSocket broadcast", e);
         }
-
-        messagingTemplate.convertAndSend(destination, comment);
     }
 
     /**
-     * Sends a generic update message to a specific topic.
-     * This can be used for any other real-time updates (e.g., group status changes).
-     * @param topic The WebSocket topic (e.g., "/topic/group-status/{groupId}").
-     * @param payload The object to send (will be converted to JSON).
+     * Sends any object as a generic update to a custom topic
      */
-    public void sendGenericUpdate(String topic, Object payload) {
-        logger.info("Sending generic update to WebSocket topic: {}", topic);
-        messagingTemplate.convertAndSend(topic, payload);
+    public void sendGenericUpdate(String destination, Object payload) {
+        try {
+            String json = objectMapper.writeValueAsString(payload);
+            messagingTemplate.convertAndSend(destination, json);
+            logger.info("📢 WebSocket Generic Update: Sent to {} with payload: {}", destination, json);
+        } catch (JsonProcessingException e) {
+            logger.error("❌ Failed to serialize generic WebSocket payload", e);
+        }
     }
 }
