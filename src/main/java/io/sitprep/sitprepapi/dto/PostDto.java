@@ -13,9 +13,6 @@ import java.util.Map;
 public class PostDto {
     private Long id;
     private String author;
-    private String authorFirstName;
-    private String authorLastName;
-    private String authorProfileImageURL;
     private String content;
     private String groupId;
     private String groupName;
@@ -24,6 +21,11 @@ public class PostDto {
     private Map<String, Integer> reactions;
     private Instant editedAt;
     private List<String> tags;
-    private int commentsCount;
     private List<String> mentions;
+    private Integer commentsCount;
+
+    private String authorFirstName;
+    private String authorLastName;
+    private String authorProfileImageURL;
+
 }

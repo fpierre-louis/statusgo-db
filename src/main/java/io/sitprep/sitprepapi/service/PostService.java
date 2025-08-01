@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronizationAdapter;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -55,14 +55,14 @@ public class PostService {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
         }
+
         Post savedPost = postRepo.save(post);
 
         try {
             PostDto savedPostDto = convertToPostDto(savedPost);
             notifyGroupMembersOfNewPost(savedPost);
 
-            // ✅ WebSocket broadcast after commit
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
@@ -83,20 +83,20 @@ public class PostService {
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
         }
+
         Post updatedPost = postRepo.save(post);
 
         try {
             PostDto updatedPostDto = convertToPostDto(updatedPost);
 
-            // ✅ WebSocket broadcast after commit
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto);
                 }
             });
 
-            logger.info("🚀 Successfully processed and scheduled broadcast for updated post ID: {}", updatedPost.getId());
+            logger.info("🚀 Successfully scheduled broadcast for updated post ID: {}", updatedPost.getId());
         } catch (Exception e) {
             logger.error("❌ Failed to update post ID {}: {}", updatedPost.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to update post due to an internal server error.", e);
@@ -121,7 +121,10 @@ public class PostService {
     public void addReaction(Post post, String reaction) {
         post.getReactions().put(reaction, post.getReactions().getOrDefault(reaction, 0) + 1);
         Post updatedPost = postRepo.save(post);
-        webSocketMessageSender.sendGenericUpdate("/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(), updatedPost.getReactions());
+        webSocketMessageSender.sendGenericUpdate(
+                "/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(),
+                updatedPost.getReactions()
+        );
     }
 
     private void notifyGroupMembersOfNewPost(Post post) {
@@ -181,15 +184,17 @@ public class PostService {
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());
         dto.setContent(post.getContent());
-        dto.setGroupId(post.getGroupId());
+        dto.setGroupId(String.valueOf(post.getGroupId())); // force to String
         dto.setGroupName(post.getGroupName());
         dto.setTimestamp(post.getTimestamp());
         dto.setBase64Image(post.getBase64Image());
-        dto.setReactions(post.getReactions());
         dto.setEditedAt(post.getEditedAt());
-        dto.setTags(post.getTags());
-        dto.setCommentsCount(post.getCommentsCount());
-        dto.setMentions(post.getMentions());
+
+        // Defensive defaults
+        dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
+        dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
+        dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
+        dto.setCommentsCount(post.getCommentsCount()); // primitive int—no null checks
 
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(authorInfo -> {
             dto.setAuthorFirstName(authorInfo.getUserFirstName());

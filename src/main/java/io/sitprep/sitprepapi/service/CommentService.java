@@ -5,16 +5,19 @@ import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.CommentDto; // ✅ Import CommentDto
+import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.repo.CommentRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.util.List;
@@ -23,7 +26,9 @@ import java.util.Set;
 
 @Service
 public class CommentService {
+
     private static final Logger logger = LoggerFactory.getLogger(CommentService.class);
+
     private final CommentRepo commentRepo;
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
@@ -46,18 +51,36 @@ public class CommentService {
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
-    // Original createComment method - now includes DTO conversion and WebSocket send
     public Comment createComment(Comment comment) {
         Comment savedComment = commentRepo.save(comment);
+        CommentDto savedCommentDto = convertToCommentDto(savedComment);
 
-        // Convert to DTO for WebSocket broadcast
-        CommentDto savedCommentDto = convertToCommentDto(savedComment); // ✅ Call conversion here
+        notifyPostAuthor(savedComment);
 
-        notifyPostAuthor(savedComment); // FCM still uses the original Comment entity data
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                webSocketMessageSender.sendNewComment(savedComment.getPostId(), savedCommentDto);
+            }
+        });
 
-        webSocketMessageSender.sendNewComment(savedComment.getPostId(), savedCommentDto); // ✅ Send DTO
+        return savedComment;
+    }
 
-        return savedComment; // Return entity for REST API consistency
+    public Comment updateComment(Comment comment) {
+        Comment updatedComment = commentRepo.save(comment);
+        CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
+
+        notifyPostAuthor(updatedComment);
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                webSocketMessageSender.sendNewComment(updatedComment.getPostId(), updatedCommentDto);
+            }
+        });
+
+        return updatedComment;
     }
 
     public List<Comment> getCommentsByPostId(Long postId) {
@@ -72,65 +95,46 @@ public class CommentService {
         commentRepo.deleteById(id);
     }
 
-    // Original updateComment method - now includes DTO conversion and WebSocket send
-    public Comment updateComment(Comment comment) {
-        Comment updatedComment = commentRepo.save(comment);
-
-        // Convert to DTO for WebSocket broadcast
-        CommentDto updatedCommentDto = convertToCommentDto(updatedComment); // ✅ Call conversion here
-
-        notifyPostAuthor(updatedComment); // FCM still uses the original Comment entity data
-
-        webSocketMessageSender.sendNewComment(updatedComment.getPostId(), updatedCommentDto); // ✅ Send DTO
-
-        return updatedComment;
-    }
-
     private void notifyPostAuthor(Comment comment) {
         Optional<Post> postOpt = postRepo.findById(comment.getPostId());
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            if (!post.getAuthor().equalsIgnoreCase(comment.getAuthor())) {
-                Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-                if (postAuthorOpt.isPresent()) {
-                    UserInfo postAuthor = postAuthorOpt.get();
-                    Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
-                    if (commentAuthorOpt.isPresent()) {
-                        UserInfo commentAuthor = commentAuthorOpt.get();
+        if (postOpt.isEmpty()) return;
 
-                        String token = postAuthor.getFcmtoken();
-                        if (token != null && !token.isEmpty()) {
-
-                            Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId());
-                            String baseTargetUrl = "";
-                            if (groupOpt.isPresent()) {
-                                baseTargetUrl = groupService.getGroupTargetUrl(groupOpt.get());
-                            } else {
-                                logger.warn("Group with ID {} not found for comment notification, using default path.", post.getGroupId());
-                                baseTargetUrl = "/Linked/" + post.getGroupId();
-                            }
-
-                            notificationService.sendNotification(
-                                    commentAuthor.getUserFirstName() + " commented on your post",
-                                    "\"" + comment.getContent() + "\"",
-                                    commentAuthor.getUserFirstName(),
-                                    commentAuthor.getProfileImageURL() != null
-                                            ? resizeImage(commentAuthor.getProfileImageURL())
-                                            : "/images/default-user-icon.png",
-                                    Set.of(token),
-                                    "comment_on_post",
-                                    String.valueOf(post.getId()),
-                                    baseTargetUrl + "?postId=" + post.getId(),
-                                    null
-                            );
-                            logger.info("Sent comment notification to post author {} for post {}.", post.getAuthor(), post.getId());
-                        }
-                    }
-                }
-            } else {
-                logger.debug("Comment author is also post author. Skipping notification for post author.");
-            }
+        Post post = postOpt.get();
+        if (post.getAuthor().equalsIgnoreCase(comment.getAuthor())) {
+            logger.debug("Comment author is also post author. Skipping self-notification.");
+            return;
         }
+
+        Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
+        Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
+
+        if (postAuthorOpt.isEmpty() || commentAuthorOpt.isEmpty()) return;
+
+        UserInfo postAuthor = postAuthorOpt.get();
+        UserInfo commentAuthor = commentAuthorOpt.get();
+
+        String token = postAuthor.getFcmtoken();
+        if (token == null || token.isEmpty()) return;
+
+        String baseTargetUrl = groupRepo.findByGroupId(post.getGroupId())
+                .map(groupService::getGroupTargetUrl)
+                .orElse("/Linked/" + post.getGroupId());
+
+        notificationService.sendNotification(
+                commentAuthor.getUserFirstName() + " commented on your post",
+                "\"" + comment.getContent() + "\"",
+                commentAuthor.getUserFirstName(),
+                commentAuthor.getProfileImageURL() != null
+                        ? resizeImage(commentAuthor.getProfileImageURL())
+                        : "/images/default-user-icon.png",
+                Set.of(token),
+                "comment_on_post",
+                String.valueOf(post.getId()),
+                baseTargetUrl + "?postId=" + post.getId(),
+                null
+        );
+
+        logger.info("📣 Sent comment notification to post author '{}' for post ID {}", post.getAuthor(), post.getId());
     }
 
     private String resizeImage(String imageUrl) {
@@ -138,12 +142,11 @@ public class CommentService {
             byte[] resizedImageBytes = InMemoryImageResizer.resizeImageFromUrl(imageUrl, "png", 120, 120);
             return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(resizedImageBytes);
         } catch (IOException e) {
-            logger.warn("Failed to resize image: {}", e.getMessage());
-            return "/images/default-user-icon.png"; // Fallback to default icon if resizing fails
+            logger.warn("⚠️ Failed to resize profile image: {}", e.getMessage());
+            return "/images/default-user-icon.png";
         }
     }
 
-    // ✅ FIX: Ensure this DTO conversion method exists and is correctly implemented.
     private CommentDto convertToCommentDto(Comment comment) {
         CommentDto dto = new CommentDto();
         dto.setId(comment.getId());
@@ -151,7 +154,6 @@ public class CommentService {
         dto.setAuthor(comment.getAuthor());
         dto.setContent(comment.getContent());
         dto.setTimestamp(comment.getTimestamp());
-        // dto.setEdited(comment.isEdited()); // Uncomment if your Comment entity has 'edited' field
 
         userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
             dto.setAuthorFirstName(authorInfo.getUserFirstName());
