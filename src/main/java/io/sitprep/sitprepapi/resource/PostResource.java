@@ -1,4 +1,3 @@
-// src/main/java/io/sitprep/sitprepapi/resource/PostResource.java
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Post;
@@ -13,7 +12,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.time.Instant;
-import java.time.ZoneId;
+
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -22,30 +23,6 @@ public class PostResource {
     @Autowired
     private PostService postService;
 
-    @PostMapping(consumes = { "multipart/form-data" })
-    public Post createPost(
-            @RequestParam("author") String author,
-            @RequestParam("content") String content,
-            @RequestParam("groupId") String groupId,     // ✅ Use String
-            @RequestParam("groupName") String groupName,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
-            @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "mentions", required = false) List<String> mentions,
-            @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
-    ) throws IOException {
-        Post post = new Post();
-        post.setAuthor(author);
-        post.setContent(content);
-        post.setGroupId(groupId);      // ✅ Store UUID
-        post.setGroupName(groupName);
-        post.setTimestamp(Instant.now());
-        post.setTags(tags);
-        post.setMentions(mentions);
-
-        return postService.createPost(post, imageFile);
-    }
-
-    // ✅ This is the ONLY correct endpoint for getting posts by group ID (UUID or otherwise)
     @GetMapping("/group/{groupId}")
     public List<Post> getPostsByGroupId(@PathVariable String groupId) {
         List<Post> posts = postService.getPostsByGroupId(groupId);
@@ -58,7 +35,6 @@ public class PostResource {
         return posts;
     }
 
-    // ✅ NEW ENDPOINT: Get a single post by ID
     @GetMapping("/{postId}")
     public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
         Optional<Post> postOpt = postService.getPostById(postId);
@@ -74,13 +50,12 @@ public class PostResource {
         }
     }
 
-
-    @PutMapping("/{postId}")
+    @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
     public ResponseEntity<Post> updatePost(
             @PathVariable Long postId,
-            @RequestParam("author") String author,
+            @RequestParam(value = "author", required = false) String author,
             @RequestParam("content") String content,
-            @RequestParam("groupId") String groupId,     // ✅ Use String
+            @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
             @RequestParam(value = "tags", required = false) List<String> tags,
@@ -90,12 +65,12 @@ public class PostResource {
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isPresent()) {
             Post post = postOpt.get();
-            post.setAuthor(author);
-            post.setContent(content);
-            post.setGroupId(groupId);
-            post.setGroupName(groupName);
-            post.setTags(tags);
-            post.setMentions(mentions);
+            if (content != null) post.setContent(content);
+            if (author != null) post.setAuthor(author);
+            if (groupId != null) post.setGroupId(groupId);
+            if (groupName != null) post.setGroupName(groupName);
+            if (tags != null) post.setTags(tags);
+            if (mentions != null) post.setMentions(mentions);
             post.setEditedAt(Instant.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);
@@ -107,7 +82,10 @@ public class PostResource {
 
     @DeleteMapping("/{postId}")
     public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
-        postService.deletePost(postId);
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String currentUserEmail = auth != null ? auth.getName() : "unknown";
+
+        postService.deletePostAndBroadcast(postId, currentUserEmail);
         return ResponseEntity.noContent().build();
     }
 

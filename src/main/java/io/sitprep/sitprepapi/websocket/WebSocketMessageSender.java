@@ -8,16 +8,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class WebSocketMessageSender {
 
     private static final Logger logger = LoggerFactory.getLogger(WebSocketMessageSender.class);
     private final SimpMessagingTemplate messagingTemplate;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public WebSocketMessageSender(SimpMessagingTemplate messagingTemplate) {
+    @Autowired
+    public WebSocketMessageSender(SimpMessagingTemplate messagingTemplate, ObjectMapper objectMapper) {
         this.messagingTemplate = messagingTemplate;
+        this.objectMapper = objectMapper;
     }
 
     public void sendNewPost(String groupId, PostDto postDto) {
@@ -31,6 +34,12 @@ public class WebSocketMessageSender {
         } catch (JsonProcessingException e) {
             logger.error("❌ Failed to serialize PostDto for WebSocket broadcast: {}", e.getMessage(), e);
         }
+    }
+
+    public void sendPostDeletion(String groupId, Long postId) {
+        String destination = "/topic/posts/" + groupId + "/delete";
+        logger.info("🗑️ Broadcasting DELETION to [{}] for post ID: {}", destination, postId);
+        messagingTemplate.convertAndSend(destination, postId);
     }
 
     public void sendNewComment(Long postId, CommentDto commentDto) {

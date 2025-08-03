@@ -1,32 +1,82 @@
 package io.sitprep.sitprepapi.config;
 
+import io.sitprep.sitprepapi.security.jwt.JwtUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
+import java.security.Principal;
+import java.util.Collections;
+
 @Configuration
-@EnableWebSocketMessageBroker // Enables WebSocket message handling, backed by a message broker
+@EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Override
-    public void configureMessageBroker(MessageBrokerRegistry config) {
-        // Enable a simple in-memory message broker.
-        // Messages destined for "/topic" or "/queue" will be routed to connected clients.
-        config.enableSimpleBroker("/topic", "/queue");
+    @Autowired
+    private JwtUtils jwtUtils;
 
-        // Set the prefix for application-level messages.
-        // Messages from clients to the server should be prefixed with "/app" (e.g., /app/send-message).
-        config.setApplicationDestinationPrefixes("/app");
+    @Override
+    public void configureMessageBroker(MessageBrokerRegistry registry) {
+        registry.enableSimpleBroker("/topic");
+        registry.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Register the WebSocket endpoint. Clients will connect to "/ws".
-        // `setAllowedOriginPatterns("*")` allows connections from any origin (for development).
-        // For production, this should be restricted to your frontend domain (e.g., "https://yoursitprepapp.com").
-        // `withSockJS()` enables SockJS fallback options for browsers that don't support native WebSockets.
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+        registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns("*");
+        // ⚠️ No .withSockJS() — we want native WebSocket for Principal to work
+    }
+
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(new ChannelInterceptor() {
+            @Override
+            public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+
+                if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+                    String authHeader = accessor.getFirstNativeHeader("Authorization");
+
+                    if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                        String token = authHeader.substring(7);
+                        if (jwtUtils.validateJwtToken(token)) {
+                            String email = jwtUtils.getUserEmailFromJwtToken(token);
+                            UsernamePasswordAuthenticationToken authentication =
+                                    new UsernamePasswordAuthenticationToken(email, null, Collections.emptyList());
+
+                            accessor.setUser(authentication);
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                        }
+                    }
+                }
+
+                Principal user = accessor != null ? accessor.getUser() : null;
+                if (user != null) {
+                    SecurityContextHolder.getContext().setAuthentication(
+                            (UsernamePasswordAuthenticationToken) user
+                    );
+                }
+
+                return message;
+            }
+
+            @Override
+            public void postSend(Message<?> message, MessageChannel channel, boolean sent) {
+                SecurityContextHolder.clearContext();
+            }
+        });
     }
 }

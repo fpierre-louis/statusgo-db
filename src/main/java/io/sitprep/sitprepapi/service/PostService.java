@@ -9,6 +9,9 @@ import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.Authentication;
+
 import jakarta.transaction.Transactional;
 
 import org.slf4j.Logger;
@@ -21,6 +24,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -51,58 +56,134 @@ public class PostService {
     }
 
     @Transactional
-    public Post createPost(Post post, MultipartFile imageFile) throws IOException {
-        if (imageFile != null && !imageFile.isEmpty()) {
-            post.setImage(imageFile.getBytes());
+    public Post createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
+        if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
+            logger.warn("⚠️ Unauthorized CREATE POST attempt. DTO author: {} does not match authenticated user: {}", postDto.getAuthor(), authenticatedUserEmail);
+            throw new SecurityException("User not authorized to create a post for another user.");
+        }
+
+        Post post = new Post();
+        post.setAuthor(postDto.getAuthor());
+        post.setContent(postDto.getContent());
+        post.setGroupId(postDto.getGroupId());
+        post.setGroupName(postDto.getGroupName());
+        post.setTimestamp(Instant.now());
+        post.setTags(postDto.getTags());
+        post.setMentions(postDto.getMentions());
+
+        if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
+            String encodedImage = postDto.getBase64Image().split(",")[1];
+            byte[] imageBytes = Base64.getDecoder().decode(encodedImage);
+            post.setImage(imageBytes);
         }
 
         Post savedPost = postRepo.save(post);
+        PostDto savedPostDto = convertToPostDto(savedPost);
+        savedPostDto.setTempId(postDto.getTempId());
 
-        try {
-            PostDto savedPostDto = convertToPostDto(savedPost);
-            notifyGroupMembersOfNewPost(savedPost);
+        notifyGroupMembersOfNewPost(savedPost);
 
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
-                }
-            });
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
+            }
+        });
 
-            logger.info("🚀 Successfully processed and scheduled broadcast for post ID: {}", savedPost.getId());
-        } catch (Exception e) {
-            logger.error("❌ Failed to process post ID {}: {}", savedPost.getId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to create post due to an internal server error.", e);
-        }
-
+        logger.info("🚀 Successfully processed and scheduled broadcast for post ID: {}", savedPost.getId());
         return savedPost;
     }
 
     @Transactional
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
+        String authenticatedUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+
+        if (!post.getAuthor().equals(authenticatedUserEmail)) {
+            logger.warn("⚠️ Unauthorized UPDATE attempt on post ID {}. User: {}", post.getId(), authenticatedUserEmail);
+            throw new SecurityException("User not authorized to update this post.");
+        }
+
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
         }
 
         Post updatedPost = postRepo.save(post);
+        PostDto updatedPostDto = convertToPostDto(updatedPost);
 
-        try {
-            PostDto updatedPostDto = convertToPostDto(updatedPost);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); // 🟡 Broadcast update using same sendNewPost
+            }
+        });
 
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto);
-                }
-            });
+        logger.info("🚀 Successfully scheduled broadcast for updated post ID: {}", updatedPost.getId());
+        return updatedPost;
+    }
 
-            logger.info("🚀 Successfully scheduled broadcast for updated post ID: {}", updatedPost.getId());
-        } catch (Exception e) {
-            logger.error("❌ Failed to update post ID {}: {}", updatedPost.getId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to update post due to an internal server error.", e);
+    @Transactional
+    public void deletePostAndBroadcast(Long postId, String requestingUserEmail) {
+        Optional<Post> postOpt = postRepo.findById(postId);
+        if (postOpt.isEmpty()) {
+            throw new RuntimeException("Post not found");
         }
 
-        return updatedPost;
+        Post post = postOpt.get();
+        if (!post.getAuthor().equalsIgnoreCase(requestingUserEmail)) {
+            throw new SecurityException("User not authorized to delete this post.");
+        }
+
+        postRepo.delete(post);
+
+        // Optional: Only keep if you later implement this method in NotificationService
+        // notificationService.sendPostDeletedNotification(post);
+
+        webSocketMessageSender.sendPostDeletion(post.getGroupId(), post.getId());
+
+        logger.info("🗑️ Post ID {} deleted by {}", postId, requestingUserEmail);
+    }
+
+
+
+    @Transactional
+    public void updatePostFromDto(PostDto dto) {
+        String authenticatedUserEmail = dto.getAuthor(); // ✅ Already set from Principal in controller
+
+
+        Optional<Post> postOpt = postRepo.findById(dto.getId());
+        if (postOpt.isEmpty()) {
+            throw new IllegalArgumentException("Post not found for update: " + dto.getId());
+        }
+
+        Post post = postOpt.get();
+
+        if (!post.getAuthor().equals(authenticatedUserEmail)) {
+            logger.warn("⚠️ Unauthorized WebSocket EDIT attempt on post ID {}. User: {}", dto.getId(), authenticatedUserEmail);
+            throw new SecurityException("Not allowed to edit this post.");
+        }
+
+        post.setContent(dto.getContent());
+        post.setEditedAt(Instant.now());
+        post.setTags(dto.getTags());
+        post.setMentions(dto.getMentions());
+
+        if (dto.getBase64Image() != null && !dto.getBase64Image().isEmpty()) {
+            String encodedImage = dto.getBase64Image().split(",")[1];
+            post.setImage(Base64.getDecoder().decode(encodedImage));
+        }
+
+        Post updated = postRepo.save(post);
+        PostDto updatedDto = convertToPostDto(updated);
+        updatedDto.setTempId(dto.getTempId());
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                webSocketMessageSender.sendNewPost(updated.getGroupId(), updatedDto); // ✅ Broadcast WebSocket update
+            }
+        });
+
+        logger.info("✏️ Edited post via WebSocket. ID: {}", updated.getId());
     }
 
     public List<Post> getPostsByGroupId(String groupId) {
@@ -113,14 +194,11 @@ public class PostService {
         return postRepo.findById(id);
     }
 
-    public void deletePost(Long id) {
-        postRepo.deleteById(id);
-    }
-
     @Transactional
     public void addReaction(Post post, String reaction) {
         post.getReactions().put(reaction, post.getReactions().getOrDefault(reaction, 0) + 1);
         Post updatedPost = postRepo.save(post);
+
         webSocketMessageSender.sendGenericUpdate(
                 "/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(),
                 updatedPost.getReactions()
@@ -184,17 +262,20 @@ public class PostService {
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());
         dto.setContent(post.getContent());
-        dto.setGroupId(String.valueOf(post.getGroupId())); // force to String
+        dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
         dto.setTimestamp(post.getTimestamp());
-        dto.setBase64Image(post.getBase64Image());
-        dto.setEditedAt(post.getEditedAt());
 
-        // Defensive defaults
+        if (post.getImage() != null) {
+            String base64Image = Base64.getEncoder().encodeToString(post.getImage());
+            dto.setBase64Image("data:image/jpeg;base64," + base64Image);
+        }
+
+        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
-        dto.setCommentsCount(post.getCommentsCount()); // primitive int—no null checks
+        dto.setCommentsCount(post.getCommentsCount());
 
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(authorInfo -> {
             dto.setAuthorFirstName(authorInfo.getUserFirstName());
