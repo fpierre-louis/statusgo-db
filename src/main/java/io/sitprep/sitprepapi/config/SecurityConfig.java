@@ -21,12 +21,14 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(AbstractHttpConfigurer::disable) // Disable CSRF for now to allow easier WebSocket testing
-                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // Use the unified CORS bean
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/ws/**").permitAll() // Allow WebSocket connections without security
-                        .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll() // Allow OPTIONS for CORS pre-flight
-                        .anyRequest().authenticated() // All other requests must be authenticated
+                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/userinfo/email/**").permitAll() // ✅ Permit access for fetching user profile by email
+                        .requestMatchers("/api/userinfo").permitAll() // ✅ Permit access for creating a new user
+                        .anyRequest().authenticated()
                 );
 
         return http.build();
@@ -35,17 +37,13 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Use the comprehensive list of origins
         configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200", "https://statusgo-db-0889387bb209.herokuapp.com", "https://statusnow.app", "https://www.statusnow.app", "https://www.sitprep.app", "https://sitprep.app"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("*")); // Allow all headers
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-
-    // You can now delete the separate CorsConfig.java file
-    // as its logic has been merged here.
 }
