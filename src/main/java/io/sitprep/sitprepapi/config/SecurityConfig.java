@@ -9,8 +9,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
-
 import java.util.Arrays;
 import java.util.List;
 
@@ -26,8 +24,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/userinfo/email/**").permitAll() // ✅ Permit access for fetching user profile by email
-                        .requestMatchers("/api/userinfo").permitAll() // ✅ Permit access for creating a new user
+                        // ✅ Permit access to user-related endpoints for the sign-in flow
+                        .requestMatchers("/api/userinfo/email/**").permitAll()
+                        .requestMatchers("/api/userinfo").permitAll()
                         .anyRequest().authenticated()
                 );
 
@@ -37,6 +36,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
+        // Use the comprehensive list of origins
         configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:4200", "https://statusgo-db-0889387bb209.herokuapp.com", "https://statusnow.app", "https://www.statusnow.app", "https://www.sitprep.app", "https://sitprep.app"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
