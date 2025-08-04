@@ -6,20 +6,28 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class GroupService {
 
+    private static final Logger logger = LoggerFactory.getLogger(GroupService.class);
+
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender webSocketMessageSender;
-    private final NotificationService notificationService;
+    private NotificationService notificationService; // Make this non-final for @Autowired setter
 
     public GroupService(GroupRepo groupRepo, UserInfoRepo userInfoRepo,
                         WebSocketMessageSender webSocketMessageSender,
@@ -54,6 +62,7 @@ public class GroupService {
         for (UserInfo recipient : recipients) {
             if (recipient.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
 
+            // This part is for in-app WebSocket notification
             NotificationPayload payload = new NotificationPayload(
                     recipient.getUserEmail(),
                     group.getGroupName(),
@@ -65,11 +74,30 @@ public class GroupService {
                     Instant.now()
             );
 
-            notificationService.broadcastNotification(payload);
+            // Using the correct method from NotificationService
+            Set<String> recipientTokens = new HashSet<>();
+            if (recipient.getFcmtoken() != null && !recipient.getFcmtoken().isEmpty()) {
+                recipientTokens.add(recipient.getFcmtoken());
+            }
+
+            if (!recipientTokens.isEmpty()) {
+                notificationService.sendNotification(
+                        group.getGroupName(),
+                        message,
+                        senderName,
+                        "/images/group-alert-icon.png",
+                        recipientTokens,
+                        "group_status",
+                        groupId,
+                        "/groups/" + groupId,
+                        null
+                );
+            }
+
+            // Also send the in-app WebSocket message
+            webSocketMessageSender.sendInAppNotification(payload);
         }
     }
-
-
 
     public Group createGroup(Group group) {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
@@ -152,8 +180,6 @@ public class GroupService {
 
         notificationService.notifyGroupAlertChange(group, group.getAlert(), initiatedBy);
     }
-
-
 
     private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
         Set<String> newPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
