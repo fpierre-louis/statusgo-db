@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
+
 import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Group;
@@ -23,6 +25,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class CommentService {
@@ -55,7 +58,7 @@ public class CommentService {
         Comment savedComment = commentRepo.save(comment);
         CommentDto savedCommentDto = convertToCommentDto(savedComment);
 
-        notifyPostAuthor(savedComment);
+        notifyRelevantUsers(savedComment, null);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -71,7 +74,7 @@ public class CommentService {
         Comment updatedComment = commentRepo.save(comment);
         CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
 
-        notifyPostAuthor(updatedComment);
+        notifyRelevantUsers(updatedComment, null);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -95,46 +98,114 @@ public class CommentService {
         commentRepo.deleteById(id);
     }
 
-    private void notifyPostAuthor(Comment comment) {
-        Optional<Post> postOpt = postRepo.findById(comment.getPostId());
+    public void createCommentFromDto(CommentDto dto) {
+        Comment comment = new Comment();
+        comment.setPostId(dto.getPostId());
+        comment.setAuthor(dto.getAuthor());
+        comment.setContent(dto.getContent());
+        comment.setTimestamp(dto.getTimestamp() != null ? dto.getTimestamp() : java.time.Instant.now());
+
+        Comment saved = commentRepo.save(comment);
+
+        CommentDto result = convertToCommentDto(saved);
+        result.setTempId(dto.getTempId());
+
+        notifyRelevantUsers(saved, dto.getTempId());
+
+        webSocketMessageSender.sendNewComment(saved.getPostId(), result);
+    }
+
+    public void updateCommentFromDto(CommentDto dto) {
+        Comment comment = commentRepo.findById(dto.getId()).orElse(null);
+        if (comment == null) return;
+
+        comment.setContent(dto.getContent());
+        comment.setTimestamp(dto.getTimestamp());
+        comment.setAuthor(dto.getAuthor());
+        commentRepo.save(comment);
+
+        webSocketMessageSender.sendNewComment(dto.getPostId(), convertToCommentDto(comment));
+    }
+
+    public void deleteCommentAndBroadcast(Long commentId, Long postId) {
+        commentRepo.deleteById(commentId);
+        webSocketMessageSender.sendCommentDeletion(postId, commentId);
+    }
+
+    private CommentDto convertToCommentDto(Comment comment) {
+        CommentDto dto = new CommentDto();
+        dto.setId(comment.getId());
+        dto.setPostId(comment.getPostId());
+        dto.setAuthor(comment.getAuthor());
+        dto.setContent(comment.getContent());
+        dto.setTimestamp(comment.getTimestamp());
+        dto.setEdited(false);
+
+        userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
+            dto.setAuthorFirstName(authorInfo.getUserFirstName());
+            dto.setAuthorLastName(authorInfo.getUserLastName());
+            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
+        });
+
+        return dto;
+    }
+
+    private void notifyRelevantUsers(Comment savedComment, String tempId) {
+        Optional<Post> postOpt = postRepo.findById(savedComment.getPostId());
         if (postOpt.isEmpty()) return;
 
         Post post = postOpt.get();
-        if (post.getAuthor().equalsIgnoreCase(comment.getAuthor())) {
-            logger.debug("Comment author is also post author. Skipping self-notification.");
-            return;
+        Long postId = post.getId();
+
+        // Notify post author if not the commenter
+        if (!post.getAuthor().equalsIgnoreCase(savedComment.getAuthor())) {
+            notifyUser(post.getAuthor(), savedComment, "comment_on_post", postId, "commented on your post");
         }
 
-        Optional<UserInfo> postAuthorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-        Optional<UserInfo> commentAuthorOpt = userInfoRepo.findByUserEmail(comment.getAuthor());
+        // Notify other commenters
+        List<Comment> allComments = commentRepo.findByPostId(postId);
+        Set<String> uniqueCommenters = allComments.stream()
+                .map(Comment::getAuthor)
+                .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
+                .filter(email -> !email.equalsIgnoreCase(savedComment.getAuthor()))
+                .collect(Collectors.toSet());
 
-        if (postAuthorOpt.isEmpty() || commentAuthorOpt.isEmpty()) return;
+        for (String commenter : uniqueCommenters) {
+            notifyUser(commenter, savedComment, "comment_thread_reply", postId, "also replied to a post you commented on");
+        }
+    }
 
-        UserInfo postAuthor = postAuthorOpt.get();
-        UserInfo commentAuthor = commentAuthorOpt.get();
+    private void notifyUser(String recipientEmail, Comment triggeringComment, String type, Long postId, String actionLabel) {
+        Optional<UserInfo> recipientOpt = userInfoRepo.findByUserEmail(recipientEmail);
+        Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(triggeringComment.getAuthor());
 
-        String token = postAuthor.getFcmtoken();
+        if (recipientOpt.isEmpty() || authorOpt.isEmpty()) return;
+
+        UserInfo recipient = recipientOpt.get();
+        UserInfo author = authorOpt.get();
+
+        String token = recipient.getFcmtoken();
         if (token == null || token.isEmpty()) return;
 
-        String baseTargetUrl = groupRepo.findByGroupId(post.getGroupId())
-                .map(groupService::getGroupTargetUrl)
-                .orElse("/Linked/" + post.getGroupId());
+        String groupUrl = groupRepo.findByGroupId(postRepo.findById(postId).map(Post::getGroupId).orElse(null))
+                .map(GroupUrlUtil::getGroupTargetUrl)
+                .orElse("/Linked/" + postId);
 
         notificationService.sendNotification(
-                commentAuthor.getUserFirstName() + " commented on your post",
-                "\"" + comment.getContent() + "\"",
-                commentAuthor.getUserFirstName(),
-                commentAuthor.getProfileImageURL() != null
-                        ? resizeImage(commentAuthor.getProfileImageURL())
+                author.getUserFirstName() + " " + actionLabel,
+                "\"" + triggeringComment.getContent() + "\"",
+                author.getUserFirstName(),
+                author.getProfileImageURL() != null
+                        ? resizeImage(author.getProfileImageURL())
                         : "/images/default-user-icon.png",
                 Set.of(token),
-                "comment_on_post",
-                String.valueOf(post.getId()),
-                baseTargetUrl + "?postId=" + post.getId(),
+                type,
+                String.valueOf(postId),
+                groupUrl + "?postId=" + postId,
                 null
         );
 
-        logger.info("📣 Sent comment notification to post author '{}' for post ID {}", post.getAuthor(), post.getId());
+        logger.info("📨 Sent '{}' notification to '{}' for post {}", type, recipientEmail, postId);
     }
 
     private String resizeImage(String imageUrl) {
@@ -145,22 +216,5 @@ public class CommentService {
             logger.warn("⚠️ Failed to resize profile image: {}", e.getMessage());
             return "/images/default-user-icon.png";
         }
-    }
-
-    private CommentDto convertToCommentDto(Comment comment) {
-        CommentDto dto = new CommentDto();
-        dto.setId(comment.getId());
-        dto.setPostId(comment.getPostId());
-        dto.setAuthor(comment.getAuthor());
-        dto.setContent(comment.getContent());
-        dto.setTimestamp(comment.getTimestamp());
-
-        userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
-            dto.setAuthorFirstName(authorInfo.getUserFirstName());
-            dto.setAuthorLastName(authorInfo.getUserLastName());
-            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
-        });
-
-        return dto;
     }
 }

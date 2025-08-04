@@ -4,34 +4,72 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
+import io.sitprep.sitprepapi.dto.NotificationPayload;
+
 import org.springframework.stereotype.Service;
 
-import jakarta.transaction.Transactional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 public class GroupService {
 
-    private static final Logger logger = LoggerFactory.getLogger(GroupService.class);
+    private final GroupRepo groupRepo;
+    private final UserInfoRepo userInfoRepo;
+    private final WebSocketMessageSender webSocketMessageSender;
+    private final NotificationService notificationService;
+
+    public GroupService(GroupRepo groupRepo, UserInfoRepo userInfoRepo,
+                        WebSocketMessageSender webSocketMessageSender,
+                        NotificationService notificationService) {
+        this.groupRepo = groupRepo;
+        this.userInfoRepo = userInfoRepo;
+        this.webSocketMessageSender = webSocketMessageSender;
+        this.notificationService = notificationService;
+    }
 
     @Autowired
-    private GroupRepo groupRepo;
+    public void setNotificationService(NotificationService notificationService) {
+        this.notificationService = notificationService;
+    }
 
-    @Autowired
-    private UserInfoRepo userInfoRepo;
+    public void broadcastGroupStatusChange(String groupId, String newStatus, String initiatedByEmail) {
+        Optional<Group> groupOpt = groupRepo.findByGroupId(groupId);
+        if (groupOpt.isEmpty()) return;
 
-    @Autowired
-    private NotificationService notificationService;
+        Group group = groupOpt.get();
+        List<String> memberEmails = group.getMemberEmails();
 
-    // ✅ CRUD Operations Using Public UUID
+        List<UserInfo> recipients = userInfoRepo.findByUserEmailIn(memberEmails);
+        Optional<UserInfo> senderOpt = userInfoRepo.findByUserEmail(initiatedByEmail);
+
+        String senderName = senderOpt
+                .map(u -> u.getUserFirstName() + " " + u.getUserLastName())
+                .orElse("Group Admin");
+
+        String message = "🚨 " + senderName + " changed the group's status to " + newStatus;
+
+        for (UserInfo recipient : recipients) {
+            if (recipient.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
+
+            NotificationPayload payload = new NotificationPayload(
+                    recipient.getUserEmail(),
+                    group.getGroupName(),
+                    message,
+                    "/images/group-alert-icon.png",
+                    "group_status",
+                    "/groups/" + groupId,
+                    groupId,
+                    Instant.now()
+            );
+
+            notificationService.broadcastNotification(payload);
+        }
+    }
+
+
 
     public Group createGroup(Group group) {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
@@ -39,7 +77,6 @@ public class GroupService {
         }
         return groupRepo.save(group);
     }
-
 
     public List<Group> getAllGroups() {
         return groupRepo.findAll();
@@ -65,11 +102,10 @@ public class GroupService {
         groupRepo.delete(group);
     }
 
-    // ✅ Helper Method to Update Group Fields
     private void updateGroupFields(Group group, Group groupDetails) {
         Set<String> oldMemberEmails = new HashSet<>(group.getMemberEmails());
         Set<String> oldPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
-        boolean alertChangedToActive = !"Active".equals(group.getAlert()) && "Active".equals(groupDetails.getAlert());
+        boolean alertChanged = !group.getAlert().equals(groupDetails.getAlert());
 
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
@@ -93,7 +129,7 @@ public class GroupService {
         group.setLongitude(groupDetails.getLongitude());
         group.setLatitude(groupDetails.getLatitude());
 
-        if (alertChangedToActive) {
+        if (alertChanged) {
             notifyGroupMembers(group);
         }
 
@@ -102,67 +138,42 @@ public class GroupService {
         notifyAdminsOfPendingMembers(group, oldPendingMemberEmails);
     }
 
-    // Helper to determine the correct group URL based on groupType
-    // ✅ FIX: Change to public access modifier
-    public String getGroupTargetUrl(Group group) {
-        if ("Household".equalsIgnoreCase(group.getGroupType())) {
-            return "/household/h/4D-FwtX/household/" + group.getGroupId();
-        } else {
-            return "/Linked/lg/4D-FwtX/" + group.getGroupId();
-        }
-    }
-
-
-    // ✅ Notification Methods (use UUID groupId)
     private void notifyGroupMembers(Group group) {
-        List<String> memberEmails = group.getMemberEmails();
-        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
-
-        Set<String> tokens = users.stream()
-                .map(UserInfo::getFcmtoken)
-                .filter(token -> token != null && !token.isEmpty())
-                .collect(Collectors.toSet());
-
-        if (tokens.isEmpty()) {
-            logger.warn("No FCM tokens found for group members.");
+        if (group.getAlert() == null || group.getAlert().isEmpty()) {
+            logger.warn("❌ Skipping group alert notification: Alert value is null or empty");
             return;
         }
 
-        String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
-        notificationService.sendNotification(
-                group.getGroupName(),
-                "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.",
-                "Group Alert",
-                "/images/group-alert-icon.png",
-                tokens,
-                "alert",
-                group.getGroupId(),           // ✅ Use UUID directly
-                "/status-now",
-                null
-        );
+        String initiatedBy = group.getLastUpdatedBy() != null
+                ? group.getLastUpdatedBy()
+                : group.getOwnerEmail();
+
+        logger.info("📣 Alert status change detected for group {}: new status = {}", group.getGroupId(), group.getAlert());
+
+        notificationService.notifyGroupAlertChange(group, group.getAlert(), initiatedBy);
     }
+
+
 
     private void notifyAdminsOfPendingMembers(Group group, Set<String> oldPendingMemberEmails) {
         Set<String> newPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
         newPendingMemberEmails.removeAll(oldPendingMemberEmails);
-
         if (newPendingMemberEmails.isEmpty()) return;
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
-
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
             if (token == null || token.isEmpty()) continue;
 
-            for (String newPendingMemberEmail : newPendingMemberEmails) {
-                UserInfo pendingMember = userInfoRepo.findByUserEmail(newPendingMemberEmail)
-                        .orElseThrow(() -> new RuntimeException("User not found: " + newPendingMemberEmail));
+            for (String email : newPendingMemberEmails) {
+                UserInfo pending = userInfoRepo.findByUserEmail(email)
+                        .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
                 notificationService.sendNotification(
                         "Hi " + admin.getUserFirstName() + "👋",
-                        "A new request from " + pendingMember.getUserFirstName() + " " + pendingMember.getUserLastName() +
+                        "A new request from " + pending.getUserFirstName() + " " + pending.getUserLastName() +
                                 " is pending for your group, " + group.getGroupName() + ".",
                         "Admin",
                         "/images/admin-icon.png",
@@ -179,24 +190,23 @@ public class GroupService {
     private void notifyNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
         newMemberEmails.removeAll(oldMemberEmails);
-
         if (newMemberEmails.isEmpty()) return;
 
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        for (String newMemberEmail : newMemberEmails) {
-            UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + newMemberEmail));
+        for (String email : newMemberEmails) {
+            UserInfo user = userInfoRepo.findByUserEmail(email)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
-            String token = newMember.getFcmtoken();
+            String token = user.getFcmtoken();
             if (token == null || token.isEmpty()) continue;
 
-            String notificationBody = "Hi " + newMember.getUserFirstName() + "👋, you've joined " + group.getGroupName() + ". Welcome!";
+            String msg = "Hi " + user.getUserFirstName() + "👋, you've joined " + group.getGroupName() + ". Welcome!";
             notificationService.sendNotification(
                     "Welcome to " + group.getGroupName() + "!",
-                    notificationBody,
+                    msg,
                     "User",
-                    newMember.getProfileImageURL() != null ? newMember.getProfileImageURL() : "/images/default-user-icon.png",
+                    user.getProfileImageURL() != null ? user.getProfileImageURL() : "/images/default-user-icon.png",
                     Set.of(token),
                     "new_member",
                     group.getGroupId(),
@@ -209,29 +219,26 @@ public class GroupService {
     private void notifyAdminsOfNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(group.getMemberEmails());
         newMemberEmails.removeAll(oldMemberEmails);
-
         if (newMemberEmails.isEmpty()) return;
 
         List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        String targetUrl = getGroupTargetUrl(group); // Determine URL based on group type
-
-        for (String newMemberEmail : newMemberEmails) {
-            UserInfo newMember = userInfoRepo.findByUserEmail(newMemberEmail)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + newMemberEmail));
+        for (String email : newMemberEmails) {
+            UserInfo newUser = userInfoRepo.findByUserEmail(email)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
             for (UserInfo admin : admins) {
                 String token = admin.getFcmtoken();
                 if (token == null || token.isEmpty()) continue;
 
-                String notificationBody = newMember.getUserFirstName() + " " + newMember.getUserLastName() +
+                String msg = newUser.getUserFirstName() + " " + newUser.getUserLastName() +
                         " has joined " + group.getGroupName() + ". Say hello!";
-
                 notificationService.sendNotification(
                         "Hi " + admin.getUserFirstName() + "👋",
-                        notificationBody,
+                        msg,
                         "Admin",
-                        newMember.getProfileImageURL() != null ? newMember.getProfileImageURL() : "/images/default-user-icon.png",
+                        newUser.getProfileImageURL() != null ? newUser.getProfileImageURL() : "/images/default-user-icon.png",
                         Set.of(token),
                         "new_member",
                         group.getGroupId(),

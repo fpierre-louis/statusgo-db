@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -237,7 +238,7 @@ public class PostService {
                     post.getGroupName(),
                     post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
 
-            String baseTargetUrl = groupService.getGroupTargetUrl(group);
+            String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
             notificationService.sendNotification(
                     notificationTitle,

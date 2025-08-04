@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.websocket;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.dto.CommentDto;
 import org.slf4j.Logger;
@@ -65,4 +66,37 @@ public class WebSocketMessageSender {
             logger.error("❌ Failed to serialize generic payload for destination {}: {}", destination, e.getMessage(), e);
         }
     }
+
+    public void sendCommentDeletion(Long postId, Long commentId) {
+        String destination = "/topic/comments/" + postId + "/delete";
+        logger.info("🗑️ Broadcasting COMMENT DELETION to [{}] for comment ID: {}", destination, commentId);
+        messagingTemplate.convertAndSend(destination, commentId);
+    }
+
+    public void sendInAppNotification(NotificationPayload payload) {
+        String destination = "/topic/notifications/" + payload.getRecipientEmail();
+        try {
+            String jsonPayload = objectMapper.writeValueAsString(payload);
+            logger.info("🔔 Sending in-app notification to [{}]", destination);
+            messagingTemplate.convertAndSend(destination, payload);
+        } catch (JsonProcessingException e) {
+            logger.error("❌ Failed to serialize NotificationPayload: {}", e.getMessage());
+        }
+    }
+
+    public void sendGroupAlertNotification(NotificationPayload payload) {
+        String destination = "/topic/notifications/" + payload.getRecipientEmail();
+        try {
+            String jsonPayload = objectMapper.writeValueAsString(payload);
+            logger.info("🚨 Sending group alert to [{}]: {}", destination, jsonPayload);
+            messagingTemplate.convertAndSend(destination, payload);
+        } catch (JsonProcessingException e) {
+            logger.error("❌ Failed to send group alert WebSocket message: {}", e.getMessage());
+        }
+    }
+
+
+
+
+
 }

@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -11,18 +13,9 @@ import java.util.Set;
 @RequestMapping("/notifications")
 public class NotificationResource {
 
-    @Autowired
-    private NotificationService notificationService;
+    @Autowired private NotificationService notificationService;
+    @Autowired private GroupRepo groupRepo;
 
-    @PostMapping("/subscribe")
-    public ResponseEntity<Void> subscribe(@RequestBody String subscription) {
-        // Handle subscription storage if needed
-        return ResponseEntity.ok().build();
-    }
-
-    /**
-     * 🔥 Send a notification to one or more device tokens.
-     */
     @PostMapping("/send")
     public ResponseEntity<String> sendNotification(
             @RequestParam String title,
@@ -36,17 +29,20 @@ public class NotificationResource {
             @RequestParam(required = false) String additionalData
     ) {
         notificationService.sendNotification(
-                title,
-                body,
-                sender,
-                iconUrl,
-                tokens,
-                notificationType,
-                referenceId,
-                targetUrl,       // 👈 Include as targetUrl to support frontend redirects
-                additionalData
+                title, body, sender, iconUrl, tokens, notificationType, referenceId, targetUrl, additionalData
         );
+        return ResponseEntity.ok("Notification sent.");
+    }
 
-        return ResponseEntity.ok("Notification sent successfully.");
+    @PostMapping("/group-alert")
+    public ResponseEntity<String> triggerGroupAlert(
+            @RequestParam String groupId,
+            @RequestParam String initiatedBy
+    ) {
+        Group group = groupRepo.findByGroupId(groupId)
+                .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
+
+        notificationService.notifyGroupAlertChange(group, "Active", initiatedBy);
+        return ResponseEntity.ok("Group alert broadcasted.");
     }
 }

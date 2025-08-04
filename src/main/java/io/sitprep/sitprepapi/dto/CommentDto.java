@@ -3,13 +3,15 @@ package io.sitprep.sitprepapi.dto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.Instant;
 
-@Data // ✅ THIS IS KEY for getters and setters
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class CommentDto {
     private Long id;
+    private String tempId; // ✅ NEW FIELD
     private Long postId;
     private String author;
     private String authorFirstName;
