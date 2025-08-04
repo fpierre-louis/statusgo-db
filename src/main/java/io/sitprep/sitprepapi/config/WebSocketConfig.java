@@ -36,9 +36,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                // Use a specific list of allowed origins, matching SecurityConfig
-                .setAllowedOrigins("http://localhost:3000", "http://localhost:4200", "https://statusgo-db-0889387bb209.herokuapp.com", "https://statusnow.app", "https://www.statusnow.app", "https://www.sitprep.app", "https://sitprep.app");
-        // Remove withSockJS() if you're not using it to prevent fallback issues
+                .setAllowedOrigins(
+                        "http://localhost:3000",
+                        "http://localhost:4200",
+                        "https://statusgo-db-0889387bb209.herokuapp.com",
+                        "https://statusnow.app",
+                        "https://www.statusnow.app",
+                        "https://www.sitprep.app",
+                        "https://sitprep.app"
+                );
+        // Do not use .withSockJS() unless you need legacy fallback
     }
 
     @Override
@@ -60,7 +67,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
                             accessor.setUser(authentication);
                             SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                            System.out.println("✅ WebSocket authenticated: " + email);
+                        } else {
+                            System.err.println("❌ Invalid JWT during STOMP CONNECT");
                         }
+                    } else {
+                        System.err.println("⚠️ Missing Authorization header in STOMP CONNECT");
                     }
                 }
 

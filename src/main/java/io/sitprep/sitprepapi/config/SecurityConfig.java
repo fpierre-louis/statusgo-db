@@ -24,14 +24,11 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(authorize -> authorize
-                        // Permit access to the WebSocket endpoint for the handshake
                         .requestMatchers("/ws/**").permitAll()
-                        // Permit all OPTIONS requests (CORS pre-flight)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // Permit access to user-related endpoints for the sign-in flow
-                        .requestMatchers("/api/userinfo/email/**").permitAll()
-                        .requestMatchers("/api/userinfo").permitAll()
-                        // All other requests require authentication
+                        .requestMatchers(HttpMethod.GET, "/api/userinfo/email/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/userinfo").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/userinfo/**").permitAll() // ✅ NEW
                         .anyRequest().authenticated()
                 );
 
