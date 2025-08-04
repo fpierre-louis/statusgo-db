@@ -36,8 +36,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
-        // ⚠️ No .withSockJS() — we want native WebSocket for Principal to work
+                // Use a specific list of allowed origins, matching SecurityConfig
+                .setAllowedOrigins("http://localhost:3000", "http://localhost:4200", "https://statusgo-db-0889387bb209.herokuapp.com", "https://statusnow.app", "https://www.statusnow.app", "https://www.sitprep.app", "https://sitprep.app");
+        // Remove withSockJS() if you're not using it to prevent fallback issues
     }
 
     @Override
