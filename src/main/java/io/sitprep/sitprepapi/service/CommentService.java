@@ -1,7 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
-
 import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Group;
@@ -43,8 +42,7 @@ public class CommentService {
     @Autowired
     public CommentService(CommentRepo commentRepo, PostRepo postRepo, UserInfoRepo userInfoRepo,
                           NotificationService notificationService, GroupService groupService,
-                          GroupRepo groupRepo,
-                          WebSocketMessageSender webSocketMessageSender) {
+                          GroupRepo groupRepo, WebSocketMessageSender webSocketMessageSender) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
@@ -157,12 +155,10 @@ public class CommentService {
         Post post = postOpt.get();
         Long postId = post.getId();
 
-        // Notify post author if not the commenter
         if (!post.getAuthor().equalsIgnoreCase(savedComment.getAuthor())) {
             notifyUser(post.getAuthor(), savedComment, "comment_on_post", postId, "commented on your post");
         }
 
-        // Notify other commenters
         List<Comment> allComments = commentRepo.findByPostId(postId);
         Set<String> uniqueCommenters = allComments.stream()
                 .map(Comment::getAuthor)

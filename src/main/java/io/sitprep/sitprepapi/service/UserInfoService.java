@@ -2,16 +2,14 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Objects;
+import java.util.*;
 
 @Service
 public class UserInfoService {
@@ -24,7 +22,7 @@ public class UserInfoService {
     }
 
     public List<UserInfo> getAllUsers() {
-        return userInfoRepo.findAll();
+        return userInfoRepo.findAll(); // Typically admin-only
     }
 
     public Optional<UserInfo> getUserById(String id) {
@@ -36,65 +34,70 @@ public class UserInfoService {
     }
 
     public UserInfo createUser(UserInfo userInfo) {
+        // Always tie user to authenticated email
+        userInfo.setUserEmail(AuthUtils.getCurrentUserEmail());
         return userInfoRepo.save(userInfo);
     }
 
     public UserInfo updateUser(UserInfo userInfo) {
-        return userInfoRepo.save(userInfo);
+        String email = AuthUtils.getCurrentUserEmail();
+
+        return userInfoRepo.findByUserEmail(email)
+                .map(existing -> {
+                    existing.setUserFirstName(userInfo.getUserFirstName());
+                    existing.setUserLastName(userInfo.getUserLastName());
+                    existing.setPhone(userInfo.getPhone());
+                    existing.setAddress(userInfo.getAddress());
+                    existing.setUserStatus(userInfo.getUserStatus());
+
+                    return userInfoRepo.save(existing);
+                })
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + email));
     }
 
     public void deleteUser(String id) {
+        // Admin-level use
         userInfoRepo.deleteById(id);
     }
 
     /**
-     * Partially update a UserInfo object (used in PATCH)
+     * Partially update a UserInfo object (used in PATCH).
+     * Only allowed if user matches and fields are permitted.
      */
     public UserInfo patchUser(String id, Map<String, Object> updates) {
-        Optional<UserInfo> optionalUser = userInfoRepo.findById(id);
-        if (optionalUser.isPresent()) {
-            UserInfo userInfo = optionalUser.get();
+        String currentEmail = AuthUtils.getCurrentUserEmail();
 
-            updates.forEach((key, value) -> {
-                try {
-                    if (key == null || value == null) {
-                        System.out.println("Key or Value is null for key: " + key);
-                        return;
+        return userInfoRepo.findById(id)
+                .map(userInfo -> {
+                    if (!userInfo.getUserEmail().equalsIgnoreCase(currentEmail)) {
+                        throw new SecurityException("Unauthorized to patch this user.");
                     }
 
-                    Field field = ReflectionUtils.findField(UserInfo.class, key);
-                    if (field != null) {
-                        field.setAccessible(true);
-                        Object oldValue = ReflectionUtils.getField(field, userInfo);
+                    updates.forEach((key, value) -> {
+                        if (key == null || value == null) return;
 
-                        // Update the field only if the value is different
-                        if (!Objects.equals(oldValue, value)) {
-                            ReflectionUtils.setField(field, userInfo, value);
-                            System.out.println("Updated field: " + key + " from " + oldValue + " to " + value);
+                        // Prevent patching restricted fields
+                        if (Set.of("id", "userEmail").contains(key)) return;
 
-
-                            if ("activeGroupAlertCounts".equals(key)) {
-                                userInfo.setGroupAlertLastUpdated(Instant.now());
-                                System.out.println("Updated groupAlertLastUpdated because activeGroupAlertCounts changed.");
+                        try {
+                            Field field = ReflectionUtils.findField(UserInfo.class, key);
+                            if (field != null) {
+                                field.setAccessible(true);
+                                Object oldValue = ReflectionUtils.getField(field, userInfo);
+                                if (!Objects.equals(oldValue, value)) {
+                                    ReflectionUtils.setField(field, userInfo, value);
+                                    if ("activeGroupAlertCounts".equals(key)) {
+                                        userInfo.setGroupAlertLastUpdated(Instant.now());
+                                    }
+                                }
                             }
-                        } else {
-                            System.out.println("No change detected for field: " + key);
+                        } catch (Exception e) {
+                            System.out.println("Error updating field " + key + ": " + e.getMessage());
                         }
-                    } else {
-                        System.out.println("Field not found: " + key);
-                    }
-                } catch (Exception e) {
-                    System.out.println("Error updating field " + key + ": " + e.getMessage());
-                }
-            });
+                    });
 
-            // Save and return the updated user
-            return userInfoRepo.save(userInfo);
-        } else {
-            throw new IllegalArgumentException("User with ID " + id + " not found");
-        }
+                    return userInfoRepo.save(userInfo);
+                })
+                .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));
     }
 }
-
-
-

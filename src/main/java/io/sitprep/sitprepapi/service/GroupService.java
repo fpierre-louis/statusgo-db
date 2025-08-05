@@ -7,6 +7,7 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.util.AuthUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,9 @@ public class GroupService {
         this.notificationService = notificationService;
     }
 
-    public void broadcastGroupStatusChange(String groupId, String newStatus, String initiatedByEmail) {
+    public void broadcastGroupStatusChange(String groupId, String newStatus) {
+        String initiatedByEmail = AuthUtils.getCurrentUserEmail();
+
         Optional<Group> groupOpt = groupRepo.findByGroupId(groupId);
         if (groupOpt.isEmpty()) return;
 
@@ -62,7 +65,6 @@ public class GroupService {
         for (UserInfo recipient : recipients) {
             if (recipient.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
 
-            // This part is for in-app WebSocket notification
             NotificationPayload payload = new NotificationPayload(
                     recipient.getUserEmail(),
                     group.getGroupName(),
@@ -74,7 +76,6 @@ public class GroupService {
                     Instant.now()
             );
 
-            // Using the correct method from NotificationService
             Set<String> recipientTokens = new HashSet<>();
             if (recipient.getFcmtoken() != null && !recipient.getFcmtoken().isEmpty()) {
                 recipientTokens.add(recipient.getFcmtoken());
@@ -94,10 +95,10 @@ public class GroupService {
                 );
             }
 
-            // Also send the in-app WebSocket message
             webSocketMessageSender.sendInAppNotification(payload);
         }
     }
+
 
     public Group createGroup(Group group) {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {

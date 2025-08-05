@@ -1,8 +1,8 @@
-
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,26 +17,33 @@ public class MeetingPlaceService {
         this.meetingPlaceRepository = meetingPlaceRepository;
     }
 
-    @Transactional // Ensures atomic operation (all or nothing)
-    public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> meetingPlaces) {
+    @Transactional
+    public List<MeetingPlace> saveAllMeetingPlaces(List<MeetingPlace> meetingPlaces) {
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
+
         // Delete existing meeting places for the user
         meetingPlaceRepository.deleteByOwnerEmail(ownerEmail);
 
-        // Set owner email for new records and save them
+        // Set authenticated owner email and save
         meetingPlaces.forEach(place -> place.setOwnerEmail(ownerEmail));
 
-        // Save and return the updated list
         return meetingPlaceRepository.saveAll(meetingPlaces);
     }
 
-
-    public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
+    public List<MeetingPlace> getMeetingPlacesForCurrentUser() {
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
         return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
 
     public MeetingPlace updateMeetingPlace(Long id, MeetingPlace updatedPlace) {
+        String currentUser = AuthUtils.getCurrentUserEmail();
+
         return meetingPlaceRepository.findById(id)
                 .map(existingPlace -> {
+                    if (!existingPlace.getOwnerEmail().equalsIgnoreCase(currentUser)) {
+                        throw new SecurityException("Unauthorized to update this meeting place.");
+                    }
+
                     existingPlace.setName(updatedPlace.getName());
                     existingPlace.setLocation(updatedPlace.getLocation());
                     existingPlace.setAddress(updatedPlace.getAddress());
@@ -45,9 +52,20 @@ public class MeetingPlaceService {
                     existingPlace.setLat(updatedPlace.getLat());
                     existingPlace.setLng(updatedPlace.getLng());
                     existingPlace.setDeploy(updatedPlace.isDeploy());
+
                     return meetingPlaceRepository.save(existingPlace);
                 })
                 .orElseThrow(() -> new RuntimeException("Meeting place with id " + id + " not found"));
+    }
+
+    public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> places) {
+        meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByOwnerEmail(ownerEmail));
+        places.forEach(place -> place.setOwnerEmail(ownerEmail));
+        return meetingPlaceRepository.saveAll(places);
+    }
+
+    public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
+        return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
 
 }

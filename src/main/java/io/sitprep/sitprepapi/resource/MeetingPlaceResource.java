@@ -2,8 +2,8 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.service.MeetingPlaceService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,18 +23,17 @@ public class MeetingPlaceResource {
 
     /**
      * Bulk save or update meeting places.
-     * Deletes all existing meeting places for the owner and replaces them with the provided list.
+     * Deletes all existing meeting places for the authenticated user and replaces them with the provided list.
      */
     @PostMapping("/bulk")
     public ResponseEntity<List<MeetingPlace>> saveAllMeetingPlaces(@RequestBody Map<String, Object> requestData) {
-        String ownerEmail = (String) requestData.get("ownerEmail");
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
         List<Map<String, Object>> placesData = (List<Map<String, Object>>) requestData.get("meetingPlaces");
 
-        if (ownerEmail == null || placesData == null || placesData.isEmpty()) {
+        if (placesData == null || placesData.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
 
-        // Convert request data into MeetingPlace objects
         List<MeetingPlace> meetingPlaces = placesData.stream().map(data -> {
             MeetingPlace place = new MeetingPlace();
             place.setOwnerEmail(ownerEmail);
@@ -45,7 +44,7 @@ public class MeetingPlaceResource {
             place.setAdditionalInfo((String) data.get("additionalInfo"));
             place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
-            place.setDeploy(Boolean.TRUE.equals(data.get("deploy"))); // Safe Boolean conversion
+            place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
             return place;
         }).collect(Collectors.toList());
 
@@ -66,13 +65,12 @@ public class MeetingPlaceResource {
     }
 
     /**
-     * Retrieve all meeting places for a specific owner.
+     * Retrieve all meeting places for the authenticated user.
      */
     @GetMapping
     public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
         List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail);
         return ResponseEntity.ok(meetingPlaces);
     }
-
 }

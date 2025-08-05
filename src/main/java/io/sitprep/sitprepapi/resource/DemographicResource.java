@@ -2,12 +2,11 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.service.DemographicService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/demographics")
@@ -22,8 +21,7 @@ public class DemographicResource {
 
     @PostMapping
     public ResponseEntity<Demographic> saveDemographic(@RequestBody Demographic demographic) {
-        Demographic savedDemographic = demographicService.saveDemographic(demographic);
-        return ResponseEntity.ok(savedDemographic);
+        return ResponseEntity.ok(demographicService.saveDemographic(demographic));
     }
 
     @GetMapping
@@ -32,16 +30,14 @@ public class DemographicResource {
     }
 
     @GetMapping("/owner")
-    public ResponseEntity<Demographic> getDemographicByOwnerEmail() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Optional<Demographic> demographic = demographicService.getDemographicByOwnerEmail(ownerEmail);
-        return demographic.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    public ResponseEntity<Demographic> getDemographicForCurrentUser() {
+        return demographicService.getDemographicForCurrentUser()
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/admin")
     public ResponseEntity<List<Demographic>> getDemographicsByAdminEmail() {
-        String adminEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        return ResponseEntity.ok(demographicService.getDemographicsByAdminEmail(adminEmail));
+        return ResponseEntity.ok(demographicService.getDemographicsForCurrentAdmin());
     }
-
 }

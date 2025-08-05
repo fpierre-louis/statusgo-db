@@ -1,7 +1,8 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.domain.Demographic;
+import io.sitprep.sitprepapi.repo.DemographicRepo;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -17,35 +18,40 @@ public class DemographicService {
     }
 
     public Demographic saveDemographic(Demographic demographic) {
-        if (demographic.getId() != null) {
-            // Update existing record by ID
-            return demographicRepository.save(demographic);
+        String currentUserEmail = AuthUtils.getCurrentUserEmail();
+        demographic.setOwnerEmail(currentUserEmail);
+
+        Optional<Demographic> existing = demographicRepository.findByOwnerEmailIgnoreCase(currentUserEmail);
+
+        if (existing.isPresent() && demographic.getId() == null) {
+            Demographic updated = existing.get();
+            updated.setInfants(demographic.getInfants());
+            updated.setAdults(demographic.getAdults());
+            updated.setKids(demographic.getKids());
+            updated.setDogs(demographic.getDogs());
+            updated.setCats(demographic.getCats());
+            updated.setPets(demographic.getPets());
+            updated.setAdminEmails(demographic.getAdminEmails());
+            return demographicRepository.save(updated);
         }
 
-        Optional<Demographic> existingDemographic = demographicRepository.findByOwnerEmail(demographic.getOwnerEmail());
-        if (existingDemographic.isPresent()) {
-            Demographic existing = existingDemographic.get();
-            existing.setInfants(demographic.getInfants());
-            existing.setAdults(demographic.getAdults());
-            existing.setKids(demographic.getKids());
-            existing.setDogs(demographic.getDogs());
-            existing.setCats(demographic.getCats());
-            existing.setPets(demographic.getPets());
-            existing.setAdminEmails(demographic.getAdminEmails());
-            return demographicRepository.save(existing);
-        }
-
-        // Create new record
         return demographicRepository.save(demographic);
     }
-
 
     public List<Demographic> getAllDemographics() {
         return demographicRepository.findAll();
     }
 
+    public Optional<Demographic> getDemographicForCurrentUser() {
+        return demographicRepository.findByOwnerEmailIgnoreCase(AuthUtils.getCurrentUserEmail());
+    }
+
+    public List<Demographic> getDemographicsForCurrentAdmin() {
+        return demographicRepository.findByAdminEmail(AuthUtils.getCurrentUserEmail());
+    }
+
     public Optional<Demographic> getDemographicByOwnerEmail(String ownerEmail) {
-        return demographicRepository.findByOwnerEmail(ownerEmail);
+        return demographicRepository.findByOwnerEmailIgnoreCase(ownerEmail);
     }
 
     public List<Demographic> getDemographicsByAdminEmail(String adminEmail) {

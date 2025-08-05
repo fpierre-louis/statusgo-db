@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,9 +13,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.time.Instant;
-
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -53,7 +51,6 @@ public class PostResource {
     @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
     public ResponseEntity<Post> updatePost(
             @PathVariable Long postId,
-            @RequestParam(value = "author", required = false) String author,
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
@@ -65,12 +62,17 @@ public class PostResource {
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isPresent()) {
             Post post = postOpt.get();
-            if (content != null) post.setContent(content);
-            if (author != null) post.setAuthor(author);
-            if (groupId != null) post.setGroupId(groupId);
-            if (groupName != null) post.setGroupName(groupName);
-            if (tags != null) post.setTags(tags);
-            if (mentions != null) post.setMentions(mentions);
+            String currentUserEmail = AuthUtils.getCurrentUserEmail();
+
+            if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
+                return ResponseEntity.status(403).build(); // ❌ Unauthorized
+            }
+
+            post.setContent(content);
+            post.setGroupId(groupId);
+            post.setGroupName(groupName);
+            post.setTags(tags);
+            post.setMentions(mentions);
             post.setEditedAt(Instant.now());
 
             Post updatedPost = postService.updatePost(post, imageFile);
@@ -82,9 +84,7 @@ public class PostResource {
 
     @DeleteMapping("/{postId}")
     public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String currentUserEmail = auth != null ? auth.getName() : "unknown";
-
+        String currentUserEmail = AuthUtils.getCurrentUserEmail();
         postService.deletePostAndBroadcast(postId, currentUserEmail);
         return ResponseEntity.noContent().build();
     }

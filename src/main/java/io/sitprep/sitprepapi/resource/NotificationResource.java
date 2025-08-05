@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.NotificationService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,9 +37,10 @@ public class NotificationResource {
 
     @PostMapping("/group-alert")
     public ResponseEntity<String> triggerGroupAlert(
-            @RequestParam String groupId,
-            @RequestParam String initiatedBy
+            @RequestParam String groupId
     ) {
+        String initiatedBy = AuthUtils.getCurrentUserEmail();
+
         Group group = groupRepo.findByGroupId(groupId)
                 .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
 

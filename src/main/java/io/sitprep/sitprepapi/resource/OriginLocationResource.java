@@ -2,9 +2,10 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.service.OriginLocationService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -20,20 +21,20 @@ public class OriginLocationResource {
         this.originService = originService;
     }
 
-    // OriginLocationResource.java
     @PostMapping("/bulk")
     public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
-        String ownerEmail = (String) requestData.get("ownerEmail");
         List<Map<String, Object>> originData = (List<Map<String, Object>>) requestData.get("origins");
 
-        if (ownerEmail == null || originData == null || originData.isEmpty()) {
+        if (originData == null || originData.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
+
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
 
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
             origin.setOwnerEmail(ownerEmail);
-            origin.setName((String) data.get("name")); // 🔹 NEW
+            origin.setName((String) data.get("name"));
             origin.setAddress((String) data.get("address"));
             origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             origin.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
@@ -43,14 +44,11 @@ public class OriginLocationResource {
         return ResponseEntity.ok(originService.saveAll(ownerEmail, origins));
     }
 
-
     @GetMapping
     public ResponseEntity<List<OriginLocation>> getByUser() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        String ownerEmail = AuthUtils.getCurrentUserEmail();
         return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
     }
-
-
 
     @PutMapping("/{id}")
     public ResponseEntity<OriginLocation> update(@PathVariable Long id, @RequestBody OriginLocation origin) {

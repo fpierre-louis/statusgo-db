@@ -7,10 +7,12 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 import java.util.Optional;
 
-public interface DemographicRepo extends JpaRepository<Demographic, Long> {
+public interface DemographicRepo extends JpaRepository<Demographic, String> {
 
-    Optional<Demographic> findByOwnerEmail(String ownerEmail);
+    // ✅ Owner Email - return Optional (1:1 assumption)
+    Optional<Demographic> findByOwnerEmailIgnoreCase(String ownerEmail);
 
+    // ✅ Admin Email – MEMBER OF collection field
     @Query("SELECT d FROM Demographic d WHERE :adminEmail MEMBER OF d.adminEmails")
     List<Demographic> findByAdminEmail(String adminEmail);
 }
