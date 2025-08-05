@@ -12,13 +12,9 @@ spring:
       hibernate:
         format_sql: true
 
+server:
+  use-forward-headers: true
+
 app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
   jwtExpirationMs: 86400000 # 24 hours in milliseconds
-
-#server:
-#  port: 8080
-#  error:
-#    path: /user/error
-#    whitelabel:
-#      enabled: false
