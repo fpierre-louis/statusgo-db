@@ -28,7 +28,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/ws/**").permitAll() // ✅ Needed to allow initial WebSocket handshake
+                        // This line has been removed: .requestMatchers("/ws/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/userinfo/email/**").permitAll()
                         .requestMatchers("/api/userinfo").permitAll()

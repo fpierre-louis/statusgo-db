@@ -17,4 +17,13 @@ server:
 
 app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
-  jwtExpirationMs: 86400000 # 24 hours in milliseconds
+  jwtExpirationMs: 86400000
+
+logging:
+  level:
+    org:
+      springframework:
+        security: DEBUG
+        messaging: DEBUG
+        web:
+          socket: DEBUG
