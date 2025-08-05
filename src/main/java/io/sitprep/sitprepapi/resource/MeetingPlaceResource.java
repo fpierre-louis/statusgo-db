@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.service.MeetingPlaceService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -68,8 +69,10 @@ public class MeetingPlaceResource {
      * Retrieve all meeting places for a specific owner.
      */
     @GetMapping
-    public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail(@RequestParam String ownerEmail) {
+    public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail() {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail);
         return ResponseEntity.ok(meetingPlaces);
     }
+
 }

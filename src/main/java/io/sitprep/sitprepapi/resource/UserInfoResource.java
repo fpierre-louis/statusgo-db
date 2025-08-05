@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,11 +33,13 @@ public class UserInfoResource {
         return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/email/{email}")
-    public ResponseEntity<UserInfo> getUserByEmail(@PathVariable String email) {
+    @GetMapping("/email")
+    public ResponseEntity<UserInfo> getUserByEmail() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
         Optional<UserInfo> userInfo = userInfoService.getUserByEmail(email);
         return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
+
 
     @PostMapping
     public UserInfo createUser(@RequestBody UserInfo userInfo) {

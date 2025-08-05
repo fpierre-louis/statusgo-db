@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.service.GroupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,10 +16,12 @@ public class GroupResource {
     @Autowired
     private GroupService groupService;
 
-    @GetMapping("/admin/{email}")
-    public List<Group> getGroupsByAdminEmail(@PathVariable String email) {
+    @GetMapping("/admin")
+    public List<Group> getGroupsByAdminEmail() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return groupService.getGroupsByAdminEmail(email);
     }
+
 
     @PostMapping
     public Group createGroup(@RequestBody Group group) {

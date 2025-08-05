@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.service.EmergencyContactGroupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,9 +23,11 @@ public class EmergencyContactGroupResource {
     }
 
     @GetMapping("/owner")
-    public List<EmergencyContactGroup> getGroupsByOwnerEmail(@RequestParam String ownerEmail) {
+    public List<EmergencyContactGroup> getGroupsByOwnerEmail() {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         return groupService.getGroupsByOwnerEmail(ownerEmail);
     }
+
 
     @GetMapping("/{id}")
     public ResponseEntity<EmergencyContactGroup> getGroupById(@PathVariable Long id) {

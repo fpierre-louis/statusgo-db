@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.service.EvacuationPlanService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -57,7 +58,9 @@ public class EvacuationPlanResource {
 
 
     @GetMapping
-    public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner(@RequestParam String ownerEmail) {
+    public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner() {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         return ResponseEntity.ok(evacuationPlanService.getEvacuationPlansByOwner(ownerEmail));
     }
+
 }

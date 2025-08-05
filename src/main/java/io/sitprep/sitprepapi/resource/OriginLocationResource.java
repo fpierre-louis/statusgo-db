@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.service.OriginLocationService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
@@ -44,9 +45,11 @@ public class OriginLocationResource {
 
 
     @GetMapping
-    public ResponseEntity<List<OriginLocation>> getByUser(@RequestParam String ownerEmail) {
+    public ResponseEntity<List<OriginLocation>> getByUser() {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
     }
+
 
 
     @PutMapping("/{id}")
