@@ -3,7 +3,6 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,31 +12,32 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/userinfo")
+@CrossOrigin(origins = "http://localhost:3000")
 public class UserInfoResource {
 
     private final UserInfoService userInfoService;
 
-    @Autowired
     public UserInfoResource(UserInfoService userInfoService) {
         this.userInfoService = userInfoService;
     }
 
     @GetMapping
     public List<UserInfo> getAllUsers() {
-        return userInfoService.getAllUsers(); // Admin-level endpoint
+        return userInfoService.getAllUsers();
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<UserInfo> getUserById(@PathVariable String id) {
-        Optional<UserInfo> userInfo = userInfoService.getUserById(id);
-        return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        return userInfoService.getUserById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/email")
-    public ResponseEntity<UserInfo> getUserByEmail() {
-        String email = AuthUtils.getCurrentUserEmail();
-        Optional<UserInfo> userInfo = userInfoService.getUserByEmail(email);
-        return userInfo.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    @GetMapping("/email/{email}")
+    public ResponseEntity<UserInfo> getUserByEmail(@PathVariable String email) {
+        return userInfoService.getUserByEmail(email)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
@@ -47,20 +47,20 @@ public class UserInfoResource {
 
     @PutMapping("/{id}")
     public ResponseEntity<UserInfo> updateUser(@PathVariable String id, @RequestBody UserInfo userDetails) {
+        Optional<UserInfo> existing = userInfoService.getUserById(id);
         String email = AuthUtils.getCurrentUserEmail();
-        Optional<UserInfo> optionalUser = userInfoService.getUserById(id);
 
-        if (optionalUser.isPresent() && optionalUser.get().getUserEmail().equalsIgnoreCase(email)) {
-            UserInfo updatedUser = userInfoService.updateUser(userDetails);
-            return ResponseEntity.ok(updatedUser);
+        if (existing.isPresent() && existing.get().getUserEmail().equalsIgnoreCase(email)) {
+            UserInfo updated = userInfoService.updateUser(userDetails);
+            return ResponseEntity.ok(updated);
         } else {
-            return ResponseEntity.status(403).build(); // Forbidden
+            return ResponseEntity.status(403).build();
         }
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
-        userInfoService.deleteUser(id); // Admin/internal
+        userInfoService.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -72,11 +72,11 @@ public class UserInfoResource {
             UserInfo updatedUser = userInfoService.patchUser(id, updates);
             return ResponseEntity.ok(updatedUser);
         } catch (SecurityException e) {
-            return ResponseEntity.status(403).build(); // Unauthorized patch
+            return ResponseEntity.status(403).build();
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build(); // User not found
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            return ResponseEntity.status(500).build(); // Server error
+            return ResponseEntity.status(500).build();
         }
     }
 }
