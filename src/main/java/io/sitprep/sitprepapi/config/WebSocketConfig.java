@@ -13,9 +13,7 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.*;
 
 import java.security.Principal;
 import java.util.Collections;
@@ -36,16 +34,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOrigins(
-                        "http://localhost:3000",
-                        "http://localhost:4200",
-                        "https://statusgo-db-0889387bb209.herokuapp.com",
-                        "https://statusnow.app",
-                        "https://www.statusnow.app",
-                        "https://www.sitprep.app",
-                        "https://sitprep.app"
-                );
-        // Do not use .withSockJS() unless you need legacy fallback
+                .setAllowedOriginPatterns("*") // ✅ More permissive for Heroku + wildcard domains
+                .withSockJS(); // ✅ Optional fallback support — remove if you're fully WebSocket native
     }
 
     @Override
@@ -67,7 +57,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
                             accessor.setUser(authentication);
                             SecurityContextHolder.getContext().setAuthentication(authentication);
-
                             System.out.println("✅ WebSocket authenticated: " + email);
                         } else {
                             System.err.println("❌ Invalid JWT during STOMP CONNECT");
@@ -77,10 +66,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     }
                 }
 
-                Principal user = accessor != null ? accessor.getUser() : null;
-                if (user != null) {
+                if (accessor != null && accessor.getUser() != null) {
                     SecurityContextHolder.getContext().setAuthentication(
-                            (UsernamePasswordAuthenticationToken) user
+                            (UsernamePasswordAuthenticationToken) accessor.getUser()
                     );
                 }
 
