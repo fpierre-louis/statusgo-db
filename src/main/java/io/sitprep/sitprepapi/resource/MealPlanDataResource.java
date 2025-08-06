@@ -28,12 +28,16 @@ public class MealPlanDataResource {
     @Autowired
     private MealPlanDataRepo repository;
 
-    @GetMapping("/{ownerEmail}")
-    public ResponseEntity<?> getMealPlansByOwner(@PathVariable String ownerEmail) {
-        // REMOVE this method entirely to avoid open access via path
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Direct access not allowed");
+    // This method will now fetch meal plans for the authenticated user
+    @GetMapping("/current") // Changed endpoint path
+    public ResponseEntity<List<MealPlanData>> getMealPlansForCurrentUser() {
+        logger.info("Fetching meal plans for authenticated user.");
+        List<MealPlanData> mealPlans = service.getMealPlansForCurrentUser();
+        if (mealPlans.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ArrayList<>());
+        }
+        return ResponseEntity.ok(mealPlans);
     }
-
 
     @GetMapping
     public List<MealPlanData> getAllMealPlans() {
@@ -45,26 +49,24 @@ public class MealPlanDataResource {
     public MealPlanData saveMealPlan(@RequestBody MealPlanData mealPlanData) {
         logger.info("Received request to save meal plan for: {}", mealPlanData.getOwnerEmail());
 
-        if (mealPlanData.getOwnerEmail() == null || mealPlanData.getMealPlan() == null) {
+        // The ownerEmail will be set by the service from the authenticated user
+        if (mealPlanData.getMealPlan() == null) {
             logger.error("Invalid meal plan request - missing required fields.");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
         }
 
         MealPlanData savedPlan = service.saveMealPlanData(mealPlanData);
-        logger.info("Successfully saved meal plan for: {}", mealPlanData.getOwnerEmail());
+        logger.info("Successfully saved meal plan for: {}", savedPlan.getOwnerEmail()); // Use savedPlan.getOwnerEmail
         return savedPlan;
     }
 
     @DeleteMapping
     public ResponseEntity<?> deleteMealPlanData() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(ownerEmail).stream().findFirst();
-
-        if (existingOpt.isPresent()) {
-            repository.delete(existingOpt.get());
+        // The ownerEmail is obtained from the security context in the service
+        boolean deleted = service.deleteCurrentUserMealPlan();
+        if (deleted) {
             return ResponseEntity.ok("Meal plan deleted successfully.");
         }
-
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Meal plan not found for this user.");
     }
 
