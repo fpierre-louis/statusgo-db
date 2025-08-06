@@ -34,8 +34,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*") // ✅ More permissive for Heroku + wildcard domains
-                .withSockJS(); // ✅ Optional fallback support — remove if you're fully WebSocket native
+                .setAllowedOriginPatterns("*"); // ✅ More permissive for Heroku + wildcard domains
+//                .withSockJS(); // ✅ Optional fallback support — remove if you're fully WebSocket native
     }
 
     @Override
