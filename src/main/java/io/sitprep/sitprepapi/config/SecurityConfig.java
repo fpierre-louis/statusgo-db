@@ -1,3 +1,5 @@
+// src/main/java/io/sitprep/sitprepapi/config/SecurityConfig.java
+
 package io.sitprep.sitprepapi.config;
 
 import io.sitprep.sitprepapi.security.jwt.JwtAuthTokenFilter;
@@ -10,7 +12,10 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.*;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.config.Customizer;
 
 import java.util.Arrays;
 import java.util.List;
@@ -26,12 +31,16 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authz -> authz
-                        // This line has been removed: .requestMatchers("/ws/**").permitAll()
+                        // Permit all WebSocket and related requests without authentication
+                        .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
+                        // Permit all OPTIONS requests (for CORS preflight)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/userinfo/email/**").permitAll()
-                        .requestMatchers("/api/userinfo").permitAll()
+                        // Permit public API endpoints (some require authentication but are public-facing)
+                        .requestMatchers("/api/userinfo/email/**", "/api/userinfo").permitAll()
+                        .requestMatchers("/api/demographics/**", "/api/mealPlans/**").permitAll()
+                        // All other requests require authentication
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthTokenFilter, UsernamePasswordAuthenticationFilter.class);
