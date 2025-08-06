@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.service.MealPlanDataService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.slf4j.Logger;
@@ -29,15 +30,8 @@ public class MealPlanDataResource {
 
     @GetMapping("/{ownerEmail}")
     public ResponseEntity<?> getMealPlansByOwner(@PathVariable String ownerEmail) {
-        List<MealPlanData> mealPlans = service.getMealPlansByOwner(ownerEmail);
-
-        if (mealPlans.isEmpty()) {
-            logger.warn("No meal plans found for owner: {}", ownerEmail);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body("No meal plans found for this user.");
-        }
-
-        return ResponseEntity.ok(mealPlans.getFirst());
+        // REMOVE this method entirely to avoid open access via path
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Direct access not allowed");
     }
 
 
@@ -61,27 +55,22 @@ public class MealPlanDataResource {
         return savedPlan;
     }
 
-    @DeleteMapping("/{ownerEmail}")
-    public ResponseEntity<?> deleteMealPlanData(@PathVariable String ownerEmail) {
-        logger.info("Received request to delete meal plan for: {}", ownerEmail);
-
+    @DeleteMapping
+    public ResponseEntity<?> deleteMealPlanData() {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(ownerEmail).stream().findFirst();
 
         if (existingOpt.isPresent()) {
             repository.delete(existingOpt.get());
-            logger.info("Successfully deleted meal plan for: {}", ownerEmail);
             return ResponseEntity.ok("Meal plan deleted successfully.");
         }
 
-        logger.warn("Meal plan not found for deletion: {}", ownerEmail);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Meal plan not found for this user.");
     }
 
-    @PutMapping("/{ownerEmail}")
-    public MealPlanData updateMealPlan(@PathVariable String ownerEmail, @RequestBody MealPlanData mealPlanData) {
-        logger.info("Received request to update meal plan for: {}", ownerEmail);
-        MealPlanData updatedPlan = service.updateMealPlanData(ownerEmail, mealPlanData);
-        logger.info("Successfully updated meal plan for: {}", ownerEmail);
-        return updatedPlan;
+    @PutMapping
+    public MealPlanData updateMealPlan(@RequestBody MealPlanData mealPlanData) {
+        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        return service.updateMealPlanData(ownerEmail, mealPlanData);
     }
 }
