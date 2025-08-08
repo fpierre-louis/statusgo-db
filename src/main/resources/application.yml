@@ -1,13 +1,15 @@
 spring:
   datasource:
-    url: jdbc:postgresql://cbib4a865d7s88.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/de9f14s3ddjqpc
+    url: jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j
     username: ud96qhmmahggsm
-    password: p2dce1b347c8035743680736b84bbf6bda7fc647b80ca31c474fac69516eef102
-    name: statusgo
+    password: pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037
+    driver-class-name: org.postgresql.Driver
+
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     properties:
       hibernate:
         format_sql: true
