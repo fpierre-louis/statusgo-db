@@ -5,8 +5,6 @@ import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-
 import java.util.List;
 
 @Service
@@ -19,12 +17,14 @@ public class EvacuationPlanService {
     }
 
     @Transactional
-    public List<EvacuationPlan> saveAllEvacuationPlans(List<EvacuationPlan> evacuationPlans) {
-        String currentUserEmail = AuthUtils.getCurrentUserEmail();
+    public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
+        // Delete all existing plans for the user to prevent duplicates
+        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
 
-        evacuationPlanRepo.deleteByOwnerEmail(currentUserEmail);
-        evacuationPlans.forEach(plan -> plan.setOwnerEmail(currentUserEmail));
+        // Ensure each plan is assigned to the correct owner
+        evacuationPlans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
 
+        // Save the new list of plans
         return evacuationPlanRepo.saveAll(evacuationPlans);
     }
 
@@ -33,14 +33,7 @@ public class EvacuationPlanService {
         return evacuationPlanRepo.findByOwnerEmail(currentUserEmail);
     }
 
-    public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> plans) {
-        evacuationPlanRepo.deleteAll(evacuationPlanRepo.findByOwnerEmail(ownerEmail));
-        plans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
-        return evacuationPlanRepo.saveAll(plans);
-    }
-
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
         return evacuationPlanRepo.findByOwnerEmail(ownerEmail);
     }
-
 }
