@@ -10,13 +10,20 @@ import java.util.Optional;
 
 public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
 
-    // ✅ Use consistent lowercase-only email matching
+    // existing
     Optional<UserInfo> findByUserEmail(String email);
 
-    // ✅ Batch query for multiple users by email (frontend must ensure lowercase)
+    // ✅ add this so calls to findByUserEmailIgnoreCase(...) compile
+    Optional<UserInfo> findByUserEmailIgnoreCase(String email);
+
+    // nice-to-have: a normalized helper you can call anywhere
+    default Optional<UserInfo> findByUserEmailNormalized(String email) {
+        return findByUserEmail(email == null ? null : email.toLowerCase());
+    }
+
     List<UserInfo> findByUserEmailIn(List<String> emails);
 
-    // ✅ Custom query for group membership
+    // ❗ joinedGroupIDs is Set<String> in UserInfo, so this param must be String
     @Query("SELECT u.userEmail FROM UserInfo u JOIN u.joinedGroupIDs g WHERE g = :groupId")
-    List<String> findEmailsByGroupId(@Param("groupId") Long groupId);
+    List<String> findEmailsByGroupId(@Param("groupId") String groupId);
 }

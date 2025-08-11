@@ -1,5 +1,4 @@
 // src/main/java/io/sitprep/sitprepapi/config/SecurityConfig.java
-
 package io.sitprep.sitprepapi.config;
 
 import io.sitprep.sitprepapi.security.jwt.JwtAuthTokenFilter;
@@ -35,12 +34,21 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authz -> authz
                         // Permit all WebSocket and related requests without authentication
                         .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
+
                         // Permit all OPTIONS requests (for CORS preflight)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // Permit public API endpoints (some require authentication but are public-facing)
+
+                        // ✅ NEW: Public, read-only endpoints for the shared emergency view
+                        // Keep this narrow: only allow GET under /api/public/**
+                        .requestMatchers("/api/public/**").permitAll()
+
+                        // Existing public endpoints you already allowed
                         .requestMatchers("/api/userinfo/email/**", "/api/userinfo").permitAll()
+
+                        // (Optional) Keep or tighten these. They were previously public in your config.
                         .requestMatchers("/api/demographics/**", "/api/mealPlans/**").permitAll()
-                        // All other requests require authentication
+
+                        // Everything else requires auth
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthTokenFilter, UsernamePasswordAuthenticationFilter.class);
@@ -61,7 +69,7 @@ public class SecurityConfig {
                 "https://sitprep.app"
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowedHeaders(List.of("*")); // includes Authorization
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
