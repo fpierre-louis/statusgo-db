@@ -3,7 +3,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.PublicPlanResponse;
-import io.sitprep.sitprepapi.repo.*;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -19,7 +19,6 @@ public class PublicPlanResource {
     private final EvacuationPlanService evacuationPlanService;
     private final OriginLocationService originLocationService;
     private final EmergencyContactGroupService emergencyContactGroupService;
-
     private final UserInfoRepo userInfoRepo;
 
     public PublicPlanResource(
@@ -37,36 +36,33 @@ public class PublicPlanResource {
     }
 
     /**
-     * Public, read-only snapshot of a household's deployed plan.
-     * Returns only deploy=true items for the given email.
+     * Public, read-only snapshot of a household's plan.
+     * Returns ALL items; frontend will filter deploy=true as needed.
      */
-    @GetMapping("/deployed-plan")
-    public ResponseEntity<PublicPlanResponse> getDeployedPlan(@RequestParam("email") String email) {
+    @GetMapping("/deployed-plan") // keep path for compatibility
+    public ResponseEntity<PublicPlanResponse> getPlan(@RequestParam("email") String email) {
         if (!StringUtils.hasText(email)) return ResponseEntity.badRequest().build();
         final String ownerEmail = email.trim().toLowerCase();
 
-        // 1) User summary (from UserInfo only; Demographic has no name/phone)
+        // User summary
         PublicPlanResponse.UserSummary user = new PublicPlanResponse.UserSummary();
         userInfoRepo.findByUserEmailIgnoreCase(ownerEmail).ifPresent(ui -> {
             user.setFirstName(nz(ui.getUserFirstName()));
             user.setLastName(nz(ui.getUserLastName()));
             user.setPhone(nz(ui.getPhone()));
-            // Optional: pick a timestamp you like; here we use userStatusLastUpdated
             user.setLastUpdated(ui.getUserStatusLastUpdated());
         });
 
-        // 2) Meeting places (deploy=true)
-        List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail)
-                .stream().filter(MeetingPlace::isDeploy).toList();
+        // ALL meeting places
+        List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail);
 
-        // 3) Evacuation plans (deploy=true)
-        List<EvacuationPlan> evacuationPlans = evacuationPlanService.getEvacuationPlansByOwner(ownerEmail)
-                .stream().filter(EvacuationPlan::isDeploy).toList();
+        // ALL evacuation plans
+        List<EvacuationPlan> evacuationPlans = evacuationPlanService.getEvacuationPlansByOwner(ownerEmail);
 
-        // 4) Origin locations (no deploy flag—return all)
+        // ALL origin locations
         List<OriginLocation> origins = originLocationService.getByOwnerEmail(ownerEmail);
 
-        // 5) Emergency contact groups by owner
+        // Emergency contact groups
         List<EmergencyContactGroup> groups = emergencyContactGroupService.getGroupsByOwnerEmail(ownerEmail);
 
         // Build DTO
@@ -82,6 +78,7 @@ public class PublicPlanResource {
             dto.setAdditionalInfo(mp.getAdditionalInfo());
             dto.setLat(mp.getLat());
             dto.setLng(mp.getLng());
+            dto.setDeploy(mp.isDeploy()); // include deploy
             return dto;
         }).toList());
 
@@ -95,6 +92,7 @@ public class PublicPlanResource {
             dto.setLng(ep.getLng());
             dto.setTravelMode(ep.getTravelMode());
             dto.setShelterInfo(ep.getShelterInfo());
+            dto.setDeploy(ep.isDeploy()); // include deploy
             return dto;
         }).toList());
 
