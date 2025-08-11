@@ -33,7 +33,7 @@ public class PublicPlanResponse {
         private String firstName;
         private String lastName;
         private String phone;
-        private Instant lastUpdated; // optional if you have a timestamp
+        private Instant lastUpdated;
 
         public String getFirstName() { return firstName; }
         public void setFirstName(String firstName) { this.firstName = firstName; }
@@ -53,6 +53,7 @@ public class PublicPlanResponse {
         private String additionalInfo;
         private Double lat;
         private Double lng;
+        private boolean deploy; // ✅ include deploy
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -68,6 +69,8 @@ public class PublicPlanResponse {
         public void setLat(Double lat) { this.lat = lat; }
         public Double getLng() { return lng; }
         public void setLng(Double lng) { this.lng = lng; }
+        public boolean isDeploy() { return deploy; }
+        public void setDeploy(boolean deploy) { this.deploy = deploy; }
     }
 
     public static class EvacuationPlanDTO {
@@ -79,6 +82,7 @@ public class PublicPlanResponse {
         private Double lng;
         private String travelMode;
         private String shelterInfo;
+        private boolean deploy; // ✅ include deploy
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -96,6 +100,8 @@ public class PublicPlanResponse {
         public void setTravelMode(String travelMode) { this.travelMode = travelMode; }
         public String getShelterInfo() { return shelterInfo; }
         public void setShelterInfo(String shelterInfo) { this.shelterInfo = shelterInfo; }
+        public boolean isDeploy() { return deploy; }
+        public void setDeploy(boolean deploy) { this.deploy = deploy; }
     }
 
     public static class OriginLocationDTO {
