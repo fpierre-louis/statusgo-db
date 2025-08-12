@@ -15,10 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 @Service
 public class GroupService {
@@ -134,7 +131,14 @@ public class GroupService {
     private void updateGroupFields(Group group, Group groupDetails) {
         Set<String> oldMemberEmails = new HashSet<>(group.getMemberEmails());
         Set<String> oldPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
-        boolean alertChanged = !group.getAlert().equals(groupDetails.getAlert());
+
+
+        // Determine alert-change semantics BEFORE mutating the entity
+        final String previousAlert = group.getAlert();
+        final String newAlert = groupDetails.getAlert();
+        final boolean alertChanged = !Objects.equals(previousAlert, newAlert);
+        final boolean alertBecameActive = alertChanged && "Active".equalsIgnoreCase(newAlert);
+
 
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
@@ -158,7 +162,7 @@ public class GroupService {
         group.setLongitude(groupDetails.getLongitude());
         group.setLatitude(groupDetails.getLatitude());
 
-        if (alertChanged) {
+        if (alertBecameActive) {
             notifyGroupMembers(group);
         }
 
