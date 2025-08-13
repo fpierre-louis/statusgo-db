@@ -213,4 +213,27 @@ public class CommentService {
             return "/images/default-user-icon.png";
         }
     }
+
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public java.util.Map<Long, java.util.List<CommentDto>> getCommentsForPosts(
+            java.util.List<Long> postIds, Integer limitPerPost) {
+
+        if (postIds == null || postIds.isEmpty()) return java.util.Collections.emptyMap();
+
+        var comments = commentRepo.findByPostIdInOrder(postIds);
+
+        // Group by postId -> list of CommentDto
+        var grouped = new java.util.LinkedHashMap<Long, java.util.List<CommentDto>>();
+        for (var c : comments) {
+            var list = grouped.computeIfAbsent(c.getPostId(), k -> new java.util.ArrayList<>());
+            list.add(convertToCommentDto(c));
+        }
+
+        // Optional per-post limit to keep payloads small
+        if (limitPerPost != null && limitPerPost > 0) {
+            grouped.replaceAll((pid, list) ->
+                    list.size() > limitPerPost ? list.subList(0, limitPerPost) : list);
+        }
+        return grouped;
+    }
 }

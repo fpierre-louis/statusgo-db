@@ -10,7 +10,10 @@ import java.util.List;
 
 @Repository
 public interface PostRepo extends JpaRepository<Post, Long> {
+
     @Query("SELECT p FROM Post p WHERE p.groupId = :groupId ORDER BY p.timestamp DESC")
     List<Post> findPostsByGroupId(@Param("groupId") String groupId);
 
+    // (Optional) later you can add a paged variant to keep payloads small:
+    // Page<Post> findByGroupIdOrderByTimestampDesc(String groupId, Pageable pageable);
 }

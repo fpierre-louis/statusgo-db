@@ -1,14 +1,13 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Setter
 @Getter
@@ -20,35 +19,41 @@ public class Post {
 
     private String author;
     private String content;
+
     @Column(name = "group_id")
-    private String groupId;  // Change from Long to String
+    private String groupId;
 
     private String groupName;
     private Instant timestamp;
 
-    private byte[] image; // Binary data of the image
+    // Store as BLOB, fetch lazily, and never serialize raw bytes
+    @Lob
+    @Basic(fetch = FetchType.LAZY)
+    @JsonIgnore
+    private byte[] image;
 
-    // Transient field for base64 encoded image for frontend
+    // Base64 for frontend only (populated in DTO mapping)
     @Transient
     private String base64Image;
 
-    // Field for reactions with emoji keys and their counts
-    @ElementCollection
+    // Reactions
+    @ElementCollection(fetch = FetchType.LAZY)
+    @BatchSize(size = 64)
     private Map<String, Integer> reactions = new HashMap<>();
 
-
-
-    // Timestamp for when the post was last edited
+    // Last edit
     private Instant editedAt;
 
-    // Tags or hashtags for categorizing posts
-    @ElementCollection
+    // Tags
+    @ElementCollection(fetch = FetchType.LAZY)
+    @BatchSize(size = 64)
     private List<String> tags = new ArrayList<>();
 
-    // Ensure that the field is initialized with a default value of 0
+    // Denormalized count for quick reads
     private int commentsCount = 0;
 
-    // Mentions of users in the post
-    @ElementCollection
+    // Mentions
+    @ElementCollection(fetch = FetchType.LAZY)
+    @BatchSize(size = 64)
     private List<String> mentions = new ArrayList<>();
 }

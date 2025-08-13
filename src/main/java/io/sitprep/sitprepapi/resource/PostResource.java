@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -9,10 +10,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Base64;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -21,35 +21,20 @@ public class PostResource {
     @Autowired
     private PostService postService;
 
+    // Return DTOs (lighter payloads; base64 image handled in mapping)
     @GetMapping("/group/{groupId}")
-    public List<Post> getPostsByGroupId(@PathVariable String groupId) {
-        List<Post> posts = postService.getPostsByGroupId(groupId);
-        for (Post post : posts) {
-            if (post.getImage() != null) {
-                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
-                post.setBase64Image("data:image/jpeg;base64," + base64Image);
-            }
-        }
-        return posts;
+    public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
+        return postService.getPostDtosByGroupId(groupId);
     }
 
     @GetMapping("/{postId}")
-    public ResponseEntity<Post> getPostById(@PathVariable Long postId) {
-        Optional<Post> postOpt = postService.getPostById(postId);
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            if (post.getImage() != null) {
-                String base64Image = Base64.getEncoder().encodeToString(post.getImage());
-                post.setBase64Image("data:image/jpeg;base64," + base64Image);
-            }
-            return ResponseEntity.ok(post);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+    public ResponseEntity<PostDto> getPostById(@PathVariable Long postId) {
+        Optional<PostDto> postOpt = postService.getPostDtoById(postId);
+        return postOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
-    public ResponseEntity<Post> updatePost(
+    @PutMapping(value = "/{postId}", consumes = {"multipart/form-data"})
+    public ResponseEntity<PostDto> updatePost(
             @PathVariable Long postId,
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
@@ -60,26 +45,23 @@ public class PostResource {
             @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
     ) throws IOException {
         Optional<Post> postOpt = postService.getPostById(postId);
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            String currentUserEmail = AuthUtils.getCurrentUserEmail();
+        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
-            if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
-                return ResponseEntity.status(403).build(); // ❌ Unauthorized
-            }
-
-            post.setContent(content);
-            post.setGroupId(groupId);
-            post.setGroupName(groupName);
-            post.setTags(tags);
-            post.setMentions(mentions);
-            post.setEditedAt(Instant.now());
-
-            Post updatedPost = postService.updatePost(post, imageFile);
-            return ResponseEntity.ok(updatedPost);
-        } else {
-            return ResponseEntity.notFound().build();
+        Post post = postOpt.get();
+        String currentUserEmail = AuthUtils.getCurrentUserEmail();
+        if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
+            return ResponseEntity.status(403).build();
         }
+
+        post.setContent(content);
+        post.setGroupId(groupId);
+        post.setGroupName(groupName);
+        post.setTags(tags);
+        post.setMentions(mentions);
+        post.setEditedAt(Instant.now());
+
+        Post updated = postService.updatePost(post, imageFile);
+        return ResponseEntity.ok(postService.toDto(updated));
     }
 
     @DeleteMapping("/{postId}")
@@ -90,17 +72,15 @@ public class PostResource {
     }
 
     @PostMapping("/{postId}/reaction")
-    public ResponseEntity<Post> addReaction(
+    public ResponseEntity<PostDto> addReaction(
             @PathVariable Long postId,
             @RequestParam("reaction") String reaction
     ) {
         Optional<Post> postOpt = postService.getPostById(postId);
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            postService.addReaction(post, reaction);
-            return ResponseEntity.ok(post);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
+
+        Post post = postOpt.get();
+        postService.addReaction(post, reaction);
+        return ResponseEntity.ok(postService.toDto(post));
     }
 }

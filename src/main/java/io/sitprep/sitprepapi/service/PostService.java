@@ -10,15 +10,11 @@ import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.Authentication;
-
 import jakarta.transaction.Transactional;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -26,11 +22,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Base64;
 
 @Service
 public class PostService {
@@ -56,10 +50,12 @@ public class PostService {
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
+    // ---------- READ paths that return DTOs (fast + safe to serialize) ----------
+
     @Transactional
     public Post createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
         if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized CREATE POST attempt. DTO author: {} does not match authenticated user: {}", postDto.getAuthor(), authenticatedUserEmail);
+            logger.warn("⚠️ Unauthorized CREATE POST attempt. DTO author: {} != auth user {}", postDto.getAuthor(), authenticatedUserEmail);
             throw new SecurityException("User not authorized to create a post for another user.");
         }
 
@@ -74,8 +70,7 @@ public class PostService {
 
         if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
             String encodedImage = postDto.getBase64Image().split(",")[1];
-            byte[] imageBytes = Base64.getDecoder().decode(encodedImage);
-            post.setImage(imageBytes);
+            post.setImage(Base64.getDecoder().decode(encodedImage));
         }
 
         Post savedPost = postRepo.save(post);
@@ -85,8 +80,7 @@ public class PostService {
         notifyGroupMembersOfNewPost(savedPost);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
+            @Override public void afterCommit() {
                 webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
             }
         });
@@ -98,9 +92,8 @@ public class PostService {
     @Transactional
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
         String authenticatedUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-
         if (!post.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized UPDATE attempt on post ID {}. User: {}", post.getId(), authenticatedUserEmail);
+            logger.warn("⚠️ Unauthorized UPDATE on post {} by {}", post.getId(), authenticatedUserEmail);
             throw new SecurityException("User not authorized to update this post.");
         }
 
@@ -112,22 +105,19 @@ public class PostService {
         PostDto updatedPostDto = convertToPostDto(updatedPost);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto); // 🟡 Broadcast update using same sendNewPost
+            @Override public void afterCommit() {
+                webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto);
             }
         });
 
-        logger.info("🚀 Successfully scheduled broadcast for updated post ID: {}", updatedPost.getId());
+        logger.info("🚀 Scheduled broadcast for updated post ID: {}", updatedPost.getId());
         return updatedPost;
     }
 
     @Transactional
     public void deletePostAndBroadcast(Long postId, String requestingUserEmail) {
         Optional<Post> postOpt = postRepo.findById(postId);
-        if (postOpt.isEmpty()) {
-            throw new RuntimeException("Post not found");
-        }
+        if (postOpt.isEmpty()) throw new RuntimeException("Post not found");
 
         Post post = postOpt.get();
         if (!post.getAuthor().equalsIgnoreCase(requestingUserEmail)) {
@@ -135,31 +125,19 @@ public class PostService {
         }
 
         postRepo.delete(post);
-
-        // Optional: Only keep if you later implement this method in NotificationService
-        // notificationService.sendPostDeletedNotification(post);
-
         webSocketMessageSender.sendPostDeletion(post.getGroupId(), post.getId());
-
         logger.info("🗑️ Post ID {} deleted by {}", postId, requestingUserEmail);
     }
 
-
-
     @Transactional
     public void updatePostFromDto(PostDto dto) {
-        String authenticatedUserEmail = dto.getAuthor(); // ✅ Already set from Principal in controller
+        String authenticatedUserEmail = dto.getAuthor();
 
-
-        Optional<Post> postOpt = postRepo.findById(dto.getId());
-        if (postOpt.isEmpty()) {
-            throw new IllegalArgumentException("Post not found for update: " + dto.getId());
-        }
-
-        Post post = postOpt.get();
+        Post post = postRepo.findById(dto.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Post not found for update: " + dto.getId()));
 
         if (!post.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized WebSocket EDIT attempt on post ID {}. User: {}", dto.getId(), authenticatedUserEmail);
+            logger.warn("⚠️ Unauthorized WebSocket EDIT on post {} by {}", dto.getId(), authenticatedUserEmail);
             throw new SecurityException("Not allowed to edit this post.");
         }
 
@@ -178,22 +156,15 @@ public class PostService {
         updatedDto.setTempId(dto.getTempId());
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                webSocketMessageSender.sendNewPost(updated.getGroupId(), updatedDto); // ✅ Broadcast WebSocket update
+            @Override public void afterCommit() {
+                webSocketMessageSender.sendNewPost(updated.getGroupId(), updatedDto);
             }
         });
 
         logger.info("✏️ Edited post via WebSocket. ID: {}", updated.getId());
     }
 
-    public List<Post> getPostsByGroupId(String groupId) {
-        return postRepo.findPostsByGroupId(groupId);
-    }
-
-    public Optional<Post> getPostById(Long id) {
-        return postRepo.findById(id);
-    }
+    // ---------- Read helpers that map to DTOs (for controllers) ----------
 
     @Transactional
     public void addReaction(Post post, String reaction) {
@@ -206,56 +177,81 @@ public class PostService {
         );
     }
 
+    public List<Post> getPostsByGroupId(String groupId) {
+        return postRepo.findPostsByGroupId(groupId);
+    }
+
+    public Optional<Post> getPostById(Long id) {
+        return postRepo.findById(id);
+    }
+
+    // --- DTO-facing methods used by the resource layer ---
+
+    @Transactional
+    public List<PostDto> getPostDtosByGroupId(String groupId) {
+        List<Post> posts = postRepo.findPostsByGroupId(groupId);
+        return posts.stream().map(this::convertToPostDto).toList();
+    }
+
+    @Transactional
+    public Optional<PostDto> getPostDtoById(Long id) {
+        return postRepo.findById(id).map(this::convertToPostDto);
+    }
+
+    public PostDto toDto(Post post) {
+        return convertToPostDto(post);
+    }
+
+    // ---------- Private mapping & notifications ----------
+
     private void notifyGroupMembersOfNewPost(Post post) {
         Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId());
-        if (groupOpt.isPresent()) {
-            Group group = groupOpt.get();
-            List<String> memberEmails = group.getMemberEmails();
-
-            List<String> recipients = memberEmails.stream()
-                    .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
-                    .collect(Collectors.toList());
-
-            List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipients);
-
-            Set<String> tokens = users.stream()
-                    .map(UserInfo::getFcmtoken)
-                    .filter(token -> token != null && !token.isEmpty())
-                    .collect(Collectors.toSet());
-
-            if (tokens.isEmpty()) {
-                logger.warn("No FCM tokens found for group members in group: {}", group.getGroupName());
-                return;
-            }
-
-            Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-            String authorFirstName = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
-            String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
-
-            String notificationTitle = post.getGroupName();
-            String notificationBody = String.format("%s posted in %s: '%s'",
-                    authorFirstName,
-                    post.getGroupName(),
-                    post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
-
-            String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
-
-            notificationService.sendNotification(
-                    notificationTitle,
-                    notificationBody,
-                    authorFirstName,
-                    authorProfileImageUrl,
-                    tokens,
-                    "post_notification",
-                    post.getGroupId(),
-                    baseTargetUrl + "?postId=" + post.getId(),
-                    String.valueOf(post.getId())
-            );
-
-            logger.info("📣 Sent FCM notification for group '{}' to {} members.", group.getGroupName(), tokens.size());
-        } else {
+        if (groupOpt.isEmpty()) {
             logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId());
+            return;
         }
+
+        Group group = groupOpt.get();
+        List<String> recipients = group.getMemberEmails().stream()
+                .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
+                .collect(Collectors.toList());
+
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipients);
+        Set<String> tokens = users.stream()
+                .map(UserInfo::getFcmtoken)
+                .filter(token -> token != null && !token.isEmpty())
+                .collect(Collectors.toSet());
+
+        if (tokens.isEmpty()) {
+            logger.warn("No FCM tokens found for group members in group: {}", group.getGroupName());
+            return;
+        }
+
+        Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
+        String authorFirstName = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
+        String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
+
+        String notificationTitle = post.getGroupName();
+        String notificationBody = String.format("%s posted in %s: '%s'",
+                authorFirstName,
+                post.getGroupName(),
+                post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
+
+        String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+
+        notificationService.sendNotification(
+                notificationTitle,
+                notificationBody,
+                authorFirstName,
+                authorProfileImageUrl,
+                tokens,
+                "post_notification",
+                post.getGroupId(),
+                baseTargetUrl + "?postId=" + post.getId(),
+                String.valueOf(post.getId())
+        );
+
+        logger.info("📣 Sent FCM notification for group '{}' to {} members.", group.getGroupName(), tokens.size());
     }
 
     private PostDto convertToPostDto(Post post) {
@@ -273,9 +269,9 @@ public class PostService {
         }
 
         dto.setEditedAt(post.getEditedAt());
-        dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
-        dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
-        dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
+        dto.setReactions(post.getReactions() != null ? post.getReactions() : new HashMap<>());
+        dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
+        dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
         dto.setCommentsCount(post.getCommentsCount());
 
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(authorInfo -> {

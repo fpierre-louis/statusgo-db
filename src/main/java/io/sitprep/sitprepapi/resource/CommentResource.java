@@ -2,6 +2,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Comment;
+import io.sitprep.sitprepapi.dto.CommentDto;   // <-- add this
 import io.sitprep.sitprepapi.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,14 @@ public class CommentResource {
     public ResponseEntity<Comment> createComment(@RequestBody Comment comment) {
         Comment newComment = commentService.createComment(comment);
         return ResponseEntity.ok(newComment);
+    }
+
+    // GET /api/comments?postIds=1&postIds=2&limitPerPost=3
+    @GetMapping
+    public java.util.Map<Long, java.util.List<CommentDto>> getCommentsBatch(
+            @RequestParam java.util.List<Long> postIds,
+            @RequestParam(required = false) Integer limitPerPost) {
+        return commentService.getCommentsForPosts(postIds, limitPerPost);
     }
 
     @GetMapping("/{postId}")
