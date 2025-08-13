@@ -1,7 +1,6 @@
 package io.sitprep.sitprepapi.config;
 
 import io.sitprep.sitprepapi.security.jwt.JwtUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -13,17 +12,24 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.socket.config.annotation.*;
+import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
+import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
+import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
-import java.security.Principal;
 import java.util.Collections;
 
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Autowired
-    private JwtUtils jwtUtils;
+    private final JwtUtils jwtUtils;
+    private final AccessTokenHandshakeInterceptor accessTokenHandshakeInterceptor;
+
+    public WebSocketConfig(JwtUtils jwtUtils,
+                           AccessTokenHandshakeInterceptor accessTokenHandshakeInterceptor) {
+        this.jwtUtils = jwtUtils;
+        this.accessTokenHandshakeInterceptor = accessTokenHandshakeInterceptor;
+    }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -34,8 +40,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*"); // ✅ More permissive for Heroku + wildcard domains
-//                .withSockJS(); // ✅ Optional fallback support — remove if you're fully WebSocket native
+                .setAllowedOriginPatterns(
+                        "https://sitprep.app",
+                        "https://www.sitprep.app",
+                        "https://*.netlify.app",
+                        "http://localhost:*"
+                )
+                .addInterceptors(accessTokenHandshakeInterceptor);
+        // If you later want SockJS fallback:
+        // .withSockJS();
     }
 
     @Override
@@ -46,23 +59,32 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
                 if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+                    String bearer = null;
+
+                    // 1) Try STOMP CONNECT header: Authorization: Bearer <token>
                     String authHeader = accessor.getFirstNativeHeader("Authorization");
-
                     if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                        String token = authHeader.substring(7);
-                        if (jwtUtils.validateJwtToken(token)) {
-                            String email = jwtUtils.getUserEmailFromJwtToken(token);
-                            UsernamePasswordAuthenticationToken authentication =
-                                    new UsernamePasswordAuthenticationToken(email, null, Collections.emptyList());
+                        bearer = authHeader.substring(7);
+                    }
 
-                            accessor.setUser(authentication);
-                            SecurityContextHolder.getContext().setAuthentication(authentication);
-                            System.out.println("✅ WebSocket authenticated: " + email);
-                        } else {
-                            System.err.println("❌ Invalid JWT during STOMP CONNECT");
+                    // 2) Fallback: token captured during handshake as session attribute "access_token"
+                    if (bearer == null && accessor.getSessionAttributes() != null) {
+                        Object t = accessor.getSessionAttributes().get("access_token");
+                        if (t instanceof String s && !s.isBlank()) {
+                            bearer = s;
                         }
+                    }
+
+                    if (bearer != null && jwtUtils.validateJwtToken(bearer)) {
+                        String email = jwtUtils.getUserEmailFromJwtToken(bearer);
+                        UsernamePasswordAuthenticationToken authentication =
+                                new UsernamePasswordAuthenticationToken(email, null, Collections.emptyList());
+
+                        accessor.setUser(authentication);
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                        System.out.println("✅ WebSocket authenticated: " + email);
                     } else {
-                        System.err.println("⚠️ Missing Authorization header in STOMP CONNECT");
+                        System.err.println("❌ WS CONNECT: missing/invalid token (header or handshake)");
                     }
                 }
 
@@ -71,7 +93,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                             (UsernamePasswordAuthenticationToken) accessor.getUser()
                     );
                 }
-
                 return message;
             }
 
