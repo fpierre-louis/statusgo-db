@@ -1,14 +1,14 @@
-// CommentResource.java
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Comment;
-import io.sitprep.sitprepapi.dto.CommentDto;   // <-- add this
+import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -27,10 +27,10 @@ public class CommentResource {
         return ResponseEntity.ok(newComment);
     }
 
-    // GET /api/comments?postIds=1&postIds=2&limitPerPost=3
+    // Batch: /api/comments?postIds=1&postIds=2&limitPerPost=3
     @GetMapping
-    public java.util.Map<Long, java.util.List<CommentDto>> getCommentsBatch(
-            @RequestParam java.util.List<Long> postIds,
+    public Map<Long, List<CommentDto>> getCommentsBatch(
+            @RequestParam List<Long> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
         return commentService.getCommentsForPosts(postIds, limitPerPost);
     }

@@ -21,9 +21,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -86,6 +84,23 @@ public class CommentService {
 
     public List<Comment> getCommentsByPostId(Long postId) {
         return commentRepo.findByPostId(postId);
+    }
+
+    // NEW: batch fetch comments for many posts
+    public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
+        if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
+
+        List<Comment> all = commentRepo.findByPostIdInOrderByPostIdAndTimestampDesc(postIds);
+        Map<Long, List<CommentDto>> result = new HashMap<>();
+        for (Comment c : all) {
+            List<CommentDto> list = result.computeIfAbsent(c.getPostId(), k -> new ArrayList<>());
+            if (limitPerPost == null || list.size() < limitPerPost) {
+                list.add(convertToCommentDto(c));
+            }
+        }
+        // Ensure every requested postId is present
+        for (Long id : postIds) result.putIfAbsent(id, Collections.emptyList());
+        return result;
     }
 
     public Optional<Comment> getCommentById(Long id) {
@@ -212,28 +227,5 @@ public class CommentService {
             logger.warn("⚠️ Failed to resize profile image: {}", e.getMessage());
             return "/images/default-user-icon.png";
         }
-    }
-
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    public java.util.Map<Long, java.util.List<CommentDto>> getCommentsForPosts(
-            java.util.List<Long> postIds, Integer limitPerPost) {
-
-        if (postIds == null || postIds.isEmpty()) return java.util.Collections.emptyMap();
-
-        var comments = commentRepo.findByPostIdInOrder(postIds);
-
-        // Group by postId -> list of CommentDto
-        var grouped = new java.util.LinkedHashMap<Long, java.util.List<CommentDto>>();
-        for (var c : comments) {
-            var list = grouped.computeIfAbsent(c.getPostId(), k -> new java.util.ArrayList<>());
-            list.add(convertToCommentDto(c));
-        }
-
-        // Optional per-post limit to keep payloads small
-        if (limitPerPost != null && limitPerPost > 0) {
-            grouped.replaceAll((pid, list) ->
-                    list.size() > limitPerPost ? list.subList(0, limitPerPost) : list);
-        }
-        return grouped;
     }
 }
