@@ -3,20 +3,17 @@ package io.sitprep.sitprepapi.domain;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Setter
 @Getter
 @Entity
 @Table(
+        name = "post",
         indexes = {
-                @Index(name = "idx_post_group_id", columnList = "group_id")
+                @Index(name = "idx_post_group_ts", columnList = "group_id,timestamp")
         }
 )
 public class Post {
@@ -33,30 +30,21 @@ public class Post {
     private String groupName;
     private Instant timestamp;
 
-    private byte[] image; // Binary data of the image
+    private byte[] image;
 
-    // Transient field for base64 encoded image for frontend
     @Transient
     private String base64Image;
 
-    // Field for reactions with emoji keys and their counts
     @ElementCollection
-    @BatchSize(size = 50)
     private Map<String, Integer> reactions = new HashMap<>();
 
-    // Timestamp for when the post was last edited
     private Instant editedAt;
 
-    // Tags or hashtags for categorizing posts
     @ElementCollection
-    @BatchSize(size = 50)
     private List<String> tags = new ArrayList<>();
 
-    // Ensure that the field is initialized with a default value of 0
     private int commentsCount = 0;
 
-    // Mentions of users in the post
     @ElementCollection
-    @BatchSize(size = 50)
     private List<String> mentions = new ArrayList<>();
 }

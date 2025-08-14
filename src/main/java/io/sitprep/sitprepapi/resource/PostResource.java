@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.PostSummaryDto;
 import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -25,6 +27,14 @@ public class PostResource {
     @GetMapping("/group/{groupId}")
     public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
         return postService.getPostsByGroupIdDto(groupId);
+    }
+
+    // Batch: latest post per groupId (fast path to remove N+1s on the home/groups page)
+    // GET /api/posts/groups/latest?groupIds=123&groupIds=456
+    @GetMapping("/groups/latest")
+    public Map<String, PostSummaryDto> getLatestPostsForGroups(
+            @RequestParam("groupIds") List<String> groupIds) {
+        return postService.getLatestPostsForGroups(groupIds);
     }
 
     // Return DTO

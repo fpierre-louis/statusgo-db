@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.PostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
@@ -25,10 +26,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -182,11 +181,25 @@ public class PostService {
         return postRepo.findPostsByGroupId(groupId);
     }
 
-    // NEW: DTO-returning variants for controllers (avoid extra userinfo calls)
+    /**
+     * DTO-returning variant that batches author lookups to avoid N+1 queries.
+     */
+    @Transactional(Transactional.TxType.SUPPORTS)
     public List<PostDto> getPostsByGroupIdDto(String groupId) {
-        return postRepo.findPostsByGroupId(groupId)
+        List<Post> posts = postRepo.findPostsByGroupId(groupId);
+        if (posts.isEmpty()) return List.of();
+
+        Set<String> emails = posts.stream()
+                .map(Post::getAuthor)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream()
-                .map(this::convertToPostDto)
+                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        return posts.stream()
+                .map(p -> convertToPostDto(p, userByEmail))
                 .collect(Collectors.toList());
     }
 
@@ -194,7 +207,8 @@ public class PostService {
         return postRepo.findById(id);
     }
 
-    // NEW: DTO-returning variant
+    // DTO-returning variant
+    @Transactional(Transactional.TxType.SUPPORTS)
     public Optional<PostDto> getPostDtoById(Long id) {
         return postRepo.findById(id).map(this::convertToPostDto);
     }
@@ -208,6 +222,63 @@ public class PostService {
                 "/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(),
                 updatedPost.getReactions()
         );
+    }
+
+    /**
+     * New fast-path used by /api/posts/groups/latest to power the groups list UI.
+     * Returns a map of groupId -> PostSummaryDto (author info included).
+     */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<String, PostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
+        if (groupIds == null || groupIds.isEmpty()) return Collections.emptyMap();
+
+        // Fetch latest candidates (may include ties)
+        List<Post> candidates = postRepo.findLatestPostsByGroupIds(groupIds);
+
+        // Pick best per group: newest timestamp, then highest id to break ties
+        Map<String, Post> bestByGroup = new HashMap<>();
+        for (Post p : candidates) {
+            Post cur = bestByGroup.get(p.getGroupId());
+            if (cur == null
+                    || p.getTimestamp().isAfter(cur.getTimestamp())
+                    || (p.getTimestamp().equals(cur.getTimestamp()) && p.getId() > cur.getId())) {
+                bestByGroup.put(p.getGroupId(), p);
+            }
+        }
+
+        // Batch author profiles
+        Set<String> emails = bestByGroup.values().stream()
+                .map(Post::getAuthor)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream()
+                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        // Build summaries
+        Map<String, PostSummaryDto> out = new HashMap<>();
+        for (var e : bestByGroup.entrySet()) {
+            Post p = e.getValue();
+            UserInfo u = userByEmail.get(p.getAuthor());
+
+            PostSummaryDto dto = new PostSummaryDto();
+            dto.setId(p.getId());
+            dto.setGroupId(p.getGroupId());
+            dto.setGroupName(p.getGroupName());
+            dto.setAuthor(p.getAuthor());
+            if (u != null) {
+                dto.setAuthorFirstName(u.getUserFirstName());
+                dto.setAuthorLastName(u.getUserLastName());
+                dto.setAuthorProfileImageURL(u.getProfileImageURL());
+            }
+            dto.setContent(p.getContent());
+            dto.setTimestamp(p.getTimestamp());
+
+            out.put(e.getKey(), dto); // key is groupId
+        }
+
+        return out;
     }
 
     private void notifyGroupMembersOfNewPost(Post post) {
@@ -287,6 +358,37 @@ public class PostService {
             dto.setAuthorLastName(authorInfo.getUserLastName());
             dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
         });
+
+        return dto;
+    }
+
+    // Overload that uses a preloaded author cache to avoid N+1 queries on lists
+    private PostDto convertToPostDto(Post post, Map<String, UserInfo> userByEmail) {
+        PostDto dto = new PostDto();
+        dto.setId(post.getId());
+        dto.setAuthor(post.getAuthor());
+        dto.setContent(post.getContent());
+        dto.setGroupId(String.valueOf(post.getGroupId()));
+        dto.setGroupName(post.getGroupName());
+        dto.setTimestamp(post.getTimestamp());
+
+        if (post.getImage() != null) {
+            String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
+            dto.setBase64Image("data:image/jpeg;base64," + base64Image);
+        }
+
+        dto.setEditedAt(post.getEditedAt());
+        dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
+        dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
+        dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
+        dto.setCommentsCount(post.getCommentsCount());
+
+        UserInfo authorInfo = userByEmail.get(post.getAuthor());
+        if (authorInfo != null) {
+            dto.setAuthorFirstName(authorInfo.getUserFirstName());
+            dto.setAuthorLastName(authorInfo.getUserLastName());
+            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
+        }
 
         return dto;
     }
