@@ -34,7 +34,7 @@ public class SecurityConfig {
                         // IMPORTANT CHANGE: Permit all SockJS handshake-related requests
                         // as authentication will be handled by WebSocket security.
                         // SockJS sends initial HTTP requests before the WebSocket upgrade.
-                        .requestMatchers("/ws/**").authenticated()
+                        .requestMatchers("/ws/**").permitAll()
 
                         // These are internal STOMP paths.
                         .requestMatchers("/app/**", "/topic/**").permitAll()
