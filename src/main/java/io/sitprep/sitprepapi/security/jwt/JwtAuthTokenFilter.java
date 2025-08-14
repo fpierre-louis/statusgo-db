@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.security.jwt;
 
+import com.auth0.jwt.interfaces.DecodedJWT; // <-- Import this
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,23 +19,26 @@ import java.util.Collections;
 @Component
 public class JwtAuthTokenFilter extends OncePerRequestFilter {
 
-    private final JwtUtils jwtUtils;
+    // ✅ INJECT THE NEW VERIFIER
+    private final FirebaseTokenVerifier tokenVerifier;
 
     @Autowired
-    public JwtAuthTokenFilter(JwtUtils jwtUtils) {
-        this.jwtUtils = jwtUtils;
+    public JwtAuthTokenFilter(FirebaseTokenVerifier tokenVerifier) {
+        this.tokenVerifier = tokenVerifier;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-
         try {
             String jwt = parseJwt(request);
-            if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-                String email = jwtUtils.getUserEmailFromJwtToken(jwt);
-                System.out.println("✅ JwtAuthTokenFilter triggered. Email: " + email);
+            if (jwt != null) {
+                // ✅ USE THE NEW VERIFIER
+                DecodedJWT decodedJWT = tokenVerifier.verifyToken(jwt);
+                String email = decodedJWT.getClaim("email").asString();
+
+                System.out.println("✅ Local JWT verification successful. Email: " + email);
 
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         email, null, Collections.emptyList());
@@ -43,24 +47,21 @@ public class JwtAuthTokenFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         } catch (Exception e) {
-            logger.error("❌ Cannot set user authentication", e);
-
+            // Log the error but allow the request to continue (it will be unauthenticated)
+            logger.error("❌ Invalid JWT Token: " + e.getMessage());
+            SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);
     }
 
-    // In JwtAuthTokenFilter.java
-
     private String parseJwt(HttpServletRequest request) {
-        // First, try to get the token from the Authorization header
         String headerAuth = request.getHeader("Authorization");
         if (StringUtils.hasText(headerAuth) && headerAuth.startsWith("Bearer ")) {
             return headerAuth.substring(7);
         }
 
-        // If not in the header, check for the "access_token" query parameter
-        // This is crucial for WebSocket handshake authentication
+        // This part is still needed for WebSocket connections
         String token = request.getParameter("access_token");
         if (StringUtils.hasText(token)) {
             return token;
