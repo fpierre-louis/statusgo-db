@@ -7,7 +7,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-
 import org.springframework.beans.factory.annotation.Autowired;
 
 @Configuration
@@ -15,7 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Autowired
-    private JwtHandshakeHandler jwtHandshakeHandler; // keep if you already have it
+    private JwtHandshakeHandler jwtHandshakeHandler;
 
     @Bean
     public ThreadPoolTaskScheduler wsHeartbeatScheduler() {
@@ -28,9 +27,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Simple in-memory broker, enable heartbeats AND provide the scheduler
         registry.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[]{10000, 10000})   // [server->client, client->server] in ms
+                .setHeartbeatValue(new long[]{10000, 10000})
                 .setTaskScheduler(wsHeartbeatScheduler());
 
         registry.setApplicationDestinationPrefixes("/app");
@@ -39,9 +37,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws") // <-- use "/ws", not "/ws/**"
+        registry.addEndpoint("/ws")
                 .setHandshakeHandler(jwtHandshakeHandler)
-                .setAllowedOrigins("http://localhost:3000")
+                .setAllowedOrigins("http://localhost:3000") // Consider adding all frontend origins here as well
                 .withSockJS();
     }
 }

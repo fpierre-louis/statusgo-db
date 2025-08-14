@@ -1,4 +1,3 @@
-// src/main/java/io/sitprep/sitprepapi/config/SecurityConfig.java
 package io.sitprep.sitprepapi.config;
 
 import io.sitprep.sitprepapi.security.jwt.JwtAuthTokenFilter;
@@ -32,20 +31,18 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authz -> authz
-                        // Permit all WebSocket and related requests without authentication
-                        .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
+                        // IMPORTANT: The WebSocket handshake endpoint now requires authentication
+                        .requestMatchers("/ws/**").authenticated()
+
+                        // These are internal STOMP paths. Once the WebSocket session is established
+                        // via the authenticated /ws endpoint, messages can flow freely.
+                        .requestMatchers("/app/**", "/topic/**").permitAll()
 
                         // Permit all OPTIONS requests (for CORS preflight)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // ✅ NEW: Public, read-only endpoints for the shared emergency view
-                        // Keep this narrow: only allow GET under /api/public/**
-                        .requestMatchers("/api/public/**").permitAll()
-
-                        // Existing public endpoints you already allowed
-                        .requestMatchers("/api/userinfo/email/**", "/api/userinfo").permitAll()
-
-                        // (Optional) Keep or tighten these. They were previously public in your config.
+                        // Public endpoints
+                        .requestMatchers("/api/public/**", "/api/userinfo/email/**", "/api/userinfo").permitAll()
                         .requestMatchers("/api/demographics/**", "/api/mealPlans/**").permitAll()
 
                         // Everything else requires auth
