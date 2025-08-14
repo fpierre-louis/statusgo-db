@@ -50,11 +50,22 @@ public class JwtAuthTokenFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    // In JwtAuthTokenFilter.java
+
     private String parseJwt(HttpServletRequest request) {
+        // First, try to get the token from the Authorization header
         String headerAuth = request.getHeader("Authorization");
         if (StringUtils.hasText(headerAuth) && headerAuth.startsWith("Bearer ")) {
             return headerAuth.substring(7);
         }
+
+        // If not in the header, check for the "access_token" query parameter
+        // This is crucial for WebSocket handshake authentication
+        String token = request.getParameter("access_token");
+        if (StringUtils.hasText(token)) {
+            return token;
+        }
+
         return null;
     }
 }
