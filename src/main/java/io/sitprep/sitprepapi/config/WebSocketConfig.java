@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.config;
 
 import io.sitprep.sitprepapi.security.jwt.JwtUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -10,6 +12,8 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -24,17 +28,40 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtUtils jwtUtils;
     private final AccessTokenHandshakeInterceptor accessTokenHandshakeInterceptor;
+    private final TaskScheduler stompBrokerTaskScheduler;
 
-    public WebSocketConfig(JwtUtils jwtUtils,
-                           AccessTokenHandshakeInterceptor accessTokenHandshakeInterceptor) {
+    public WebSocketConfig(
+            JwtUtils jwtUtils,
+            AccessTokenHandshakeInterceptor accessTokenHandshakeInterceptor,
+            @Qualifier("stompBrokerTaskScheduler") TaskScheduler stompBrokerTaskScheduler
+    ) {
         this.jwtUtils = jwtUtils;
         this.accessTokenHandshakeInterceptor = accessTokenHandshakeInterceptor;
+        this.stompBrokerTaskScheduler = stompBrokerTaskScheduler;
+    }
+
+    /**
+     * Separate scheduler bean for STOMP heartbeats.
+     * Marked static to avoid creating it through the WebSocketConfig instance (breaks circular creation).
+     */
+    @Bean(name = "stompBrokerTaskScheduler")
+    public static TaskScheduler stompBrokerTaskScheduler() {
+        ThreadPoolTaskScheduler ts = new ThreadPoolTaskScheduler();
+        ts.setPoolSize(1);
+        ts.setThreadNamePrefix("stomp-heartbeat-");
+        ts.initialize();
+        return ts;
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        registry
+                .enableSimpleBroker("/topic")
+                .setHeartbeatValue(new long[]{4000, 4000})
+                .setTaskScheduler(stompBrokerTaskScheduler);
+
         registry.setApplicationDestinationPrefixes("/app");
+        // registry.setUserDestinationPrefix("/user"); // enable if you use /user/** destinations
     }
 
     @Override
@@ -47,8 +74,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         "http://localhost:*"
                 )
                 .addInterceptors(accessTokenHandshakeInterceptor);
-        // If you later want SockJS fallback:
-        // .withSockJS();
+        // .withSockJS(); // optional fallback
     }
 
     @Override
@@ -61,13 +87,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
                     String bearer = null;
 
-                    // 1) Try STOMP CONNECT header: Authorization: Bearer <token>
+                    // Try STOMP header first: Authorization: Bearer <token>
                     String authHeader = accessor.getFirstNativeHeader("Authorization");
                     if (authHeader != null && authHeader.startsWith("Bearer ")) {
                         bearer = authHeader.substring(7);
                     }
 
-                    // 2) Fallback: token captured during handshake as session attribute "access_token"
+                    // Fallback to token captured during handshake (?access_token=…)
                     if (bearer == null && accessor.getSessionAttributes() != null) {
                         Object t = accessor.getSessionAttributes().get("access_token");
                         if (t instanceof String s && !s.isBlank()) {
@@ -77,11 +103,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
                     if (bearer != null && jwtUtils.validateJwtToken(bearer)) {
                         String email = jwtUtils.getUserEmailFromJwtToken(bearer);
-                        UsernamePasswordAuthenticationToken authentication =
+                        UsernamePasswordAuthenticationToken auth =
                                 new UsernamePasswordAuthenticationToken(email, null, Collections.emptyList());
-
-                        accessor.setUser(authentication);
-                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                        accessor.setUser(auth);
+                        SecurityContextHolder.getContext().setAuthentication(auth);
                         System.out.println("✅ WebSocket authenticated: " + email);
                     } else {
                         System.err.println("❌ WS CONNECT: missing/invalid token (header or handshake)");
