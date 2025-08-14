@@ -30,3 +30,6 @@ logging:
         messaging: DEBUG
         web:
           socket: DEBUG
+
+firebase:
+  project-id: sitprep-new
