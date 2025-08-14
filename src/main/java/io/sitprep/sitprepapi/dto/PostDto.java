@@ -9,7 +9,7 @@ import java.util.Map;
 @Data
 public class PostDto {
     private Long id;
-    private Long tempId; // <-- Add this field
+    private String tempId;
     private String author;
     private String content;
     private String groupId;
