@@ -7,9 +7,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/comments")
@@ -27,12 +29,29 @@ public class CommentResource {
         return ResponseEntity.ok(newComment);
     }
 
-    // Batch: /api/comments?postIds=1&postIds=2&limitPerPost=3
+    // 🟢 CORRECTED: Accept List<String> to handle temporary IDs gracefully
     @GetMapping
     public Map<Long, List<CommentDto>> getCommentsBatch(
-            @RequestParam List<Long> postIds,
+            @RequestParam List<String> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
-        return commentService.getCommentsForPosts(postIds, limitPerPost);
+
+        // Filter for valid numeric IDs
+        List<Long> validPostIds = postIds.stream()
+                .map(id -> {
+                    try {
+                        return Long.parseLong(id);
+                    } catch (NumberFormatException e) {
+                        return null; // Ignore non-numeric IDs
+                    }
+                })
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (validPostIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return commentService.getCommentsForPosts(validPostIds, limitPerPost);
     }
 
     @GetMapping("/{postId}")

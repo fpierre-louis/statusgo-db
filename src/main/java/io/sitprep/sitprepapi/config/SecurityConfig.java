@@ -31,11 +31,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authz -> authz
-                        // IMPORTANT: The WebSocket handshake endpoint now requires authentication
-                        .requestMatchers("/ws/**").authenticated()
+                        // IMPORTANT CHANGE: Permit all SockJS handshake-related requests
+                        // as authentication will be handled by WebSocket security.
+                        // SockJS sends initial HTTP requests before the WebSocket upgrade.
+                        .requestMatchers("/ws/**").permitAll()
 
-                        // These are internal STOMP paths. Once the WebSocket session is established
-                        // via the authenticated /ws endpoint, messages can flow freely.
+                        // These are internal STOMP paths.
                         .requestMatchers("/app/**", "/topic/**").permitAll()
 
                         // Permit all OPTIONS requests (for CORS preflight)
@@ -56,7 +57,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setMaxAge(3600L); // cache preflight for 1 hour
+        configuration.setMaxAge(3600L);
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:3000",
                 "http://localhost:4200",
@@ -67,7 +68,7 @@ public class SecurityConfig {
                 "https://sitprep.app"
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("*")); // includes Authorization
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
