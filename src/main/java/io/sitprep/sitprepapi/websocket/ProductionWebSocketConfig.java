@@ -45,7 +45,8 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
 
-        registry.enableStompBrokerRelay("/topic", "/queue", "/user")
+        // ⚠️ Do NOT relay "/user" – Spring resolves /user destinations locally per session.
+        registry.enableStompBrokerRelay("/topic", "/queue")
                 .setRelayHost(relayHost)
                 .setRelayPort(relayPort)
                 .setClientLogin(relayUser)
