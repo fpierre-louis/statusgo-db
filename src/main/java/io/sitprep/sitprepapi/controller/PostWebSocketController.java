@@ -27,20 +27,22 @@ public class PostWebSocketController {
         }
 
         try {
-            // Ensure author/timestamp are set
             postDto.setAuthor(principal.getName());
             if (postDto.getTimestamp() == null) {
                 postDto.setTimestamp(Instant.now());
             }
 
-            // Works whether this returns void or an entity
-            postService.createPostFromDto(postDto, principal.getName());
+            // 1. Call the service and get the SAVED post back (with its real ID)
+            PostDto savedPostDto = postService.createPostFromDto(postDto, principal.getName());
 
-            // 🔊 Broadcast using the DTO we have
-            if (postDto.getGroupId() != null) {
-                wsSender.sendNewPost(postDto.getGroupId(), postDto);
+            // 2. Add the original tempId to the DTO that you're about to broadcast
+            savedPostDto.setTempId(postDto.getTempId());
+
+            // 3. Broadcast the complete DTO (with real ID and tempId)
+            if (savedPostDto.getGroupId() != null) {
+                wsSender.sendNewPost(savedPostDto.getGroupId(), savedPostDto);
             } else {
-                wsSender.sendGenericUpdate("/topic/posts", postDto);
+                wsSender.sendGenericUpdate("/topic/posts", savedPostDto);
             }
 
         } catch (Exception e) {
@@ -57,7 +59,6 @@ public class PostWebSocketController {
         }
 
         try {
-            // Your service already broadcasts deletion (per your method name)
             postService.deletePostAndBroadcast(postDto.getId(), principal.getName());
         } catch (Exception e) {
             System.err.println("❌ Error deleting post from WebSocket: " + e.getMessage());
@@ -73,16 +74,10 @@ public class PostWebSocketController {
         }
 
         try {
-            postDto.setAuthor(principal.getName()); // defensive overwrite
-            // Works whether this returns void or an entity
+            postDto.setAuthor(principal.getName());
             postService.updatePostFromDto(postDto);
 
-            // 🔊 Optional broadcast so other clients live-update
-            if (postDto.getGroupId() != null) {
-                wsSender.sendGenericUpdate("/topic/posts/" + postDto.getGroupId() + "/edit", postDto);
-            } else {
-                wsSender.sendGenericUpdate("/topic/posts/edit", postDto);
-            }
+            // The updatePostFromDto method now handles its own broadcasting
 
         } catch (Exception e) {
             System.err.println("❌ Error editing post from WebSocket: " + e.getMessage());

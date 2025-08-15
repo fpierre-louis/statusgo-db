@@ -55,7 +55,7 @@ public class PostService {
     }
 
     @Transactional
-    public Post createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
+    public PostDto createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
         if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
             logger.warn("⚠️ Unauthorized CREATE POST attempt. DTO author: {} does not match authenticated user: {}", postDto.getAuthor(), authenticatedUserEmail);
             throw new SecurityException("User not authorized to create a post for another user.");
@@ -77,20 +77,12 @@ public class PostService {
         }
 
         Post savedPost = postRepo.save(post);
-        PostDto savedPostDto = convertToPostDto(savedPost);
-        savedPostDto.setTempId(postDto.getTempId());
-
         notifyGroupMembersOfNewPost(savedPost);
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedPostDto);
-            }
-        });
+        logger.info("🚀 Successfully created post ID: {}", savedPost.getId());
 
-        logger.info("🚀 Successfully processed and scheduled broadcast for post ID: {}", savedPost.getId());
-        return savedPost;
+        // Convert the saved entity to a DTO and return it
+        return convertToPostDto(savedPost);
     }
 
     @Transactional
@@ -181,9 +173,6 @@ public class PostService {
         return postRepo.findPostsByGroupId(groupId);
     }
 
-    /**
-     * DTO-returning variant that batches author lookups to avoid N+1 queries.
-     */
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<PostDto> getPostsByGroupIdDto(String groupId) {
         List<Post> posts = postRepo.findPostsByGroupId(groupId);
@@ -207,7 +196,6 @@ public class PostService {
         return postRepo.findById(id);
     }
 
-    // DTO-returning variant
     @Transactional(Transactional.TxType.SUPPORTS)
     public Optional<PostDto> getPostDtoById(Long id) {
         return postRepo.findById(id).map(this::convertToPostDto);
@@ -224,18 +212,12 @@ public class PostService {
         );
     }
 
-    /**
-     * New fast-path used by /api/posts/groups/latest to power the groups list UI.
-     * Returns a map of groupId -> PostSummaryDto (author info included).
-     */
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<String, PostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
         if (groupIds == null || groupIds.isEmpty()) return Collections.emptyMap();
 
-        // Fetch latest candidates (may include ties)
         List<Post> candidates = postRepo.findLatestPostsByGroupIds(groupIds);
 
-        // Pick best per group: newest timestamp, then highest id to break ties
         Map<String, Post> bestByGroup = new HashMap<>();
         for (Post p : candidates) {
             Post cur = bestByGroup.get(p.getGroupId());
@@ -246,7 +228,6 @@ public class PostService {
             }
         }
 
-        // Batch author profiles
         Set<String> emails = bestByGroup.values().stream()
                 .map(Post::getAuthor)
                 .filter(Objects::nonNull)
@@ -256,7 +237,6 @@ public class PostService {
                 .stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        // Build summaries
         Map<String, PostSummaryDto> out = new HashMap<>();
         for (var e : bestByGroup.entrySet()) {
             Post p = e.getValue();
@@ -275,7 +255,7 @@ public class PostService {
             dto.setContent(p.getContent());
             dto.setTimestamp(p.getTimestamp());
 
-            out.put(e.getKey(), dto); // key is groupId
+            out.put(e.getKey(), dto);
         }
 
         return out;
@@ -362,7 +342,6 @@ public class PostService {
         return dto;
     }
 
-    // Overload that uses a preloaded author cache to avoid N+1 queries on lists
     private PostDto convertToPostDto(Post post, Map<String, UserInfo> userByEmail) {
         PostDto dto = new PostDto();
         dto.setId(post.getId());
