@@ -52,23 +52,19 @@ public class CommentWebSocketController {
             System.err.println("❌ WebSocket principal is NULL on COMMENT EDIT");
             return;
         }
-
         try {
             commentDto.setAuthor(principal.getName());
-
-            // Works whether this returns void or an entity
             commentService.updateCommentFromDto(commentDto);
-
-            // 🔊 Optional live-update for comment edits
             if (commentDto.getPostId() != null) {
-                wsSender.sendGenericUpdate("/topic/comments/" + commentDto.getPostId() + "/edit", commentDto);
+                // Reuse the same topic as new comments so the frontend sees live edits without extra wiring
+                wsSender.sendNewComment(commentDto.getPostId(), commentDto);
             }
-
         } catch (Exception e) {
             System.err.println("❌ Error editing comment via WebSocket: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
 
     @MessageMapping("/comment/delete")
     public void handleDeleteComment(CommentDto commentDto, Principal principal) {

@@ -42,7 +42,7 @@ public class PostWebSocketController {
             if (savedPostDto.getGroupId() != null) {
                 wsSender.sendNewPost(savedPostDto.getGroupId(), savedPostDto);
             } else {
-                wsSender.sendGenericUpdate("/topic/posts", savedPostDto);
+                wsSender.sendGenericUpdate("posts", savedPostDto);
             }
 
         } catch (Exception e) {
