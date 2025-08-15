@@ -1,10 +1,12 @@
 spring:
+  # --- DATASOURCE CONFIGURATION (for PostgreSQL) ---
   datasource:
     url: jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j
     username: ud96qhmmahggsm
     password: pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037
     driver-class-name: org.postgresql.Driver
 
+  # --- JPA & HIBERNATE CONFIGURATION ---
   jpa:
     hibernate:
       ddl-auto: update
@@ -15,13 +17,24 @@ spring:
         format_sql: true
         default_batch_fetch_size: 50
 
+  # --- REDIS CONFIGURATION (for WebSocket Message Broker) ---
+  # These are default values for local development.
+  # Heroku will override these automatically with its own REDIS_URL environment variable.
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# --- SERVER CONFIGURATION ---
 server:
   use-forward-headers: true
 
+# --- APPLICATION SPECIFIC PROPERTIES ---
 app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
   jwtExpirationMs: 86400000
 
+# --- LOGGING CONFIGURATION ---
 logging:
   level:
     org:
@@ -31,5 +44,6 @@ logging:
         web:
           socket: DEBUG
 
+# --- FIREBASE CONFIGURATION ---
 firebase:
   project-id: sitprep-new
