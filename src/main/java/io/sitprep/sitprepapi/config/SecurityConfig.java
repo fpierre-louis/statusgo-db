@@ -13,9 +13,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.security.config.Customizer;
 
-import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -28,25 +26,14 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // ✅ Apply CORS configuration directly within the security chain
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
-                .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authz -> authz
-                        // IMPORTANT CHANGE: Permit all SockJS handshake-related requests
-                        // as authentication will be handled by WebSocket security.
-                        // SockJS sends initial HTTP requests before the WebSocket upgrade.
-                        .requestMatchers("/ws/**").permitAll()
-
-                        // These are internal STOMP paths.
-                        .requestMatchers("/app/**", "/topic/**").permitAll()
-
-                        // Permit all OPTIONS requests (for CORS preflight)
+                        .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-
-                        // Public endpoints
                         .requestMatchers("/api/public/**", "/api/userinfo/email/**", "/api/userinfo").permitAll()
                         .requestMatchers("/api/demographics/**", "/api/mealPlans/**").permitAll()
-
-                        // Everything else requires auth
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthTokenFilter, UsernamePasswordAuthenticationFilter.class);
@@ -57,7 +44,8 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setMaxAge(3600L);
+
+        // Make sure all your frontend domains are listed here
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:3000",
                 "http://localhost:4200",
@@ -67,9 +55,11 @@ public class SecurityConfig {
                 "https://www.sitprep.app",
                 "https://sitprep.app"
         ));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
