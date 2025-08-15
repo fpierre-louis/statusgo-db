@@ -12,7 +12,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 @Configuration
 @EnableWebSocketMessageBroker
-@Profile("!production") // Active when the 'production' profile is NOT active
+@Profile("!production")
 public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Autowired
@@ -29,7 +29,6 @@ public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // This is your original in-memory broker for local development
         registry.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[]{10000, 10000})
                 .setTaskScheduler(wsHeartbeatScheduler());

@@ -9,7 +9,6 @@ import org.springframework.web.socket.server.support.DefaultHandshakeHandler;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.Principal;
-import java.util.List;
 import java.util.Map;
 
 @Component
@@ -32,7 +31,7 @@ public class JwtHandshakeHandler extends DefaultHandshakeHandler {
             String token = http.getParameter("access_token");
 
             // 2) or Authorization: Bearer <token>
-            if ((token == null || token.isBlank())) {
+            if (token == null || token.isBlank()) {
                 String auth = http.getHeader("Authorization");
                 if (auth != null && auth.startsWith("Bearer ")) {
                     token = auth.substring(7);
@@ -46,7 +45,6 @@ public class JwtHandshakeHandler extends DefaultHandshakeHandler {
                 }
             }
         }
-        // returning null means anonymous; your handlers already guard for that
         return null;
     }
 }
