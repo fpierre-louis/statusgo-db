@@ -17,26 +17,39 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
     @Autowired
     private JwtHandshakeHandler jwtHandshakeHandler;
 
-    @Value("${spring.data.redis.host}")
-    private String redisHost;
+    // Spring Boot auto-configures these properties from the CLOUDAMQP_URL on Heroku
+    @Value("${spring.rabbitmq.host}")
+    private String relayHost;
 
-    @Value("${spring.data.redis.port}")
-    private int redisPort;
+    @Value("${spring.rabbitmq.username}")
+    private String relayUser;
+
+    @Value("${spring.rabbitmq.password}")
+    private String relayPass;
+
+    // STOMP typically uses port 61613 for non-amqp connections
+    @Value("${spring.rabbitmq.stomp-port:61613}")
+    private int relayPort;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         registry.setApplicationDestinationPrefixes("/app");
 
-        // Use the STOMP broker relay backed by Redis for production
+        // This is the correct configuration for a RabbitMQ STOMP relay
         registry.enableStompBrokerRelay("/topic", "/queue")
-                .setRelayHost(redisHost)
-                .setRelayPort(redisPort);
+                .setRelayHost(this.relayHost)
+                .setRelayPort(this.relayPort)
+                .setClientLogin(this.relayUser)
+                .setClientPasscode(this.relayPass)
+                .setSystemLogin(this.relayUser)
+                .setSystemPasscode(this.relayPass);
 
         registry.setUserDestinationPrefix("/user");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // This configuration remains the same
         registry.addEndpoint("/ws")
                 .setHandshakeHandler(jwtHandshakeHandler)
                 .setAllowedOrigins(
