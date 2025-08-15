@@ -1,37 +1,37 @@
 package io.sitprep.sitprepapi.websocket;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 @Configuration
 @EnableWebSocketMessageBroker
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+@Profile("production") // Active ONLY when the 'production' profile is active
+public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Autowired
     private JwtHandshakeHandler jwtHandshakeHandler;
 
-    @Bean
-    public ThreadPoolTaskScheduler wsHeartbeatScheduler() {
-        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("ws-heartbeat-");
-        scheduler.initialize();
-        return scheduler;
-    }
+    @Value("${spring.data.redis.host}")
+    private String redisHost;
+
+    @Value("${spring.data.redis.port}")
+    private int redisPort;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[]{10000, 10000})
-                .setTaskScheduler(wsHeartbeatScheduler());
-
         registry.setApplicationDestinationPrefixes("/app");
+
+        // Use the STOMP broker relay backed by Redis for production
+        registry.enableStompBrokerRelay("/topic", "/queue")
+                .setRelayHost(redisHost)
+                .setRelayPort(redisPort);
+
         registry.setUserDestinationPrefix("/user");
     }
 
