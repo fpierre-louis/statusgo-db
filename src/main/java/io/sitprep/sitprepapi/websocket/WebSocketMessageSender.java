@@ -28,7 +28,6 @@ public class WebSocketMessageSender {
         this.objectMapper = objectMapper;
     }
 
-    // --- Helpers: build safe dot-style routing keys (no slashes, spaces, or '@') ---
     private static final Pattern NON_SAFE = Pattern.compile("[^A-Za-z0-9._-]");
     private static String key(Object... parts) {
         return Arrays.stream(parts)
@@ -50,54 +49,60 @@ public class WebSocketMessageSender {
         }
     }
 
-    // ---- Group posts (broadcast) ----
     public void sendNewPost(String groupId, PostDto postDto) {
-        String destination = "/topic/" + key("posts", groupId); // e.g., /topic/posts.123
+        String destination = "/topic/" + key("posts", groupId);
         logPayload("Broadcasting POST", destination, postDto);
         messagingTemplate.convertAndSend(destination, postDto);
     }
 
     public void sendPostDeletion(String groupId, Long postId) {
-        String destination = "/topic/" + key("posts", groupId, "delete"); // /topic/posts.123.delete
+        String destination = "/topic/" + key("posts", groupId, "delete");
         logger.info("🗑️ Broadcasting DELETION to [{}] for post ID: {}", destination, postId);
         messagingTemplate.convertAndSend(destination, postId);
     }
 
-    // ---- Comments (broadcast) ----
     public void sendNewComment(Long postId, CommentDto commentDto) {
-        String destination = "/topic/" + key("comments", postId); // /topic/comments.456
+        String destination = "/topic/" + key("comments", postId);
         logPayload("Broadcasting COMMENT", destination, commentDto);
         messagingTemplate.convertAndSend(destination, commentDto);
     }
 
     public void sendCommentDeletion(Long postId, Long commentId) {
-        String destination = "/topic/" + key("comments", postId, "delete"); // /topic/comments.456.delete
+        String destination = "/topic/" + key("comments", postId, "delete");
         logger.info("🗑️ Broadcasting COMMENT DELETION to [{}] for comment ID: {}", destination, commentId);
         messagingTemplate.convertAndSend(destination, commentId);
     }
 
-    // ---- Generic broadcast ----
     public void sendGenericUpdate(String subtopic, Object payload) {
         String destination = "/topic/" + key(subtopic);
         logPayload("Broadcasting GENERIC update", destination, payload);
         messagingTemplate.convertAndSend(destination, payload);
     }
 
-    // ---- Per-user notifications (no topic key with email; use user destination) ----
+    // ✅ CORRECTED: Use convertAndSendToUser for direct, efficient messaging
     public void sendInAppNotification(NotificationPayload payload) {
-        logPayload("Sending in-app notification", "/user/queue/notifications", payload);
+        String userDestination = "/queue/notifications"; // The logical destination the client subscribes to
+        String recipientEmail = payload.getRecipientEmail(); // The user's principal name (their email)
+
+        logPayload("Sending in-app notification to user " + recipientEmail, "/user" + userDestination, payload);
+
         messagingTemplate.convertAndSendToUser(
-                payload.getRecipientEmail(),      // Principal name (email from JwtHandshakeHandler)
-                "/queue/notifications",           // Client subscribes to /user/queue/notifications
+                recipientEmail,
+                userDestination,
                 payload
         );
     }
 
+    // ✅ CORRECTED: Use convertAndSendToUser for direct, efficient messaging
     public void sendGroupAlertNotification(NotificationPayload payload) {
-        logPayload("Sending group alert", "/user/queue/notifications", payload);
+        String userDestination = "/queue/notifications";
+        String recipientEmail = payload.getRecipientEmail();
+
+        logPayload("Sending group alert to user " + recipientEmail, "/user" + userDestination, payload);
+
         messagingTemplate.convertAndSendToUser(
-                payload.getRecipientEmail(),
-                "/queue/notifications",
+                recipientEmail,
+                userDestination,
                 payload
         );
     }
