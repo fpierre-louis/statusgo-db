@@ -12,7 +12,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 @Configuration
 @EnableWebSocketMessageBroker
-@Profile("!production") // Active when the 'production' profile is NOT active
+@Profile("!production")
 public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Autowired
