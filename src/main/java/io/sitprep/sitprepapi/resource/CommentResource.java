@@ -30,7 +30,7 @@ public class CommentResource {
         return ResponseEntity.ok(newComment);
     }
 
-    // Batch: newest first per post
+    // Batch
     @GetMapping
     public Map<Long, List<CommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
@@ -38,11 +38,7 @@ public class CommentResource {
 
         List<Long> validPostIds = postIds.stream()
                 .map(id -> {
-                    try {
-                        return Long.parseLong(id);
-                    } catch (NumberFormatException e) {
-                        return null;
-                    }
+                    try { return Long.parseLong(id); } catch (NumberFormatException e) { return null; }
                 })
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
@@ -54,22 +50,19 @@ public class CommentResource {
         return commentService.getCommentsForPosts(validPostIds, limitPerPost);
     }
 
-    // Simple list for a single postId (unchanged)
+    // Backfill since timestamp
+    @GetMapping("/since")
+    public List<CommentDto> getCommentsSince(
+            @RequestParam Long postId,
+            @RequestParam String sinceIso) {
+        Instant since = Instant.parse(sinceIso);
+        return commentService.getCommentsSince(postId, since);
+    }
+
     @GetMapping("/{postId}")
     public ResponseEntity<List<Comment>> getCommentsByPostId(@PathVariable Long postId) {
         List<Comment> comments = commentService.getCommentsByPostId(postId);
         return ResponseEntity.ok(comments);
-    }
-
-    // 🔹 Delta/backfill for a single post
-    // GET /api/comments/delta?postId=123&since=2025-01-01T00:00:00Z
-    @GetMapping("/delta")
-    public ResponseEntity<List<CommentDto>> getCommentsDelta(
-            @RequestParam Long postId,
-            @RequestParam String since
-    ) {
-        Instant t = Instant.parse(since);
-        return ResponseEntity.ok(commentService.getCommentsSince(postId, t));
     }
 
     @PutMapping("/{id}")
@@ -77,8 +70,8 @@ public class CommentResource {
         Optional<Comment> optionalComment = commentService.getCommentById(id);
         if (optionalComment.isPresent()) {
             Comment comment = optionalComment.get();
-            // Only update content; do NOT touch createdAt ("timestamp")
             comment.setContent(commentDetails.getContent());
+            comment.setTimestamp(commentDetails.getTimestamp());
             Comment updatedComment = commentService.updateComment(comment);
             return ResponseEntity.ok(updatedComment);
         } else {

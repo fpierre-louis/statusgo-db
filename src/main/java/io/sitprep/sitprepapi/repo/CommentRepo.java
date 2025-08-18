@@ -14,8 +14,8 @@ import java.util.List;
 public interface CommentRepo extends JpaRepository<Comment, Long> {
     List<Comment> findByPostId(Long postId);
 
-    // Delta/backfill
-    List<Comment> findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long postId, Instant updatedAfter);
+    // Backfill: all comments for a post after a given timestamp (ascending for chronological merge)
+    List<Comment> findByPostIdAndTimestampAfterOrderByTimestampAsc(Long postId, Instant since);
 
     // Fetch comments for many posts in one round-trip (per-post newest first)
     @Query("SELECT c FROM Comment c WHERE c.postId IN :postIds ORDER BY c.postId ASC, c.timestamp DESC")

@@ -15,12 +15,11 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     @Query("SELECT p FROM Post p WHERE p.groupId = :groupId ORDER BY p.timestamp DESC")
     List<Post> findPostsByGroupId(@Param("groupId") String groupId);
 
-    // Delta/backfill for a group
-    List<Post> findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(String groupId, Instant updatedAfter);
+    // Backfill: posts in a group after 'since' (ascending order for client merge)
+    List<Post> findByGroupIdAndTimestampAfterOrderByTimestampAsc(String groupId, Instant since);
 
     /**
-     * Latest post candidates per group. This may return more than one post per group
-     * if multiple rows share the same MAX(timestamp). The service will de-dupe/tie-break.
+     * Latest post candidates per group.
      */
     @Query("""
            SELECT p FROM Post p

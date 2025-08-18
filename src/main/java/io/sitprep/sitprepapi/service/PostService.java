@@ -29,7 +29,6 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.Base64; // <-- needed
 
 @Service
 public class PostService {
@@ -58,7 +57,6 @@ public class PostService {
     @Transactional
     public PostDto createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
         if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized CREATE POST attempt. DTO author: {} does not match authenticated user: {}", postDto.getAuthor(), authenticatedUserEmail);
             throw new SecurityException("User not authorized to create a post for another user.");
         }
 
@@ -67,7 +65,6 @@ public class PostService {
         post.setContent(postDto.getContent());
         post.setGroupId(postDto.getGroupId());
         post.setGroupName(postDto.getGroupName());
-        // createdAt is handled by auditing, but keeping this is fine if you want immediate value
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
@@ -81,8 +78,6 @@ public class PostService {
         Post savedPost = postRepo.save(post);
         notifyGroupMembersOfNewPost(savedPost);
 
-        logger.info("🚀 Successfully created post ID: {}", savedPost.getId());
-
         return convertToPostDto(savedPost);
     }
 
@@ -91,7 +86,6 @@ public class PostService {
         String authenticatedUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
 
         if (!post.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized UPDATE attempt on post ID {}. User: {}", post.getId(), authenticatedUserEmail);
             throw new SecurityException("User not authorized to update this post.");
         }
 
@@ -99,7 +93,6 @@ public class PostService {
             post.setImage(imageFile.getBytes());
         }
 
-        // Do not touch createdAt (timestamp). editedAt is user-visible edit moment.
         Post updatedPost = postRepo.save(post);
         PostDto updatedPostDto = convertToPostDto(updatedPost);
 
@@ -110,7 +103,6 @@ public class PostService {
             }
         });
 
-        logger.info("🚀 Successfully scheduled broadcast for updated post ID: {}", updatedPost.getId());
         return updatedPost;
     }
 
@@ -128,7 +120,6 @@ public class PostService {
 
         postRepo.delete(post);
         webSocketMessageSender.sendPostDeletion(post.getGroupId(), post.getId());
-        logger.info("🗑️ Post ID {} deleted by {}", postId, requestingUserEmail);
     }
 
     @Transactional
@@ -143,7 +134,6 @@ public class PostService {
         Post post = postOpt.get();
 
         if (!post.getAuthor().equals(authenticatedUserEmail)) {
-            logger.warn("⚠️ Unauthorized WebSocket EDIT attempt on post ID {}. User: {}", dto.getId(), authenticatedUserEmail);
             throw new SecurityException("Not allowed to edit this post.");
         }
 
@@ -157,7 +147,6 @@ public class PostService {
             post.setImage(Base64.getDecoder().decode(encodedImage));
         }
 
-        // Auditing will bump updatedAt automatically
         Post updated = postRepo.save(post);
         PostDto updatedDto = convertToPostDto(updated);
         updatedDto.setTempId(dto.getTempId());
@@ -168,12 +157,29 @@ public class PostService {
                 webSocketMessageSender.sendNewPost(updated.getGroupId(), updatedDto);
             }
         });
-
-        logger.info("✏️ Edited post via WebSocket. ID: {}", updated.getId());
     }
 
     public List<Post> getPostsByGroupId(String groupId) {
         return postRepo.findPostsByGroupId(groupId);
+    }
+
+    /** Backfill: posts since timestamp for a group */
+    public List<PostDto> getPostsByGroupSince(String groupId, Instant since) {
+        List<Post> rows = postRepo.findByGroupIdAndTimestampAfterOrderByTimestampAsc(groupId, since);
+        if (rows.isEmpty()) return List.of();
+
+        Set<String> emails = rows.stream()
+                .map(Post::getAuthor)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream()
+                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        List<PostDto> out = new ArrayList<>(rows.size());
+        for (Post p : rows) out.add(convertToPostDto(p, userByEmail));
+        return out;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -190,9 +196,7 @@ public class PostService {
                 .stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return posts.stream()
-                .map(p -> convertToPostDto(p, userByEmail))
-                .collect(Collectors.toList());
+        return posts.stream().map(p -> convertToPostDto(p, userByEmail)).collect(Collectors.toList());
     }
 
     public Optional<Post> getPostById(Long id) {
@@ -202,17 +206,6 @@ public class PostService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public Optional<PostDto> getPostDtoById(Long id) {
         return postRepo.findById(id).map(this::convertToPostDto);
-    }
-
-    @Transactional
-    public void addReaction(Post post, String reaction) {
-        post.getReactions().put(reaction, post.getReactions().getOrDefault(reaction, 0) + 1);
-        Post updatedPost = postRepo.save(post);
-
-        webSocketMessageSender.sendGenericUpdate(
-                "/topic/posts/" + updatedPost.getGroupId() + "/reactions/" + updatedPost.getId(),
-                updatedPost.getReactions()
-        );
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -264,77 +257,57 @@ public class PostService {
         return out;
     }
 
-    /** 🔹 Delta/backfill for a group: everything changed after `since` (ordered ascending) */
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostDto> getPostsSinceDto(String groupId, Instant since) {
-        List<Post> posts = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
-        if (posts.isEmpty()) return List.of();
-
-        Set<String> emails = posts.stream()
-                .map(Post::getAuthor)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-
-        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
-                .stream()
-                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
-
-        return posts.stream()
-                .map(p -> convertToPostDto(p, userByEmail))
-                .collect(Collectors.toList());
-    }
-
     private void notifyGroupMembersOfNewPost(Post post) {
-        Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId());
-        if (groupOpt.isPresent()) {
-            Group group = groupOpt.get();
-            List<String> memberEmails = group.getMemberEmails();
-
-            List<String> recipients = memberEmails.stream()
+        groupRepo.findByGroupId(post.getGroupId()).ifPresentOrElse(group -> {
+            List<String> recipientEmails = group.getMemberEmails() == null ? List.of() : group.getMemberEmails()
+                    .stream()
                     .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
-                    .collect(Collectors.toList());
+                    .toList();
 
-            List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipients);
-
-            Set<String> tokens = users.stream()
-                    .map(UserInfo::getFcmtoken)
-                    .filter(token -> token != null && !token.isEmpty())
-                    .collect(Collectors.toSet());
-
-            if (tokens.isEmpty()) {
-                logger.warn("No FCM tokens found for group members in group: {}", group.getGroupName());
+            if (recipientEmails.isEmpty()) {
+                logger.warn("No recipients found for group {}", group.getGroupName());
                 return;
             }
 
+            // Resolve author meta
             Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
-            String authorFirstName = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
-            String authorProfileImageUrl = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
+            String authorFirst = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
+            String authorProfile = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
 
-            String notificationTitle = post.getGroupName();
+            String notificationTitle = group.getGroupName();
+            String snippet = post.getContent() == null ? "" :
+                    (post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
             String notificationBody = String.format("%s posted in %s: '%s'",
-                    authorFirstName,
-                    post.getGroupName(),
-                    post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
+                    authorFirst, group.getGroupName(), snippet);
 
             String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+            String targetUrl = baseTargetUrl + "?postId=" + post.getId();
 
-            notificationService.sendNotification(
-                    notificationTitle,
-                    notificationBody,
-                    authorFirstName,
-                    authorProfileImageUrl,
-                    tokens,
-                    "post_notification",
-                    post.getGroupId(),
-                    baseTargetUrl + "?postId=" + post.getId(),
-                    String.valueOf(post.getId())
-            );
+            // Fetch recipients with tokens
+            List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
 
-            logger.info("📣 Sent FCM notification for group '{}' to {} members.", group.getGroupName(), tokens.size());
-        } else {
-            logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId());
-        }
+            for (UserInfo user : users) {
+                String token = user.getFcmtoken();
+                if (token == null || token.isEmpty()) continue;
+
+                notificationService.sendNotification(
+                        notificationTitle,
+                        notificationBody,
+                        authorFirst,
+                        authorProfile,
+                        java.util.Set.of(token),
+                        "post_notification",
+                        post.getGroupId(),
+                        targetUrl,
+                        String.valueOf(post.getId()),
+                        user.getUserEmail() // NEW
+                );
+            }
+
+            logger.info("📣 Sent post push for group '{}' to {} members.", group.getGroupName(), users.size());
+        }, () -> logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId()));
     }
+
 
     private PostDto convertToPostDto(Post post) {
         PostDto dto = new PostDto();
@@ -343,15 +316,14 @@ public class PostService {
         dto.setContent(post.getContent());
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
-        dto.setTimestamp(post.getTimestamp());       // createdAt
-        dto.setEditedAt(post.getEditedAt());
-        dto.setUpdatedAt(post.getUpdatedAt());       // 🔹 expose updatedAt for deltas
+        dto.setTimestamp(post.getTimestamp());
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
+        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
@@ -373,15 +345,14 @@ public class PostService {
         dto.setContent(post.getContent());
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
-        dto.setTimestamp(post.getTimestamp());       // createdAt
-        dto.setEditedAt(post.getEditedAt());
-        dto.setUpdatedAt(post.getUpdatedAt());       // 🔹 expose updatedAt for deltas
+        dto.setTimestamp(post.getTimestamp());
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
+        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());

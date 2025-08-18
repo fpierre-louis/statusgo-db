@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.domain.Comment;
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommentDto;
@@ -11,6 +12,7 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,10 +52,6 @@ public class CommentService {
     }
 
     public Comment createComment(Comment comment) {
-        // server sets creation time if not provided
-        if (comment.getTimestamp() == null) {
-            comment.setTimestamp(Instant.now());
-        }
         Comment savedComment = commentRepo.save(comment);
         CommentDto savedCommentDto = convertToCommentDto(savedComment);
 
@@ -70,7 +68,6 @@ public class CommentService {
     }
 
     public Comment updateComment(Comment comment) {
-        // never mutate createdAt on edits; auditing will bump updatedAt
         Comment updatedComment = commentRepo.save(comment);
         CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
 
@@ -90,7 +87,15 @@ public class CommentService {
         return commentRepo.findByPostId(postId);
     }
 
-    /** Batch fetch comments for many posts */
+    /** Backfill: get comments since a timestamp for a post */
+    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
+        List<Comment> rows = commentRepo.findByPostIdAndTimestampAfterOrderByTimestampAsc(postId, since);
+        List<CommentDto> out = new ArrayList<>(rows.size());
+        for (Comment c : rows) out.add(convertToCommentDto(c));
+        return out;
+    }
+
+    // Batch fetch comments for many posts
     public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
 
@@ -127,7 +132,6 @@ public class CommentService {
         result.setTempId(dto.getTempId());
 
         notifyRelevantUsers(saved, dto.getTempId());
-
         webSocketMessageSender.sendNewComment(saved.getPostId(), result);
     }
 
@@ -135,25 +139,17 @@ public class CommentService {
         Comment comment = commentRepo.findById(dto.getId()).orElse(null);
         if (comment == null) return;
 
-        // Do NOT overwrite createdAt; auditing will set updatedAt
-        if (dto.getContent() != null) {
-            comment.setContent(dto.getContent());
-        }
-        // author is immutable for edits in this flow
+        comment.setContent(dto.getContent());
+        comment.setTimestamp(dto.getTimestamp());
+        comment.setAuthor(dto.getAuthor());
+        commentRepo.save(comment);
 
-        Comment saved = commentRepo.save(comment);
-        webSocketMessageSender.sendNewComment(saved.getPostId(), convertToCommentDto(saved));
+        webSocketMessageSender.sendNewComment(dto.getPostId(), convertToCommentDto(comment));
     }
 
     public void deleteCommentAndBroadcast(Long commentId, Long postId) {
         commentRepo.deleteById(commentId);
         webSocketMessageSender.sendCommentDeletion(postId, commentId);
-    }
-
-    /** Delta/backfill for a single post */
-    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
-        List<Comment> list = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
-        return list.stream().map(this::convertToCommentDto).collect(Collectors.toList());
     }
 
     private CommentDto convertToCommentDto(Comment comment) {
@@ -162,8 +158,7 @@ public class CommentService {
         dto.setPostId(comment.getPostId());
         dto.setAuthor(comment.getAuthor());
         dto.setContent(comment.getContent());
-        dto.setTimestamp(comment.getTimestamp());      // createdAt
-        dto.setUpdatedAt(comment.getUpdatedAt());      // last modified
+        dto.setTimestamp(comment.getTimestamp());
         dto.setEdited(false);
 
         userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
@@ -208,28 +203,43 @@ public class CommentService {
         UserInfo author = authorOpt.get();
 
         String token = recipient.getFcmtoken();
-        if (token == null || token.isEmpty()) return;
 
-        String groupUrl = groupRepo.findByGroupId(postRepo.findById(postId).map(Post::getGroupId).orElse(null))
+        String groupUrl = groupRepo.findByGroupId(
+                        postRepo.findById(postId).map(Post::getGroupId).orElse(null))
                 .map(GroupUrlUtil::getGroupTargetUrl)
                 .orElse("/Linked/" + postId);
 
-        notificationService.sendNotification(
-                author.getUserFirstName() + " " + actionLabel,
-                "\"" + triggeringComment.getContent() + "\"",
-                author.getUserFirstName(),
-                author.getProfileImageURL() != null
-                        ? resizeImage(author.getProfileImageURL())
-                        : "/images/default-user-icon.png",
-                Set.of(token),
-                type,
-                String.valueOf(postId),
-                groupUrl + "?postId=" + postId,
-                null
-        );
+        String title = author.getUserFirstName() + " " + actionLabel;
+        String body  = "\"" + triggeringComment.getContent() + "\"";
+        String icon  = author.getProfileImageURL() != null
+                ? resizeImage(author.getProfileImageURL())
+                : "/images/default-user-icon.png";
+
+        // Single in-app socket send (and log inside NotificationService if you add that there)
+        // If you also want an in-app banner via socket here, you could call:
+        // webSocketMessageSender.sendInAppNotification(new NotificationPayload(
+        //     recipient.getUserEmail(), title, body, icon, type, groupUrl + "?postId=" + postId, String.valueOf(postId), Instant.now()
+        // ));
+
+        // FCM (and per-recipient log) — note the new final argument: recipientEmail
+        if (token != null && !token.isEmpty()) {
+            notificationService.sendNotification(
+                    title,
+                    body,
+                    author.getUserFirstName(),
+                    icon,
+                    java.util.Set.of(token),
+                    type,
+                    String.valueOf(postId),
+                    groupUrl + "?postId=" + postId,
+                    null,
+                    recipient.getUserEmail()   // NEW: for NotificationLog/backfill
+            );
+        }
 
         logger.info("📨 Sent '{}' notification to '{}' for post {}", type, recipientEmail, postId);
     }
+
 
     private String resizeImage(String imageUrl) {
         try {

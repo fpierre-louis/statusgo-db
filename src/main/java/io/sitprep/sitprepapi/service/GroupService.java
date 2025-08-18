@@ -2,17 +2,16 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
-import io.sitprep.sitprepapi.dto.NotificationPayload;
-import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.AuthUtils;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
@@ -25,9 +24,10 @@ public class GroupService {
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender webSocketMessageSender;
-    private NotificationService notificationService; // Make this non-final for @Autowired setter
+    private NotificationService notificationService; // setter-injected
 
-    public GroupService(GroupRepo groupRepo, UserInfoRepo userInfoRepo,
+    public GroupService(GroupRepo groupRepo,
+                        UserInfoRepo userInfoRepo,
                         WebSocketMessageSender webSocketMessageSender,
                         NotificationService notificationService) {
         this.groupRepo = groupRepo;
@@ -41,6 +41,7 @@ public class GroupService {
         this.notificationService = notificationService;
     }
 
+    /** Broadcast a plain group status change (non-alert) to members. */
     public void broadcastGroupStatusChange(String groupId, String newStatus) {
         String initiatedByEmail = AuthUtils.getCurrentUserEmail();
 
@@ -49,6 +50,7 @@ public class GroupService {
 
         Group group = groupOpt.get();
         List<String> memberEmails = group.getMemberEmails();
+        if (memberEmails == null || memberEmails.isEmpty()) return;
 
         List<UserInfo> recipients = userInfoRepo.findByUserEmailIn(memberEmails);
         Optional<UserInfo> senderOpt = userInfoRepo.findByUserEmail(initiatedByEmail);
@@ -62,6 +64,7 @@ public class GroupService {
         for (UserInfo recipient : recipients) {
             if (recipient.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
 
+            // In-app (socket) notification
             NotificationPayload payload = new NotificationPayload(
                     recipient.getUserEmail(),
                     group.getGroupName(),
@@ -72,30 +75,26 @@ public class GroupService {
                     groupId,
                     Instant.now()
             );
+            webSocketMessageSender.sendInAppNotification(payload);
 
-            Set<String> recipientTokens = new HashSet<>();
-            if (recipient.getFcmtoken() != null && !recipient.getFcmtoken().isEmpty()) {
-                recipientTokens.add(recipient.getFcmtoken());
-            }
-
-            if (!recipientTokens.isEmpty()) {
+            // Push (FCM) with per-recipient logging/backfill
+            String token = recipient.getFcmtoken();
+            if (token != null && !token.isEmpty()) {
                 notificationService.sendNotification(
                         group.getGroupName(),
                         message,
                         senderName,
                         "/images/group-alert-icon.png",
-                        recipientTokens,
+                        Set.of(token),
                         "group_status",
                         groupId,
                         "/groups/" + groupId,
-                        null
+                        null,
+                        recipient.getUserEmail() // NEW: recipient email for NotificationLog/backfill
                 );
             }
-
-            webSocketMessageSender.sendInAppNotification(payload);
         }
     }
-
 
     public Group createGroup(Group group) {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
@@ -132,13 +131,11 @@ public class GroupService {
         Set<String> oldMemberEmails = new HashSet<>(group.getMemberEmails());
         Set<String> oldPendingMemberEmails = new HashSet<>(group.getPendingMemberEmails());
 
-
         // Determine alert-change semantics BEFORE mutating the entity
         final String previousAlert = group.getAlert();
         final String newAlert = groupDetails.getAlert();
         final boolean alertChanged = !Objects.equals(previousAlert, newAlert);
         final boolean alertBecameActive = alertChanged && "Active".equalsIgnoreCase(newAlert);
-
 
         group.setAdminEmails(groupDetails.getAdminEmails());
         group.setAlert(groupDetails.getAlert());
@@ -171,6 +168,7 @@ public class GroupService {
         notifyAdminsOfPendingMembers(group, oldPendingMemberEmails);
     }
 
+    /** Trigger full alert fan-out via NotificationService (handles socket + push + logging). */
     private void notifyGroupMembers(Group group) {
         if (group.getAlert() == null || group.getAlert().isEmpty()) {
             logger.warn("❌ Skipping group alert notification: Alert value is null or empty");
@@ -212,7 +210,8 @@ public class GroupService {
                         "pending_member",
                         group.getGroupId(),
                         targetUrl,
-                        null
+                        null,
+                        admin.getUserEmail() // NEW
                 );
             }
         }
@@ -242,7 +241,8 @@ public class GroupService {
                     "new_member",
                     group.getGroupId(),
                     targetUrl,
-                    null
+                    null,
+                    user.getUserEmail() // NEW
             );
         }
     }
@@ -274,7 +274,8 @@ public class GroupService {
                         "new_member",
                         group.getGroupId(),
                         targetUrl,
-                        null
+                        null,
+                        admin.getUserEmail() // NEW
                 );
             }
         }

@@ -28,15 +28,13 @@ public class PostResource {
         return postService.getPostsByGroupIdDto(groupId);
     }
 
-    // 🔹 Delta/backfill for a group timeline
-    // GET /api/posts/delta?groupId=abc&since=2025-01-01T00:00:00Z
-    @GetMapping("/delta")
-    public List<PostDto> getPostsDelta(
+    // Backfill: posts since timestamp for a group
+    @GetMapping("/since")
+    public List<PostDto> getPostsSince(
             @RequestParam String groupId,
-            @RequestParam String since
+            @RequestParam String sinceIso
     ) {
-        Instant t = Instant.parse(since);
-        return postService.getPostsSinceDto(groupId, t);
+        return postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso));
     }
 
     @GetMapping("/groups/latest")
@@ -63,26 +61,23 @@ public class PostResource {
             @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
     ) throws IOException {
         Optional<Post> postOpt = postService.getPostById(postId);
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            String currentUserEmail = AuthUtils.getCurrentUserEmail();
+        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
-            if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
-                return ResponseEntity.status(403).build();
-            }
-
-            post.setContent(content);
-            post.setGroupId(groupId);
-            post.setGroupName(groupName);
-            post.setTags(tags);
-            post.setMentions(mentions);
-            post.setEditedAt(Instant.now());
-
-            Post updatedPost = postService.updatePost(post, imageFile);
-            return ResponseEntity.ok(updatedPost);
-        } else {
-            return ResponseEntity.notFound().build();
+        Post post = postOpt.get();
+        String currentUserEmail = AuthUtils.getCurrentUserEmail();
+        if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
+            return ResponseEntity.status(403).build();
         }
+
+        post.setContent(content);
+        post.setGroupId(groupId);
+        post.setGroupName(groupName);
+        post.setTags(tags);
+        post.setMentions(mentions);
+        post.setEditedAt(Instant.now());
+
+        Post updatedPost = postService.updatePost(post, imageFile);
+        return ResponseEntity.ok(updatedPost);
     }
 
     @DeleteMapping("/{postId}")
@@ -92,18 +87,16 @@ public class PostResource {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{postId}/reaction")
-    public ResponseEntity<Post> addReaction(
-            @PathVariable Long postId,
-            @RequestParam("reaction") String reaction
-    ) {
-        Optional<Post> postOpt = postService.getPostById(postId);
-        if (postOpt.isPresent()) {
-            Post post = postOpt.get();
-            postService.addReaction(post, reaction);
-            return ResponseEntity.ok(post);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
-    }
+//    @PostMapping("/{postId}/reaction")
+//    public ResponseEntity<Post> addReaction(
+//            @PathVariable Long postId,
+//            @RequestParam("reaction") String reaction
+//    ) {
+//        Optional<Post> postOpt = postService.getPostById(postId);
+//        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
+//
+//        Post post = postOpt.get();
+//        postService.addReaction(post, reaction);
+//        return ResponseEntity.ok(post);
+//    }
 }

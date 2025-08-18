@@ -1,50 +1,37 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.service.NotificationService;
+import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Set;
+import java.time.Instant;
+import java.util.List;
 
 @RestController
 @RequestMapping("/notifications")
 public class NotificationResource {
 
-    @Autowired private NotificationService notificationService;
-    @Autowired private GroupRepo groupRepo;
+    private final NotificationLogRepo notificationLogRepo;
 
-    @PostMapping("/send")
-    public ResponseEntity<String> sendNotification(
-            @RequestParam String title,
-            @RequestParam String body,
-            @RequestParam(required = false) String sender,
-            @RequestParam(required = false) String iconUrl,
-            @RequestParam Set<String> tokens,
-            @RequestParam String notificationType,
-            @RequestParam(required = false) String referenceId,
-            @RequestParam(required = false) String targetUrl,
-            @RequestParam(required = false) String additionalData
-    ) {
-        notificationService.sendNotification(
-                title, body, sender, iconUrl, tokens, notificationType, referenceId, targetUrl, additionalData
-        );
-        return ResponseEntity.ok("Notification sent.");
+    public NotificationResource(NotificationLogRepo notificationLogRepo) {
+        this.notificationLogRepo = notificationLogRepo;
     }
 
-    @PostMapping("/group-alert")
-    public ResponseEntity<String> triggerGroupAlert(
-            @RequestParam String groupId
+    /** Backfill missed notifications for the current user since a timestamp. */
+    @GetMapping("/backfill")
+    public ResponseEntity<List<NotificationLog>> backfillSince(
+            @RequestParam String sinceIso,
+            @RequestParam(required = false) String type // e.g. "alert"
     ) {
-        String initiatedBy = AuthUtils.getCurrentUserEmail();
+        String email = AuthUtils.getCurrentUserEmail();
+        Instant since = Instant.parse(sinceIso);
 
-        Group group = groupRepo.findByGroupId(groupId)
-                .orElseThrow(() -> new RuntimeException("Group not found: " + groupId));
+        List<NotificationLog> rows = (type == null || type.isBlank())
+                ? notificationLogRepo.findByRecipientEmailAndTimestampAfterOrderByTimestampAsc(email, since)
+                : notificationLogRepo.findByRecipientEmailAndTypeAndTimestampAfterOrderByTimestampAsc(email, type, since);
 
-        notificationService.notifyGroupAlertChange(group, "Active", initiatedBy);
-        return ResponseEntity.ok("Group alert broadcasted.");
+        return ResponseEntity.ok(rows);
     }
 }
