@@ -54,7 +54,7 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
                 .setSystemLogin(relayUser)
                 .setSystemPasscode(relayPass)
                 .setVirtualHost(relayVhost)
-                .setSystemHeartbeatSendInterval(10000)
-                .setSystemHeartbeatReceiveInterval(10000);
+                .setSystemHeartbeatSendInterval(15000)
+                .setSystemHeartbeatReceiveInterval(15000);
     }
 }

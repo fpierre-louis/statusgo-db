@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.Base64; // <-- needed
 
 @Service
 public class PostService {
@@ -66,6 +67,7 @@ public class PostService {
         post.setContent(postDto.getContent());
         post.setGroupId(postDto.getGroupId());
         post.setGroupName(postDto.getGroupName());
+        // createdAt is handled by auditing, but keeping this is fine if you want immediate value
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
@@ -81,7 +83,6 @@ public class PostService {
 
         logger.info("🚀 Successfully created post ID: {}", savedPost.getId());
 
-        // Convert the saved entity to a DTO and return it
         return convertToPostDto(savedPost);
     }
 
@@ -98,6 +99,7 @@ public class PostService {
             post.setImage(imageFile.getBytes());
         }
 
+        // Do not touch createdAt (timestamp). editedAt is user-visible edit moment.
         Post updatedPost = postRepo.save(post);
         PostDto updatedPostDto = convertToPostDto(updatedPost);
 
@@ -155,6 +157,7 @@ public class PostService {
             post.setImage(Base64.getDecoder().decode(encodedImage));
         }
 
+        // Auditing will bump updatedAt automatically
         Post updated = postRepo.save(post);
         PostDto updatedDto = convertToPostDto(updated);
         updatedDto.setTempId(dto.getTempId());
@@ -261,6 +264,26 @@ public class PostService {
         return out;
     }
 
+    /** 🔹 Delta/backfill for a group: everything changed after `since` (ordered ascending) */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<PostDto> getPostsSinceDto(String groupId, Instant since) {
+        List<Post> posts = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
+        if (posts.isEmpty()) return List.of();
+
+        Set<String> emails = posts.stream()
+                .map(Post::getAuthor)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream()
+                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        return posts.stream()
+                .map(p -> convertToPostDto(p, userByEmail))
+                .collect(Collectors.toList());
+    }
+
     private void notifyGroupMembersOfNewPost(Post post) {
         Optional<Group> groupOpt = groupRepo.findByGroupId(post.getGroupId());
         if (groupOpt.isPresent()) {
@@ -320,14 +343,15 @@ public class PostService {
         dto.setContent(post.getContent());
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
-        dto.setTimestamp(post.getTimestamp());
+        dto.setTimestamp(post.getTimestamp());       // createdAt
+        dto.setEditedAt(post.getEditedAt());
+        dto.setUpdatedAt(post.getUpdatedAt());       // 🔹 expose updatedAt for deltas
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
-        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
@@ -349,14 +373,15 @@ public class PostService {
         dto.setContent(post.getContent());
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
-        dto.setTimestamp(post.getTimestamp());
+        dto.setTimestamp(post.getTimestamp());       // createdAt
+        dto.setEditedAt(post.getEditedAt());
+        dto.setUpdatedAt(post.getUpdatedAt());       // 🔹 expose updatedAt for deltas
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
-        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());

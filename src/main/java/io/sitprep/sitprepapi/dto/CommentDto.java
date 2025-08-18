@@ -11,13 +11,19 @@ import java.time.Instant;
 @AllArgsConstructor
 public class CommentDto {
     private Long id;
-    private String tempId; // ✅ NEW FIELD
+    private String tempId; // client-side correlation
     private Long postId;
     private String author;
     private String authorFirstName;
     private String authorLastName;
     private String authorProfileImageURL;
     private String content;
+
+    /** createdAt */
     private Instant timestamp;
+
+    /** last modified */
+    private Instant updatedAt;
+
     private boolean edited;
 }

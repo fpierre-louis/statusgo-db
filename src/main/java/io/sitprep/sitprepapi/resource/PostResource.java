@@ -23,21 +23,28 @@ public class PostResource {
     @Autowired
     private PostService postService;
 
-    // Return DTOs (author info & base64 already embedded)
     @GetMapping("/group/{groupId}")
     public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
         return postService.getPostsByGroupIdDto(groupId);
     }
 
-    // Batch: latest post per groupId (fast path to remove N+1s on the home/groups page)
-    // GET /api/posts/groups/latest?groupIds=123&groupIds=456
+    // 🔹 Delta/backfill for a group timeline
+    // GET /api/posts/delta?groupId=abc&since=2025-01-01T00:00:00Z
+    @GetMapping("/delta")
+    public List<PostDto> getPostsDelta(
+            @RequestParam String groupId,
+            @RequestParam String since
+    ) {
+        Instant t = Instant.parse(since);
+        return postService.getPostsSinceDto(groupId, t);
+    }
+
     @GetMapping("/groups/latest")
     public Map<String, PostSummaryDto> getLatestPostsForGroups(
             @RequestParam("groupIds") List<String> groupIds) {
         return postService.getLatestPostsForGroups(groupIds);
     }
 
-    // Return DTO
     @GetMapping("/{postId}")
     public ResponseEntity<PostDto> getPostById(@PathVariable Long postId) {
         Optional<PostDto> postOpt = postService.getPostDtoById(postId);
@@ -61,7 +68,7 @@ public class PostResource {
             String currentUserEmail = AuthUtils.getCurrentUserEmail();
 
             if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
-                return ResponseEntity.status(403).build(); // ❌ Unauthorized
+                return ResponseEntity.status(403).build();
             }
 
             post.setContent(content);

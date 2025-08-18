@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 
 @Repository
@@ -13,6 +14,9 @@ public interface PostRepo extends JpaRepository<Post, Long> {
 
     @Query("SELECT p FROM Post p WHERE p.groupId = :groupId ORDER BY p.timestamp DESC")
     List<Post> findPostsByGroupId(@Param("groupId") String groupId);
+
+    // Delta/backfill for a group
+    List<Post> findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(String groupId, Instant updatedAfter);
 
     /**
      * Latest post candidates per group. This may return more than one post per group
@@ -26,7 +30,4 @@ public interface PostRepo extends JpaRepository<Post, Long> {
              )
            """)
     List<Post> findLatestPostsByGroupIds(@Param("groupIds") List<String> groupIds);
-
-    // (Optional) later you can add a paged variant to keep payloads small:
-    // Page<Post> findByGroupIdOrderByTimestampDesc(String groupId, Pageable pageable);
 }

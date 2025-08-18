@@ -3,7 +3,6 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.domain.Comment;
-import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommentDto;
@@ -12,7 +11,6 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +19,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -51,6 +50,10 @@ public class CommentService {
     }
 
     public Comment createComment(Comment comment) {
+        // server sets creation time if not provided
+        if (comment.getTimestamp() == null) {
+            comment.setTimestamp(Instant.now());
+        }
         Comment savedComment = commentRepo.save(comment);
         CommentDto savedCommentDto = convertToCommentDto(savedComment);
 
@@ -67,6 +70,7 @@ public class CommentService {
     }
 
     public Comment updateComment(Comment comment) {
+        // never mutate createdAt on edits; auditing will bump updatedAt
         Comment updatedComment = commentRepo.save(comment);
         CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
 
@@ -86,7 +90,7 @@ public class CommentService {
         return commentRepo.findByPostId(postId);
     }
 
-    // NEW: batch fetch comments for many posts
+    /** Batch fetch comments for many posts */
     public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
 
@@ -98,7 +102,6 @@ public class CommentService {
                 list.add(convertToCommentDto(c));
             }
         }
-        // Ensure every requested postId is present
         for (Long id : postIds) result.putIfAbsent(id, Collections.emptyList());
         return result;
     }
@@ -116,7 +119,7 @@ public class CommentService {
         comment.setPostId(dto.getPostId());
         comment.setAuthor(dto.getAuthor());
         comment.setContent(dto.getContent());
-        comment.setTimestamp(dto.getTimestamp() != null ? dto.getTimestamp() : java.time.Instant.now());
+        comment.setTimestamp(dto.getTimestamp() != null ? dto.getTimestamp() : Instant.now());
 
         Comment saved = commentRepo.save(comment);
 
@@ -132,17 +135,25 @@ public class CommentService {
         Comment comment = commentRepo.findById(dto.getId()).orElse(null);
         if (comment == null) return;
 
-        comment.setContent(dto.getContent());
-        comment.setTimestamp(dto.getTimestamp());
-        comment.setAuthor(dto.getAuthor());
-        commentRepo.save(comment);
+        // Do NOT overwrite createdAt; auditing will set updatedAt
+        if (dto.getContent() != null) {
+            comment.setContent(dto.getContent());
+        }
+        // author is immutable for edits in this flow
 
-        webSocketMessageSender.sendNewComment(dto.getPostId(), convertToCommentDto(comment));
+        Comment saved = commentRepo.save(comment);
+        webSocketMessageSender.sendNewComment(saved.getPostId(), convertToCommentDto(saved));
     }
 
     public void deleteCommentAndBroadcast(Long commentId, Long postId) {
         commentRepo.deleteById(commentId);
         webSocketMessageSender.sendCommentDeletion(postId, commentId);
+    }
+
+    /** Delta/backfill for a single post */
+    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
+        List<Comment> list = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
+        return list.stream().map(this::convertToCommentDto).collect(Collectors.toList());
     }
 
     private CommentDto convertToCommentDto(Comment comment) {
@@ -151,7 +162,8 @@ public class CommentService {
         dto.setPostId(comment.getPostId());
         dto.setAuthor(comment.getAuthor());
         dto.setContent(comment.getContent());
-        dto.setTimestamp(comment.getTimestamp());
+        dto.setTimestamp(comment.getTimestamp());      // createdAt
+        dto.setUpdatedAt(comment.getUpdatedAt());      // last modified
         dto.setEdited(false);
 
         userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
