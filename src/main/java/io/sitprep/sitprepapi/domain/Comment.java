@@ -1,3 +1,4 @@
+// Comment.java
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
@@ -14,9 +15,10 @@ import java.time.Instant;
 @Entity
 @EntityListeners(AuditingEntityListener.class)
 @Table(
+        name = "comment",
         indexes = {
-                @Index(name = "idx_comment_post_id", columnList = "postId"),
-                @Index(name = "idx_comment_updated_at", columnList = "updatedAt")
+                @Index(name = "idx_comment_post_id", columnList = "post_id"),
+                @Index(name = "idx_comment_updated_at", columnList = "updated_at")
         }
 )
 public class Comment {
@@ -24,17 +26,19 @@ public class Comment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "post_id")
     private Long postId;
+
     private String author;
     private String content;
 
     /** Creation time (was already named 'timestamp') */
     @CreatedDate
-    @Column(nullable = false, updatable = false)
+    @Column(name = "timestamp", nullable = false, updatable = false)
     private Instant timestamp;
 
     /** Last modification time – used for delta/backfill */
     @LastModifiedDate
-    @Column(nullable = false)
+    @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 }
