@@ -12,12 +12,13 @@ import java.util.List;
 
 @Repository
 public interface CommentRepo extends JpaRepository<Comment, Long> {
+
     List<Comment> findByPostId(Long postId);
 
-    // Backfill: all comments for a post after a given timestamp (ascending for chronological merge)
-    List<Comment> findByPostIdAndTimestampAfterOrderByTimestampAsc(Long postId, Instant since);
+    // ✅ Backfill by last-modified time (updatedAt)
+    List<Comment> findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long postId, Instant since);
 
-    // Fetch comments for many posts in one round-trip (per-post newest first)
+    // ✅ Batch by many posts: newest first per post (uses creation time for "newest" view)
     @Query("SELECT c FROM Comment c WHERE c.postId IN :postIds ORDER BY c.postId ASC, c.timestamp DESC")
     List<Comment> findByPostIdInOrderByPostIdAndTimestampDesc(@Param("postIds") Collection<Long> postIds);
 }

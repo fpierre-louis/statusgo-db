@@ -52,6 +52,7 @@ public class CommentService {
     }
 
     public Comment createComment(Comment comment) {
+        // timestamp is @CreatedDate; if provided, keep; auditing will set if null
         Comment savedComment = commentRepo.save(comment);
         CommentDto savedCommentDto = convertToCommentDto(savedComment);
 
@@ -68,6 +69,7 @@ public class CommentService {
     }
 
     public Comment updateComment(Comment comment) {
+        // ✅ Do not overwrite creation timestamp; auditing bumps updatedAt
         Comment updatedComment = commentRepo.save(comment);
         CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
 
@@ -87,15 +89,15 @@ public class CommentService {
         return commentRepo.findByPostId(postId);
     }
 
-    /** Backfill: get comments since a timestamp for a post */
+    /** ✅ Backfill: get comments since a timestamp for a post (by updatedAt ascending) */
     public List<CommentDto> getCommentsSince(Long postId, Instant since) {
-        List<Comment> rows = commentRepo.findByPostIdAndTimestampAfterOrderByTimestampAsc(postId, since);
+        List<Comment> rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
         List<CommentDto> out = new ArrayList<>(rows.size());
         for (Comment c : rows) out.add(convertToCommentDto(c));
         return out;
     }
 
-    // Batch fetch comments for many posts
+    /** ✅ Batch fetch comments for many posts */
     public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
 
@@ -119,11 +121,13 @@ public class CommentService {
         commentRepo.deleteById(id);
     }
 
+    /** ✅ WebSocket create path (DTO in, entity persisted, DTO out on topic) */
     public void createCommentFromDto(CommentDto dto) {
         Comment comment = new Comment();
         comment.setPostId(dto.getPostId());
         comment.setAuthor(dto.getAuthor());
         comment.setContent(dto.getContent());
+        // If client passed a timestamp, keep it; auditing fills if null.
         comment.setTimestamp(dto.getTimestamp() != null ? dto.getTimestamp() : Instant.now());
 
         Comment saved = commentRepo.save(comment);
@@ -135,15 +139,17 @@ public class CommentService {
         webSocketMessageSender.sendNewComment(saved.getPostId(), result);
     }
 
+    /** ✅ WebSocket edit path (do NOT overwrite creation timestamp) */
     public void updateCommentFromDto(CommentDto dto) {
         Comment comment = commentRepo.findById(dto.getId()).orElse(null);
         if (comment == null) return;
 
         comment.setContent(dto.getContent());
-        comment.setTimestamp(dto.getTimestamp());
         comment.setAuthor(dto.getAuthor());
-        commentRepo.save(comment);
+        // ❌ Do not reset original creation time
+        // comment.setTimestamp(dto.getTimestamp());
 
+        commentRepo.save(comment);
         webSocketMessageSender.sendNewComment(dto.getPostId(), convertToCommentDto(comment));
     }
 
@@ -158,8 +164,9 @@ public class CommentService {
         dto.setPostId(comment.getPostId());
         dto.setAuthor(comment.getAuthor());
         dto.setContent(comment.getContent());
-        dto.setTimestamp(comment.getTimestamp());
-        dto.setEdited(false);
+        dto.setTimestamp(comment.getTimestamp());   // createdAt
+        dto.setUpdatedAt(comment.getUpdatedAt());   // last modified
+        dto.setEdited(!Objects.equals(comment.getTimestamp(), comment.getUpdatedAt()));
 
         userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
             dto.setAuthorFirstName(authorInfo.getUserFirstName());
@@ -177,10 +184,12 @@ public class CommentService {
         Post post = postOpt.get();
         Long postId = post.getId();
 
+        // Notify post author (if different from commenter)
         if (!post.getAuthor().equalsIgnoreCase(savedComment.getAuthor())) {
             notifyUser(post.getAuthor(), savedComment, "comment_on_post", postId, "commented on your post");
         }
 
+        // Notify other participants (exclude post author and triggering commenter)
         List<Comment> allComments = commentRepo.findByPostId(postId);
         Set<String> uniqueCommenters = allComments.stream()
                 .map(Comment::getAuthor)
@@ -215,13 +224,6 @@ public class CommentService {
                 ? resizeImage(author.getProfileImageURL())
                 : "/images/default-user-icon.png";
 
-        // Single in-app socket send (and log inside NotificationService if you add that there)
-        // If you also want an in-app banner via socket here, you could call:
-        // webSocketMessageSender.sendInAppNotification(new NotificationPayload(
-        //     recipient.getUserEmail(), title, body, icon, type, groupUrl + "?postId=" + postId, String.valueOf(postId), Instant.now()
-        // ));
-
-        // FCM (and per-recipient log) — note the new final argument: recipientEmail
         if (token != null && !token.isEmpty()) {
             notificationService.sendNotification(
                     title,
@@ -233,13 +235,12 @@ public class CommentService {
                     String.valueOf(postId),
                     groupUrl + "?postId=" + postId,
                     null,
-                    recipient.getUserEmail()   // NEW: for NotificationLog/backfill
+                    recipient.getUserEmail()   // for NotificationLog/backfill
             );
         }
 
         logger.info("📨 Sent '{}' notification to '{}' for post {}", type, recipientEmail, postId);
     }
-
 
     private String resizeImage(String imageUrl) {
         try {

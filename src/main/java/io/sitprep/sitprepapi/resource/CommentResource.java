@@ -30,7 +30,7 @@ public class CommentResource {
         return ResponseEntity.ok(newComment);
     }
 
-    // Batch
+    // ✅ Batch
     @GetMapping
     public Map<Long, List<CommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
@@ -50,7 +50,7 @@ public class CommentResource {
         return commentService.getCommentsForPosts(validPostIds, limitPerPost);
     }
 
-    // Backfill since timestamp
+    // ✅ Backfill since timestamp (uses updatedAt in service)
     @GetMapping("/since")
     public List<CommentDto> getCommentsSince(
             @RequestParam Long postId,
@@ -68,15 +68,15 @@ public class CommentResource {
     @PutMapping("/{id}")
     public ResponseEntity<Comment> updateComment(@PathVariable Long id, @RequestBody Comment commentDetails) {
         Optional<Comment> optionalComment = commentService.getCommentById(id);
-        if (optionalComment.isPresent()) {
-            Comment comment = optionalComment.get();
-            comment.setContent(commentDetails.getContent());
-            comment.setTimestamp(commentDetails.getTimestamp());
-            Comment updatedComment = commentService.updateComment(comment);
-            return ResponseEntity.ok(updatedComment);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+        if (optionalComment.isEmpty()) return ResponseEntity.notFound().build();
+
+        Comment comment = optionalComment.get();
+        comment.setContent(commentDetails.getContent());
+        // ❌ Do not overwrite the original creation timestamp; auditing updates updatedAt
+        // comment.setTimestamp(commentDetails.getTimestamp());
+
+        Comment updatedComment = commentService.updateComment(comment);
+        return ResponseEntity.ok(updatedComment);
     }
 
     @DeleteMapping("/{id}")
