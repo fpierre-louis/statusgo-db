@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.Base64;   // <-- IMPORTANT
 
 @Service
 public class PostService {
@@ -70,7 +71,8 @@ public class PostService {
         post.setMentions(postDto.getMentions());
 
         if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
-            String encodedImage = postDto.getBase64Image().split(",")[1];
+            String[] parts = postDto.getBase64Image().split(",", 2);
+            String encodedImage = parts.length == 2 ? parts[1] : parts[0];
             byte[] imageBytes = Base64.getDecoder().decode(encodedImage);
             post.setImage(imageBytes);
         }
@@ -143,7 +145,8 @@ public class PostService {
         post.setMentions(dto.getMentions());
 
         if (dto.getBase64Image() != null && !dto.getBase64Image().isEmpty()) {
-            String encodedImage = dto.getBase64Image().split(",")[1];
+            String[] parts = dto.getBase64Image().split(",", 2);
+            String encodedImage = parts.length == 2 ? parts[1] : parts[0];
             post.setImage(Base64.getDecoder().decode(encodedImage));
         }
 
@@ -163,9 +166,9 @@ public class PostService {
         return postRepo.findPostsByGroupId(groupId);
     }
 
-    /** Backfill: posts since timestamp for a group */
+    /** Backfill: posts since timestamp for a group (by UPDATED time, ascending) */
     public List<PostDto> getPostsByGroupSince(String groupId, Instant since) {
-        List<Post> rows = postRepo.findByGroupIdAndTimestampAfterOrderByTimestampAsc(groupId, since);
+        List<Post> rows = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
@@ -300,14 +303,13 @@ public class PostService {
                         post.getGroupId(),
                         targetUrl,
                         String.valueOf(post.getId()),
-                        user.getUserEmail() // NEW
+                        user.getUserEmail() // recipient email for in-app routing
                 );
             }
 
             logger.info("📣 Sent post push for group '{}' to {} members.", group.getGroupName(), users.size());
         }, () -> logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId()));
     }
-
 
     private PostDto convertToPostDto(Post post) {
         PostDto dto = new PostDto();
@@ -317,13 +319,14 @@ public class PostService {
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
         dto.setTimestamp(post.getTimestamp());
+        dto.setEditedAt(post.getEditedAt());
+        dto.setUpdatedAt(post.getUpdatedAt());   // <-- NEW
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
-        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());
@@ -346,13 +349,14 @@ public class PostService {
         dto.setGroupId(String.valueOf(post.getGroupId()));
         dto.setGroupName(post.getGroupName());
         dto.setTimestamp(post.getTimestamp());
+        dto.setEditedAt(post.getEditedAt());
+        dto.setUpdatedAt(post.getUpdatedAt());   // <-- NEW
 
         if (post.getImage() != null) {
             String base64Image = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + base64Image);
         }
 
-        dto.setEditedAt(post.getEditedAt());
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new java.util.HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new java.util.ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new java.util.ArrayList<>());

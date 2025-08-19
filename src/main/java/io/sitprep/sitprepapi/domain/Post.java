@@ -3,9 +3,6 @@ package io.sitprep.sitprepapi.domain;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
 import java.util.*;
@@ -13,12 +10,10 @@ import java.util.*;
 @Setter
 @Getter
 @Entity
-@EntityListeners(AuditingEntityListener.class)
 @Table(
         name = "post",
         indexes = {
-                @Index(name = "idx_post_group_ts", columnList = "group_id,timestamp"),
-                @Index(name = "idx_post_group_updated", columnList = "group_id,updatedAt")
+                @Index(name = "idx_post_group_ts", columnList = "group_id,timestamp")
         }
 )
 public class Post {
@@ -34,9 +29,7 @@ public class Post {
 
     private String groupName;
 
-    /** Creation time */
-    @CreatedDate
-    @Column(nullable = false, updatable = false)
+    /** created-at */
     private Instant timestamp;
 
     private byte[] image;
@@ -47,8 +40,12 @@ public class Post {
     @ElementCollection
     private Map<String, Integer> reactions = new HashMap<>();
 
-    /** When user explicitly edits content (you already used this) */
+    /** user-initiated edit moment */
     private Instant editedAt;
+
+    /** last modified (any change) – used for delta/backfill */
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 
     @ElementCollection
     private List<String> tags = new ArrayList<>();
@@ -58,8 +55,14 @@ public class Post {
     @ElementCollection
     private List<String> mentions = new ArrayList<>();
 
-    /** Last modification time – any change (content, reactions, counts, etc.) */
-    @LastModifiedDate
-    @Column(nullable = false)
-    private Instant updatedAt;
+    @PrePersist
+    public void onCreate() {
+        if (timestamp == null) timestamp = Instant.now();
+        updatedAt = Instant.now();
+    }
+
+    @PreUpdate
+    public void onUpdate() {
+        updatedAt = Instant.now();
+    }
 }
