@@ -1,17 +1,23 @@
+// src/main/java/io/sitprep/sitprepapi/service/NotificationService.java
 package io.sitprep.sitprepapi.service;
 
 import com.google.firebase.messaging.*;
-import io.sitprep.sitprepapi.dto.NotificationPayload;
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import io.sitprep.sitprepapi.websocket.WebSocketPresenceService;
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Set;
 
 @Service
 public class NotificationService {
@@ -32,11 +38,7 @@ public class NotificationService {
         this.presenceService = presenceService;
     }
 
-    /**
-     * Presence-aware delivery:
-     *  - If user is online (has an active WS), send in-app notification via socket & log; SKIP FCM.
-     *  - If user is offline, send FCM (and log).
-     */
+    /** Core presence-aware delivery: WS if online, FCM if offline (with logging). */
     public void deliverPresenceAware(String recipientEmail,
                                      String title,
                                      String body,
@@ -60,10 +62,11 @@ public class NotificationService {
             } catch (Exception e) {
                 logger.warn("Socket notification failed for {}: {}", recipientEmail, e.getMessage());
             }
-            return; // Do not send FCM for online users
+            // Do not send FCM for online users
+            return;
         }
 
-        // Offline path → FCM if token is available
+        // Offline → FCM (if token)
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
             logger.info("No FCM token for offline user {}, logging only.", recipientEmail);
             notificationLogRepo.save(new NotificationLog(
@@ -111,7 +114,110 @@ public class NotificationService {
         }
     }
 
-    /** Explicit socket-delivery logger (still useful if other services push directly). */
+    /**
+     * ✅ Legacy wrapper kept for backward compatibility with existing callers.
+     * Iterates the provided token set and sends one FCM per token, logging per attempt.
+     * (Use deliverPresenceAware for presence-aware behavior when you have the recipient email.)
+     */
+    public void sendNotification(String title,
+                                 String body,
+                                 String sender,
+                                 String iconUrl,
+                                 Set<String> tokens,
+                                 String notificationType,
+                                 String referenceId,
+                                 String targetUrl,
+                                 String additionalData,
+                                 String recipientEmail) {
+        if (tokens == null || tokens.isEmpty()) {
+            logger.info("No tokens for {}, skipping FCM.", recipientEmail);
+            notificationLogRepo.save(new NotificationLog(
+                    recipientEmail, notificationType, null, title, body, referenceId, targetUrl,
+                    Instant.now(), false, "No tokens provided"
+            ));
+            return;
+        }
+
+        for (String token : tokens) {
+            boolean success = false;
+            String errorMessage = null;
+
+            try {
+                Message msg = Message.builder()
+                        .setToken(token)
+                        .setNotification(Notification.builder()
+                                .setTitle(title)
+                                .setBody(body)
+                                .setImage(iconUrl != null && iconUrl.startsWith("http") ? iconUrl : null)
+                                .build())
+                        .putData("notificationType", safe(notificationType))
+                        .putData("referenceId", safe(referenceId))
+                        .putData("sender", safe(sender))
+                        .putData("targetUrl", safe(targetUrl))
+                        .putData("additionalData", safe(additionalData))
+                        .putData("title", safe(title))
+                        .putData("body", safe(body))
+                        .putData("icon", safe(iconUrl))
+                        .build();
+
+                String response = FirebaseMessaging.getInstance().send(msg);
+                logger.info("✅ FCM sent to {} -> {}", recipientEmail, response);
+                success = true;
+            } catch (FirebaseMessagingException e) {
+                errorMessage = e.getMessage();
+                logger.error("❌ FCM error for {}: {}", recipientEmail, errorMessage);
+            } catch (Exception e) {
+                errorMessage = e.getMessage();
+                logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
+            } finally {
+                notificationLogRepo.save(new NotificationLog(
+                        recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
+                        Instant.now(), success, errorMessage
+                ));
+            }
+        }
+    }
+
+    /**
+     * ✅ Restored for GroupService compatibility.
+     * Presence-aware fan-out of a group alert to all members except the initiator.
+     */
+    public void notifyGroupAlertChange(Group group, String newAlertStatus, String initiatedByEmail) {
+        List<String> memberEmails = group.getMemberEmails();
+        if (memberEmails == null || memberEmails.isEmpty()) return;
+
+        String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
+        String title = group.getGroupName();
+        String body = "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.";
+        String type = "alert";
+        String referenceId = group.getGroupId();
+        String targetUrl = "/status-now";
+
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+
+        for (UserInfo user : users) {
+            if (user.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
+
+            // One call handles WS vs FCM and logging
+            deliverPresenceAware(
+                    user.getUserEmail(),
+                    title,
+                    body,
+                    owner,
+                    "/images/group-alert-icon.png",
+                    type,
+                    referenceId,
+                    targetUrl,
+                    null,
+                    user.getFcmtoken()
+            );
+        }
+
+        logger.info("📢 Presence-aware alert fan-out completed for group '{}' to {} members.",
+                group.getGroupName(), users.size());
+    }
+
+    /** Explicit socket-delivery logger (for non-FCM paths). */
     public void logSocketDelivery(String recipientEmail,
                                   String type,
                                   String title,
