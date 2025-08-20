@@ -262,18 +262,17 @@ public class PostService {
 
     private void notifyGroupMembersOfNewPost(Post post) {
         groupRepo.findByGroupId(post.getGroupId()).ifPresentOrElse(group -> {
-            List<String> recipientEmails = group.getMemberEmails() == null ? List.of() : group.getMemberEmails()
-                    .stream()
-                    .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
-                    .toList();
+            var recipientEmails = group.getMemberEmails() == null ? java.util.List.<String>of() :
+                    group.getMemberEmails().stream()
+                            .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
+                            .toList();
 
             if (recipientEmails.isEmpty()) {
                 logger.warn("No recipients found for group {}", group.getGroupName());
                 return;
             }
 
-            // Resolve author meta
-            Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
+            var authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
             String authorFirst = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
             String authorProfile = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
 
@@ -286,30 +285,28 @@ public class PostService {
             String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
             String targetUrl = baseTargetUrl + "?postId=" + post.getId();
 
-            // Fetch recipients with tokens
-            List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
+            java.util.List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
 
             for (UserInfo user : users) {
-                String token = user.getFcmtoken();
-                if (token == null || token.isEmpty()) continue;
-
-                notificationService.sendNotification(
+                // Presence-aware: WS if online, FCM if offline
+                notificationService.deliverPresenceAware(
+                        user.getUserEmail(),
                         notificationTitle,
                         notificationBody,
                         authorFirst,
                         authorProfile,
-                        java.util.Set.of(token),
                         "post_notification",
                         post.getGroupId(),
                         targetUrl,
                         String.valueOf(post.getId()),
-                        user.getUserEmail() // recipient email for in-app routing
+                        user.getFcmtoken()
                 );
             }
 
-            logger.info("📣 Sent post push for group '{}' to {} members.", group.getGroupName(), users.size());
+            logger.info("📣 Post notification processed for group '{}' to {} members.", group.getGroupName(), users.size());
         }, () -> logger.warn("⚠️ Group with ID {} not found for FCM notification.", post.getGroupId()));
     }
+
 
     private PostDto convertToPostDto(Post post) {
         PostDto dto = new PostDto();

@@ -168,8 +168,8 @@ public class CommentService {
     }
 
     private void notifyUser(String recipientEmail, Comment triggeringComment, String type, Long postId, String actionLabel) {
-        Optional<UserInfo> recipientOpt = userInfoRepo.findByUserEmail(recipientEmail);
-        Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(triggeringComment.getAuthor());
+        java.util.Optional<UserInfo> recipientOpt = userInfoRepo.findByUserEmail(recipientEmail);
+        java.util.Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(triggeringComment.getAuthor());
 
         if (recipientOpt.isEmpty() || authorOpt.isEmpty()) return;
 
@@ -182,36 +182,28 @@ public class CommentService {
                 .orElse("/Linked/" + postId);
 
         String title = author.getUserFirstName() + " " + actionLabel;
-        String body = "\"" + triggeringComment.getContent() + "\"";
-        String icon = author.getProfileImageURL() != null
+        String body  = "\"" + triggeringComment.getContent() + "\"";
+        String icon  = author.getProfileImageURL() != null
                 ? resizeImage(author.getProfileImageURL())
                 : "/images/default-user-icon.png";
 
-        if (presenceService.isUserOnline(recipientEmail)) {
-            NotificationPayload payload = new NotificationPayload();
-            payload.setRecipientEmail(recipientEmail);
-            payload.setTitle(title);
-            payload.setBody(body);
-            payload.setImageURL(icon);
-            payload.setType(type);
-            payload.setLink(groupUrl + "?postId=" + postId);
-            payload.setPostId(String.valueOf(postId));
-            payload.setTimestamp(Instant.now());
+        // Presence-aware delivery (WS if online, FCM if offline)
+        notificationService.deliverPresenceAware(
+                recipient.getUserEmail(),
+                title,
+                body,
+                author.getUserFirstName(),
+                icon,
+                type,
+                String.valueOf(postId),
+                groupUrl + "?postId=" + postId,
+                null,
+                recipient.getFcmtoken()
+        );
 
-            webSocketMessageSender.sendInAppNotification(payload);
-            logger.info("📨 Sent IN-APP notification to online user '{}'", recipientEmail);
-        } else {
-            String fcmToken = recipient.getFcmtoken();
-            if (fcmToken != null && !fcmToken.isEmpty()) {
-                notificationService.sendNotification(
-                        title, body, author.getUserFirstName(), icon,
-                        Set.of(fcmToken), type, String.valueOf(postId),
-                        groupUrl + "?postId=" + postId, null, recipient.getUserEmail()
-                );
-                logger.info("📲 Sent PUSH notification to offline user '{}'", recipientEmail);
-            }
-        }
+        logger.info("📨 Processed '{}' notification to '{}' for post {}", type, recipientEmail, postId);
     }
+
 
     private CommentDto convertToCommentDto(Comment comment) {
         CommentDto dto = new CommentDto();
