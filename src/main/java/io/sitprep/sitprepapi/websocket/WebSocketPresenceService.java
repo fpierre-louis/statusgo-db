@@ -1,30 +1,38 @@
-// src/main/java/io/sitprep/sitprepapi/websocket/WebSocketPresenceService.java
 package io.sitprep.sitprepapi.websocket;
 
 import org.springframework.stereotype.Service;
-import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** Tracks connected sessions per user (multi-device/multi-tab safe). */
 @Service
 public class WebSocketPresenceService {
 
-    // A thread-safe Set to store the emails of connected users.
-    private final Set<String> connectedUsers = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // userEmail -> set of active sessionIds
+    private final Map<String, Set<String>> sessionsByUser = new ConcurrentHashMap<>();
 
-    public void addUser(String userEmail) {
-        connectedUsers.add(userEmail);
+    public void addSession(String userEmail, String sessionId) {
+        sessionsByUser
+                .computeIfAbsent(userEmail, e -> ConcurrentHashMap.newKeySet())
+                .add(sessionId);
     }
 
-    public void removeUser(String userEmail) {
-        connectedUsers.remove(userEmail);
+    public void removeSession(String userEmail, String sessionId) {
+        Set<String> set = sessionsByUser.get(userEmail);
+        if (set == null) return;
+        set.remove(sessionId);
+        if (set.isEmpty()) {
+            sessionsByUser.remove(userEmail);
+        }
     }
 
     public boolean isUserOnline(String userEmail) {
-        return connectedUsers.contains(userEmail);
+        Set<String> set = sessionsByUser.get(userEmail);
+        return set != null && !set.isEmpty();
     }
 
-    public Set<String> getConnectedUsers() {
-        return Collections.unmodifiableSet(connectedUsers);
+    public Set<String> getSessions(String userEmail) {
+        return sessionsByUser.getOrDefault(userEmail, Set.of());
     }
 }

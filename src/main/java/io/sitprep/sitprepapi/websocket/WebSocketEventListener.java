@@ -1,8 +1,8 @@
+// src/main/java/io/sitprep/sitprepapi/websocket/WebSocketEventListener.java
 package io.sitprep.sitprepapi.websocket;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
@@ -12,37 +12,64 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.security.Principal;
 
 /**
- * Listens for WebSocket connection lifecycle events to manage user presence.
+ * Listens for WebSocket connection lifecycle events to manage per-user presence.
+ * Uses session-aware methods in WebSocketPresenceService (addSession/removeSession).
  */
 @Component
 public class WebSocketEventListener {
 
-    private static final Logger logger = LoggerFactory.getLogger(WebSocketEventListener.class);
+    private static final Logger log = LoggerFactory.getLogger(WebSocketEventListener.class);
 
-    @Autowired
-    private WebSocketPresenceService presenceService;
+    private final WebSocketPresenceService presenceService;
+
+    public WebSocketEventListener(WebSocketPresenceService presenceService) {
+        this.presenceService = presenceService;
+    }
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
-        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
-        Principal userPrincipal = headerAccessor.getUser();
+        StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = sha.getSessionId();
+        Principal principal = sha.getUser();
 
-        if (userPrincipal != null && userPrincipal.getName() != null) {
-            String userEmail = userPrincipal.getName();
-            presenceService.addUser(userEmail);
-            logger.info("✅ WebSocket CONNECTED: {} is now online.", userEmail);
+        if (principal == null || principal.getName() == null) {
+            log.warn("⚠️ WebSocket CONNECTED but Principal is null (sessionId={}).", sessionId);
+            return;
         }
+        if (sessionId == null) {
+            log.warn("⚠️ WebSocket CONNECTED but sessionId is null for user {}.", principal.getName());
+            return;
+        }
+
+        String email = principal.getName();
+        presenceService.addSession(email, sessionId);
+        log.info("✅ WebSocket CONNECTED: user={} sessionId={} (now online? {}).",
+                email, sessionId, presenceService.isUserOnline(email));
     }
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
-        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
-        Principal userPrincipal = headerAccessor.getUser();
+        StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = sha.getSessionId();
 
-        if (userPrincipal != null && userPrincipal.getName() != null) {
-            String userEmail = userPrincipal.getName();
-            presenceService.removeUser(userEmail);
-            logger.info("❌ WebSocket DISCONNECTED: {} is now offline.", userEmail);
+        // On disconnect, Spring sometimes provides Principal on the event itself.
+        Principal principal = event.getUser();
+        if (principal == null) {
+            principal = sha.getUser();
         }
+
+        if (principal == null || principal.getName() == null) {
+            log.warn("⚠️ WebSocket DISCONNECTED but Principal is null (sessionId={}).", sessionId);
+            return;
+        }
+        if (sessionId == null) {
+            log.warn("⚠️ WebSocket DISCONNECTED but sessionId is null for user {}.", principal.getName());
+            return;
+        }
+
+        String email = principal.getName();
+        presenceService.removeSession(email, sessionId);
+        log.info("❌ WebSocket DISCONNECTED: user={} sessionId={} (still online? {}).",
+                email, sessionId, presenceService.isUserOnline(email));
     }
 }

@@ -1,7 +1,13 @@
-// src/main/java/io/sitprep/sitprepapi/service/NotificationService.java
 package io.sitprep.sitprepapi.service;
 
-import com.google.firebase.messaging.*;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
+import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingException;
+import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.Notification;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -10,7 +16,6 @@ import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import io.sitprep.sitprepapi.websocket.WebSocketPresenceService;
-import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,6 +24,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Presence-aware notifications:
+ * - If user is ONLINE (WebSocket session active) -> deliver in-app via STOMP (+ log)
+ * - Else, deliver via FCM (Android/Web via data + Notification; iOS via APNs block) (+ log)
+ *
+ * Legacy sendNotification(...) is kept for compatibility with callers that already have token sets.
+ */
 @Service
 public class NotificationService {
     private static final Logger logger = LoggerFactory.getLogger(NotificationService.class);
@@ -38,7 +50,10 @@ public class NotificationService {
         this.presenceService = presenceService;
     }
 
-    /** Core presence-aware delivery: WS if online, FCM if offline (with logging). */
+    /**
+     * Core presence-aware delivery.
+     * If online -> STOMP only (no FCM); if offline -> FCM (with APNs for iOS and data for Android/Web).
+     */
     public void deliverPresenceAware(String recipientEmail,
                                      String title,
                                      String body,
@@ -62,11 +77,11 @@ public class NotificationService {
             } catch (Exception e) {
                 logger.warn("Socket notification failed for {}: {}", recipientEmail, e.getMessage());
             }
-            // Do not send FCM for online users
+            // Online users get socket only to avoid duplicate toasts.
             return;
         }
 
-        // Offline → FCM (if token)
+        // Offline → FCM (if token available)
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
             logger.info("No FCM token for offline user {}, logging only.", recipientEmail);
             notificationLogRepo.save(new NotificationLog(
@@ -80,6 +95,30 @@ public class NotificationService {
         String errorMessage = null;
 
         try {
+            // ANDROID/Web data – keep your existing keys
+            AndroidConfig androidConfig = AndroidConfig.builder()
+                    .setPriority(AndroidConfig.Priority.HIGH)
+                    .setNotification(AndroidNotification.builder()
+                            .setSound("default")
+                            .build())
+                    .build();
+
+            // iOS APNs block (correct API: use ApnsConfig + Aps; put custom keys via Aps or ApnsConfig.putCustomData)
+            ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
+                    .putHeader("apns-priority", "10"); // 10 = alert, 5 = background
+
+            Aps.Builder apsBuilder = Aps.builder()
+                    .setMutableContent(true)      // enables notification service extension (if you have one)
+                    .setSound("default");
+
+            // If you want these keys inside "aps":
+            apsBuilder.putCustomData("notificationType", safe(notificationType));
+            apsBuilder.putCustomData("referenceId", safe(referenceId));
+            apsBuilder.putCustomData("targetUrl", safe(targetUrl));
+            apsBuilder.putCustomData("title", safe(title));
+            apsBuilder.putCustomData("body", safe(body));
+            apnsBuilder.setAps(apsBuilder.build());
+
             Message msg = Message.builder()
                     .setToken(recipientFcmTokenOrNull)
                     .setNotification(Notification.builder()
@@ -87,6 +126,7 @@ public class NotificationService {
                             .setBody(body)
                             .setImage(iconUrl != null && iconUrl.startsWith("http") ? iconUrl : null)
                             .build())
+                    // Android/Web data
                     .putData("notificationType", safe(notificationType))
                     .putData("referenceId", safe(referenceId))
                     .putData("sender", safe(senderName))
@@ -95,6 +135,8 @@ public class NotificationService {
                     .putData("title", safe(title))
                     .putData("body", safe(body))
                     .putData("icon", safe(iconUrl))
+                    .setAndroidConfig(androidConfig)
+                    .setApnsConfig(apnsBuilder.build()) // <-- iOS APNs
                     .build();
 
             String response = FirebaseMessaging.getInstance().send(msg);
@@ -115,9 +157,8 @@ public class NotificationService {
     }
 
     /**
-     * ✅ Legacy wrapper kept for backward compatibility with existing callers.
+     * Legacy wrapper kept for backward compatibility.
      * Iterates the provided token set and sends one FCM per token, logging per attempt.
-     * (Use deliverPresenceAware for presence-aware behavior when you have the recipient email.)
      */
     public void sendNotification(String title,
                                  String body,
@@ -143,6 +184,27 @@ public class NotificationService {
             String errorMessage = null;
 
             try {
+                AndroidConfig androidConfig = AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .setNotification(AndroidNotification.builder()
+                                .setSound("default")
+                                .build())
+                        .build();
+
+                ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
+                        .putHeader("apns-priority", "10");
+
+                Aps.Builder apsBuilder = Aps.builder()
+                        .setMutableContent(true)
+                        .setSound("default");
+
+                apsBuilder.putCustomData("notificationType", safe(notificationType));
+                apsBuilder.putCustomData("referenceId", safe(referenceId));
+                apsBuilder.putCustomData("targetUrl", safe(targetUrl));
+                apsBuilder.putCustomData("title", safe(title));
+                apsBuilder.putCustomData("body", safe(body));
+                apnsBuilder.setAps(apsBuilder.build());
+
                 Message msg = Message.builder()
                         .setToken(token)
                         .setNotification(Notification.builder()
@@ -158,6 +220,8 @@ public class NotificationService {
                         .putData("title", safe(title))
                         .putData("body", safe(body))
                         .putData("icon", safe(iconUrl))
+                        .setAndroidConfig(androidConfig)
+                        .setApnsConfig(apnsBuilder.build())
                         .build();
 
                 String response = FirebaseMessaging.getInstance().send(msg);
@@ -179,7 +243,6 @@ public class NotificationService {
     }
 
     /**
-     * ✅ Restored for GroupService compatibility.
      * Presence-aware fan-out of a group alert to all members except the initiator.
      */
     public void notifyGroupAlertChange(Group group, String newAlertStatus, String initiatedByEmail) {
@@ -198,7 +261,6 @@ public class NotificationService {
         for (UserInfo user : users) {
             if (user.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
 
-            // One call handles WS vs FCM and logging
             deliverPresenceAware(
                     user.getUserEmail(),
                     title,
@@ -217,7 +279,7 @@ public class NotificationService {
                 group.getGroupName(), users.size());
     }
 
-    /** Explicit socket-delivery logger (for non-FCM paths). */
+    /** Log a socket-only delivery so we can backfill even if FCM was not used. */
     public void logSocketDelivery(String recipientEmail,
                                   String type,
                                   String title,
@@ -225,7 +287,16 @@ public class NotificationService {
                                   String referenceId,
                                   String targetUrl) {
         notificationLogRepo.save(new NotificationLog(
-                recipientEmail, type, null, title, body, referenceId, targetUrl, Instant.now(), true, null
+                recipientEmail,
+                type,
+                null,           // no token for socket writes
+                title,
+                body,
+                referenceId,
+                targetUrl,
+                Instant.now(),
+                true,           // socket write attempted
+                null
         ));
     }
 
