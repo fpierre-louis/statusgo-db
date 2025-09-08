@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface GroupRepo extends JpaRepository<Group, Long> {
+public interface GroupRepo extends JpaRepository<Group, String> {
 
     @Query("SELECT g FROM Group g JOIN g.adminEmails a WHERE a = ?1")
     List<Group> findByAdminEmail(String adminEmail);
@@ -23,5 +23,4 @@ public interface GroupRepo extends JpaRepository<Group, Long> {
 
     @Query("SELECT g FROM Group g LEFT JOIN FETCH g.memberEmails WHERE g.groupId = :groupId")
     Optional<Group> findByGroupIdWithMembers(@Param("groupId") String groupId);
-
 }

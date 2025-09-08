@@ -1,4 +1,4 @@
-package io.sitprep.sitprepapi.websocket;
+package io.sitprep.sitprepapi.controller;
 
 import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.service.CommentService;

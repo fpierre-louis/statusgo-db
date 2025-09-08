@@ -1,16 +1,17 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.dto.EmailRequest;
 import io.sitprep.sitprepapi.service.GroupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/groups")
+@CrossOrigin(origins = "http://localhost:3000") // match your UserInfoResource
 public class GroupResource {
 
     @Autowired
@@ -18,10 +19,8 @@ public class GroupResource {
 
     @GetMapping("/admin")
     public List<Group> getGroupsByAdminEmail() {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        return groupService.getGroupsByAdminEmail(email);
+        return groupService.getGroupsForCurrentAdmin();
     }
-
 
     @PostMapping
     public Group createGroup(@RequestBody Group group) {
@@ -48,5 +47,37 @@ public class GroupResource {
     @GetMapping("/{groupId}")
     public Group getGroupById(@PathVariable String groupId) {
         return groupService.getGroupByPublicId(groupId);
+    }
+
+    // ---------- NEW ROLE-AWARE ENDPOINTS ----------
+
+    @PostMapping("/{groupId}/members/approve")
+    public ResponseEntity<Group> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.approveMember(groupId, req.email()));
+    }
+
+    @PostMapping("/{groupId}/members/reject")
+    public ResponseEntity<Group> rejectPending(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.rejectPendingMember(groupId, req.email()));
+    }
+
+    @PostMapping("/{groupId}/members/remove")
+    public ResponseEntity<Group> removeMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.removeMember(groupId, req.email()));
+    }
+
+    @PostMapping("/{groupId}/admins/add")
+    public ResponseEntity<Group> addAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.addAdmin(groupId, req.email()));
+    }
+
+    @PostMapping("/{groupId}/admins/remove")
+    public ResponseEntity<Group> removeAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.removeAdmin(groupId, req.email()));
+    }
+
+    @PostMapping("/{groupId}/owner/transfer")
+    public ResponseEntity<Group> transferOwner(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        return ResponseEntity.ok(groupService.transferOwner(groupId, req.email()));
     }
 }
