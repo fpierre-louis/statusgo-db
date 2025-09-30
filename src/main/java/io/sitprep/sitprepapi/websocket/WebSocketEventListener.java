@@ -1,4 +1,3 @@
-// src/main/java/io/sitprep/sitprepapi/websocket/WebSocketEventListener.java
 package io.sitprep.sitprepapi.websocket;
 
 import org.slf4j.Logger;
@@ -9,12 +8,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.security.Principal;
-
-/**
- * Listens for WebSocket connection lifecycle events to manage per-user presence.
- * Uses session-aware methods in WebSocketPresenceService (addSession/removeSession).
- */
 @Component
 public class WebSocketEventListener {
 
@@ -28,48 +21,22 @@ public class WebSocketEventListener {
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
-        StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
-        String sessionId = sha.getSessionId();
-        Principal principal = sha.getUser();
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = accessor.getSessionId();
 
-        if (principal == null || principal.getName() == null) {
-            log.warn("⚠️ WebSocket CONNECTED but Principal is null (sessionId={}).", sessionId);
-            return;
-        }
-        if (sessionId == null) {
-            log.warn("⚠️ WebSocket CONNECTED but sessionId is null for user {}.", principal.getName());
-            return;
-        }
+        // MVP: allow optional “email” header (NOT secure; convenience only)
+        String email = accessor.getFirstNativeHeader("email");
+        presenceService.addSession(sessionId, email);
 
-        String email = principal.getName();
-        presenceService.addSession(email, sessionId);
-        log.info("✅ WebSocket CONNECTED: user={} sessionId={} (now online? {}).",
-                email, sessionId, presenceService.isUserOnline(email));
+        log.info("WS CONNECT sessionId={}, email={}", sessionId, email);
     }
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
-        StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
-        String sessionId = sha.getSessionId();
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        String sessionId = accessor.getSessionId();
 
-        // On disconnect, Spring sometimes provides Principal on the event itself.
-        Principal principal = event.getUser();
-        if (principal == null) {
-            principal = sha.getUser();
-        }
-
-        if (principal == null || principal.getName() == null) {
-            log.warn("⚠️ WebSocket DISCONNECTED but Principal is null (sessionId={}).", sessionId);
-            return;
-        }
-        if (sessionId == null) {
-            log.warn("⚠️ WebSocket DISCONNECTED but sessionId is null for user {}.", principal.getName());
-            return;
-        }
-
-        String email = principal.getName();
-        presenceService.removeSession(email, sessionId);
-        log.info("❌ WebSocket DISCONNECTED: user={} sessionId={} (still online? {}).",
-                email, sessionId, presenceService.isUserOnline(email));
+        presenceService.removeSession(sessionId);
+        log.info("WS DISCONNECT sessionId={}", sessionId);
     }
 }

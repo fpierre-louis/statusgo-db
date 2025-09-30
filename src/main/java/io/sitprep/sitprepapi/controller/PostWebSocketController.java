@@ -4,10 +4,10 @@ import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.stereotype.Controller;
 
-import java.security.Principal;
 import java.time.Instant;
 
 @Controller
@@ -20,68 +20,65 @@ public class PostWebSocketController {
     private WebSocketMessageSender wsSender;
 
     @MessageMapping("/post")
-    public void handleNewPost(PostDto postDto, Principal principal) {
-        if (principal == null) {
-            System.err.println("❌ WebSocket principal is NULL — check token or frontend WS setup");
-            return;
-        }
-
+    public void handleNewPost(PostDto postDto,
+                              @Header(name = "email", required = false) String emailHeader) {
         try {
-            postDto.setAuthor(principal.getName());
+            final String author = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");
+            postDto.setAuthor(author);
+
             if (postDto.getTimestamp() == null) {
                 postDto.setTimestamp(Instant.now());
             }
 
-            // 1. Call the service and get the SAVED post back (with its real ID)
-            PostDto savedPostDto = postService.createPostFromDto(postDto, principal.getName());
+            // Persist and get real id
+            PostDto saved = postService.createPostFromDto(postDto, author);
 
-            // 2. Add the original tempId to the DTO that you're about to broadcast
-            savedPostDto.setTempId(postDto.getTempId());
+            // Preserve tempId for optimistic replacement
+            saved.setTempId(postDto.getTempId());
 
-            // 3. Broadcast the complete DTO (with real ID and tempId)
-            if (savedPostDto.getGroupId() != null) {
-                wsSender.sendNewPost(savedPostDto.getGroupId(), savedPostDto);
+            if (saved.getGroupId() != null) {
+                wsSender.sendNewPost(saved.getGroupId(), saved);
             } else {
-                wsSender.sendGenericUpdate("posts", savedPostDto);
+                wsSender.sendGenericUpdate("posts", saved);
             }
-
         } catch (Exception e) {
-            System.err.println("❌ Error saving post from WebSocket: " + e.getMessage());
+            System.err.println("❌ Error saving post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     @MessageMapping("/post/delete")
-    public void handleDeletePost(PostDto postDto, Principal principal) {
-        if (principal == null) {
-            System.err.println("❌ WebSocket principal is NULL on DELETE");
-            return;
-        }
-
+    public void handleDeletePost(PostDto postDto,
+                                 @Header(name = "email", required = false) String emailHeader) {
         try {
-            postService.deletePostAndBroadcast(postDto.getId(), principal.getName());
+            final String actor = firstNonBlank(emailHeader, "anonymous@sitprep");
+            postService.deletePostAndBroadcast(postDto.getId(), actor);
+            // PostService should call wsSender.sendPostDeletion(groupId, postId)
         } catch (Exception e) {
-            System.err.println("❌ Error deleting post from WebSocket: " + e.getMessage());
+            System.err.println("❌ Error deleting post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     @MessageMapping("/post/edit")
-    public void handleEditPost(PostDto postDto, Principal principal) {
-        if (principal == null) {
-            System.err.println("❌ WebSocket principal is NULL on EDIT");
-            return;
-        }
-
+    public void handleEditPost(PostDto postDto,
+                               @Header(name = "email", required = false) String emailHeader) {
         try {
-            postDto.setAuthor(principal.getName());
+            final String actor = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");
+            postDto.setAuthor(actor);
             postService.updatePostFromDto(postDto);
-
-            // The updatePostFromDto method now handles its own broadcasting
-
+            // Your service already broadcasts on update
         } catch (Exception e) {
-            System.err.println("❌ Error editing post from WebSocket: " + e.getMessage());
+            System.err.println("❌ Error editing post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (v != null && !v.trim().isEmpty()) return v.trim();
+        }
+        return null;
     }
 }
