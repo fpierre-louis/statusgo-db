@@ -4,11 +4,11 @@ import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.service.CommentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
-import java.security.Principal;
 import java.time.Instant;
 
 @Controller
@@ -17,7 +17,7 @@ public class CommentWebSocketController {
     private static final Logger log = LoggerFactory.getLogger(CommentWebSocketController.class);
 
     private final CommentService commentService;
-    private final SimpMessagingTemplate messagingTemplate; // only for optional ACKs
+    private final SimpMessagingTemplate messagingTemplate; // optional ACKs
 
     public CommentWebSocketController(CommentService commentService,
                                       SimpMessagingTemplate messagingTemplate) {
@@ -27,57 +27,59 @@ public class CommentWebSocketController {
 
     /**
      * Create a new comment.
-     * Client sends: { postId, content, tempId, (optional) timestamp }
-     * We set author from the authenticated Principal and delegate to the service,
-     * which persists and broadcasts ONCE to /topic/comments.{postId}.
+     * Client sends: { postId, content, tempId, (optional) timestamp, (optional) author }
+     * We derive author from header/payload (NOT trusted in MVP), then service persists & broadcasts.
      */
     @MessageMapping("/comment")
-    public void handleNewComment(Principal principal, CommentDto dto) {
-        final String userEmail = principal != null ? principal.getName() : null;
+    public void handleNewComment(
+            CommentDto dto,
+            @Header(name = "email", required = false) String emailHeader
+    ) {
+        try {
+            final String author = firstNonBlank(dto.getAuthor(), emailHeader, "anonymous@sitprep");
+            dto.setAuthor(author);
 
-        // Author comes from the authenticated principal (never trust the client)
-        dto.setAuthor(userEmail);
+            if (dto.getTimestamp() == null) {
+                dto.setTimestamp(Instant.now());
+            }
 
-        // Ensure server-side timestamp if client didn't set one
-        if (dto.getTimestamp() == null) {
-            dto.setTimestamp(Instant.now());
+            // Persist and broadcast exactly once (service handles /topic/comments/{postId})
+            commentService.createCommentFromDto(dto);
+
+            // Optional: per-user ACK (skip in MVP)
+            // if (emailHeader != null && dto.getTempId() != null) {
+            //   messagingTemplate.convertAndSendToUser(emailHeader, "/queue/comments.ack",
+            //     new Ack(dto.getTempId(), "received"));
+            // }
+
+        } catch (Exception e) {
+            log.error("Error creating comment (MVP no-JWT): {}", e.getMessage(), e);
         }
-
-        // ❗ No direct convertAndSend to /topic/... here.
-        // Persist and broadcast exactly once (service sends to /topic/comments.{postId})
-        commentService.createCommentFromDto(dto);
-
-        // --- Optional: per-user ACK (not broadcast) ---
-        // If you want an immediate receipt before DB/save finishes (usually unnecessary now),
-        // uncomment the next lines. This sends only to the requesting user, not the topic.
-        //
-        // if (userEmail != null && dto.getTempId() != null) {
-        //     messagingTemplate.convertAndSendToUser(
-        //             userEmail,
-        //             "/queue/comments.ack",
-        //             new Ack(dto.getTempId(), "received")
-        //     );
-        // }
     }
 
     /**
-     * Edit an existing comment.
+     * Edit existing comment.
      * Client sends: { id, postId, content, tempId? }
-     * Service updates and broadcasts ONE comment update to /topic/comments.{postId}.
+     * Service updates & broadcasts.
      */
     @MessageMapping("/comment/edit")
-    public void handleEditComment(Principal principal, CommentDto dto) {
-        // Optionally, enforce author == principal here if you want server-side ownership checks
-        // (recommended if not already enforced elsewhere).
-
-        commentService.updateCommentFromDto(dto);
-        // No direct topic send here; the service already broadcasts the updated DTO.
+    public void handleEditComment(
+            CommentDto dto,
+            @Header(name = "email", required = false) String emailHeader
+    ) {
+        try {
+            final String actor = firstNonBlank(dto.getAuthor(), emailHeader, "anonymous@sitprep");
+            dto.setAuthor(actor);
+            commentService.updateCommentFromDto(dto);
+        } catch (Exception e) {
+            log.error("Error editing comment (MVP no-JWT): {}", e.getMessage(), e);
+        }
     }
 
     /**
-     * Delete a comment.
+     * Delete comment.
      * Client sends: { id, postId }
-     * Service deletes and broadcasts deletion to /topic/comments.{postId}.delete.
+     * Service deletes & broadcasts /topic/comments/{postId}/delete.
      */
     @MessageMapping("/comment/delete")
     public void handleDeleteComment(DeletePayload payload) {
@@ -85,7 +87,21 @@ public class CommentWebSocketController {
             log.warn("Delete comment payload missing id/postId: {}", payload);
             return;
         }
-        commentService.deleteCommentAndBroadcast(payload.getId(), payload.getPostId());
+        try {
+            commentService.deleteCommentAndBroadcast(payload.getId(), payload.getPostId());
+        } catch (Exception e) {
+            log.error("Error deleting comment (MVP no-JWT): {}", e.getMessage(), e);
+        }
+    }
+
+    // ---- helpers ----
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (v != null && !v.trim().isEmpty()) return v.trim();
+        }
+        return null;
     }
 
     /** Simple delete payload for STOMP messages. */
@@ -103,5 +119,4 @@ public class CommentWebSocketController {
             return "DeletePayload{id=" + id + ", postId=" + postId + '}';
         }
     }
-
 }

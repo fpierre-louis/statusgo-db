@@ -1,12 +1,11 @@
-// OwnershipValidator.java
+// src/main/java/io/sitprep/sitprepapi/util/OwnershipValidator.java
 package io.sitprep.sitprepapi.util;
 
-public class OwnershipValidator {
+public final class OwnershipValidator {
+    private OwnershipValidator() {}
 
+    /** MVP: disable strict ownership checks. */
     public static void requireOwnerEmailMatch(String resourceOwnerEmail) {
-        String currentUserEmail = AuthUtils.getCurrentUserEmail();
-        if (!currentUserEmail.equalsIgnoreCase(resourceOwnerEmail)) {
-            throw new SecurityException("Unauthorized: You do not own this resource.");
-        }
+        // No-op in MVP — re-enable when auth is back.
     }
 }
