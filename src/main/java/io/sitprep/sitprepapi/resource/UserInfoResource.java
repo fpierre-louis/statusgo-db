@@ -41,9 +41,17 @@ public class UserInfoResource {
     }
 
     @PostMapping
-    public UserInfo createUser(@RequestBody UserInfo userInfo) {
-        return userInfoService.createUser(userInfo);
+    public ResponseEntity<UserInfo> createOrUpsert(@RequestBody UserInfo incoming) {
+        // Require an email in the payload since you’re not using JWT yet
+        final String email = Optional.ofNullable(incoming.getUserEmail())
+                .map(String::trim).map(String::toLowerCase)
+                .orElseThrow(() -> new IllegalArgumentException("userEmail is required"));
+
+        UserInfo saved = userInfoService.upsertByEmail(email, incoming);
+        // 200 even if created: keeps FE simple and idempotent
+        return ResponseEntity.ok(saved);
     }
+
 
     @PutMapping("/{id}")
     public ResponseEntity<UserInfo> updateUser(@PathVariable String id, @RequestBody UserInfo userDetails) {
