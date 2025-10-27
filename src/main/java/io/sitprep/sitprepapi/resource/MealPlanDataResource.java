@@ -1,76 +1,67 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MealPlanData;
-import io.sitprep.sitprepapi.repo.MealPlanDataRepo;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.Optional;
-import java.util.ArrayList;
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/mealPlans")
+@CrossOrigin(origins = "http://localhost:3000")
 public class MealPlanDataResource {
 
     private static final Logger logger = LoggerFactory.getLogger(MealPlanDataResource.class);
 
-    @Autowired
-    private MealPlanDataService service;
+    private final MealPlanDataService service;
 
-    @Autowired
-    private MealPlanDataRepo repository;
-
-    @GetMapping("/{ownerEmail}")
-    public ResponseEntity<?> getMealPlansByOwner(@PathVariable String ownerEmail) {
-        // REMOVE this method entirely to avoid open access via path
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Direct access not allowed");
+    public MealPlanDataResource(MealPlanDataService service) {
+        this.service = service;
     }
 
+    /** Frontend: GET /api/mealPlans/{ownerEmail} */
+    @GetMapping("/{ownerEmail}")
+    public ResponseEntity<MealPlanData> getByOwner(@PathVariable String ownerEmail) {
+        return service.findByOwnerEmailCI(ownerEmail)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+    }
 
+    /** Admin/dev helper (optional) */
     @GetMapping
-    public List<MealPlanData> getAllMealPlans() {
-        logger.info("Fetching all meal plans.");
+    public List<MealPlanData> getAll() {
+        logger.info("Fetching all meal plans");
         return service.getAllMealPlans();
     }
 
+    /** Idempotent create/update by payload.ownerEmail */
     @PostMapping
-    public MealPlanData saveMealPlan(@RequestBody MealPlanData mealPlanData) {
-        logger.info("Received request to save meal plan for: {}", mealPlanData.getOwnerEmail());
-
-        if (mealPlanData.getOwnerEmail() == null || mealPlanData.getMealPlan() == null) {
-            logger.error("Invalid meal plan request - missing required fields.");
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing required fields");
+    public ResponseEntity<MealPlanData> save(@RequestBody MealPlanData mealPlanData) {
+        try {
+            return ResponseEntity.ok(service.upsert(mealPlanData));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
         }
-
-        MealPlanData savedPlan = service.saveMealPlanData(mealPlanData);
-        logger.info("Successfully saved meal plan for: {}", mealPlanData.getOwnerEmail());
-        return savedPlan;
     }
 
-    @DeleteMapping
-    public ResponseEntity<?> deleteMealPlanData() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(ownerEmail).stream().findFirst();
-
-        if (existingOpt.isPresent()) {
-            repository.delete(existingOpt.get());
-            return ResponseEntity.ok("Meal plan deleted successfully.");
+    /** Update by route email; 404 if none exists */
+    @PutMapping("/{ownerEmail}")
+    public ResponseEntity<MealPlanData> update(@PathVariable String ownerEmail,
+                                               @RequestBody MealPlanData mealPlanData) {
+        try {
+            return ResponseEntity.ok(service.updateByOwnerEmail(ownerEmail, mealPlanData));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Meal plan not found for this user.");
     }
 
-    @PutMapping
-    public MealPlanData updateMealPlan(@RequestBody MealPlanData mealPlanData) {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        return service.updateMealPlanData(ownerEmail, mealPlanData);
+    /** Delete by route email (no-op if missing) */
+    @DeleteMapping("/{ownerEmail}")
+    public ResponseEntity<Void> delete(@PathVariable String ownerEmail) {
+        service.deleteByOwnerEmail(ownerEmail);
+        return ResponseEntity.noContent().build();
     }
 }

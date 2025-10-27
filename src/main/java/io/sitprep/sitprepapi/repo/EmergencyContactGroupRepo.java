@@ -9,7 +9,5 @@ import java.util.List;
 @Repository
 public interface EmergencyContactGroupRepo extends JpaRepository<EmergencyContactGroup, Long> {
     List<EmergencyContactGroup> findByOwnerEmail(String ownerEmail);
-
-    // Add this so the service can use ignore-case:
     List<EmergencyContactGroup> findByOwnerEmailIgnoreCase(String ownerEmail);
 }

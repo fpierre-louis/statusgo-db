@@ -23,87 +23,73 @@ public class UserInfoService {
         this.userInfoRepo = userInfoRepo;
     }
 
-    public List<UserInfo> getAllUsers() {
-        return userInfoRepo.findAll(); // Typically admin-only
-    }
+    public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
 
-    public Optional<UserInfo> getUserById(String id) {
-        return userInfoRepo.findById(id);
-    }
+    public Optional<UserInfo> getUserById(String id) { return userInfoRepo.findById(id); }
 
-    // ✅ use case-insensitive lookup
+    // ✅ case-insensitive email lookup
     public Optional<UserInfo> getUserByEmail(String email) {
         return userInfoRepo.findByUserEmailIgnoreCase(email);
     }
 
-    // ⚠️ Prefer not to use this under permitAll; POST now uses upsertByEmail(...)
+    // ⚠️ Unused in MVP (kept for completeness)
     public UserInfo createUser(UserInfo userInfo) {
-        String authedEmail = AuthUtils.getCurrentUserEmail();
-        if (authedEmail == null) {
-            throw new UnsupportedOperationException("createUser() requires authenticated principal");
-        }
-        userInfo.setUserEmail(authedEmail);
+        if (userInfo.getUserEmail() == null || userInfo.getUserEmail().isBlank())
+            throw new IllegalArgumentException("userEmail is required");
         return userInfoRepo.save(userInfo);
     }
 
-    public UserInfo updateUser(UserInfo userInfo) {
-        String email = AuthUtils.getCurrentUserEmail();
-        return userInfoRepo.findByUserEmailIgnoreCase(email)
-                .map(existing -> {
-                    existing.setUserFirstName(userInfo.getUserFirstName());
-                    existing.setUserLastName(userInfo.getUserLastName());
-                    existing.setPhone(userInfo.getPhone());
-                    existing.setAddress(userInfo.getAddress());
-                    existing.setUserStatus(userInfo.getUserStatus());
-                    return userInfoRepo.save(existing);
-                })
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + email));
+    // ✅ Update by ID (no principal)
+    public UserInfo updateUserById(String id, UserInfo incoming) {
+        UserInfo existing = userInfoRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        existing.setUserFirstName(incoming.getUserFirstName());
+        existing.setUserLastName(incoming.getUserLastName());
+        existing.setPhone(incoming.getPhone());
+        existing.setAddress(incoming.getAddress());
+        existing.setUserStatus(incoming.getUserStatus());
+        existing.setStatusColor(incoming.getStatusColor());
+        existing.setProfileImageURL(incoming.getProfileImageURL());
+        existing.setSubscription(incoming.getSubscription());
+        existing.setSubscriptionPackage(incoming.getSubscriptionPackage());
+        existing.setDateSubscribed(incoming.getDateSubscribed());
+        existing.setFcmtoken(incoming.getFcmtoken());
+        existing.setManagedGroupIDs(incoming.getManagedGroupIDs());
+        existing.setJoinedGroupIDs(incoming.getJoinedGroupIDs());
+        return userInfoRepo.save(existing);
     }
 
-    public void deleteUser(String id) {
-        userInfoRepo.deleteById(id);
-    }
+    public void deleteUser(String id) { userInfoRepo.deleteById(id); }
 
-    /**
-     * Partially update a UserInfo object (used in PATCH).
-     * Only allowed if user matches and fields are permitted.
-     */
-    public UserInfo patchUser(String id, Map<String, Object> updates) {
-        String currentEmail = AuthUtils.getCurrentUserEmail();
-
-        return userInfoRepo.findById(id)
-                .map(userInfo -> {
-                    if (!userInfo.getUserEmail().equalsIgnoreCase(currentEmail)) {
-                        throw new SecurityException("Unauthorized to patch this user.");
-                    }
-
-                    updates.forEach((key, value) -> {
-                        if (key == null || value == null) return;
-                        if (Set.of("id", "userEmail").contains(key)) return; // restricted
-
-                        try {
-                            Field field = ReflectionUtils.findField(UserInfo.class, key);
-                            if (field != null) {
-                                field.setAccessible(true);
-                                Object oldValue = ReflectionUtils.getField(field, userInfo);
-                                if (!Objects.equals(oldValue, value)) {
-                                    ReflectionUtils.setField(field, userInfo, value);
-                                    if ("activeGroupAlertCounts".equals(key)) {
-                                        userInfo.setGroupAlertLastUpdated(Instant.now());
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            System.out.println("Error updating field " + key + ": " + e.getMessage());
-                        }
-                    });
-
-                    return userInfoRepo.save(userInfo);
-                })
+    // ✅ Patch by ID (no principal)
+    public UserInfo patchUserById(String id, Map<String, Object> updates) {
+        UserInfo userInfo = userInfoRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));
+
+        updates.forEach((key, value) -> {
+            if (key == null || value == null) return;
+            if (Set.of("id", "userEmail").contains(key)) return; // don’t change identity
+            try {
+                Field field = ReflectionUtils.findField(UserInfo.class, key);
+                if (field != null) {
+                    field.setAccessible(true);
+                    Object oldValue = ReflectionUtils.getField(field, userInfo);
+                    if (!Objects.equals(oldValue, value)) {
+                        ReflectionUtils.setField(field, userInfo, value);
+                        if ("activeGroupAlertCounts".equals(key)) {
+                            userInfo.setGroupAlertLastUpdated(Instant.now());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("Error updating field " + key + ": " + e.getMessage());
+            }
+        });
+
+        return userInfoRepo.save(userInfo);
     }
 
-    /** Create or update by email (case-insensitive). Never throws on duplicate. */
+    /** ✅ Idempotent upsert by email (no principal) */
     @Transactional
     public UserInfo upsertByEmail(String email, UserInfo patch) {
         String norm = Optional.ofNullable(email).map(String::trim).map(String::toLowerCase)
@@ -112,13 +98,11 @@ public class UserInfoService {
         UserInfo entity = userInfoRepo.findByUserEmailIgnoreCase(norm).orElseGet(() -> {
             UserInfo u = new UserInfo();
             u.setUserEmail(norm);
-            // non-nullable defaults
             u.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
             u.setUserLastName(Optional.ofNullable(patch.getUserLastName()).orElse(""));
             return u;
         });
 
-        // Selective, null-safe updates
         if (patch.getUserFirstName() != null) entity.setUserFirstName(patch.getUserFirstName());
         if (patch.getUserLastName()  != null) entity.setUserLastName(patch.getUserLastName());
         if (patch.getProfileImageURL()!= null) entity.setProfileImageURL(patch.getProfileImageURL());
@@ -135,8 +119,7 @@ public class UserInfoService {
 
         try {
             return userInfoRepo.save(entity);
-        } catch (DataIntegrityViolationException e) {
-            // In case of a race that just inserted the same email
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
             return userInfoRepo.findByUserEmailIgnoreCase(norm).orElseThrow(() -> e);
         }
     }

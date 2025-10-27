@@ -40,30 +40,20 @@ public class UserInfoResource {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // ✅ Idempotent create/update by email from the body (no auth)
     @PostMapping
     public ResponseEntity<UserInfo> createOrUpsert(@RequestBody UserInfo incoming) {
-        // Require an email in the payload since you’re not using JWT yet
         final String email = Optional.ofNullable(incoming.getUserEmail())
                 .map(String::trim).map(String::toLowerCase)
                 .orElseThrow(() -> new IllegalArgumentException("userEmail is required"));
-
         UserInfo saved = userInfoService.upsertByEmail(email, incoming);
-        // 200 even if created: keeps FE simple and idempotent
         return ResponseEntity.ok(saved);
     }
 
-
+    // ✅ Update by ID (no auth check)
     @PutMapping("/{id}")
     public ResponseEntity<UserInfo> updateUser(@PathVariable String id, @RequestBody UserInfo userDetails) {
-        Optional<UserInfo> existing = userInfoService.getUserById(id);
-        String email = AuthUtils.getCurrentUserEmail();
-
-        if (existing.isPresent() && existing.get().getUserEmail().equalsIgnoreCase(email)) {
-            UserInfo updated = userInfoService.updateUser(userDetails);
-            return ResponseEntity.ok(updated);
-        } else {
-            return ResponseEntity.status(403).build();
-        }
+        return ResponseEntity.ok(userInfoService.updateUserById(id, userDetails));
     }
 
     @DeleteMapping("/{id}")
@@ -72,19 +62,16 @@ public class UserInfoResource {
         return ResponseEntity.noContent().build();
     }
 
+    // ✅ Patch by ID (no auth check)
     @PatchMapping("/{id}")
     public ResponseEntity<UserInfo> patchUser(@PathVariable String id, @RequestBody Map<String, Object> updates) {
-        if (updates.isEmpty()) return ResponseEntity.badRequest().build();
+        if (updates == null || updates.isEmpty()) return ResponseEntity.badRequest().build();
+        return ResponseEntity.ok(userInfoService.patchUserById(id, updates));
+    }
 
-        try {
-            UserInfo updatedUser = userInfoService.patchUser(id, updates);
-            return ResponseEntity.ok(updatedUser);
-        } catch (SecurityException e) {
-            return ResponseEntity.status(403).build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (Exception e) {
-            return ResponseEntity.status(500).build();
-        }
+    // Optional: nice 400 for bad input
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<String> badRequest(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(ex.getMessage());
     }
 }

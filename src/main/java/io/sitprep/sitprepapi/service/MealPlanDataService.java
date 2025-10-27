@@ -3,15 +3,11 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.MealPlan;
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.repo.MealPlanDataRepo;
-import io.sitprep.sitprepapi.util.AuthUtils;
-import io.sitprep.sitprepapi.util.OwnershipValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -25,82 +21,81 @@ public class MealPlanDataService {
         this.repository = repository;
     }
 
-    public List<MealPlanData> getMealPlansForCurrentUser() {
-        String email = AuthUtils.getCurrentUserEmail();
-        logger.info("Fetching meal plans for current user: {}", email);
-        List<MealPlanData> mealPlans = repository.findByOwnerEmail(email);
-        if (mealPlans.isEmpty()) {
-            logger.warn("No meal plans found for user: {}", email);
-        }
-        return mealPlans;
-    }
-
-    public List<MealPlanData> getAllMealPlans() {
+    public java.util.List<MealPlanData> getAllMealPlans() {
         logger.info("Fetching all meal plans");
         return repository.findAll();
     }
 
-    public MealPlanData saveMealPlanData(MealPlanData mealPlanData) {
-        String email = AuthUtils.getCurrentUserEmail();
-        mealPlanData.setOwnerEmail(email);
-        logger.info("Saving meal plan for user: {}", email);
+    public Optional<MealPlanData> findByOwnerEmailCI(String ownerEmail) {
+        return repository.findFirstByOwnerEmailIgnoreCase(norm(ownerEmail));
+    }
 
-        Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(email).stream().findFirst();
+    /** Create or update (idempotent) by ownerEmail present in the payload. */
+    @Transactional
+    public MealPlanData upsert(MealPlanData incoming) {
+        final String email = norm(incoming.getOwnerEmail());
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("ownerEmail is required");
+        }
 
+        Optional<MealPlanData> existingOpt = repository.findFirstByOwnerEmailIgnoreCase(email);
         if (existingOpt.isPresent()) {
+            // Update existing (keep id)
             MealPlanData existing = existingOpt.get();
-            logger.info("Updating existing meal plan for user: {}", email);
+            existing.setPlanDuration(incoming.getPlanDuration());
+            existing.setNumberOfMenuOptions(incoming.getNumberOfMenuOptions());
 
-            OwnershipValidator.requireOwnerEmailMatch(existing.getOwnerEmail());
-
-            existing.setPlanDuration(mealPlanData.getPlanDuration());
-            existing.setNumberOfMenuOptions(mealPlanData.getNumberOfMenuOptions());
+            // Replace child collection safely (requires orphanRemoval=true, cascade=ALL on entity)
             existing.getMealPlan().clear();
-
-            for (MealPlan newMealPlan : mealPlanData.getMealPlan()) {
-                newMealPlan.setMealPlanData(existing);
-                newMealPlan.setId(null);
-                existing.getMealPlan().add(newMealPlan);
+            if (incoming.getMealPlan() != null) {
+                for (MealPlan mp : incoming.getMealPlan()) {
+                    mp.setId(null);                // force insert
+                    mp.setMealPlanData(existing);  // set parent
+                    existing.getMealPlan().add(mp);
+                }
             }
-
             return repository.save(existing);
         } else {
-            logger.info("Creating new meal plan for user: {}", email);
-
-            for (MealPlan mealPlan : mealPlanData.getMealPlan()) {
-                mealPlan.setMealPlanData(mealPlanData);
-                mealPlan.setId(null);
+            // New record
+            incoming.setOwnerEmail(email);
+            if (incoming.getMealPlan() != null) {
+                for (MealPlan mp : incoming.getMealPlan()) {
+                    mp.setId(null);
+                    mp.setMealPlanData(incoming);
+                }
             }
-            return repository.save(mealPlanData);
+            return repository.save(incoming);
         }
     }
 
-    public MealPlanData updateMealPlanData(String ownerEmail, MealPlanData mealPlanData) {
-        Optional<MealPlanData> existing = repository.findByOwnerEmail(ownerEmail).stream().findFirst();
-        if (existing.isPresent()) {
-            MealPlanData existingPlan = existing.get();
-            existingPlan.setMealPlan(mealPlanData.getMealPlan());
-            return repository.save(existingPlan);
-        } else {
-            throw new RuntimeException("Meal plan not found for user");
+    /** Update by route ownerEmail; throw to signal 404 to controller */
+    @Transactional
+    public MealPlanData updateByOwnerEmail(String ownerEmail, MealPlanData payload) {
+        String email = norm(ownerEmail);
+        MealPlanData existing = repository.findFirstByOwnerEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalArgumentException("Meal plan not found for: " + email));
+
+        existing.setPlanDuration(payload.getPlanDuration());
+        existing.setNumberOfMenuOptions(payload.getNumberOfMenuOptions());
+
+        existing.getMealPlan().clear();
+        if (payload.getMealPlan() != null) {
+            for (MealPlan mp : payload.getMealPlan()) {
+                mp.setId(null);
+                mp.setMealPlanData(existing);
+                existing.getMealPlan().add(mp);
+            }
         }
+        return repository.save(existing);
     }
 
+    @Transactional
+    public void deleteByOwnerEmail(String ownerEmail) {
+        String email = norm(ownerEmail);
+        repository.findFirstByOwnerEmailIgnoreCase(email).ifPresent(repository::delete);
+    }
 
-    public boolean deleteCurrentUserMealPlan() {
-        String email = AuthUtils.getCurrentUserEmail();
-        logger.info("Attempting to delete meal plan for user: {}", email);
-
-        Optional<MealPlanData> existingOpt = repository.findByOwnerEmail(email).stream().findFirst();
-
-        if (existingOpt.isPresent()) {
-            OwnershipValidator.requireOwnerEmailMatch(existingOpt.get().getOwnerEmail());
-            repository.delete(existingOpt.get());
-            logger.info("Deleted meal plan for user: {}", email);
-            return true;
-        }
-
-        logger.warn("Meal plan not found for deletion: {}", email);
-        return false;
+    private static String norm(String s) {
+        return s == null ? null : s.trim().toLowerCase();
     }
 }

@@ -2,49 +2,54 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.service.EmergencyContactGroupService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/emergency-groups")
+@CrossOrigin(origins = "http://localhost:3000")
 public class EmergencyContactGroupResource {
 
-    @Autowired
-    private EmergencyContactGroupService groupService;
+    private final EmergencyContactGroupService groupService;
+
+    public EmergencyContactGroupResource(EmergencyContactGroupService groupService) {
+        this.groupService = groupService;
+    }
 
     @GetMapping
     public List<EmergencyContactGroup> getAllGroups() {
         return groupService.getAllGroups();
     }
 
+    // FE: GET /api/emergency-groups/owner?ownerEmail=foo@bar.com
     @GetMapping("/owner")
-    public List<EmergencyContactGroup> getGroupsByOwnerEmail() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+    public List<EmergencyContactGroup> getGroupsByOwnerEmail(@RequestParam String ownerEmail) {
         return groupService.getGroupsByOwnerEmail(ownerEmail);
     }
 
-
     @GetMapping("/{id}")
     public ResponseEntity<EmergencyContactGroup> getGroupById(@PathVariable Long id) {
-        Optional<EmergencyContactGroup> group = groupService.getGroupById(id);
-        return group.map(ResponseEntity::ok)
+        return groupService.getGroupById(id)
+                .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-
+    // FE sends ownerEmail in body (MVP, no JWT)
     @PostMapping
-    public EmergencyContactGroup createGroup(@RequestBody EmergencyContactGroup group) {
-        return groupService.createGroup(group);
+    public ResponseEntity<EmergencyContactGroup> createGroup(@RequestBody EmergencyContactGroup group) {
+        EmergencyContactGroup saved = groupService.createGroup(group);
+        return ResponseEntity.ok(saved);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<EmergencyContactGroup> updateGroup(@PathVariable Long id, @RequestBody EmergencyContactGroup updatedGroup) {
-        return ResponseEntity.ok(groupService.updateGroup(id, updatedGroup));
+    public ResponseEntity<EmergencyContactGroup> updateGroup(
+            @PathVariable Long id,
+            @RequestBody EmergencyContactGroup updatedGroup
+    ) {
+        EmergencyContactGroup saved = groupService.updateGroup(id, updatedGroup);
+        return ResponseEntity.ok(saved);
     }
 
     @DeleteMapping("/{id}")
