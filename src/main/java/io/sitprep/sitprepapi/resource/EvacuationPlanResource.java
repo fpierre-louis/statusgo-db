@@ -3,7 +3,6 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.service.EvacuationPlanService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
@@ -20,18 +19,26 @@ public class EvacuationPlanResource {
         this.evacuationPlanService = evacuationPlanService;
     }
 
+    /**
+     * Save multiple plans for a user.
+     * Body shape:
+     * {
+     *   "ownerEmail": "user@example.com",
+     *   "evacuationPlans": [ { ...plan fields... } ]
+     * }
+     */
     @PostMapping("/bulk")
     public ResponseEntity<List<EvacuationPlan>> saveAllEvacuationPlans(@RequestBody Map<String, Object> requestData) {
         String ownerEmail = (String) requestData.get("ownerEmail");
         List<Map<String, Object>> plansData = (List<Map<String, Object>>) requestData.get("evacuationPlans");
 
-        if (ownerEmail == null || plansData == null) {
-            return ResponseEntity.badRequest().body(null);
+        if (ownerEmail == null || ownerEmail.isBlank() || plansData == null) {
+            return ResponseEntity.badRequest().build();
         }
 
         List<EvacuationPlan> evacuationPlans = plansData.stream().map(data -> {
             EvacuationPlan plan = new EvacuationPlan();
-            plan.setOwnerEmail(ownerEmail); // This is crucial for the service to work correctly
+            plan.setOwnerEmail(ownerEmail); // enforce owner from top-level field
             plan.setName((String) data.get("name"));
             plan.setOrigin((String) data.get("origin"));
             plan.setDestination((String) data.get("destination"));
@@ -46,13 +53,21 @@ public class EvacuationPlanResource {
             return plan;
         }).collect(Collectors.toList());
 
-        List<EvacuationPlan> savedPlans = evacuationPlanService.saveAllEvacuationPlans(ownerEmail, evacuationPlans);
+        List<EvacuationPlan> savedPlans =
+                evacuationPlanService.saveAllEvacuationPlans(ownerEmail, evacuationPlans);
         return ResponseEntity.ok(savedPlans);
     }
 
+    /**
+     * Fetch plans for a user (no auth). Example:
+     * GET /api/evacuation-plans?ownerEmail=user@example.com
+     */
     @GetMapping
-    public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner() {
-        String ownerEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+    public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner(
+            @RequestParam("ownerEmail") String ownerEmail) {
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
         return ResponseEntity.ok(evacuationPlanService.getEvacuationPlansByOwner(ownerEmail));
     }
 }

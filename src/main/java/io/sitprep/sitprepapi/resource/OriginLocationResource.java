@@ -2,7 +2,6 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.service.OriginLocationService;
-import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,19 +20,39 @@ public class OriginLocationResource {
         this.originService = originService;
     }
 
+    /**
+     * GET /api/origin-locations?ownerEmail=user@example.com
+     */
+    @GetMapping
+    public ResponseEntity<List<OriginLocation>> getByOwner(
+            @RequestParam("ownerEmail") String ownerEmail) {
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
+    }
+
+    /**
+     * POST /api/origin-locations/bulk
+     * Body:
+     * {
+     *   "ownerEmail": "user@example.com",
+     *   "origins": [{ "name":"Home","address":"...","lat":1.0,"lng":2.0 }, ...]
+     * }
+     * Replaces all existing origins for the user.
+     */
     @PostMapping("/bulk")
     public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
+        String ownerEmail = (String) requestData.get("ownerEmail");
         List<Map<String, Object>> originData = (List<Map<String, Object>>) requestData.get("origins");
 
-        if (originData == null || originData.isEmpty()) {
+        if (ownerEmail == null || ownerEmail.isBlank() || originData == null) {
             return ResponseEntity.badRequest().build();
         }
 
-        String ownerEmail = AuthUtils.getCurrentUserEmail();
-
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
-            origin.setOwnerEmail(ownerEmail);
+            origin.setOwnerEmail(ownerEmail); // enforce owner from top-level
             origin.setName((String) data.get("name"));
             origin.setAddress((String) data.get("address"));
             origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
@@ -44,20 +63,34 @@ public class OriginLocationResource {
         return ResponseEntity.ok(originService.saveAll(ownerEmail, origins));
     }
 
-    @GetMapping
-    public ResponseEntity<List<OriginLocation>> getByUser() {
-        String ownerEmail = AuthUtils.getCurrentUserEmail();
-        return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
-    }
-
+    /**
+     * PUT /api/origin-locations/{id}?ownerEmail=user@example.com
+     * Body: OriginLocation fields (name, address, lat, lng)
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<OriginLocation> update(@PathVariable Long id, @RequestBody OriginLocation origin) {
-        return ResponseEntity.ok(originService.update(id, origin));
+    public ResponseEntity<OriginLocation> update(
+            @PathVariable Long id,
+            @RequestParam("ownerEmail") String ownerEmail,
+            @RequestBody OriginLocation origin) {
+
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(originService.update(id, ownerEmail, origin));
     }
 
+    /**
+     * DELETE /api/origin-locations/{id}?ownerEmail=user@example.com
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        originService.delete(id);
+    public ResponseEntity<Void> delete(
+            @PathVariable Long id,
+            @RequestParam("ownerEmail") String ownerEmail) {
+
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        originService.delete(id, ownerEmail);
         return ResponseEntity.noContent().build();
     }
 }
