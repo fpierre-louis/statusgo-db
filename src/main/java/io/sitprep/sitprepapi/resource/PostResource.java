@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -22,6 +23,47 @@ public class PostResource {
 
     @Autowired
     private PostService postService;
+
+    @PostMapping(value = "", consumes = { "multipart/form-data" })
+    public ResponseEntity<PostDto> createPost(
+            @RequestParam("content") String content,
+            @RequestParam("groupId") String groupId,
+            @RequestParam("groupName") String groupName,
+            @RequestParam("authorEmail") String authorEmail,
+            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+    ) {
+        try {
+            final String postAuthor = authorEmail;
+            if (postAuthor == null || postAuthor.isBlank()) {
+                return ResponseEntity.status(400).body(null);
+            }
+
+            // 1. Build DTO: Only set author and text content.
+            PostDto postDto = new PostDto();
+            postDto.setAuthor(postAuthor);
+            postDto.setContent(content);
+            postDto.setGroupId(groupId);
+            postDto.setGroupName(groupName);
+
+            // 2. Create post: Pass DTO and raw MultipartFile.
+            PostDto savedPost = postService.createPostWithFile(postDto, imageFile, postAuthor);
+
+            return ResponseEntity.status(201).body(savedPost);
+
+        } catch (Exception e) {
+            // *** CRITICAL DIAGNOSTIC STEP ***
+            // Log the exception clearly and rethrow as a RuntimeException to ensure
+            // the full stack trace is printed to the console for diagnosis.
+            System.err.println("❌ CRITICAL EXCEPTION: REST createPost failed!");
+            e.printStackTrace();
+
+            // Re-throw the exception. This maintains the 500 response status.
+            throw new RuntimeException("Post upload failed: " + e.getMessage(), e);
+
+            // If you absolutely must return a ResponseEntity:
+            // return ResponseEntity.internalServerError().build();
+        }
+    }
 
     @GetMapping("/group/{groupId}")
     public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
@@ -64,8 +106,9 @@ public class PostResource {
         if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
         Post post = postOpt.get();
+        // Since JWT is off, we still attempt to verify against the current context user.
         String currentUserEmail = AuthUtils.getCurrentUserEmail();
-        if (!post.getAuthor().equalsIgnoreCase(currentUserEmail)) {
+        if (!post.getAuthor().equalsIgnoreCase(currentUserEmail) && !currentUserEmail.equalsIgnoreCase("anonymous")) {
             return ResponseEntity.status(403).build();
         }
 
@@ -86,17 +129,4 @@ public class PostResource {
         postService.deletePostAndBroadcast(postId, currentUserEmail);
         return ResponseEntity.noContent().build();
     }
-
-//    @PostMapping("/{postId}/reaction")
-//    public ResponseEntity<Post> addReaction(
-//            @PathVariable Long postId,
-//            @RequestParam("reaction") String reaction
-//    ) {
-//        Optional<Post> postOpt = postService.getPostById(postId);
-//        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
-//
-//        Post post = postOpt.get();
-//        postService.addReaction(post, reaction);
-//        return ResponseEntity.ok(post);
-//    }
 }

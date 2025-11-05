@@ -55,6 +55,55 @@ public class PostService {
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
+    // +++ Service method for REST creation (handles MultipartFile) +++
+    @Transactional
+    public PostDto createPostWithFile(PostDto postDto, MultipartFile imageFile, String authenticatedUserEmail) throws IOException {
+        if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
+            throw new SecurityException("User not authorized to create a post for another user.");
+        }
+
+        Post post = new Post();
+        post.setAuthor(postDto.getAuthor());
+        post.setContent(postDto.getContent());
+        post.setGroupId(postDto.getGroupId());
+        post.setGroupName(postDto.getGroupName());
+        post.setTimestamp(Instant.now());
+        post.setTags(postDto.getTags());
+        post.setMentions(postDto.getMentions());
+
+        // CRITICAL: Robustly read bytes and log errors internally.
+        if (imageFile != null && !imageFile.isEmpty()) {
+            try {
+                post.setImage(imageFile.getBytes());
+            } catch (IOException e) {
+                // If the image read fails, log the error but allow the post (without image) to save.
+                logger.error("Failed to read bytes from uploaded image file during post creation. File name: {}", imageFile.getOriginalFilename(), e);
+                // Important: If you want the post to fail completely on image read failure, re-throw the IOException here:
+                // throw e;
+            }
+        }
+
+        Post savedPost = postRepo.save(post);
+        PostDto savedDto = convertToPostDto(savedPost);
+
+        // Broadcast and notify only AFTER the transaction commits
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    notifyGroupMembersOfNewPost(savedPost);
+                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedDto);
+                } catch (Exception e) {
+                    logger.error("Error during post-commit WS broadcast/notification for post {}", savedPost.getId(), e);
+                }
+            }
+        });
+
+        return savedDto;
+    }
+    // +++ END NEW REST HANDLER +++
+
+    // --- Existing createPostFromDto (now primarily for WS/text-only) ---
     @Transactional
     public PostDto createPostFromDto(PostDto postDto, String authenticatedUserEmail) throws IOException {
         if (!postDto.getAuthor().equals(authenticatedUserEmail)) {
@@ -78,10 +127,25 @@ public class PostService {
         }
 
         Post savedPost = postRepo.save(post);
-        notifyGroupMembersOfNewPost(savedPost);
+        PostDto savedDto = convertToPostDto(savedPost);
 
-        return convertToPostDto(savedPost);
+        // Broadcast and notify only AFTER the transaction commits
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    notifyGroupMembersOfNewPost(savedPost);
+                    // This is the broadcast that confirms the post to all clients
+                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedDto);
+                } catch (Exception e) {
+                    logger.error("Error during post-commit WS broadcast/notification for post {}", savedPost.getId(), e);
+                }
+            }
+        });
+
+        return savedDto;
     }
+    // --- End createPostFromDto update ---
 
     @Transactional
     public Post updatePost(Post post, MultipartFile imageFile) throws IOException {
@@ -148,6 +212,9 @@ public class PostService {
             String[] parts = dto.getBase64Image().split(",", 2);
             String encodedImage = parts.length == 2 ? parts[1] : parts[0];
             post.setImage(Base64.getDecoder().decode(encodedImage));
+        } else if (dto.getBase64Image() == null && post.getImage() != null) {
+            // If base64Image is explicitly null in DTO but image exists in DB, delete it
+            post.setImage(null);
         }
 
         Post updated = postRepo.save(post);

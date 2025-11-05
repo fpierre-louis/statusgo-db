@@ -42,7 +42,7 @@ public class FirebaseConfig {
         }
     }
 }
-
+//
 //    @PostConstruct
 //    public void initialize() {
 //        try {

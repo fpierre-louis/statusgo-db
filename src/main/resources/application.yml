@@ -18,16 +18,25 @@ spring:
         default_batch_fetch_size: 50
 
   # --- REDIS CONFIGURATION (for WebSocket Message Broker) ---
-  # These are default values for local development.
-  # Heroku will override these automatically with its own REDIS_URL environment variable.
   data:
     redis:
       host: localhost
       port: 6379
 
+  # --- WEBSOCKET CONFIGURATION FIX (Add this section) ---
+  websocket:
+    # Fixes CloseStatus[code=1009] by increasing the max message buffer size to 5MB.
+    frame-max-message-size: 5242880
+
 # --- SERVER CONFIGURATION ---
 server:
   use-forward-headers: true
+
+  # --- FILE UPLOAD SIZE LIMIT FIX (CRITICAL FOR 500 ERROR) ---
+  servlet:
+    multipart:
+      max-file-size: 50MB   # Max size for a single file part
+      max-request-size: 50MB # Max size for the entire request payload
 
 # --- APPLICATION SPECIFIC PROPERTIES ---
 app:

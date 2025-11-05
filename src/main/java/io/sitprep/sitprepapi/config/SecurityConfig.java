@@ -40,7 +40,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
 
-        // Set your allowed origins (exact origins; no wildcards if you ever set allowCredentials=true)
+        // FIX FOR WEBSOCKET/SOCKJS: Set AllowCredentials to true.
+        // This is necessary because the SockJS client demands the header,
+        // and Spring in this version does not let us set it specifically on the /ws endpoint.
         cfg.setAllowedOrigins(List.of(
                 "http://localhost:3000",
                 "http://localhost:4200",
@@ -53,8 +55,10 @@ public class SecurityConfig {
 
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
-        // You aren't using cookies; keep this false for simpler CORS.
-        cfg.setAllowCredentials(false);
+
+        // *** THE CRITICAL CHANGE ***
+        cfg.setAllowCredentials(true); // <-- MUST BE TRUE to fix SockJS CORS error
+
         cfg.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
