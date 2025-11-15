@@ -15,7 +15,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -38,30 +37,19 @@ public class PostResource {
                 return ResponseEntity.status(400).body(null);
             }
 
-            // 1. Build DTO: Only set author and text content.
             PostDto postDto = new PostDto();
             postDto.setAuthor(postAuthor);
             postDto.setContent(content);
             postDto.setGroupId(groupId);
             postDto.setGroupName(groupName);
 
-            // 2. Create post: Pass DTO and raw MultipartFile.
             PostDto savedPost = postService.createPostWithFile(postDto, imageFile, postAuthor);
-
             return ResponseEntity.status(201).body(savedPost);
 
         } catch (Exception e) {
-            // *** CRITICAL DIAGNOSTIC STEP ***
-            // Log the exception clearly and rethrow as a RuntimeException to ensure
-            // the full stack trace is printed to the console for diagnosis.
             System.err.println("❌ CRITICAL EXCEPTION: REST createPost failed!");
             e.printStackTrace();
-
-            // Re-throw the exception. This maintains the 500 response status.
             throw new RuntimeException("Post upload failed: " + e.getMessage(), e);
-
-            // If you absolutely must return a ResponseEntity:
-            // return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -70,7 +58,6 @@ public class PostResource {
         return postService.getPostsByGroupIdDto(groupId);
     }
 
-    // Backfill: posts since timestamp for a group
     @GetMapping("/since")
     public List<PostDto> getPostsSince(
             @RequestParam String groupId,
@@ -100,15 +87,20 @@ public class PostResource {
             @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam(value = "mentions", required = false) List<String> mentions,
-            @RequestParam(value = "pinned", required = false, defaultValue = "false") boolean pinned
+            @RequestParam(value = "authorEmail", required = false) String authorEmail
     ) throws IOException {
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
         Post post = postOpt.get();
-        // Since JWT is off, we still attempt to verify against the current context user.
-        String currentUserEmail = AuthUtils.getCurrentUserEmail();
-        if (!post.getAuthor().equalsIgnoreCase(currentUserEmail) && !currentUserEmail.equalsIgnoreCase("anonymous")) {
+
+        // Resolve actor: prefer security context, else authorEmail, else "anonymous"
+        String actor = Optional.ofNullable(AuthUtils.getCurrentUserEmail())
+                .orElse(Optional.ofNullable(authorEmail).orElse("anonymous"));
+
+        // Enforce when we have a known actor
+        if (!"anonymous".equalsIgnoreCase(actor) &&
+                (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor))) {
             return ResponseEntity.status(403).build();
         }
 
@@ -119,14 +111,19 @@ public class PostResource {
         post.setMentions(mentions);
         post.setEditedAt(Instant.now());
 
-        Post updatedPost = postService.updatePost(post, imageFile);
+        Post updatedPost = postService.updatePost(post, imageFile, actor);
         return ResponseEntity.ok(updatedPost);
     }
 
     @DeleteMapping("/{postId}")
-    public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
-        String currentUserEmail = AuthUtils.getCurrentUserEmail();
-        postService.deletePostAndBroadcast(postId, currentUserEmail);
+    public ResponseEntity<Void> deletePost(
+            @PathVariable Long postId,
+            @RequestParam(value = "actor", required = false) String actorParam
+    ) {
+        String actor = Optional.ofNullable(AuthUtils.getCurrentUserEmail())
+                .orElse(Optional.ofNullable(actorParam).orElse("anonymous"));
+
+        postService.deletePostAndBroadcast(postId, actor);
         return ResponseEntity.noContent().build();
     }
 }

@@ -7,6 +7,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Centralized STOMP broadcast helper.
+ * Topics:
+ *  - Posts:    /topic/posts/{groupId}
+ *  - Post del: /topic/posts/{groupId}/delete
+ *  - Comments: /topic/comments/{postId}
+ *  - Cmt del:  /topic/comments/{postId}/delete
+ */
 @Component
 public class WebSocketMessageSender {
     private final SimpMessagingTemplate messagingTemplate;

@@ -1,29 +1,32 @@
 package io.sitprep.sitprepapi.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class CommentDto {
     private Long id;
-    private String tempId; // client-side correlation
+    private String tempId;                       // optimistic correlation
     private Long postId;
-    private String author;
+
+    // Author
+    private String author;                       // email
     private String authorFirstName;
     private String authorLastName;
     private String authorProfileImageURL;
+
+    // Content
     private String content;
 
     /** createdAt */
     private Instant timestamp;
 
-    /** last modified */
+    /** user-initiated edit moment (explicit) */
+    private Instant editedAt;
+
+    /** last modified (any change) – used for delta/backfill */
     private Instant updatedAt;
 
-    private boolean edited;
+    private boolean edited;                      // convenience flag
 }

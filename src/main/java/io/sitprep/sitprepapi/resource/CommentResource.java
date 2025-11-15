@@ -1,6 +1,6 @@
+// src/main/java/io/sitprep/sitprepapi/resource/CommentResource.java
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +11,6 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -25,63 +24,50 @@ public class CommentResource {
     }
 
     @PostMapping
-    public ResponseEntity<Comment> createComment(@RequestBody Comment comment) {
-        Comment newComment = commentService.createComment(comment);
-        return ResponseEntity.ok(newComment);
+    public ResponseEntity<CommentDto> createComment(@RequestBody CommentDto dto) {
+        CommentDto saved = commentService.createCommentFromDto(dto);
+        return ResponseEntity.ok(saved);
     }
 
-    // ✅ Batch
+    // Batch: ?postIds=1&postIds=2&limitPerPost=10
     @GetMapping
     public Map<Long, List<CommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
-
-        List<Long> validPostIds = postIds.stream()
+        var validPostIds = postIds.stream()
                 .map(id -> {
                     try { return Long.parseLong(id); } catch (NumberFormatException e) { return null; }
                 })
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
-
-        if (validPostIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
+        if (validPostIds.isEmpty()) return Collections.emptyMap();
         return commentService.getCommentsForPosts(validPostIds, limitPerPost);
     }
 
-    // ✅ Backfill since timestamp (uses updatedAt in service)
+    // Backfill by updatedAt
     @GetMapping("/since")
     public List<CommentDto> getCommentsSince(
             @RequestParam Long postId,
             @RequestParam String sinceIso) {
-        Instant since = Instant.parse(sinceIso);
-        return commentService.getCommentsSince(postId, since);
+        return commentService.getCommentsSince(postId, Instant.parse(sinceIso));
     }
 
+    // All for a post (oldest -> newest)
     @GetMapping("/{postId}")
-    public ResponseEntity<List<Comment>> getCommentsByPostId(@PathVariable Long postId) {
-        List<Comment> comments = commentService.getCommentsByPostId(postId);
-        return ResponseEntity.ok(comments);
+    public ResponseEntity<List<CommentDto>> getCommentsByPostId(@PathVariable Long postId) {
+        return ResponseEntity.ok(commentService.getCommentsByPostId(postId));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Comment> updateComment(@PathVariable Long id, @RequestBody Comment commentDetails) {
-        Optional<Comment> optionalComment = commentService.getCommentById(id);
-        if (optionalComment.isEmpty()) return ResponseEntity.notFound().build();
-
-        Comment comment = optionalComment.get();
-        comment.setContent(commentDetails.getContent());
-        // ❌ Do not overwrite the original creation timestamp; auditing updates updatedAt
-        // comment.setTimestamp(commentDetails.getTimestamp());
-
-        Comment updatedComment = commentService.updateComment(comment);
-        return ResponseEntity.ok(updatedComment);
+    public ResponseEntity<CommentDto> updateComment(@PathVariable Long id, @RequestBody CommentDto dto) {
+        dto.setId(id);
+        CommentDto updated = commentService.updateCommentFromDto(dto);
+        return ResponseEntity.ok(updated);
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteComment(@PathVariable Long id) {
-        commentService.deleteComment(id);
+        commentService.deleteCommentByIdAndBroadcast(id);
         return ResponseEntity.noContent().build();
     }
 }

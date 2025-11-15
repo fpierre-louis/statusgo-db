@@ -4,231 +4,304 @@ import io.sitprep.sitprepapi.domain.Comment;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommentDto;
-import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.repo.CommentRepo;
-import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.util.GroupUrlUtil;
-import io.sitprep.sitprepapi.util.InMemoryImageResizer;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
-import io.sitprep.sitprepapi.websocket.WebSocketPresenceService;
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Comment service:
+ * - Creates/updates/deletes comments
+ * - Broadcasts EXACTLY ONCE after successful commit
+ * - Enriches author fields for clients (name, avatar)
+ */
 @Service
 public class CommentService {
 
-    private static final Logger logger = LoggerFactory.getLogger(CommentService.class);
+    private static final Logger log = LoggerFactory.getLogger(CommentService.class);
 
     private final CommentRepo commentRepo;
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
-    private final NotificationService notificationService;
-    private final GroupRepo groupRepo;
-    private final WebSocketMessageSender webSocketMessageSender;
-    private final WebSocketPresenceService presenceService;
+    private final WebSocketMessageSender ws;
 
-    @Autowired
-    public CommentService(CommentRepo commentRepo, PostRepo postRepo, UserInfoRepo userInfoRepo,
-                          NotificationService notificationService, GroupRepo groupRepo,
-                          WebSocketMessageSender webSocketMessageSender, WebSocketPresenceService presenceService) {
+    public CommentService(
+            CommentRepo commentRepo,
+            PostRepo postRepo,
+            UserInfoRepo userInfoRepo,
+            WebSocketMessageSender ws
+    ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
-        this.notificationService = notificationService;
-        this.groupRepo = groupRepo;
-        this.webSocketMessageSender = webSocketMessageSender;
-        this.presenceService = presenceService;
+        this.ws = ws;
     }
 
-    // --- START: ADDED MISSING PUBLIC METHODS ---
+    // --------------------------------------------------------------------------------------------
+    // Create (REST or WS)
+    // --------------------------------------------------------------------------------------------
+    @Transactional
+    public CommentDto createCommentFromDto(CommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("CommentDto is null");
+        if (dto.getPostId() == null) throw new IllegalArgumentException("postId is required");
+        if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
+            throw new IllegalArgumentException("content is required");
+        }
+        if (dto.getAuthor() == null || dto.getAuthor().trim().isEmpty()) {
+            dto.setAuthor("anonymous@sitprep");
+        }
 
-    public Optional<Comment> getCommentById(Long id) {
-        return commentRepo.findById(id);
+        Comment c = new Comment();
+        c.setPostId(dto.getPostId());
+        c.setAuthor(dto.getAuthor().trim());
+        c.setContent(dto.getContent());
+        // @CreatedDate/@LastModifiedDate auditing populates timestamp/updatedAt
+
+        Comment saved = commentRepo.save(c);
+        bumpCommentsCount(saved.getPostId(), +1);
+
+        CommentDto out = toDto(saved);
+        // preserve tempId for optimistic merge on the client
+        out.setTempId(dto.getTempId());
+        enrichAuthor(out);
+
+        // Broadcast AFTER COMMIT to avoid duplicates on rollback
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    ws.sendNewComment(saved.getPostId(), out);
+                } catch (Exception e) {
+                    log.error("WS broadcast failed for new comment id={}", saved.getId(), e);
+                }
+            }
+        });
+
+        return out;
     }
 
-    public void deleteComment(Long id) {
-        commentRepo.deleteById(id);
-    }
+    // --------------------------------------------------------------------------------------------
+    // Update (REST or WS)
+    // --------------------------------------------------------------------------------------------
+    @Transactional
+    public CommentDto updateCommentFromDto(CommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("CommentDto is null");
+        if (dto.getId() == null) throw new IllegalArgumentException("id is required for update");
 
-    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
-        List<Comment> rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
-        return rows.stream()
-                .map(this::convertToCommentDto)
-                .collect(Collectors.toList());
-    }
+        Comment existing = commentRepo.findById(dto.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Comment not found: " + dto.getId()));
 
-    public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
-        if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
-
-        List<Comment> all = commentRepo.findByPostIdInOrderByPostIdAndTimestampDesc(postIds);
-        Map<Long, List<CommentDto>> result = new HashMap<>();
-        for (Comment c : all) {
-            List<CommentDto> list = result.computeIfAbsent(c.getPostId(), k -> new ArrayList<>());
-            if (limitPerPost == null || list.size() < limitPerPost) {
-                list.add(convertToCommentDto(c));
+        // Minimal ownership check (MVP)
+        if (dto.getAuthor() != null && !dto.getAuthor().isBlank()) {
+            if (existing.getAuthor() != null &&
+                    !existing.getAuthor().equalsIgnoreCase(dto.getAuthor().trim())) {
+                throw new SecurityException("Not allowed to edit this comment.");
             }
         }
-        for (Long id : postIds) result.putIfAbsent(id, Collections.emptyList());
-        return result;
-    }
 
-    // --- END: ADDED MISSING PUBLIC METHODS ---
+        if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
+            existing.setContent(dto.getContent());
+        }
+        existing.setEditedAt(Instant.now());
 
+        Comment saved = commentRepo.save(existing);
 
-    public void createCommentFromDto(CommentDto dto) {
-        Comment comment = new Comment();
-        comment.setPostId(dto.getPostId());
-        comment.setAuthor(dto.getAuthor());
-        comment.setContent(dto.getContent());
-        comment.setTimestamp(dto.getTimestamp() != null ? dto.getTimestamp() : Instant.now());
+        CommentDto out = toDto(saved);
+        out.setTempId(dto.getTempId()); // keep optimistic correlation if present
+        out.setEdited(true);
+        enrichAuthor(out);
 
-        Comment saved = commentRepo.save(comment);
-        CommentDto result = convertToCommentDto(saved);
-        result.setTempId(dto.getTempId());
-
-        notifyRelevantUsers(saved);
-        webSocketMessageSender.sendNewComment(saved.getPostId(), result);
-    }
-
-    public Comment createComment(Comment comment) {
-        Comment savedComment = commentRepo.save(comment);
-        CommentDto savedCommentDto = convertToCommentDto(savedComment);
-        notifyRelevantUsers(savedComment);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                webSocketMessageSender.sendNewComment(savedComment.getPostId(), savedCommentDto);
+            @Override public void afterCommit() {
+                try {
+                    // Reuse same topic for create/edit deltas
+                    ws.sendNewComment(saved.getPostId(), out);
+                } catch (Exception e) {
+                    log.error("WS broadcast failed for edit comment id={}", saved.getId(), e);
+                }
             }
         });
-        return savedComment;
+
+        return out;
     }
 
-    public Comment updateComment(Comment comment) {
-        Comment updatedComment = commentRepo.save(comment);
-        CommentDto updatedCommentDto = convertToCommentDto(updatedComment);
-        notifyRelevantUsers(updatedComment);
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                webSocketMessageSender.sendNewComment(updatedComment.getPostId(), updatedCommentDto);
-            }
-        });
-        return updatedComment;
-    }
-
-    public void updateCommentFromDto(CommentDto dto) {
-        Comment comment = commentRepo.findById(dto.getId()).orElse(null);
-        if (comment == null) return;
-        comment.setContent(dto.getContent());
-        comment.setAuthor(dto.getAuthor());
-        commentRepo.save(comment);
-        webSocketMessageSender.sendNewComment(dto.getPostId(), convertToCommentDto(comment));
-    }
-
-    public List<Comment> getCommentsByPostId(Long postId) {
-        return commentRepo.findByPostId(postId);
-    }
-
+    // --------------------------------------------------------------------------------------------
+    // Delete (WS path with known postId)
+    // --------------------------------------------------------------------------------------------
+    @Transactional
     public void deleteCommentAndBroadcast(Long commentId, Long postId) {
+        if (commentId == null || postId == null) return;
+
+        if (!commentRepo.existsById(commentId)) return;
+
         commentRepo.deleteById(commentId);
-        webSocketMessageSender.sendCommentDeletion(postId, commentId);
-    }
+        bumpCommentsCount(postId, -1);
 
-    private void notifyRelevantUsers(Comment savedComment) {
-        Optional<Post> postOpt = postRepo.findById(savedComment.getPostId());
-        if (postOpt.isEmpty()) return;
-
-        Post post = postOpt.get();
-        Long postId = post.getId();
-
-        if (!post.getAuthor().equalsIgnoreCase(savedComment.getAuthor())) {
-            notifyUser(post.getAuthor(), savedComment, "comment_on_post", postId, "commented on your post");
-        }
-
-        Set<String> uniqueCommenters = commentRepo.findByPostId(postId).stream()
-                .map(Comment::getAuthor)
-                .filter(email -> !email.equalsIgnoreCase(post.getAuthor()))
-                .filter(email -> !email.equalsIgnoreCase(savedComment.getAuthor()))
-                .collect(Collectors.toSet());
-
-        for (String commenter : uniqueCommenters) {
-            notifyUser(commenter, savedComment, "comment_thread_reply", postId, "also replied to a post you commented on");
-        }
-    }
-
-    private void notifyUser(String recipientEmail, Comment triggeringComment, String type, Long postId, String actionLabel) {
-        java.util.Optional<UserInfo> recipientOpt = userInfoRepo.findByUserEmail(recipientEmail);
-        java.util.Optional<UserInfo> authorOpt = userInfoRepo.findByUserEmail(triggeringComment.getAuthor());
-
-        if (recipientOpt.isEmpty() || authorOpt.isEmpty()) return;
-
-        UserInfo recipient = recipientOpt.get();
-        UserInfo author = authorOpt.get();
-
-        String groupUrl = groupRepo.findByGroupId(
-                        postRepo.findById(postId).map(Post::getGroupId).orElse(null))
-                .map(GroupUrlUtil::getGroupTargetUrl)
-                .orElse("/Linked/" + postId);
-
-        String title = author.getUserFirstName() + " " + actionLabel;
-        String body  = "\"" + triggeringComment.getContent() + "\"";
-        String icon  = author.getProfileImageURL() != null
-                ? resizeImage(author.getProfileImageURL())
-                : "/images/default-user-icon.png";
-
-        // Presence-aware delivery (WS if online, FCM if offline)
-        notificationService.deliverPresenceAware(
-                recipient.getUserEmail(),
-                title,
-                body,
-                author.getUserFirstName(),
-                icon,
-                type,
-                String.valueOf(postId),
-                groupUrl + "?postId=" + postId,
-                null,
-                recipient.getFcmtoken()
-        );
-
-        logger.info("📨 Processed '{}' notification to '{}' for post {}", type, recipientEmail, postId);
-    }
-
-
-    private CommentDto convertToCommentDto(Comment comment) {
-        CommentDto dto = new CommentDto();
-        dto.setId(comment.getId());
-        dto.setPostId(comment.getPostId());
-        dto.setAuthor(comment.getAuthor());
-        dto.setContent(comment.getContent());
-        dto.setTimestamp(comment.getTimestamp());
-        dto.setUpdatedAt(comment.getUpdatedAt());
-        dto.setEdited(!Objects.equals(comment.getTimestamp(), comment.getUpdatedAt()));
-        userInfoRepo.findByUserEmail(comment.getAuthor()).ifPresent(authorInfo -> {
-            dto.setAuthorFirstName(authorInfo.getUserFirstName());
-            dto.setAuthorLastName(authorInfo.getUserLastName());
-            dto.setAuthorProfileImageURL(authorInfo.getProfileImageURL());
+        Long pid = postId;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    ws.sendCommentDeletion(pid, commentId);
+                } catch (Exception e) {
+                    log.error("WS broadcast failed for delete comment id={}", commentId, e);
+                }
+            }
         });
-        return dto;
     }
 
-    private String resizeImage(String imageUrl) {
-        try {
-            byte[] resizedImageBytes = InMemoryImageResizer.resizeImageFromUrl(imageUrl, "png", 120, 120);
-            return "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(resizedImageBytes);
-        } catch (IOException e) {
-            logger.warn("⚠️ Failed to resize profile image for notification: {}", e.getMessage());
-            return "/images/default-user-icon.png";
+    // --------------------------------------------------------------------------------------------
+    // Delete (REST path: look up postId)
+    // --------------------------------------------------------------------------------------------
+    @Transactional
+    public void deleteCommentByIdAndBroadcast(Long id) {
+        if (id == null) return;
+        Comment c = commentRepo.findById(id).orElse(null);
+        if (c == null) return;
+
+        Long postId = c.getPostId();
+        commentRepo.deleteById(id);
+        bumpCommentsCount(postId, -1);
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    ws.sendCommentDeletion(postId, id);
+                } catch (Exception e) {
+                    log.error("WS broadcast failed for delete comment id={}", id, e);
+                }
+            }
+        });
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Queries
+    // --------------------------------------------------------------------------------------------
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<CommentDto> getCommentsByPostId(Long postId) {
+        if (postId == null) return List.of();
+
+        List<Comment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
+        if (rows.isEmpty()) return List.of();
+
+        Set<String> emails = rows.stream()
+                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
+        if (postIds == null || postIds.isEmpty()) return Map.of();
+
+        List<Comment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(postIds);
+        if (rows.isEmpty()) return Map.of();
+
+        Map<Long, List<Comment>> byPost = rows.stream()
+                .collect(Collectors.groupingBy(Comment::getPostId, LinkedHashMap::new, Collectors.toList()));
+
+        Set<String> emails = rows.stream()
+                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        Map<Long, List<CommentDto>> out = new LinkedHashMap<>();
+        for (var e : byPost.entrySet()) {
+            List<Comment> list = e.getValue();
+            if (limitPerPost != null && limitPerPost > 0 && list.size() > limitPerPost) {
+                list = list.subList(list.size() - limitPerPost, list.size()); // last N
+            }
+            out.put(e.getKey(), list.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList()));
         }
+        return out;
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
+        if (postId == null || since == null) return List.of();
+
+        var rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
+        if (rows.isEmpty()) return List.of();
+
+        Set<String> emails = rows.stream()
+                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Optional<CommentDto> getCommentById(Long id) {
+        if (id == null) return Optional.empty();
+        return commentRepo.findById(id).map(c -> {
+            CommentDto d = toDto(c);
+            enrichAuthor(d);
+            return d;
+        });
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Internals
+    // --------------------------------------------------------------------------------------------
+    private void bumpCommentsCount(Long postId, int delta) {
+        if (postId == null || delta == 0) return;
+        try {
+            postRepo.findById(postId).ifPresent(p -> {
+                Integer cur = p.getCommentsCount();
+                int next = (cur == null ? 0 : cur) + delta;
+                if (next < 0) next = 0;
+                p.setCommentsCount(next);
+                postRepo.save(p);
+            });
+        } catch (Exception e) {
+            log.warn("Could not update commentsCount for postId={} by {}: {}", postId, delta, e.getMessage());
+        }
+    }
+
+    private CommentDto toDto(Comment c) {
+        CommentDto d = new CommentDto();
+        d.setId(c.getId());
+        d.setPostId(c.getPostId());
+        d.setAuthor(c.getAuthor());
+        d.setContent(c.getContent());
+        d.setTimestamp(c.getTimestamp());
+        d.setUpdatedAt(c.getUpdatedAt());
+        d.setEditedAt(c.getEditedAt());
+        d.setEdited(c.getEditedAt() != null);
+        return d;
+    }
+
+    private CommentDto toDto(Comment c, Map<String, UserInfo> userByEmail) {
+        CommentDto d = toDto(c);
+        if (c.getAuthor() != null) {
+            UserInfo u = userByEmail.get(c.getAuthor());
+            if (u != null) {
+                d.setAuthorFirstName(u.getUserFirstName());
+                d.setAuthorLastName(u.getUserLastName());
+                d.setAuthorProfileImageURL(u.getProfileImageURL());
+            }
+        }
+        return d;
+    }
+
+    private void enrichAuthor(CommentDto d) {
+        if (d == null || d.getAuthor() == null) return;
+        userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
+            d.setAuthorFirstName(u.getUserFirstName());
+            d.setAuthorLastName(u.getUserLastName());
+            d.setAuthorProfileImageURL(u.getProfileImageURL());
+        });
     }
 }
