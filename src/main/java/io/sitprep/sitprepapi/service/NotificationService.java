@@ -53,6 +53,7 @@ public class NotificationService {
     /**
      * Core presence-aware delivery.
      * If online -> STOMP only (no FCM); if offline -> FCM (with APNs for iOS and data for Android/Web).
+     * Adds channel/category hints for Android/iOS to tune UX without changing client logic.
      */
     public void deliverPresenceAware(String recipientEmail,
                                      String title,
@@ -66,11 +67,20 @@ public class NotificationService {
                                      String recipientFcmTokenOrNull) {
 
         boolean online = presenceService.isUserOnline(recipientEmail);
+        String channelId = channelForType(notificationType);
+        String category = categoryForType(notificationType);
 
         if (online) {
             try {
                 webSocketMessageSender.sendInAppNotification(new NotificationPayload(
-                        recipientEmail, title, body, iconUrl, notificationType, targetUrl, referenceId, Instant.now()
+                        recipientEmail,
+                        title,
+                        body,
+                        iconUrl,
+                        notificationType,
+                        targetUrl,
+                        referenceId,
+                        Instant.now()
                 ));
                 logSocketDelivery(recipientEmail, notificationType, title, body, referenceId, targetUrl);
                 logger.info("🟢 Socket notification sent to online user {}", recipientEmail);
@@ -85,8 +95,16 @@ public class NotificationService {
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
             logger.info("No FCM token for offline user {}, logging only.", recipientEmail);
             notificationLogRepo.save(new NotificationLog(
-                    recipientEmail, notificationType, null, title, body, referenceId, targetUrl,
-                    Instant.now(), false, "No token (offline)"
+                    recipientEmail,
+                    notificationType,
+                    null,
+                    title,
+                    body,
+                    referenceId,
+                    targetUrl,
+                    Instant.now(),
+                    false,
+                    "No token (offline)"
             ));
             return;
         }
@@ -111,12 +129,14 @@ public class NotificationService {
                     .setMutableContent(true)      // enables notification service extension (if you have one)
                     .setSound("default");
 
-            // If you want these keys inside "aps":
+            // Custom metadata inside "aps"
             apsBuilder.putCustomData("notificationType", safe(notificationType));
             apsBuilder.putCustomData("referenceId", safe(referenceId));
             apsBuilder.putCustomData("targetUrl", safe(targetUrl));
             apsBuilder.putCustomData("title", safe(title));
             apsBuilder.putCustomData("body", safe(body));
+            apsBuilder.putCustomData("channelId", safe(channelId));
+            apsBuilder.putCustomData("category", safe(category));
             apnsBuilder.setAps(apsBuilder.build());
 
             Message msg = Message.builder()
@@ -135,6 +155,8 @@ public class NotificationService {
                     .putData("title", safe(title))
                     .putData("body", safe(body))
                     .putData("icon", safe(iconUrl))
+                    .putData("channelId", safe(channelId))
+                    .putData("category", safe(category))
                     .setAndroidConfig(androidConfig)
                     .setApnsConfig(apnsBuilder.build()) // <-- iOS APNs
                     .build();
@@ -150,8 +172,16 @@ public class NotificationService {
             logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
         } finally {
             notificationLogRepo.save(new NotificationLog(
-                    recipientEmail, notificationType, recipientFcmTokenOrNull, title, body, referenceId, targetUrl,
-                    Instant.now(), success, errorMessage
+                    recipientEmail,
+                    notificationType,
+                    recipientFcmTokenOrNull,
+                    title,
+                    body,
+                    referenceId,
+                    targetUrl,
+                    Instant.now(),
+                    success,
+                    errorMessage
             ));
         }
     }
@@ -173,11 +203,22 @@ public class NotificationService {
         if (tokens == null || tokens.isEmpty()) {
             logger.info("No tokens for {}, skipping FCM.", recipientEmail);
             notificationLogRepo.save(new NotificationLog(
-                    recipientEmail, notificationType, null, title, body, referenceId, targetUrl,
-                    Instant.now(), false, "No tokens provided"
+                    recipientEmail,
+                    notificationType,
+                    null,
+                    title,
+                    body,
+                    referenceId,
+                    targetUrl,
+                    Instant.now(),
+                    false,
+                    "No tokens provided"
             ));
             return;
         }
+
+        String channelId = channelForType(notificationType);
+        String category = categoryForType(notificationType);
 
         for (String token : tokens) {
             boolean success = false;
@@ -203,6 +244,8 @@ public class NotificationService {
                 apsBuilder.putCustomData("targetUrl", safe(targetUrl));
                 apsBuilder.putCustomData("title", safe(title));
                 apsBuilder.putCustomData("body", safe(body));
+                apsBuilder.putCustomData("channelId", safe(channelId));
+                apsBuilder.putCustomData("category", safe(category));
                 apnsBuilder.setAps(apsBuilder.build());
 
                 Message msg = Message.builder()
@@ -220,6 +263,8 @@ public class NotificationService {
                         .putData("title", safe(title))
                         .putData("body", safe(body))
                         .putData("icon", safe(iconUrl))
+                        .putData("channelId", safe(channelId))
+                        .putData("category", safe(category))
                         .setAndroidConfig(androidConfig)
                         .setApnsConfig(apnsBuilder.build())
                         .build();
@@ -235,8 +280,16 @@ public class NotificationService {
                 logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
             } finally {
                 notificationLogRepo.save(new NotificationLog(
-                        recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
-                        Instant.now(), success, errorMessage
+                        recipientEmail,
+                        notificationType,
+                        token,
+                        title,
+                        body,
+                        referenceId,
+                        targetUrl,
+                        Instant.now(),
+                        success,
+                        errorMessage
                 ));
             }
         }
@@ -300,5 +353,53 @@ public class NotificationService {
         ));
     }
 
-    private static String safe(String s) { return s == null ? "" : s; }
+    // ---------------------- helpers ----------------------
+
+    private static String safe(String s) {
+        return s == null ? "" : s;
+    }
+
+    /**
+     * Map notification types into Android channel IDs.
+     * Keep this in sync with your native channel creation if you add a wrapper.
+     */
+    private String channelForType(String type) {
+        if (type == null) return "general";
+        switch (type) {
+            case "alert":
+            case "group_status":
+            case "PLAN_ACTIVATION":
+                return "alerts";
+            case "comment_on_post":
+            case "comment_thread_reply":
+                return "conversations";
+            case "new_member":
+            case "pending_member":
+                return "membership";
+            default:
+                return "general";
+        }
+    }
+
+    /**
+     * Map notification types into high-level categories (used as hints by frontends).
+     */
+    private String categoryForType(String type) {
+        if (type == null) return "SYSTEM";
+        switch (type) {
+            case "alert":
+                return "ALERT_CHECKIN";
+            case "group_status":
+            case "PLAN_ACTIVATION":
+                return "ALERT_GROUP";
+            case "comment_on_post":
+            case "comment_thread_reply":
+                return "COMMENT";
+            case "new_member":
+            case "pending_member":
+                return "MEMBERSHIP";
+            default:
+                return "SYSTEM";
+        }
+    }
 }

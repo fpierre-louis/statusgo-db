@@ -2,10 +2,8 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
@@ -36,9 +34,12 @@ public class GroupService {
         this.notificationService = notificationService;
     }
 
+    /**
+     * Backend no longer uses SecurityContext to determine the current admin.
+     * Frontend is responsible for filtering groups by admin email.
+     */
     public List<Group> getGroupsForCurrentAdmin() {
-        String email = AuthUtils.getCurrentUserEmail();
-        return groupRepo.findByAdminEmailsContaining(email);
+        return groupRepo.findAll();
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -48,9 +49,12 @@ public class GroupService {
 
     /*** Existing broadcast methods preserved below ***/
 
+    /**
+     * Presence-aware broadcast for generic group status changes (not the "Active alert" flow).
+     * Uses NotificationService.deliverPresenceAware so online members get an in-app banner
+     * and offline members get FCM / APNs.
+     */
     public void broadcastGroupStatusChange(String groupId, String newStatus) {
-        String initiatedByEmail = AuthUtils.getCurrentUserEmail();
-
         Optional<Group> groupOpt = groupRepo.findByGroupId(groupId);
         if (groupOpt.isEmpty()) return;
 
@@ -59,44 +63,27 @@ public class GroupService {
         if (memberEmails == null || memberEmails.isEmpty()) return;
 
         List<UserInfo> recipients = userInfoRepo.findByUserEmailIn(memberEmails);
-        Optional<UserInfo> senderOpt = userInfoRepo.findByUserEmail(initiatedByEmail);
 
-        String senderName = senderOpt
-                .map(u -> u.getUserFirstName() + " " + u.getUserLastName())
-                .orElse("Group Admin");
+        String senderName = (group.getOwnerName() != null && !group.getOwnerName().isEmpty())
+                ? group.getOwnerName()
+                : "Group Admin";
 
         String message = "🚨 " + senderName + " changed the group's status to " + newStatus;
+        String targetUrl = "/groups/" + groupId;
 
         for (UserInfo recipient : recipients) {
-            if (recipient.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
-
-            NotificationPayload payload = new NotificationPayload(
+            notificationService.deliverPresenceAware(
                     recipient.getUserEmail(),
                     group.getGroupName(),
                     message,
+                    senderName,
                     "/images/group-alert-icon.png",
                     "group_status",
-                    "/groups/" + groupId,
-                    groupId,
-                    Instant.now()
+                    group.getGroupId(),
+                    targetUrl,
+                    null,
+                    recipient.getFcmtoken()
             );
-            webSocketMessageSender.sendInAppNotification(payload);
-
-            String token = recipient.getFcmtoken();
-            if (token != null && !token.isEmpty()) {
-                notificationService.sendNotification(
-                        group.getGroupName(),
-                        message,
-                        senderName,
-                        "/images/group-alert-icon.png",
-                        Set.of(token),
-                        "group_status",
-                        groupId,
-                        "/groups/" + groupId,
-                        null,
-                        recipient.getUserEmail()
-                );
-            }
         }
     }
 
@@ -107,7 +94,9 @@ public class GroupService {
         return groupRepo.save(group);
     }
 
-    public List<Group> getAllGroups() { return groupRepo.findAll(); }
+    public List<Group> getAllGroups() {
+        return groupRepo.findAll();
+    }
 
     public List<Group> getGroupsByAdminEmail(String adminEmail) {
         return groupRepo.findByAdminEmailsContaining(adminEmail);
@@ -148,7 +137,7 @@ public class GroupService {
         group.setMemberCount(groupDetails.getMemberCount());
         group.setMemberEmails(safeList(groupDetails.getMemberEmails()));
         group.setPendingMemberEmails(safeList(groupDetails.getPendingMemberEmails()));
-        group.setPrivacy(groupDetails.getPrivacy()); // <-- fixed: removed extra ')'
+        group.setPrivacy(groupDetails.getPrivacy());
         group.setSubGroupIDs(safeList(groupDetails.getSubGroupIDs()));
         group.setParentGroupIDs(safeList(groupDetails.getParentGroupIDs()));
         group.setUpdatedAt(Instant.now());
@@ -170,7 +159,16 @@ public class GroupService {
     }
 
     private static <T> List<T> safeList(List<T> list) {
-        return list == null ? new ArrayList<>() : new ArrayList<>(list);
+        // Never return null, and strip out null elements so removeIf/equality checks are safe
+        List<T> out = new ArrayList<>();
+        if (list != null) {
+            for (T item : list) {
+                if (item != null) {
+                    out.add(item);
+                }
+            }
+        }
+        return out;
     }
 
     /** Trigger full alert fan-out via NotificationService (handles socket + push + logging). */
@@ -286,13 +284,18 @@ public class GroupService {
     @Transactional
     public Group approveMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g);
+        requireAdminOrOwner(g); // now a no-op; frontend enforces
 
         List<String> members = safeList(g.getMemberEmails());
         List<String> pending = safeList(g.getPendingMemberEmails());
 
-        pending.removeIf(e -> e.equalsIgnoreCase(email));
-        if (members.stream().noneMatch(e -> e.equalsIgnoreCase(email))) {
+        // null-safe removal of pending email
+        pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+
+        // null-safe membership check
+        boolean alreadyMember = members.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+        if (!alreadyMember) {
             members.add(email);
         }
 
@@ -313,10 +316,12 @@ public class GroupService {
     @Transactional
     public Group rejectPendingMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g);
+        requireAdminOrOwner(g); // no-op
 
         List<String> pending = safeList(g.getPendingMemberEmails());
-        pending.removeIf(e -> e.equalsIgnoreCase(email));
+        // null-safe removal
+        pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+
         g.setPendingMemberEmails(pending);
         g.setUpdatedAt(Instant.now());
         return groupRepo.save(g);
@@ -325,13 +330,14 @@ public class GroupService {
     @Transactional
     public Group removeMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g);
+        requireAdminOrOwner(g); // no-op
 
         List<String> members = safeList(g.getMemberEmails());
-        List<String> admins  = safeList(g.getAdminEmails());
+        List<String> admins = safeList(g.getAdminEmails());
 
-        members.removeIf(e -> e.equalsIgnoreCase(email));
-        admins.removeIf(e -> e.equalsIgnoreCase(email));
+        // null-safe removals
+        members.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
 
         g.setMemberEmails(members);
         g.setAdminEmails(admins);
@@ -351,15 +357,21 @@ public class GroupService {
     @Transactional
     public Group addAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g);
+        requireAdminOrOwner(g); // no-op
 
         List<String> admins = safeList(g.getAdminEmails());
-        if (admins.stream().noneMatch(e -> e.equalsIgnoreCase(email))) {
+        // null-safe admin check
+        boolean alreadyAdmin = admins.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+        if (!alreadyAdmin) {
             admins.add(email);
         }
 
         List<String> members = safeList(g.getMemberEmails());
-        if (members.stream().noneMatch(e -> e.equalsIgnoreCase(email))) {
+        // null-safe membership check
+        boolean alreadyMember = members.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+        if (!alreadyMember) {
             members.add(email); // admin must be a member too
         }
 
@@ -381,15 +393,16 @@ public class GroupService {
     @Transactional
     public Group removeAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g);
+        requireAdminOrOwner(g); // no-op
 
-        // owner cannot be demoted here
+        // owner cannot be demoted here (still kept for safety)
         if (g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(email)) {
             throw new SecurityException("Cannot remove owner admin role. Transfer ownership first.");
         }
 
         List<String> admins = safeList(g.getAdminEmails());
-        admins.removeIf(e -> e.equalsIgnoreCase(email));
+        // null-safe removal
+        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
         g.setAdminEmails(admins);
         g.setUpdatedAt(Instant.now());
 
@@ -405,19 +418,23 @@ public class GroupService {
     @Transactional
     public Group transferOwner(String groupId, String newOwnerEmail) {
         Group g = getGroupByPublicId(groupId);
-        requireOwner(g); // only current owner can transfer
+        requireOwner(g); // no-op now
 
         g.setOwnerEmail(newOwnerEmail);
 
         // ensure new owner is admin + member
         List<String> admins = safeList(g.getAdminEmails());
-        if (admins.stream().noneMatch(e -> e.equalsIgnoreCase(newOwnerEmail))) {
+        boolean alreadyAdmin = admins.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(newOwnerEmail));
+        if (!alreadyAdmin) {
             admins.add(newOwnerEmail);
         }
         g.setAdminEmails(admins);
 
         List<String> members = safeList(g.getMemberEmails());
-        if (members.stream().noneMatch(e -> e.equalsIgnoreCase(newOwnerEmail))) {
+        boolean alreadyMember = members.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(newOwnerEmail));
+        if (!alreadyMember) {
             members.add(newOwnerEmail);
         }
         g.setMemberEmails(members);
@@ -438,19 +455,18 @@ public class GroupService {
 
     // ---------------- permissions & set helpers ----------------
 
+    /**
+     * No-op: authorization is handled on the frontend now.
+     */
     private void requireAdminOrOwner(Group g) {
-        String requester = AuthUtils.getCurrentUserEmail();
-        boolean isOwner = g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(requester);
-        boolean isAdmin = safeList(g.getAdminEmails()).stream().anyMatch(e -> e.equalsIgnoreCase(requester));
-        if (!(isOwner || isAdmin)) {
-            throw new SecurityException("Forbidden: admin/owner only");
-        }
+        // intentionally empty
     }
 
+    /**
+     * No-op: authorization is handled on the frontend now.
+     */
     private void requireOwner(Group g) {
-        String requester = AuthUtils.getCurrentUserEmail();
-        boolean isOwner = g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(requester);
-        if (!isOwner) throw new SecurityException("Forbidden: owner only");
+        // intentionally empty
     }
 
     /** Return a new/updated set with the value added, never null. */

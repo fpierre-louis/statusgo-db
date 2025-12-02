@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
  * - Creates/updates/deletes comments
  * - Broadcasts EXACTLY ONCE after successful commit
  * - Enriches author fields for clients (name, avatar)
+ * - Sends presence-aware notifications (e.g., "comment on your post")
  */
 @Service
 public class CommentService {
@@ -35,17 +36,20 @@ public class CommentService {
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender ws;
+    private final NotificationService notificationService;
 
     public CommentService(
             CommentRepo commentRepo,
             PostRepo postRepo,
             UserInfoRepo userInfoRepo,
-            WebSocketMessageSender ws
+            WebSocketMessageSender ws,
+            NotificationService notificationService
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.ws = ws;
+        this.notificationService = notificationService;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -78,11 +82,18 @@ public class CommentService {
 
         // Broadcast AFTER COMMIT to avoid duplicates on rollback
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
+            @Override
+            public void afterCommit() {
                 try {
                     ws.sendNewComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for new comment id={}", saved.getId(), e);
+                }
+
+                try {
+                    notifyPostAuthorOnNewComment(saved, out);
+                } catch (Exception e) {
+                    log.error("Notification fan-out failed for new comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -122,7 +133,8 @@ public class CommentService {
         enrichAuthor(out);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
+            @Override
+            public void afterCommit() {
                 try {
                     // Reuse same topic for create/edit deltas
                     ws.sendNewComment(saved.getPostId(), out);
@@ -149,7 +161,8 @@ public class CommentService {
 
         Long pid = postId;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
+            @Override
+            public void afterCommit() {
                 try {
                     ws.sendCommentDeletion(pid, commentId);
                 } catch (Exception e) {
@@ -173,7 +186,8 @@ public class CommentService {
         bumpCommentsCount(postId, -1);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
+            @Override
+            public void afterCommit() {
                 try {
                     ws.sendCommentDeletion(postId, id);
                 } catch (Exception e) {
@@ -303,5 +317,66 @@ public class CommentService {
             d.setAuthorLastName(u.getUserLastName());
             d.setAuthorProfileImageURL(u.getProfileImageURL());
         });
+    }
+
+    /**
+     * Notify the post author when someone else comments on their post.
+     */
+    private void notifyPostAuthorOnNewComment(Comment savedComment, CommentDto enrichedDto) {
+        Long postId = savedComment.getPostId();
+        if (postId == null) return;
+
+        Optional<Post> postOpt = postRepo.findById(postId);
+        if (postOpt.isEmpty()) return;
+
+        Post post = postOpt.get();
+        String postAuthorEmail = post.getAuthor();
+        if (postAuthorEmail == null) return;
+
+        // Don't notify the author about their own comment
+        if (savedComment.getAuthor() != null &&
+                savedComment.getAuthor().equalsIgnoreCase(postAuthorEmail)) {
+            return;
+        }
+
+        Optional<UserInfo> ownerOpt = userInfoRepo.findByUserEmail(postAuthorEmail);
+        if (ownerOpt.isEmpty()) return;
+
+        UserInfo owner = ownerOpt.get();
+
+        String commenterName = enrichedDto.getAuthorFirstName() != null
+                ? enrichedDto.getAuthorFirstName()
+                : "Someone";
+
+        String title = "New comment in your group";
+        if (post.getGroupName() != null && !post.getGroupName().isBlank()) {
+            title = "New comment in " + post.getGroupName();
+        }
+
+        String body = commenterName + " commented: " + snippet(enrichedDto.getContent());
+        String iconUrl = enrichedDto.getAuthorProfileImageURL();
+
+        // Deep-link to the post. Service worker already prefers targetUrl first.
+        String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();
+
+        notificationService.deliverPresenceAware(
+                owner.getUserEmail(),
+                title,
+                body,
+                commenterName,
+                iconUrl,
+                "comment_on_post",
+                String.valueOf(post.getId()),
+                targetUrl,
+                null,
+                owner.getFcmtoken()
+        );
+    }
+
+    private String snippet(String content) {
+        if (content == null) return "";
+        String trimmed = content.trim();
+        if (trimmed.length() <= 80) return trimmed;
+        return trimmed.substring(0, 77) + "...";
     }
 }
