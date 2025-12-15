@@ -1,2 +1,7 @@
-package io.sitprep.sitprepapi.domain;public class RSMemberStatus {
+package io.sitprep.sitprepapi.domain;
+
+public enum RSMemberStatus {
+    PENDING,
+    ACTIVE,
+    REMOVED
 }

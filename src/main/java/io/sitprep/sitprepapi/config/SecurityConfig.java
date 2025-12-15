@@ -50,7 +50,8 @@ public class SecurityConfig {
                 "https://statusnow.app",
                 "https://www.statusnow.app",
                 "https://www.sitprep.app",
-                "https://sitprep.app"
+                "https://sitprep.app",
+                "https://dreamy-creponne-4a63fb.netlify.app"
         ));
 
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

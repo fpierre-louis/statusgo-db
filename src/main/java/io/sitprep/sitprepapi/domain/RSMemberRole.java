@@ -1,2 +1,7 @@
-package io.sitprep.sitprepapi.domain;public class RSMemberRole {
+package io.sitprep.sitprepapi.domain;
+
+public enum RSMemberRole {
+    OWNER,
+    ADMIN,
+    MEMBER
 }

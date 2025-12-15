@@ -5,8 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.GenericGenerator; // Keep import for now if other places use it
-import org.hibernate.annotations.UuidGenerator; // ✅ NEW: Import for UUID generation
+import org.hibernate.annotations.UuidGenerator;
+
 import java.time.Instant;
 import java.util.Set;
 
@@ -17,11 +17,16 @@ import java.util.Set;
 @AllArgsConstructor
 @Table(name = "user_info")
 public class UserInfo {
+
     @Id
-    @GeneratedValue // ✅ FIX: Use default strategy or specify generation type
-    @UuidGenerator // ✅ FIX: Use @UuidGenerator for UUID generation strategy
+    @GeneratedValue
+    @UuidGenerator
     @Column(name = "user_id", unique = true, updatable = false)
     private String id;
+
+    // ✅ NEW: stable identity key across SitPrep + Rediscover
+    @Column(name = "firebase_uid", unique = true)
+    private String firebaseUid;
 
     @Column(name = "user_first_name", nullable = false)
     private String userFirstName;
