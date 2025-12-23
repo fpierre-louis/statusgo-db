@@ -1,11 +1,10 @@
+// src/main/java/io/sitprep/sitprepapi/service/RSGroupService.java
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.domain.RSGroup;
-import io.sitprep.sitprepapi.domain.RSGroupMember;
-import io.sitprep.sitprepapi.domain.RSMemberRole;
-import io.sitprep.sitprepapi.domain.RSMemberStatus;
+import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.RSGroupMemberDto;
 import io.sitprep.sitprepapi.dto.RSGroupMemberMapper;
+import io.sitprep.sitprepapi.dto.RSGroupUpsertRequest;
 import io.sitprep.sitprepapi.repo.RSGroupMemberRepo;
 import io.sitprep.sitprepapi.repo.RSGroupRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -30,8 +29,9 @@ public class RSGroupService {
     // Groups
     // --------------------------
 
+    /** Public browsing endpoint should only return: not private + discoverable */
     public List<RSGroup> getPublicGroups() {
-        return groupRepo.findByIsPrivateFalseOrderByCreatedAtDesc();
+        return groupRepo.findByIsPrivateFalseAndIsDiscoverableTrueOrderByCreatedAtDesc();
     }
 
     public Optional<RSGroup> getById(String id) {
@@ -45,7 +45,6 @@ public class RSGroupService {
         List<String> ids = memberRepo.findActiveGroupIdsForEmail(email, RSMemberStatus.ACTIVE);
         if (ids.isEmpty()) return List.of();
 
-        // For MVP: OK if order is not guaranteed by DB. We sort by createdAt desc.
         List<RSGroup> groups = groupRepo.findAllById(ids);
         groups.sort(Comparator.comparing(RSGroup::getCreatedAt).reversed());
         return groups;
@@ -67,17 +66,27 @@ public class RSGroupService {
     // --------------------------
 
     @Transactional
-    public RSGroup createGroup(RSGroup incoming, String emailFallback) {
+    public RSGroup createGroup(RSGroupUpsertRequest incoming, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
 
         RSGroup g = new RSGroup();
         g.setName(requireNonBlank(incoming.getName(), "name"));
         g.setSportType(requireNonBlank(incoming.getSportType(), "sportType"));
         g.setDescription(incoming.getDescription());
-        g.setPrivate(incoming.isPrivate());
+
+        // privacy (default false)
+        g.setPrivate(Boolean.TRUE.equals(incoming.getIsPrivate()));
+
+        // policy overrides (only if sent)
+        if (incoming.getIsDiscoverable() != null) g.setDiscoverable(incoming.getIsDiscoverable());
+        if (incoming.getAllowPublicEvents() != null) g.setAllowPublicEvents(incoming.getAllowPublicEvents());
+        if (incoming.getDefaultEventVisibility() != null) g.setDefaultEventVisibility(incoming.getDefaultEventVisibility());
+
         g.setOwnerEmail(actor);
         g.setCreatedAt(Instant.now());
         g.setUpdatedAt(Instant.now());
+
+        enforceGroupPolicyConsistency(g);
 
         RSGroup saved = groupRepo.save(g);
 
@@ -97,16 +106,28 @@ public class RSGroupService {
     }
 
     @Transactional
-    public RSGroup updateGroup(String id, RSGroup incoming, String emailFallback) {
-        RSGroup g = groupRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + id));
+    public RSGroup updateGroup(String id, RSGroupUpsertRequest incoming, String emailFallback) {
+        RSGroup g = groupRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + id));
         String actor = mustResolveEmail(emailFallback);
 
         requireOwnerOrAdmin(id, actor);
 
-        if (incoming.getName() != null && !incoming.getName().isBlank()) g.setName(incoming.getName().trim());
-        if (incoming.getSportType() != null && !incoming.getSportType().isBlank()) g.setSportType(incoming.getSportType().trim());
+        if (nonBlank(incoming.getName())) g.setName(incoming.getName().trim());
+        if (nonBlank(incoming.getSportType())) g.setSportType(incoming.getSportType().trim());
         if (incoming.getDescription() != null) g.setDescription(incoming.getDescription());
-        g.setPrivate(incoming.isPrivate());
+
+        // privacy (only if sent)
+        if (incoming.getIsPrivate() != null) {
+            g.setPrivate(incoming.getIsPrivate());
+        }
+
+        // policy (only if sent)
+        if (incoming.getIsDiscoverable() != null) g.setDiscoverable(incoming.getIsDiscoverable());
+        if (incoming.getAllowPublicEvents() != null) g.setAllowPublicEvents(incoming.getAllowPublicEvents());
+        if (incoming.getDefaultEventVisibility() != null) g.setDefaultEventVisibility(incoming.getDefaultEventVisibility());
+
+        enforceGroupPolicyConsistency(g);
 
         g.setUpdatedAt(Instant.now());
         return groupRepo.save(g);
@@ -117,18 +138,45 @@ public class RSGroupService {
         String actor = mustResolveEmail(emailFallback);
         requireOwner(groupId, actor);
 
-        // delete memberships first (safe for MVP)
         List<RSGroupMember> members = memberRepo.findByGroupIdOrderByCreatedAtAsc(groupId);
         memberRepo.deleteAll(members);
 
         groupRepo.deleteById(groupId);
     }
 
+    private void enforceGroupPolicyConsistency(RSGroup g) {
+        // Private groups should never be discoverable and should not allow public events.
+        if (g.isPrivate()) {
+            g.setDiscoverable(false);
+            g.setAllowPublicEvents(false);
+
+            if (g.getDefaultEventVisibility() == null) {
+                g.setDefaultEventVisibility(RSEventVisibility.GROUP_ONLY);
+            }
+
+            // Clamp unsafe default
+            if (g.getDefaultEventVisibility() == RSEventVisibility.DISCOVERABLE_PUBLIC) {
+                g.setDefaultEventVisibility(RSEventVisibility.GROUP_ONLY);
+            }
+
+            return;
+        }
+
+        // Public groups: safe default
+        if (g.getDefaultEventVisibility() == null) {
+            g.setDefaultEventVisibility(RSEventVisibility.GROUP_ONLY);
+        }
+
+        // If public events disabled, default cannot be DISCOVERABLE_PUBLIC.
+        if (!g.isAllowPublicEvents() && g.getDefaultEventVisibility() == RSEventVisibility.DISCOVERABLE_PUBLIC) {
+            g.setDefaultEventVisibility(RSEventVisibility.GROUP_ONLY);
+        }
+    }
+
     // --------------------------
     // Membership flows (DTO-returning)
     // --------------------------
 
-    /** Invite creates/updates membership as PENDING (owner/admin only) */
     @Transactional
     public RSGroupMemberDto inviteMember(String groupId, String memberEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
@@ -154,12 +202,10 @@ public class RSGroupService {
 
         memberRepo.save(m);
 
-        // Re-fetch with userInfo join so DTO includes names/image when available
         RSGroupMember hydrated = memberRepo.findOneWithUserInfo(groupId, target).orElse(m);
         return RSGroupMemberMapper.toDto(hydrated);
     }
 
-    /** Approve flips PENDING -> ACTIVE (owner/admin only) */
     @Transactional
     public RSGroupMemberDto approveMember(String groupId, String memberEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
@@ -178,7 +224,6 @@ public class RSGroupService {
         return RSGroupMemberMapper.toDto(hydrated);
     }
 
-    /** Self-join for PUBLIC groups: creates ACTIVE membership immediately */
     @Transactional
     public RSGroupMemberDto joinPublicGroup(String groupId, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
@@ -206,13 +251,13 @@ public class RSGroupService {
         return RSGroupMemberMapper.toDto(hydrated);
     }
 
-    /** Remove member (owner/admin). Owner can’t be removed. */
     @Transactional
     public void removeMember(String groupId, String memberEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
         requireOwnerOrAdmin(groupId, actor);
 
-        RSGroup group = groupRepo.findById(groupId).orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + groupId));
+        RSGroup group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + groupId));
         String target = normalize(memberEmail);
         if (target == null || target.isBlank()) throw new IllegalArgumentException("memberEmail required");
 
@@ -228,7 +273,6 @@ public class RSGroupService {
         memberRepo.save(m);
     }
 
-    /** Promote/demote (owner only) */
     @Transactional
     public RSGroupMemberDto setRole(String groupId, String memberEmail, RSMemberRole role, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
@@ -243,7 +287,6 @@ public class RSGroupService {
         RSGroupMember m = memberRepo.findByGroupIdAndMemberEmailIgnoreCase(groupId, target)
                 .orElseThrow(() -> new IllegalArgumentException("Membership not found"));
 
-        // Owner role is locked to the group's ownerEmail
         if (normalize(group.getOwnerEmail()).equalsIgnoreCase(target)) {
             m.setRole(RSMemberRole.OWNER);
         } else {
@@ -279,7 +322,8 @@ public class RSGroupService {
     }
 
     public void requireOwner(String groupId, String email) {
-        RSGroup g = groupRepo.findById(groupId).orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + groupId));
+        RSGroup g = groupRepo.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + groupId));
         if (!normalize(g.getOwnerEmail()).equalsIgnoreCase(normalize(email))) {
             throw new IllegalArgumentException("Only the owner can perform this action.");
         }
@@ -305,6 +349,10 @@ public class RSGroupService {
 
     private String normalize(String email) {
         return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private boolean nonBlank(String s) {
+        return s != null && !s.isBlank();
     }
 
     private String requireNonBlank(String value, String field) {
