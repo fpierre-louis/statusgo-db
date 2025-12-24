@@ -34,7 +34,8 @@ public class RSEvent {
 
     // ---------------- Core Event Fields ----------------
 
-    @Column(name = "rs_group_id", nullable = false)
+    // RSEvent.java
+    @Column(name = "rs_group_id", nullable = true)
     private String groupId;
 
     @Column(name = "title", nullable = false)

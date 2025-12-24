@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +26,12 @@ public class RSEventService {
 
     private static final List<RSAttendanceStatus> COUNTABLE_STATUSES =
             List.of(RSAttendanceStatus.GOING, RSAttendanceStatus.MAYBE);
+
+    private static final List<RSEventAttendeeRole> EDITOR_ROLES =
+            List.of(RSEventAttendeeRole.HOST, RSEventAttendeeRole.COHOST);
+
     private static final Logger log = LoggerFactory.getLogger(RSEventService.class);
+
     private final RSEventRepo eventRepo;
     private final RSEventAttendanceRepo attendanceRepo;
     private final RSGroupRepo groupRepo;
@@ -43,10 +49,6 @@ public class RSEventService {
         this.groupService = groupService;
     }
 
-    /* =========================================================
-       READS
-       ========================================================= */
-
     public List<RSEventDto> getEventsForGroup(String groupId, String emailFallback) {
         String viewer = resolveEmail(emailFallback);
 
@@ -63,7 +65,7 @@ public class RSEventService {
         List<RSEvent> events = eventRepo.findByGroupIdHydrated(groupId);
 
         return enrichForViewer(
-                filterByVisibilityForViewer(events, viewer, myGroupIds, Map.of(groupId, g)),
+                filterByVisibilityForViewer(events, viewer, myGroupIds),
                 viewer,
                 myGroupIds
         );
@@ -75,13 +77,31 @@ public class RSEventService {
         RSEvent e = eventRepo.findByIdHydrated(id).orElse(null);
         if (e == null) return Optional.empty();
 
+        Set<String> myGroupIds = getMyActiveGroupIds(viewer);
+
+        // ✅ Standalone event (no groupId): allow if public, or viewer is creator, or viewer is an attendee.
+        if (isBlank(e.getGroupId())) {
+            if (e.getVisibility() == RSEventVisibility.DISCOVERABLE_PUBLIC) {
+                // ok
+            } else {
+                if (viewer == null) return Optional.empty();
+
+                boolean isCreator = viewer.equalsIgnoreCase(e.getCreatedByEmail());
+                boolean isAttendee = attendanceRepo
+                        .findByEventIdAndAttendeeEmailIgnoreCase(e.getId(), viewer)
+                        .isPresent();
+
+                if (!isCreator && !isAttendee) return Optional.empty();
+            }
+
+            return enrichForViewer(List.of(e), viewer, myGroupIds).stream().findFirst();
+        }
+
         RSGroup g = groupRepo.findById(e.getGroupId()).orElse(null);
         if (g == null) return Optional.empty();
 
-        Set<String> myGroupIds = getMyActiveGroupIds(viewer);
-
         List<RSEvent> filtered = filterByVisibilityForViewer(
-                List.of(e), viewer, myGroupIds, Map.of(g.getId(), g)
+                List.of(e), viewer, myGroupIds
         );
 
         if (filtered.isEmpty()) return Optional.empty();
@@ -119,35 +139,40 @@ public class RSEventService {
                         new ArrayList<>(myGroupIds), start, end, page
                 );
 
+        List<RSEvent> myCreatedEvents =
+                (viewer == null || viewer.isBlank())
+                        ? List.of()
+                        : eventRepo.findLightByCreatorBetween(viewer, start, end, page);
+
         Map<String, RSEvent> merged = new LinkedHashMap<>();
         publicEvents.forEach(e -> merged.put(e.getId(), e));
         myGroupEvents.forEach(e -> merged.put(e.getId(), e));
+        myCreatedEvents.forEach(e -> merged.put(e.getId(), e));
 
         return enrichForViewer(
                 filterByVisibilityForViewer(
                         new ArrayList<>(merged.values()),
                         viewer,
-                        myGroupIds,
-                        null
+                        myGroupIds
                 ),
                 viewer,
                 myGroupIds
         );
     }
 
-    /* =========================================================
-       WRITES
-       ========================================================= */
-
     @Transactional
     public RSEventDto createEvent(RSEventUpsertRequest req, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
 
-        RSGroup g = groupRepo.findById(req.getGroupId())
-                .orElseThrow(() -> new IllegalArgumentException("RSGroup not found"));
+        String groupId = normalizeBlankToNull(req.getGroupId());
+
+        if (groupId != null) {
+            groupRepo.findById(groupId)
+                    .orElseThrow(() -> new IllegalArgumentException("RSGroup not found"));
+        }
 
         RSEvent e = new RSEvent();
-        e.setGroupId(req.getGroupId());
+        e.setGroupId(groupId);
         e.setTitle(req.getTitle());
         e.setEventType(req.getEventType());
         e.setStartsAt(req.getStartsAt());
@@ -156,7 +181,18 @@ public class RSEventService {
         e.setAddress(req.getAddress());
         e.setLatitude(req.getLatitude());
         e.setLongitude(req.getLongitude());
-        e.setVisibility(req.getVisibility() != null ? req.getVisibility() : RSEventVisibility.GROUP_ONLY);
+
+        RSEventVisibility requested = req.getVisibility();
+        if (groupId == null) {
+            if (requested == null || requested == RSEventVisibility.GROUP_ONLY) {
+                e.setVisibility(RSEventVisibility.INVITE_ONLY);
+            } else {
+                e.setVisibility(requested);
+            }
+        } else {
+            e.setVisibility(requested != null ? requested : RSEventVisibility.GROUP_ONLY);
+        }
+
         e.setCreatedByEmail(actor);
         e.setCreatedAt(Instant.now());
         e.setUpdatedAt(Instant.now());
@@ -175,6 +211,9 @@ public class RSEventService {
         RSEvent e = eventRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Event not found"));
 
+        // ✅ ENFORCE: only creator/HOST/COHOST can update
+        requireEditor(id, actor, e);
+
         if (req.getTitle() != null) e.setTitle(req.getTitle());
         if (req.getStartsAt() != null) e.setStartsAt(req.getStartsAt());
         if (req.getEndsAt() != null) e.setEndsAt(req.getEndsAt());
@@ -188,9 +227,17 @@ public class RSEventService {
 
     @Transactional
     public void deleteEvent(String id, String emailFallback) {
-        mustResolveEmail(emailFallback);
+        String actor = mustResolveEmail(emailFallback);
+
+        RSEvent e = eventRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Event not found"));
+
+        // ✅ ENFORCE: only creator/HOST/COHOST can delete
+        requireEditor(id, actor, e);
+
         eventRepo.deleteById(id);
     }
+
     @Transactional
     public RSEventDto toggleAttend(String id, String emailFallback, String attendeeOverride) {
         String actor = mustResolveEmail(emailFallback);
@@ -201,7 +248,8 @@ public class RSEventService {
         attendanceRepo.findByEventIdAndAttendeeEmailIgnoreCase(id, attendee)
                 .ifPresentOrElse(
                         existing -> {
-                            log.info("toggleAttend: removing existing attendance id={}, status={}", existing.getId(), existing.getStatus());
+                            log.info("toggleAttend: removing existing attendance id={}, status={}",
+                                    existing.getId(), existing.getStatus());
                             attendanceRepo.delete(existing);
                         },
                         () -> {
@@ -216,13 +264,15 @@ public class RSEventService {
         return getById(id, actor).orElseThrow();
     }
 
-    /* =========================================================
-       JOIN REQUEST MODERATION
-       ========================================================= */
-
     @Transactional
     public RSEventDto approveJoinRequest(String eventId, String targetEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
+
+        RSEvent e = eventRepo.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Event not found"));
+
+        // ✅ ENFORCE: only creator/HOST/COHOST can approve requests
+        requireEditor(eventId, actor, e);
 
         RSEventAttendance row = attendanceRepo
                 .findByEventIdAndAttendeeEmailIgnoreCase(eventId, normalize(targetEmail))
@@ -239,16 +289,18 @@ public class RSEventService {
     public RSEventDto rejectJoinRequest(String eventId, String targetEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
 
+        RSEvent e = eventRepo.findById(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Event not found"));
+
+        // ✅ ENFORCE: only creator/HOST/COHOST can reject requests
+        requireEditor(eventId, actor, e);
+
         attendanceRepo
                 .findByEventIdAndAttendeeEmailIgnoreCase(eventId, normalize(targetEmail))
                 .ifPresent(attendanceRepo::delete);
 
         return getById(eventId, actor).orElseThrow();
     }
-
-    /* =========================================================
-       HELPERS
-       ========================================================= */
 
     private void upsertAttendance(String eventId, String email,
                                   RSAttendanceStatus status,
@@ -291,15 +343,19 @@ public class RSEventService {
         return email == null ? null : email.trim().toLowerCase();
     }
 
-    /* =========================================================
-       VISIBILITY + ENRICHMENT
-       ========================================================= */
+    private String normalizeBlankToNull(String v) {
+        String s = v == null ? null : v.trim();
+        return (s == null || s.isEmpty()) ? null : s;
+    }
+
+    private boolean isBlank(String v) {
+        return v == null || v.trim().isEmpty();
+    }
 
     private List<RSEvent> filterByVisibilityForViewer(
             List<RSEvent> events,
             String viewer,
-            Set<String> myGroupIds,
-            Map<String, RSGroup> groupById
+            Set<String> myGroupIds
     ) {
         if (events == null) return List.of();
 
@@ -307,7 +363,10 @@ public class RSEventService {
                 .filter(e -> {
                     if (e.getVisibility() == RSEventVisibility.DISCOVERABLE_PUBLIC) return true;
                     if (viewer == null) return false;
-                    if (myGroupIds.contains(e.getGroupId())) return true;
+
+                    String gid = e.getGroupId();
+                    if (gid != null && myGroupIds.contains(gid)) return true;
+
                     return viewer.equalsIgnoreCase(e.getCreatedByEmail());
                 })
                 .toList();
@@ -322,7 +381,6 @@ public class RSEventService {
 
         Set<String> ids = events.stream().map(RSEvent::getId).collect(Collectors.toSet());
 
-        // Count GOING/MAYBE per event
         Map<String, Long> counts = attendanceRepo
                 .countAcrossEvents(ids, COUNTABLE_STATUSES)
                 .stream()
@@ -331,17 +389,14 @@ public class RSEventService {
                         r -> r.getCnt() == null ? 0L : r.getCnt()
                 ));
 
-        // ✅ Pull attendee emails per event (GOING/MAYBE only)
         Map<String, Set<String>> attendeeEmailsByEvent = new HashMap<>();
         attendanceRepo
                 .findAttendeeEmailsAcrossEvents(ids, COUNTABLE_STATUSES)
-                .forEach(row -> {
-                    attendeeEmailsByEvent
-                            .computeIfAbsent(row.getEventId(), k -> new LinkedHashSet<>())
-                            .add(row.getAttendeeEmail());
-                });
+                .forEach(row -> attendeeEmailsByEvent
+                        .computeIfAbsent(row.getEventId(), k -> new LinkedHashSet<>())
+                        .add(row.getAttendeeEmail())
+                );
 
-        // Optional: viewer status per event (helps UI, not required)
         Map<String, RSAttendanceStatus> viewerStatusByEvent = new HashMap<>();
         if (viewer != null && !viewer.isBlank()) {
             attendanceRepo.findForViewerAcrossEvents(viewer, ids).forEach(a -> {
@@ -353,10 +408,8 @@ public class RSEventService {
                 .map(e -> {
                     Set<String> attendeeEmails = attendeeEmailsByEvent.getOrDefault(e.getId(), Set.of());
                     Integer attendeeCount = counts.getOrDefault(e.getId(), 0L).intValue();
-
                     RSAttendanceStatus viewerStatus = viewerStatusByEvent.get(e.getId());
 
-                    // viewerCanJoin / joinBlockReason can be computed later; keep null for now
                     return RSEventMapper.toDto(
                             e,
                             attendeeCount,
@@ -367,5 +420,23 @@ public class RSEventService {
                     );
                 })
                 .toList();
+    }
+
+    /**
+     * ✅ Creator OR HOST/COHOST can edit.
+     * Throws IllegalArgumentException so your existing controller handler returns 400.
+     */
+    private void requireEditor(String eventId, String actor, RSEvent e) {
+        if (actor == null || actor.isBlank()) throw new IllegalArgumentException("Unauthorized");
+
+        if (e != null && actor.equalsIgnoreCase(e.getCreatedByEmail())) return;
+
+        boolean ok = attendanceRepo.existsByEventIdAndAttendeeEmailIgnoreCaseAndRoleIn(
+                eventId,
+                actor,
+                EDITOR_ROLES
+        );
+
+        if (!ok) throw new IllegalArgumentException("FORBIDDEN");
     }
 }

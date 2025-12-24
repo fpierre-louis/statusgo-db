@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.RSEventAttendance;
 import io.sitprep.sitprepapi.domain.RSAttendanceStatus;
+import io.sitprep.sitprepapi.domain.RSEventAttendeeRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,6 +14,13 @@ import java.util.Optional;
 public interface RSEventAttendanceRepo extends JpaRepository<RSEventAttendance, String> {
 
     Optional<RSEventAttendance> findByEventIdAndAttendeeEmailIgnoreCase(String eventId, String attendeeEmail);
+
+    // ✅ NEW: fast role check for backend permissions (HOST/COHOST)
+    boolean existsByEventIdAndAttendeeEmailIgnoreCaseAndRoleIn(
+            String eventId,
+            String attendeeEmail,
+            Collection<RSEventAttendeeRole> roles
+    );
 
     long countByEventIdAndStatusIn(String eventId, Collection<RSAttendanceStatus> statuses);
 

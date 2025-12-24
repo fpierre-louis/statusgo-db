@@ -1,4 +1,3 @@
-// src/main/java/io/sitprep/sitprepapi/repo/RSEventRepo.java
 package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.RSEvent;
@@ -15,7 +14,6 @@ import java.util.Optional;
 
 public interface RSEventRepo extends JpaRepository<RSEvent, String> {
 
-    // Latest events overall (light), capped by Pageable
     @Query("""
         select e
         from RSEvent e
@@ -23,7 +21,6 @@ public interface RSEventRepo extends JpaRepository<RSEvent, String> {
     """)
     List<RSEvent> findAllLatest(Pageable pageable);
 
-    // Hydrated for DTO mapping (creator only; attendeeEmails derived from attendance table now)
     @Query("""
         select distinct e
         from RSEvent e
@@ -48,8 +45,6 @@ public interface RSEventRepo extends JpaRepository<RSEvent, String> {
         where e.id in :ids
     """)
     List<RSEvent> findByIdInHydrated(@Param("ids") Collection<String> ids);
-
-    // ----- “Light” queries for feed (limit/paging safe) -----
 
     @Query("""
         select e
@@ -76,4 +71,18 @@ public interface RSEventRepo extends JpaRepository<RSEvent, String> {
                                              @Param("from") Instant from,
                                              @Param("to") Instant to,
                                              Pageable pageable);
+
+    // ✅ NEW: include events created by the viewer (standalone + group)
+    @Query("""
+        select e
+        from RSEvent e
+        where lower(e.createdByEmail) = lower(:email)
+          and e.startsAt >= :from
+          and e.startsAt <= :to
+        order by e.startsAt asc
+    """)
+    List<RSEvent> findLightByCreatorBetween(@Param("email") String email,
+                                            @Param("from") Instant from,
+                                            @Param("to") Instant to,
+                                            Pageable pageable);
 }

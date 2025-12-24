@@ -1,58 +1,72 @@
 spring:
-  # --- DATASOURCE CONFIGURATION (for PostgreSQL) ---
+  # --- DATASOURCE CONFIGURATION (PostgreSQL) ---
   datasource:
-    url: jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j
-    username: ud96qhmmahggsm
-    password: pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037
+    url: ${JDBC_DATABASE_URL:jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j}
+    username: ${JDBC_DATABASE_USERNAME:ud96qhmmahggsm}
+    password: ${JDBC_DATABASE_PASSWORD:pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_POOL_CONN_TIMEOUT_MS:30000}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
 
   # --- JPA & HIBERNATE CONFIGURATION ---
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    open-in-view: false
+    show-sql: ${JPA_SHOW_SQL:false}
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${HIBERNATE_FORMAT_SQL:false}
         default_batch_fetch_size: 50
-
-  # --- REDIS CONFIGURATION (for WebSocket Message Broker) ---
-  data:
-    redis:
-      host: localhost
-      port: 6379
-
-  # --- WEBSOCKET CONFIGURATION FIX (Add this section) ---
-  websocket:
-    # Fixes CloseStatus[code=1009] by increasing the max message buffer size to 5MB.
-    frame-max-message-size: 5242880
-
-# --- SERVER CONFIGURATION ---
-server:
-  use-forward-headers: true
 
   # --- FILE UPLOAD SIZE LIMIT FIX (CRITICAL FOR 500 ERROR) ---
   servlet:
     multipart:
-      max-file-size: 50MB   # Max size for a single file part
-      max-request-size: 50MB # Max size for the entire request payload
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  # --- REDIS CONFIGURATION (for WebSocket Message Broker) ---
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      ssl: ${REDIS_SSL:false}
+
+  # --- WEBSOCKET CONFIGURATION (kept; plus add standard buffer props) ---
+  websocket:
+    # If your Java WebSocketConfig reads this, keep it:
+    frame-max-message-size: ${WS_FRAME_MAX_BYTES:5242880}
+
+# --- SERVER CONFIGURATION ---
+server:
+  # preferred in newer Spring Boot over use-forward-headers
+  forward-headers-strategy: framework
+
+  # avoids issues with large payloads being swallowed by Tomcat
+  tomcat:
+    max-swallow-size: -1
+    max-http-form-post-size: 50MB
 
 # --- APPLICATION SPECIFIC PROPERTIES ---
 app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
-  jwtExpirationMs: 86400000
+  jwtExpirationMs: ${APP_JWT_EXPIRATION_MS:86400000}
 
 # --- LOGGING CONFIGURATION ---
 logging:
   level:
     org:
       springframework:
-        security: DEBUG
-        messaging: DEBUG
+        security: ${LOG_SECURITY_LEVEL:INFO}
+        messaging: ${LOG_MESSAGING_LEVEL:INFO}
         web:
-          socket: DEBUG
+          socket: ${LOG_WEBSOCKET_LEVEL:INFO}
 
 # --- FIREBASE CONFIGURATION ---
 firebase:
-  project-id: sitprep-new
+  project-id: ${FIREBASE_PROJECT_ID:sitprep-new}

@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.dto.RSEventDto;
 import io.sitprep.sitprepapi.dto.RSEventUpsertRequest;
 import io.sitprep.sitprepapi.service.RSEventService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -104,8 +105,26 @@ public class RSEventResource {
         return service.rejectJoinRequest(id, body.get("email"), email);
     }
 
+    /**
+     * Map our service-layer guard rails to proper HTTP status codes:
+     * - "Unauthorized" / "Email required" -> 401
+     * - "FORBIDDEN" / "PRIVATE_GROUP" -> 403
+     * - everything else -> 400
+     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<String> badRequest(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(ex.getMessage());
+        String msg = ex.getMessage() == null ? "" : ex.getMessage();
+
+        if ("FORBIDDEN".equalsIgnoreCase(msg) || "PRIVATE_GROUP".equalsIgnoreCase(msg)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(msg);
+        }
+
+        if ("UNAUTHORIZED".equalsIgnoreCase(msg)
+                || "Unauthorized".equalsIgnoreCase(msg)
+                || "Email required".equalsIgnoreCase(msg)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(msg);
+        }
+
+        return ResponseEntity.badRequest().body(msg);
     }
 }
