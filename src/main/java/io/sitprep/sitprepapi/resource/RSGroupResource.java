@@ -93,6 +93,14 @@ public class RSGroupResource {
         return ResponseEntity.ok(service.joinPublicGroup(id, email));
     }
 
+    /** ✅ NEW: self-removal / leave group */
+    @PostMapping("/{id}/members/leave")
+    public ResponseEntity<Void> leave(@PathVariable String id,
+                                      @RequestParam(value = "email", required = false) String email) {
+        service.leaveGroup(id, email);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/members/remove")
     public ResponseEntity<Void> remove(@PathVariable String id,
                                        @RequestBody Map<String, String> body,

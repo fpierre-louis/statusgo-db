@@ -251,6 +251,28 @@ public class RSGroupService {
         return RSGroupMemberMapper.toDto(hydrated);
     }
 
+    /** ✅ NEW: allow a member to remove THEMSELVES (leave group) */
+    @Transactional
+    public void leaveGroup(String groupId, String emailFallback) {
+        String actor = mustResolveEmail(emailFallback);
+
+        RSGroup group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("RSGroup not found: " + groupId));
+
+        // Owner can’t leave without an ownership transfer flow
+        if (normalize(group.getOwnerEmail()).equalsIgnoreCase(normalize(actor))) {
+            throw new IllegalArgumentException("Owner cannot leave the group. Transfer ownership or delete the group.");
+        }
+
+        RSGroupMember m = memberRepo.findByGroupIdAndMemberEmailIgnoreCase(groupId, actor)
+                .orElseThrow(() -> new IllegalArgumentException("Membership not found"));
+
+        // Idempotent-ish: if already removed, just update timestamp
+        m.setStatus(RSMemberStatus.REMOVED);
+        m.setUpdatedAt(Instant.now());
+        memberRepo.save(m);
+    }
+
     @Transactional
     public void removeMember(String groupId, String memberEmail, String emailFallback) {
         String actor = mustResolveEmail(emailFallback);
