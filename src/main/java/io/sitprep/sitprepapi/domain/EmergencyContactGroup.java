@@ -25,7 +25,7 @@ public class EmergencyContactGroup {
     @Column(nullable = false)
     private String name;
 
-    @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JsonManagedReference // ✅ Prevents infinite recursion
     private List<EmergencyContact> contacts = new ArrayList<>();
 

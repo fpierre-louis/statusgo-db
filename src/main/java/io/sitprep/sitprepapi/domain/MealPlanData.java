@@ -18,7 +18,7 @@ public class MealPlanData {
     @Column(nullable = false, unique = true)
     private String ownerEmail;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "mealPlanData", fetch = FetchType.LAZY)
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "mealPlanData", fetch = FetchType.EAGER)
     @JsonManagedReference
     private List<MealPlan> mealPlan = new ArrayList<>();
 

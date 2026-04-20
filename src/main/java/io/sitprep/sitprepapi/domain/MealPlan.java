@@ -19,13 +19,13 @@ public class MealPlan {
     @JsonBackReference
     private MealPlanData mealPlanData;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "meal_plan_meals_v2", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
     @Column(name = "meal_name")
     private Map<String, String> meals = new HashMap<>();
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "meal_plan_ingredients_v2", joinColumns = @JoinColumn(name = "meal_plan_id"))
     @MapKeyColumn(name = "meal_type")
     @Column(name = "ingredients")

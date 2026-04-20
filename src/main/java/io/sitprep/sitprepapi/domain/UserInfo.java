@@ -67,12 +67,12 @@ public class UserInfo {
     @Column(name = "fcm_token")
     private String fcmtoken;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "managed_group_id")
     private Set<String> managedGroupIDs;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_joined_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;

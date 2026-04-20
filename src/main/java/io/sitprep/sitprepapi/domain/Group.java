@@ -17,7 +17,7 @@ public class Group {
     @Column(name = "group_id", unique = true, nullable = false)
     private String groupId;  // UUID as primary ID (VARCHAR)
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "admin_email")
     private List<String> adminEmails;
@@ -31,24 +31,24 @@ public class Group {
     private String lastUpdatedBy;
     private Integer memberCount;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "member_email")
     private List<String> memberEmails;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_pending_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "pending_member_email")
     private List<String> pendingMemberEmails;
 
     private String privacy;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_sub_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "sub_group_id")
     private List<String> subGroupIDs;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_parent_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "parent_group_id")
     private List<String> parentGroupIDs;

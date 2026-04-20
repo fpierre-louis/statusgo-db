@@ -37,7 +37,7 @@ public class Post {
     @Transient
     private String base64Image;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     private Map<String, Integer> reactions = new HashMap<>();
 
     /** user-initiated edit moment */
@@ -47,12 +47,12 @@ public class Post {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     private List<String> tags = new ArrayList<>();
 
     private int commentsCount = 0;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     private List<String> mentions = new ArrayList<>();
 
     @PrePersist
