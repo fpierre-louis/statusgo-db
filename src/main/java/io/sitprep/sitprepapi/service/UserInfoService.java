@@ -106,7 +106,9 @@ public class UserInfoService {
         String norm = Optional.ofNullable(email).map(String::trim).map(String::toLowerCase)
                 .orElseThrow(() -> new IllegalArgumentException("email required"));
 
-        UserInfo entity = userInfoRepo.findByUserEmailIgnoreCase(norm).orElseGet(() -> {
+        Optional<UserInfo> existing = userInfoRepo.findByUserEmailIgnoreCase(norm);
+        boolean isNew = existing.isEmpty();
+        UserInfo entity = existing.orElseGet(() -> {
             UserInfo u = new UserInfo();
             u.setUserEmail(norm);
             u.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
@@ -119,19 +121,14 @@ public class UserInfoService {
             entity.setFirebaseUid(patch.getFirebaseUid().trim());
         }
 
-        if (patch.getUserFirstName() != null) entity.setUserFirstName(patch.getUserFirstName());
-        if (patch.getUserLastName()  != null) entity.setUserLastName(patch.getUserLastName());
-        if (patch.getProfileImageURL()!= null) entity.setProfileImageURL(patch.getProfileImageURL());
-        if (patch.getPhone()         != null) entity.setPhone(patch.getPhone());
-        if (patch.getAddress()       != null) entity.setAddress(patch.getAddress());
-        if (patch.getUserStatus()    != null) entity.setUserStatus(patch.getUserStatus());
-        if (patch.getStatusColor()   != null) entity.setStatusColor(patch.getStatusColor());
-        if (patch.getManagedGroupIDs()!= null) entity.setManagedGroupIDs(patch.getManagedGroupIDs());
-        if (patch.getJoinedGroupIDs()!= null) entity.setJoinedGroupIDs(patch.getJoinedGroupIDs());
-        if (patch.getSubscription()  != null) entity.setSubscription(patch.getSubscription());
-        if (patch.getSubscriptionPackage()!= null) entity.setSubscriptionPackage(patch.getSubscriptionPackage());
-        if (patch.getDateSubscribed()!= null) entity.setDateSubscribed(patch.getDateSubscribed());
-        if (patch.getFcmtoken()      != null) entity.setFcmtoken(patch.getFcmtoken());
+        // Profile fields (always safe to apply on merge)
+        applyPatch(entity, patch);
+
+        // System fields (status / subscription / FCM / group membership) are
+        // ONLY initialized on create. On merge we preserve whatever is already
+        // on the entity — those flow through their dedicated APIs
+        // (patchUser, /api/groups/* membership endpoints, billing).
+        if (isNew) applyInitialSystemDefaults(entity, patch);
 
         try {
             return userInfoRepo.save(entity);
@@ -185,9 +182,22 @@ public class UserInfoService {
         created.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
         created.setUserLastName(Optional.ofNullable(patch.getUserLastName()).orElse(""));
         applyPatch(created, patch);
+        applyInitialSystemDefaults(created, patch);
         return userInfoRepo.save(created);
     }
 
+    /**
+     * Apply user-editable profile fields from the incoming patch onto an
+     * existing or new entity. Safe to call on merge — we only touch data that
+     * the user controls through the profile UI.
+     *
+     * IMPORTANT: do NOT add system fields here (status, subscription, FCM
+     * token, group membership). Those must only be initialized in
+     * {@link #applyInitialSystemDefaults} on create, and mutated via their
+     * dedicated APIs thereafter. Adding them here previously let auth upserts
+     * silently wipe existing membership, status, and subscription state any
+     * time the frontend's default "safe" patch came through.
+     */
     private void applyPatch(UserInfo entity, UserInfo patch) {
         if (patch == null) return;
 
@@ -196,15 +206,33 @@ public class UserInfoService {
         if (patch.getProfileImageURL()!= null) entity.setProfileImageURL(patch.getProfileImageURL());
         if (patch.getPhone()         != null) entity.setPhone(patch.getPhone());
         if (patch.getAddress()       != null) entity.setAddress(patch.getAddress());
-        if (patch.getUserStatus()    != null) entity.setUserStatus(patch.getUserStatus());
-        if (patch.getStatusColor()   != null) entity.setStatusColor(patch.getStatusColor());
-        if (patch.getManagedGroupIDs()!= null) entity.setManagedGroupIDs(patch.getManagedGroupIDs());
-        if (patch.getJoinedGroupIDs()!= null) entity.setJoinedGroupIDs(patch.getJoinedGroupIDs());
-        if (patch.getSubscription()  != null) entity.setSubscription(patch.getSubscription());
-        if (patch.getSubscriptionPackage()!= null) entity.setSubscriptionPackage(patch.getSubscriptionPackage());
-        if (patch.getDateSubscribed()!= null) entity.setDateSubscribed(patch.getDateSubscribed());
-        if (patch.getFcmtoken()      != null) entity.setFcmtoken(patch.getFcmtoken());
+        if (patch.getTitle()         != null) entity.setTitle(patch.getTitle());
+        if (patch.getLatitude()      != null) entity.setLatitude(patch.getLatitude());
+        if (patch.getLongitude()     != null) entity.setLongitude(patch.getLongitude());
 
         // email handled by caller (uid upsert may need special rules)
+    }
+
+    /**
+     * Set initial system-field defaults — only ever invoked on create. These
+     * fields are managed via dedicated endpoints (status PATCH, membership
+     * APIs, billing, FCM registration) after creation; never clobber them on
+     * merge.
+     */
+    private void applyInitialSystemDefaults(UserInfo entity, UserInfo patch) {
+        entity.setUserStatus(patch != null && patch.getUserStatus() != null
+                ? patch.getUserStatus() : "NO RESPONSE");
+        entity.setStatusColor(patch != null && patch.getStatusColor() != null
+                ? patch.getStatusColor() : "Gray");
+        entity.setSubscription(patch != null && patch.getSubscription() != null
+                ? patch.getSubscription() : "Basic");
+        entity.setSubscriptionPackage(patch != null && patch.getSubscriptionPackage() != null
+                ? patch.getSubscriptionPackage() : "Monthly");
+        if (patch != null && patch.getDateSubscribed() != null) {
+            entity.setDateSubscribed(patch.getDateSubscribed());
+        }
+        // fcmtoken intentionally unset — registered via dedicated FCM update.
+        // managedGroupIDs / joinedGroupIDs intentionally unset — user joins
+        // groups via /api/groups/* membership APIs.
     }
 }

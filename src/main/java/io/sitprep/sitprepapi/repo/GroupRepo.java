@@ -12,8 +12,14 @@ import java.util.Optional;
 @Repository
 public interface GroupRepo extends JpaRepository<Group, String> {
 
-    @Query("SELECT g FROM Group g JOIN g.adminEmails a WHERE a = ?1")
-    List<Group> findByAdminEmail(String adminEmail);
+    @Query("SELECT g FROM Group g JOIN g.adminEmails a WHERE LOWER(a) = LOWER(:email)")
+    List<Group> findByAdminEmail(@Param("email") String email);
+
+    // Authoritative lookup for "groups this user belongs to" — reads the
+    // Group side (member_emails) directly rather than relying on the
+    // denormalized UserInfo.joinedGroupIDs cache. Case-insensitive.
+    @Query("SELECT g FROM Group g JOIN g.memberEmails m WHERE LOWER(m) = LOWER(:email)")
+    List<Group> findByMemberEmail(@Param("email") String email);
 
     // ✅ For UUID-based lookup by public groupId
     Optional<Group> findByGroupId(String groupId);

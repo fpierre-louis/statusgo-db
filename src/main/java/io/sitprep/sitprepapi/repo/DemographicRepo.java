@@ -22,6 +22,13 @@ public interface DemographicRepo extends JpaRepository<Demographic, String> {
      */
     Optional<Demographic> findByOwnerEmailIgnoreCase(String ownerEmail);
 
+    /**
+     * Duplicate-tolerant lookup — picks the most recently inserted row.
+     * Use this in new code; the plain {@link #findByOwnerEmailIgnoreCase} can
+     * throw NonUniqueResultException when legacy data has duplicate rows.
+     */
+    Optional<Demographic> findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(String ownerEmail);
+
     // ✅ Admin Email – MEMBER OF collection field
     @Query("SELECT d FROM Demographic d WHERE :adminEmail MEMBER OF d.adminEmails")
     List<Demographic> findByAdminEmail(String adminEmail);
