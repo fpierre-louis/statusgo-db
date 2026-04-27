@@ -32,7 +32,20 @@ public class Post {
     /** created-at */
     private Instant timestamp;
 
+    /**
+     * Legacy: inline JPEG bytes. Kept temporarily so existing rows still
+     * render. New posts write {@link #imageKey} instead. Drop this column
+     * once any pre-R2 rows have been migrated or evicted.
+     */
     private byte[] image;
+
+    /**
+     * R2 object key for posts uploaded via the {@code /api/images} pipe.
+     * Format: {@code post/<uuid>.jpg}. Null when the post has no image
+     * or predates the R2 migration.
+     */
+    @Column(name = "image_key")
+    private String imageKey;
 
     @Transient
     private String base64Image;

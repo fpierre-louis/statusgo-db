@@ -18,6 +18,22 @@ public class PostDto {
     /** createdAt */
     private Instant timestamp;
 
+    /**
+     * R2 object key. Set on write to attach an image uploaded via
+     * {@code POST /api/images}. Set on read when the post has an
+     * {@code imageKey} stored — clients should prefer {@link #imageUrl}.
+     */
+    private String imageKey;
+
+    /** Public delivery URL derived from {@link #imageKey} via PublicCdn. Read-only. */
+    private String imageUrl;
+
+    /**
+     * Legacy inline base64-encoded image. Populated on read when a post
+     * has only the old bytea column (pre-R2). Writers should prefer
+     * {@code imageKey}; this path is kept for back-compat until all
+     * pre-R2 rows are migrated.
+     */
     private String base64Image;
     private Map<String, Integer> reactions;
 

@@ -29,7 +29,8 @@ public class PostResource {
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
             @RequestParam("authorEmail") String authorEmail,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+            @RequestParam(value = "imageKey", required = false) String imageKey
     ) {
         try {
             final String postAuthor = authorEmail;
@@ -42,6 +43,7 @@ public class PostResource {
             postDto.setContent(content);
             postDto.setGroupId(groupId);
             postDto.setGroupName(groupName);
+            postDto.setImageKey(imageKey);
 
             PostDto savedPost = postService.createPostWithFile(postDto, imageFile, postAuthor);
             return ResponseEntity.status(201).body(savedPost);
@@ -85,6 +87,7 @@ public class PostResource {
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+            @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam(value = "mentions", required = false) List<String> mentions,
             @RequestParam(value = "authorEmail", required = false) String authorEmail
@@ -110,6 +113,12 @@ public class PostResource {
         post.setTags(tags);
         post.setMentions(mentions);
         post.setEditedAt(Instant.now());
+
+        // imageKey wins — clear the legacy bytea when migrating a post.
+        if (imageKey != null && !imageKey.isBlank()) {
+            post.setImageKey(imageKey.trim());
+            post.setImage(null);
+        }
 
         Post updatedPost = postService.updatePost(post, imageFile, actor);
         return ResponseEntity.ok(updatedPost);

@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -72,7 +73,12 @@ public class PostService {
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
 
-        if (imageFile != null && !imageFile.isEmpty()) {
+        // Prefer R2 imageKey if the client has already uploaded via
+        // /api/images. Falls back to legacy multipart imageFile bytea so
+        // older clients keep working until they're rolled forward.
+        if (postDto.getImageKey() != null && !postDto.getImageKey().isBlank()) {
+            post.setImageKey(postDto.getImageKey().trim());
+        } else if (imageFile != null && !imageFile.isEmpty()) {
             try {
                 post.setImage(imageFile.getBytes());
             } catch (IOException e) {
@@ -115,7 +121,9 @@ public class PostService {
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
 
-        if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
+        if (postDto.getImageKey() != null && !postDto.getImageKey().isBlank()) {
+            post.setImageKey(postDto.getImageKey().trim());
+        } else if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
             String[] parts = postDto.getBase64Image().split(",", 2);
             String encodedImage = parts.length == 2 ? parts[1] : parts[0];
             byte[] imageBytes = Base64.getDecoder().decode(encodedImage);
@@ -148,6 +156,9 @@ public class PostService {
             }
         }
 
+        // imageKey is set by the controller before this method is called,
+        // straight from the dto/form param. Multipart imageFile path stays
+        // around for back-compat; new clients should upload via /api/images.
         if (imageFile != null && !imageFile.isEmpty()) {
             post.setImage(imageFile.getBytes());
         }
@@ -194,12 +205,21 @@ public class PostService {
         post.setTags(dto.getTags());
         post.setMentions(dto.getMentions());
 
-        if (dto.getBase64Image() != null && !dto.getBase64Image().isEmpty()) {
+        // Image edits: clients send {imageKey} for new R2 uploads, or omit
+        // both fields to clear the image. Legacy base64Image path stays for
+        // pre-R2 clients until they're rolled forward.
+        if (dto.getImageKey() != null && !dto.getImageKey().isBlank()) {
+            post.setImageKey(dto.getImageKey().trim());
+            post.setImage(null); // moving from bytea -> R2; drop the old bytes
+        } else if (dto.getBase64Image() != null && !dto.getBase64Image().isEmpty()) {
             String[] parts = dto.getBase64Image().split(",", 2);
             String encodedImage = parts.length == 2 ? parts[1] : parts[0];
             post.setImage(Base64.getDecoder().decode(encodedImage));
-        } else if (dto.getBase64Image() == null && post.getImage() != null) {
+            post.setImageKey(null);
+        } else {
+            // Both image fields cleared — strip whatever's on the row.
             post.setImage(null);
+            post.setImageKey(null);
         }
 
         Post updated = postRepo.save(post);
@@ -331,7 +351,11 @@ public class PostService {
         dto.setTimestamp(post.getTimestamp());
         dto.setEditedAt(post.getEditedAt());
         dto.setUpdatedAt(post.getUpdatedAt());
-        if (post.getImage() != null) {
+        // R2 path wins. Pre-R2 rows still render via inline base64.
+        if (post.getImageKey() != null && !post.getImageKey().isBlank()) {
+            dto.setImageKey(post.getImageKey());
+            dto.setImageUrl(PublicCdn.toPublicUrl(post.getImageKey()));
+        } else if (post.getImage() != null) {
             String b64 = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + b64);
         }
@@ -358,7 +382,10 @@ public class PostService {
         dto.setTimestamp(post.getTimestamp());
         dto.setEditedAt(post.getEditedAt());
         dto.setUpdatedAt(post.getUpdatedAt());
-        if (post.getImage() != null) {
+        if (post.getImageKey() != null && !post.getImageKey().isBlank()) {
+            dto.setImageKey(post.getImageKey());
+            dto.setImageUrl(PublicCdn.toPublicUrl(post.getImageKey()));
+        } else if (post.getImage() != null) {
             String b64 = java.util.Base64.getEncoder().encodeToString(post.getImage());
             dto.setBase64Image("data:image/jpeg;base64," + b64);
         }
