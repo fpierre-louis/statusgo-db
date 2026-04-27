@@ -3,11 +3,21 @@ package io.sitprep.sitprepapi.dto;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Core /me payload — profile, household, groups, readiness, meta.
+ *
+ * Plans (mealPlan, evacuation, meetingPlaces, originLocations, contacts)
+ * were dropped from this DTO and live behind {@code GET /api/me/{uid}/plans}
+ * (see {@link MePlansDto}). The dashboard / nav / status surfaces don't
+ * need them; only {@code me/plans/*} pages do.
+ *
+ * Readiness existence flags (which steps are done) still live here so the
+ * dashboard ring renders from one round trip.
+ */
 public record MeDto(
         ProfileDto profile,
         HouseholdDto household,
         GroupsDto groups,
-        PlansDto plans,
         ReadinessDto readiness,
         MetaDto meta
 ) {
@@ -70,59 +80,6 @@ public record MeDto(
             String role,
             String alert,
             Instant updatedAt
-    ) {}
-
-    public record PlansDto(
-            MealPlanSummary mealPlan,
-            List<EvacPlanSummary> evacuation,
-            List<MeetingPlaceSummary> meetingPlaces,
-            List<OriginLocationSummary> originLocations,
-            List<EmergencyContactGroupSummary> emergencyContactGroups
-    ) {}
-
-    public record MealPlanSummary(
-            Long id,
-            Integer planDurationQuantity,
-            String planDurationUnit,
-            int numberOfMenuOptions,
-            int planCount
-    ) {}
-
-    public record EvacPlanSummary(
-            Long id,
-            String name,
-            String origin,
-            String destination,
-            boolean deploy,
-            String shelterName,
-            Double lat,
-            Double lng,
-            String travelMode
-    ) {}
-
-    public record MeetingPlaceSummary(
-            Long id,
-            String name,
-            String location,
-            String address,
-            String phoneNumber,
-            Double lat,
-            Double lng,
-            boolean deploy
-    ) {}
-
-    public record OriginLocationSummary(
-            Long id,
-            String name,
-            String address,
-            Double lat,
-            Double lng
-    ) {}
-
-    public record EmergencyContactGroupSummary(
-            Long id,
-            String name,
-            int contactCount
     ) {}
 
     public record ReadinessDto(

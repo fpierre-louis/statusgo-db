@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.MeDto;
+import io.sitprep.sitprepapi.dto.MePlansDto;
 import io.sitprep.sitprepapi.service.MeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,23 @@ public class MeResource {
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
             log.error("MeResource.getMe failed for uid={}", uid, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Lazy plans payload. {@code me/plans/*} pages call this on demand;
+     * the dashboard / nav / status surfaces never do. Keeps the main /me
+     * response from shipping five plan arrays nobody renders.
+     */
+    @GetMapping("/{uid}/plans")
+    public ResponseEntity<MePlansDto> getMyPlans(@PathVariable String uid) {
+        try {
+            return meService.buildMePlans(uid)
+                    .map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            log.error("MeResource.getMyPlans failed for uid={}", uid, e);
             throw e;
         }
     }

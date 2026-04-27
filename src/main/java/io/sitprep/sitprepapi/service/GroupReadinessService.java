@@ -67,6 +67,15 @@ public class GroupReadinessService {
                         (a, b) -> a
                 ));
 
+        // --- Batched readiness existence: 4 queries instead of 4×N. ---
+        // Each repo returns the lower-cased subset of memberEmails that have
+        // at least one row of the given type. memberEmails is already
+        // lower-cased + normalized in normalizeEmailList above.
+        Set<String> withDemo = demographicRepo.findOwnerEmailsIn(memberEmails);
+        Set<String> withMeal = mealPlanDataRepo.findOwnerEmailsIn(memberEmails);
+        Set<String> withEvac = evacuationPlanRepo.findOwnerEmailsIn(memberEmails);
+        Set<String> withContacts = emergencyContactGroupRepo.findOwnerEmailsIn(memberEmails);
+
         int membersWithDemographic = 0;
         int membersWithMealPlan = 0;
         int membersWithEvacuationPlan = 0;
@@ -79,11 +88,10 @@ public class GroupReadinessService {
         Map<String, Integer> statusCounts = new HashMap<>();
 
         for (String normEmail : memberEmails) {
-            // ❗ Use existsBy... so duplicates never cause NonUniqueResultException
-            boolean hasDemo = demographicRepo.existsByOwnerEmailIgnoreCase(normEmail);
-            boolean hasMeal = mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(normEmail).isPresent();
-            boolean hasEvac = !evacuationPlanRepo.findByOwnerEmail(normEmail).isEmpty();
-            boolean hasContacts = !emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(normEmail).isEmpty();
+            boolean hasDemo = withDemo.contains(normEmail);
+            boolean hasMeal = withMeal.contains(normEmail);
+            boolean hasEvac = withEvac.contains(normEmail);
+            boolean hasContacts = withContacts.contains(normEmail);
 
             if (hasDemo) membersWithDemographic++;
             if (hasMeal) membersWithMealPlan++;
@@ -168,6 +176,18 @@ public class GroupReadinessService {
             int memberCount = emails.size();
             totalHouseholdMembers += memberCount;
 
+            // Same 4-queries-per-household pattern as the parent group above.
+            // For groups with many households, this is still a big win — was
+            // 4×membersPerHousehold queries each.
+            Set<String> demoSet = emails.isEmpty() ? Collections.emptySet()
+                    : demographicRepo.findOwnerEmailsIn(emails);
+            Set<String> mealSet = emails.isEmpty() ? Collections.emptySet()
+                    : mealPlanDataRepo.findOwnerEmailsIn(emails);
+            Set<String> evacSet = emails.isEmpty() ? Collections.emptySet()
+                    : evacuationPlanRepo.findOwnerEmailsIn(emails);
+            Set<String> contactsSet = emails.isEmpty() ? Collections.emptySet()
+                    : emergencyContactGroupRepo.findOwnerEmailsIn(emails);
+
             int withDemo = 0;
             int withMeal = 0;
             int withEvac = 0;
@@ -175,11 +195,10 @@ public class GroupReadinessService {
             int fullyReady = 0;
 
             for (String email : emails) {
-                // Same simple existence checks here
-                boolean hasDemo = demographicRepo.existsByOwnerEmailIgnoreCase(email);
-                boolean hasMeal = mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email).isPresent();
-                boolean hasEvac = !evacuationPlanRepo.findByOwnerEmail(email).isEmpty();
-                boolean hasContacts = !emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email).isEmpty();
+                boolean hasDemo = demoSet.contains(email);
+                boolean hasMeal = mealSet.contains(email);
+                boolean hasEvac = evacSet.contains(email);
+                boolean hasContacts = contactsSet.contains(email);
 
                 if (hasDemo) withDemo++;
                 if (hasMeal) withMeal++;

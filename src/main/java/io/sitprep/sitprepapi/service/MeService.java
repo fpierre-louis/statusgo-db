@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MeDto.*;
+import io.sitprep.sitprepapi.dto.MePlansDto;
 import io.sitprep.sitprepapi.repo.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,17 +17,23 @@ import java.util.function.Supplier;
 /**
  * Assembles the consolidated {@link MeDto} for GET /api/me/{uid}.
  *
- * Design note: this endpoint is the single hydration point for the client's
+ * <p>Plans (mealPlan, evacuation, meetingPlaces, originLocations, contacts)
+ * were split out of the main DTO and live behind {@code GET /api/me/{uid}/plans}
+ * (returns {@link MePlansDto}). The dashboard / nav / status surfaces don't
+ * need them; only {@code me/plans/*} pages do. Readiness existence flags
+ * stay on {@link MeDto#readiness()} via cheap {@code existsBy*} queries.</p>
+ *
+ * <p>Design note: this endpoint is the single hydration point for the client's
  * MeContext, so partial data beats a 500. Every sub-fetch is wrapped in
  * {@link #safeGet} — if demographics has a duplicate row, meal plan table is
  * mid-migration, or a single group id is dirty, we log + degrade to null/empty
- * rather than failing the whole payload.
+ * rather than failing the whole payload.</p>
  */
 @Service
 public class MeService {
 
     private static final Logger log = LoggerFactory.getLogger(MeService.class);
-    private static final int DTO_VERSION = 1;
+    private static final int DTO_VERSION = 2;
 
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
@@ -63,37 +70,37 @@ public class MeService {
         return userInfoRepo.findByFirebaseUid(firebaseUid.trim()).map(this::assemble);
     }
 
+    /** Lazy plans payload — only fetched when {@code me/plans/*} pages need it. */
+    @Transactional(readOnly = true)
+    public Optional<MePlansDto> buildMePlans(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
+        return userInfoRepo.findByFirebaseUid(firebaseUid.trim()).map(this::assemblePlans);
+    }
+
     private MeDto assemble(UserInfo user) {
         String email = Optional.ofNullable(user.getUserEmail())
                 .map(String::trim).map(String::toLowerCase).orElse("");
         String logCtx = "uid=" + user.getFirebaseUid() + " email=" + email;
 
+        // Demographic stays inline — used for HouseholdDto.demographic AND
+        // for the demographicsDone readiness flag, so a single fetch.
         Demographic demographic = safeGet("demographic", logCtx,
                 () -> demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email)
                         .orElse(null),
                 null);
-        MealPlanData mealPlan = safeGet("mealPlan", logCtx,
-                () -> mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email).orElse(null),
-                null);
-        List<EvacuationPlan> evacPlans = safeGet("evacPlans", logCtx,
-                () -> evacuationPlanRepo.findByOwnerEmail(email),
-                List.of());
-        List<MeetingPlace> meetingPlaces = safeGet("meetingPlaces", logCtx,
-                () -> meetingPlaceRepo.findByOwnerEmail(email),
-                List.of());
-        List<OriginLocation> originLocations = safeGet("originLocations", logCtx,
-                () -> originLocationRepo.findByOwnerEmailIgnoreCase(email),
-                List.of());
-        List<EmergencyContactGroup> emergencyGroups = safeGet("emergencyContactGroups", logCtx,
-                () -> emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email),
-                List.of());
+
+        // Plan readiness flags via cheap existence checks. The full plan
+        // entities are only fetched when /api/me/{uid}/plans is hit.
+        boolean hasMealPlan = email.isBlank() ? false : safeGet("hasMealPlan", logCtx,
+                () -> mealPlanDataRepo.existsByOwnerEmailIgnoreCase(email), false);
+        boolean hasEvac = email.isBlank() ? false : safeGet("hasEvac", logCtx,
+                () -> evacuationPlanRepo.existsByOwnerEmailIgnoreCase(email), false);
+        boolean hasContacts = email.isBlank() ? false : safeGet("hasContacts", logCtx,
+                () -> emergencyContactGroupRepo.existsByOwnerEmailIgnoreCase(email), false);
 
         // Authoritative membership lookup: read from the Group side, not the
         // denormalized UserInfo.managedGroupIDs/joinedGroupIDs cache. That
-        // cache can drift (and did — the old applyPatch bug wiped it on every
-        // sign-in); Group.adminEmails/memberEmails are the source of truth.
-        // This is self-healing: even a user with empty ID arrays will still
-        // see their groups as long as the Group rows carry their email.
+        // cache can drift; Group.adminEmails/memberEmails are source of truth.
         List<Group> adminGroupList = safeGet("groupRepo.findByAdminEmail", logCtx,
                 () -> email.isBlank() ? List.<Group>of() : groupRepo.findByAdminEmail(email),
                 List.of());
@@ -109,8 +116,6 @@ public class MeService {
             if (g != null && g.getGroupId() != null) groupsById.putIfAbsent(g.getGroupId(), g);
         }
 
-        // Set of groupIds where the viewer is owner or admin — drives the
-        // managed-vs-joined categorization without needing user.managedGroupIDs.
         Set<String> adminGroupIds = new HashSet<>();
         for (Group g : adminGroupList) {
             if (g != null && g.getGroupId() != null) adminGroupIds.add(g.getGroupId());
@@ -136,25 +141,47 @@ public class MeService {
         HouseholdDto householdDto = household == null ? null
                 : toHouseholdDto(household, demographic);
 
-        PlansDto plansDto = new PlansDto(
-                mealPlan == null ? null : toMealPlanSummary(mealPlan),
-                evacPlans.stream().map(this::toEvacSummary).toList(),
-                meetingPlaces.stream().map(this::toMeetingPlaceSummary).toList(),
-                originLocations.stream().map(this::toOriginLocationSummary).toList(),
-                emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList()
-        );
-
         ReadinessDto readiness = computeReadiness(
-                user, householdDto, demographic, mealPlan, evacPlans, emergencyGroups
+                user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts
         );
 
         return new MeDto(
                 toProfile(user),
                 householdDto,
                 new GroupsDto(managed, joined),
-                plansDto,
                 readiness,
                 new MetaDto(Instant.now(), DTO_VERSION)
+        );
+    }
+
+    private MePlansDto assemblePlans(UserInfo user) {
+        String email = Optional.ofNullable(user.getUserEmail())
+                .map(String::trim).map(String::toLowerCase).orElse("");
+        String logCtx = "uid=" + user.getFirebaseUid() + " email=" + email + " plans";
+
+        MealPlanData mealPlan = safeGet("mealPlan", logCtx,
+                () -> mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email).orElse(null),
+                null);
+        List<EvacuationPlan> evacPlans = safeGet("evacPlans", logCtx,
+                () -> evacuationPlanRepo.findByOwnerEmail(email),
+                List.of());
+        List<MeetingPlace> meetingPlaces = safeGet("meetingPlaces", logCtx,
+                () -> meetingPlaceRepo.findByOwnerEmail(email),
+                List.of());
+        List<OriginLocation> originLocations = safeGet("originLocations", logCtx,
+                () -> originLocationRepo.findByOwnerEmailIgnoreCase(email),
+                List.of());
+        List<EmergencyContactGroup> emergencyGroups = safeGet("emergencyContactGroups", logCtx,
+                () -> emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email),
+                List.of());
+
+        return new MePlansDto(
+                mealPlan == null ? null : toMealPlanSummary(mealPlan),
+                evacPlans.stream().map(this::toEvacSummary).toList(),
+                meetingPlaces.stream().map(this::toMeetingPlaceSummary).toList(),
+                originLocations.stream().map(this::toOriginLocationSummary).toList(),
+                emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList(),
+                new MePlansDto.MetaDto(Instant.now(), DTO_VERSION)
         );
     }
 
@@ -236,56 +263,55 @@ public class MeService {
         return "member";
     }
 
-    private MealPlanSummary toMealPlanSummary(MealPlanData m) {
+    private MePlansDto.MealPlanSummary toMealPlanSummary(MealPlanData m) {
         Integer qty = m.getPlanDuration() == null ? null : m.getPlanDuration().getQuantity();
         String unit = m.getPlanDuration() == null ? null : m.getPlanDuration().getUnit();
         int planCount = m.getMealPlan() == null ? 0 : m.getMealPlan().size();
-        return new MealPlanSummary(m.getId(), qty, unit, m.getNumberOfMenuOptions(), planCount);
+        return new MePlansDto.MealPlanSummary(m.getId(), qty, unit, m.getNumberOfMenuOptions(), planCount);
     }
 
-    private EvacPlanSummary toEvacSummary(EvacuationPlan e) {
-        return new EvacPlanSummary(
+    private MePlansDto.EvacPlanSummary toEvacSummary(EvacuationPlan e) {
+        return new MePlansDto.EvacPlanSummary(
                 e.getId(), e.getName(), e.getOrigin(), e.getDestination(), e.isDeploy(),
                 e.getShelterName(), e.getLat(), e.getLng(), e.getTravelMode()
         );
     }
 
-    private MeetingPlaceSummary toMeetingPlaceSummary(MeetingPlace m) {
-        return new MeetingPlaceSummary(
+    private MePlansDto.MeetingPlaceSummary toMeetingPlaceSummary(MeetingPlace m) {
+        return new MePlansDto.MeetingPlaceSummary(
                 m.getId(), m.getName(), m.getLocation(), m.getAddress(),
                 m.getPhoneNumber(), m.getLat(), m.getLng(), m.isDeploy()
         );
     }
 
-    private OriginLocationSummary toOriginLocationSummary(OriginLocation o) {
-        return new OriginLocationSummary(
+    private MePlansDto.OriginLocationSummary toOriginLocationSummary(OriginLocation o) {
+        return new MePlansDto.OriginLocationSummary(
                 o.getId(), o.getName(), o.getAddress(), o.getLat(), o.getLng()
         );
     }
 
-    private EmergencyContactGroupSummary toEmergencyContactGroupSummary(EmergencyContactGroup g) {
+    private MePlansDto.EmergencyContactGroupSummary toEmergencyContactGroupSummary(EmergencyContactGroup g) {
         int count = g.getContacts() == null ? 0 : g.getContacts().size();
-        return new EmergencyContactGroupSummary(g.getId(), g.getName(), count);
+        return new MePlansDto.EmergencyContactGroupSummary(g.getId(), g.getName(), count);
     }
 
+    /**
+     * Readiness now takes existence flags directly — the full plan entities
+     * aren't needed for the dashboard ring, only whether each step is done.
+     * Saves ~5 list fetches on every /me hit.
+     */
     private ReadinessDto computeReadiness(
             UserInfo u,
             HouseholdDto household,
-            Demographic demographic,
-            MealPlanData mealPlan,
-            List<EvacuationPlan> evacPlans,
-            List<EmergencyContactGroup> emergencyGroups
+            boolean demographicsDone,
+            boolean mealPlanDone,
+            boolean evacDone,
+            boolean contactsDone
     ) {
         boolean profileDone =
                 u.getUserFirstName() != null && !u.getUserFirstName().isBlank()
                 && u.getAddress() != null && !u.getAddress().isBlank();
         boolean householdDone = household != null;
-        boolean demographicsDone = demographic != null;
-        boolean mealPlanDone = mealPlan != null
-                && mealPlan.getMealPlan() != null
-                && !mealPlan.getMealPlan().isEmpty();
-        boolean evacDone = evacPlans != null && !evacPlans.isEmpty();
-        boolean contactsDone = emergencyGroups != null && !emergencyGroups.isEmpty();
 
         List<ReadinessStep> steps = List.of(
                 new ReadinessStep("profile", profileDone),
