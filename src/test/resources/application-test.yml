@@ -1,0 +1,16 @@
+# Test profile: in-memory H2 with PostgreSQL compatibility mode so
+# `./mvnw test` never mutates the real prod RDS schema. Activated by
+# @ActiveProfiles("test") on the test class.
+spring:
+  datasource:
+    url: jdbc:h2:mem:sitprep;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      # Fresh schema per test JVM — H2 :mem drops on close anyway.
+      ddl-auto: create-drop
+    show-sql: false
+  # Firebase Admin SDK init is still driven from the main config, but we
+  # don't need a real project for the context-loads smoke test.

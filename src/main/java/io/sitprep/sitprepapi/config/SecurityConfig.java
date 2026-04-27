@@ -1,6 +1,7 @@
 // src/main/java/io/sitprep/sitprepapi/config/SecurityConfig.java
 package io.sitprep.sitprepapi.config;
 
+import io.sitprep.sitprepapi.security.FirebaseAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -8,6 +9,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.*;
 
 import java.util.List;
@@ -16,6 +18,12 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private final FirebaseAuthFilter firebaseAuthFilter;
+
+    public SecurityConfig(FirebaseAuthFilter firebaseAuthFilter) {
+        this.firebaseAuthFilter = firebaseAuthFilter;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -23,16 +31,19 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 // Disable CSRF for a stateless API (no sessions)
                 .csrf(csrf -> csrf.disable())
-                // TEMP: open API + WebSocket endpoints while JWT is removed
+                // Still open — the Firebase filter runs in verify-but-don't-enforce
+                // mode, populating SecurityContext when a valid token is present
+                // but never rejecting. Flip specific matchers to
+                // `.authenticated()` below to enforce.
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
-                        .requestMatchers("/api/**").permitAll()  // <— open for now
+                        .requestMatchers("/api/**").permitAll()
                         .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().permitAll()
-                );
+                )
+                .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
-        // NOTE: no JWT filter here anymore.
         return http.build();
     }
 

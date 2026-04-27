@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -46,6 +47,19 @@ public class UserInfoResource {
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
+
+    /**
+     * Batch profile lookup. Body: {@code { "emails": ["a@x", "b@y", ...] }}.
+     * Returns one {@link ProfileSummaryDto} per known email; unknown/blank
+     * emails are omitted. Replaces per-email fan-out on group rosters.
+     */
+    @PostMapping("/profiles/batch")
+    public ResponseEntity<List<ProfileSummaryDto>> getProfilesBatch(@RequestBody BatchProfilesRequest request) {
+        List<String> emails = request == null ? List.of() : request.emails();
+        return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails));
+    }
+
+    public record BatchProfilesRequest(List<String> emails) {}
 
     // ✅ Idempotent create/update by email from the body (no auth)
     @PostMapping

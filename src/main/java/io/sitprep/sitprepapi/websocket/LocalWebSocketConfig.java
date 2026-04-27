@@ -6,7 +6,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.*;
 
 @Configuration
-@Profile({"default","dev","local"})
+@Profile({"default","dev","local","test"})
 @EnableWebSocketMessageBroker
 public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override

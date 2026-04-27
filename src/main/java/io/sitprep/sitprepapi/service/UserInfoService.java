@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import org.springframework.util.ReflectionUtils;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class UserInfoService {
@@ -27,6 +29,41 @@ public class UserInfoService {
 
     public Optional<UserInfo> getUserByEmail(String email) {
         return userInfoRepo.findByUserEmailIgnoreCase(email);
+    }
+
+    /**
+     * Batch lookup: returns a lightweight profile summary for each requested
+     * email. Unknown or blank emails are skipped. Emails are normalized to
+     * lowercase for the lookup; the returned {@code email} field preserves the
+     * DB value so callers can still key by it.
+     *
+     * Replaces the frontend pattern of fanning out N {@code fetchUserProfileByEmail}
+     * calls across a group roster (admin manage-members, status cards, etc.).
+     */
+    @Transactional(readOnly = true)
+    public List<ProfileSummaryDto> getProfileSummariesByEmails(List<String> emails) {
+        if (emails == null || emails.isEmpty()) return List.of();
+
+        List<String> normalized = emails.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.toList());
+        if (normalized.isEmpty()) return List.of();
+
+        return userInfoRepo.findByUserEmailIn(normalized).stream()
+                .map(u -> new ProfileSummaryDto(
+                        u.getUserEmail(),
+                        u.getUserFirstName(),
+                        u.getUserLastName(),
+                        u.getProfileImageURL(),
+                        u.getUserStatus(),
+                        u.getStatusColor(),
+                        u.getUserStatusLastUpdated()
+                ))
+                .collect(Collectors.toList());
     }
 
     // ✅ NEW
