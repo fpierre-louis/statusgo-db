@@ -1,4 +1,11 @@
 spring:
+  # --- LOCAL CONFIG IMPORT ---
+  # Auto-loads application-local.yml when present (gitignored, dev only).
+  # `optional:` means prod (Heroku) doesn't error when the file is absent.
+  # Avoids needing SPRING_PROFILES_ACTIVE=local in every IDE run config.
+  config:
+    import: "optional:classpath:application-local.yml"
+
   # --- DATASOURCE CONFIGURATION (PostgreSQL) ---
   datasource:
     url: ${JDBC_DATABASE_URL:jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j}
