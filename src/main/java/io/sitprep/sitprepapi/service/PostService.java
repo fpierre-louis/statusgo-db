@@ -2,7 +2,6 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
-import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
@@ -21,15 +20,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.Base64;
 
+/**
+ * Post create/update/read. Image bytes are no longer handled here —
+ * clients upload via {@code POST /api/images} (Cloudflare R2), then
+ * attach the returned {@code imageKey} to the post on create/edit.
+ * Public delivery URLs are derived via {@link PublicCdn}.
+ */
 @Service
 public class PostService {
 
@@ -39,25 +41,22 @@ public class PostService {
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
-    private final GroupService groupService;
     private final WebSocketMessageSender webSocketMessageSender;
 
     @Autowired
     public PostService(PostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
-                       NotificationService notificationService, GroupService groupService,
+                       NotificationService notificationService,
                        WebSocketMessageSender webSocketMessageSender) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
-        this.groupService = groupService;
         this.webSocketMessageSender = webSocketMessageSender;
     }
 
-    // REST creation (multipart)
+    /** REST creation. Body carries content/group + optional imageKey from /api/images. */
     @Transactional
-    public PostDto createPostWithFile(PostDto postDto, MultipartFile imageFile, String actorEmail) throws IOException {
-        // MVP: enforce only if actor provided
+    public PostDto createPost(PostDto postDto, String actorEmail) {
         if (actorEmail != null && !actorEmail.isBlank()) {
             if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
                 throw new SecurityException("User not authorized to create a post for another user.");
@@ -72,18 +71,8 @@ public class PostService {
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
-
-        // Prefer R2 imageKey if the client has already uploaded via
-        // /api/images. Falls back to legacy multipart imageFile bytea so
-        // older clients keep working until they're rolled forward.
         if (postDto.getImageKey() != null && !postDto.getImageKey().isBlank()) {
             post.setImageKey(postDto.getImageKey().trim());
-        } else if (imageFile != null && !imageFile.isEmpty()) {
-            try {
-                post.setImage(imageFile.getBytes());
-            } catch (IOException e) {
-                logger.error("Failed to read uploaded image bytes: {}", imageFile.getOriginalFilename(), e);
-            }
         }
 
         Post savedPost = postRepo.save(post);
@@ -103,64 +92,19 @@ public class PostService {
         return savedDto;
     }
 
-    // WS/text-only creation
+    /** WS-path creation (text + optional imageKey). Same shape as REST. */
     @Transactional
-    public PostDto createPostFromDto(PostDto postDto, String actorEmail) throws IOException {
-        if (actorEmail != null && !actorEmail.isBlank()) {
-            if (!postDto.getAuthor().equalsIgnoreCase(actorEmail)) {
-                throw new SecurityException("User not authorized to create a post for another user.");
-            }
-        }
-
-        Post post = new Post();
-        post.setAuthor(postDto.getAuthor());
-        post.setContent(postDto.getContent());
-        post.setGroupId(postDto.getGroupId());
-        post.setGroupName(postDto.getGroupName());
-        post.setTimestamp(Instant.now());
-        post.setTags(postDto.getTags());
-        post.setMentions(postDto.getMentions());
-
-        if (postDto.getImageKey() != null && !postDto.getImageKey().isBlank()) {
-            post.setImageKey(postDto.getImageKey().trim());
-        } else if (postDto.getBase64Image() != null && !postDto.getBase64Image().isEmpty()) {
-            String[] parts = postDto.getBase64Image().split(",", 2);
-            String encodedImage = parts.length == 2 ? parts[1] : parts[0];
-            byte[] imageBytes = Base64.getDecoder().decode(encodedImage);
-            post.setImage(imageBytes);
-        }
-
-        Post savedPost = postRepo.save(post);
-        PostDto savedDto = convertToPostDto(savedPost);
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
-                try {
-                    notifyGroupMembersOfNewPost(savedPost);
-                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedDto);
-                } catch (Exception e) {
-                    logger.error("Post-commit WS/notify error for post {}", savedPost.getId(), e);
-                }
-            }
-        });
-
-        return savedDto;
+    public PostDto createPostFromDto(PostDto postDto, String actorEmail) {
+        return createPost(postDto, actorEmail);
     }
 
-    // REST update (multipart) — actorEmail provided by controller; no SecurityContext
+    /** REST update — actorEmail provided by controller; no SecurityContext. */
     @Transactional
-    public Post updatePost(Post post, MultipartFile imageFile, String actorEmail) throws IOException {
+    public Post updatePost(Post post, String actorEmail) {
         if (actorEmail != null && !"anonymous".equalsIgnoreCase(actorEmail)) {
             if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
                 throw new SecurityException("User not authorized to update this post.");
             }
-        }
-
-        // imageKey is set by the controller before this method is called,
-        // straight from the dto/form param. Multipart imageFile path stays
-        // around for back-compat; new clients should upload via /api/images.
-        if (imageFile != null && !imageFile.isEmpty()) {
-            post.setImage(imageFile.getBytes());
         }
 
         Post updatedPost = postRepo.save(post);
@@ -205,20 +149,12 @@ public class PostService {
         post.setTags(dto.getTags());
         post.setMentions(dto.getMentions());
 
-        // Image edits: clients send {imageKey} for new R2 uploads, or omit
-        // both fields to clear the image. Legacy base64Image path stays for
-        // pre-R2 clients until they're rolled forward.
+        // imageKey present → replace; absent → clear (treats omission as
+        // "remove image"). Editors that want to leave the image untouched
+        // should pass the existing imageKey back through.
         if (dto.getImageKey() != null && !dto.getImageKey().isBlank()) {
             post.setImageKey(dto.getImageKey().trim());
-            post.setImage(null); // moving from bytea -> R2; drop the old bytes
-        } else if (dto.getBase64Image() != null && !dto.getBase64Image().isEmpty()) {
-            String[] parts = dto.getBase64Image().split(",", 2);
-            String encodedImage = parts.length == 2 ? parts[1] : parts[0];
-            post.setImage(Base64.getDecoder().decode(encodedImage));
-            post.setImageKey(null);
         } else {
-            // Both image fields cleared — strip whatever's on the row.
-            post.setImage(null);
             post.setImageKey(null);
         }
 
@@ -337,33 +273,12 @@ public class PostService {
                 );
             }
 
-            logger.info("📣 Post notification sent for '{}' to {} members.", group.getGroupName(), users.size());
-        }, () -> logger.warn("⚠️ Group with ID {} not found (notify)", post.getGroupId()));
+            logger.info("Post notification sent for '{}' to {} members.", group.getGroupName(), users.size());
+        }, () -> logger.warn("Group with ID {} not found (notify)", post.getGroupId()));
     }
 
     private PostDto convertToPostDto(Post post) {
-        PostDto dto = new PostDto();
-        dto.setId(post.getId());
-        dto.setAuthor(post.getAuthor());
-        dto.setContent(post.getContent());
-        dto.setGroupId(String.valueOf(post.getGroupId()));
-        dto.setGroupName(post.getGroupName());
-        dto.setTimestamp(post.getTimestamp());
-        dto.setEditedAt(post.getEditedAt());
-        dto.setUpdatedAt(post.getUpdatedAt());
-        // R2 path wins. Pre-R2 rows still render via inline base64.
-        if (post.getImageKey() != null && !post.getImageKey().isBlank()) {
-            dto.setImageKey(post.getImageKey());
-            dto.setImageUrl(PublicCdn.toPublicUrl(post.getImageKey()));
-        } else if (post.getImage() != null) {
-            String b64 = java.util.Base64.getEncoder().encodeToString(post.getImage());
-            dto.setBase64Image("data:image/jpeg;base64," + b64);
-        }
-        dto.setReactions(post.getReactions() != null ? post.getReactions() : new HashMap<>());
-        dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
-        dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
-        dto.setCommentsCount(post.getCommentsCount());
-
+        PostDto dto = baseDto(post);
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
@@ -373,6 +288,17 @@ public class PostService {
     }
 
     private PostDto convertToPostDto(Post post, Map<String, UserInfo> userByEmail) {
+        PostDto dto = baseDto(post);
+        UserInfo u = userByEmail.get(post.getAuthor());
+        if (u != null) {
+            dto.setAuthorFirstName(u.getUserFirstName());
+            dto.setAuthorLastName(u.getUserLastName());
+            dto.setAuthorProfileImageURL(u.getProfileImageURL());
+        }
+        return dto;
+    }
+
+    private PostDto baseDto(Post post) {
         PostDto dto = new PostDto();
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());
@@ -385,21 +311,11 @@ public class PostService {
         if (post.getImageKey() != null && !post.getImageKey().isBlank()) {
             dto.setImageKey(post.getImageKey());
             dto.setImageUrl(PublicCdn.toPublicUrl(post.getImageKey()));
-        } else if (post.getImage() != null) {
-            String b64 = java.util.Base64.getEncoder().encodeToString(post.getImage());
-            dto.setBase64Image("data:image/jpeg;base64," + b64);
         }
         dto.setReactions(post.getReactions() != null ? post.getReactions() : new HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
         dto.setCommentsCount(post.getCommentsCount());
-
-        UserInfo u = userByEmail.get(post.getAuthor());
-        if (u != null) {
-            dto.setAuthorFirstName(u.getUserFirstName());
-            dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageURL(u.getProfileImageURL());
-        }
         return dto;
     }
 }

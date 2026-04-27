@@ -33,22 +33,17 @@ public class Post {
     private Instant timestamp;
 
     /**
-     * Legacy: inline JPEG bytes. Kept temporarily so existing rows still
-     * render. New posts write {@link #imageKey} instead. Drop this column
-     * once any pre-R2 rows have been migrated or evicted.
-     */
-    private byte[] image;
-
-    /**
-     * R2 object key for posts uploaded via the {@code /api/images} pipe.
-     * Format: {@code post/<uuid>.jpg}. Null when the post has no image
-     * or predates the R2 migration.
+     * R2 object key for the post's image. Format: {@code post/<uuid>.jpg}.
+     * Null when the post has no image. Public delivery URL is derived via
+     * {@link io.sitprep.sitprepapi.util.PublicCdn#toPublicUrl(String)}.
+     *
+     * <p>The legacy {@code byte[] image} column has been removed from the
+     * entity; the DB column itself is left in place (unused) for hibernate
+     * {@code ddl-auto: update} compatibility. Drop with a manual ALTER
+     * once the schema is ready.</p>
      */
     @Column(name = "image_key")
     private String imageKey;
-
-    @Transient
-    private String base64Image;
 
     @ElementCollection(fetch = FetchType.EAGER)
     private Map<String, Integer> reactions = new HashMap<>();

@@ -8,14 +8,17 @@ import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Posts API. Image bytes go through {@code POST /api/images} (R2);
+ * this endpoint accepts the resulting {@code imageKey} on the body.
+ * The old multipart {@code imageFile} parameter is gone.
+ */
 @RestController
 @RequestMapping("/api/posts")
 public class PostResource {
@@ -29,30 +32,25 @@ public class PostResource {
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
             @RequestParam("authorEmail") String authorEmail,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
-            @RequestParam(value = "imageKey", required = false) String imageKey
+            @RequestParam(value = "imageKey", required = false) String imageKey,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "mentions", required = false) List<String> mentions
     ) {
-        try {
-            final String postAuthor = authorEmail;
-            if (postAuthor == null || postAuthor.isBlank()) {
-                return ResponseEntity.status(400).body(null);
-            }
-
-            PostDto postDto = new PostDto();
-            postDto.setAuthor(postAuthor);
-            postDto.setContent(content);
-            postDto.setGroupId(groupId);
-            postDto.setGroupName(groupName);
-            postDto.setImageKey(imageKey);
-
-            PostDto savedPost = postService.createPostWithFile(postDto, imageFile, postAuthor);
-            return ResponseEntity.status(201).body(savedPost);
-
-        } catch (Exception e) {
-            System.err.println("❌ CRITICAL EXCEPTION: REST createPost failed!");
-            e.printStackTrace();
-            throw new RuntimeException("Post upload failed: " + e.getMessage(), e);
+        if (authorEmail == null || authorEmail.isBlank()) {
+            return ResponseEntity.status(400).body(null);
         }
+
+        PostDto postDto = new PostDto();
+        postDto.setAuthor(authorEmail);
+        postDto.setContent(content);
+        postDto.setGroupId(groupId);
+        postDto.setGroupName(groupName);
+        postDto.setImageKey(imageKey);
+        postDto.setTags(tags);
+        postDto.setMentions(mentions);
+
+        PostDto saved = postService.createPost(postDto, authorEmail);
+        return ResponseEntity.status(201).body(saved);
     }
 
     @GetMapping("/group/{groupId}")
@@ -86,12 +84,12 @@ public class PostResource {
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
-            @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
             @RequestParam(value = "imageKey", required = false) String imageKey,
+            @RequestParam(value = "removeImage", required = false) Boolean removeImage,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam(value = "mentions", required = false) List<String> mentions,
             @RequestParam(value = "authorEmail", required = false) String authorEmail
-    ) throws IOException {
+    ) {
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
@@ -101,7 +99,6 @@ public class PostResource {
         String actor = Optional.ofNullable(AuthUtils.getCurrentUserEmail())
                 .orElse(Optional.ofNullable(authorEmail).orElse("anonymous"));
 
-        // Enforce when we have a known actor
         if (!"anonymous".equalsIgnoreCase(actor) &&
                 (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor))) {
             return ResponseEntity.status(403).build();
@@ -114,13 +111,17 @@ public class PostResource {
         post.setMentions(mentions);
         post.setEditedAt(Instant.now());
 
-        // imageKey wins — clear the legacy bytea when migrating a post.
+        // Image lifecycle on edit:
+        //   - imageKey present  → replace
+        //   - removeImage=true  → clear
+        //   - both absent       → leave unchanged
         if (imageKey != null && !imageKey.isBlank()) {
             post.setImageKey(imageKey.trim());
-            post.setImage(null);
+        } else if (Boolean.TRUE.equals(removeImage)) {
+            post.setImageKey(null);
         }
 
-        Post updatedPost = postService.updatePost(post, imageFile, actor);
+        Post updatedPost = postService.updatePost(post, actor);
         return ResponseEntity.ok(updatedPost);
     }
 
