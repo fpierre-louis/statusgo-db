@@ -1,0 +1,23 @@
+# Local-dev overrides (Spring profile: local).
+#
+# Usage:
+#   1. Copy this file to `application-local.yml` (same directory).
+#   2. Replace each <placeholder> with your real value.
+#   3. Run with the `local` profile active. Two ways:
+#        a) `SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run`
+#        b) IntelliJ run config -> Active profiles: `local`
+#
+# The real `application-local.yml` is gitignored. NEVER commit secrets.
+# Production values live on Heroku as Config Vars; this file only exists
+# so the backend can run on your laptop.
+
+r2:
+  account-id:        44bdb2b2a1cc7a0e7374fbc5bee9e9b0
+  access-key-id:     <your-r2-access-key-id>
+  secret-access-key: <your-r2-secret-access-key>
+  bucket-name:       sitprep-images
+  public-base-url:   https://sitprepimages.com
+
+# Add other dev-only overrides here as needed (Firebase, JWT secret, etc.)
+# Anything you don't override falls through to the env-var defaults in
+# application.yml.

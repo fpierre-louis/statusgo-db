@@ -70,3 +70,16 @@ logging:
 # --- FIREBASE CONFIGURATION ---
 firebase:
   project-id: ${FIREBASE_PROJECT_ID:sitprep-new}
+
+# --- CLOUDFLARE R2 (image storage) ---
+# Bucket `sitprep-images` served via custom domain https://sitprepimages.com.
+# Server-side per-scope resize tuning lives in r2.media.* below.
+r2:
+  account-id:        ${R2_ACCOUNT_ID:}
+  access-key-id:     ${R2_ACCESS_KEY_ID:}
+  secret-access-key: ${R2_SECRET_ACCESS_KEY:}
+  bucket-name:       ${R2_BUCKET_NAME:sitprep-images}
+  public-base-url:   ${R2_PUBLIC_BASE_URL:https://sitprepimages.com}
+  media:
+    max-pixels:   ${R2_MEDIA_MAX_PIXELS:30000000}
+    jpeg-quality: ${R2_MEDIA_JPEG_QUALITY:0.82}

@@ -94,6 +94,17 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- AWS S3 SDK — used to talk to Cloudflare R2 via the S3-compatible API. -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.28.16</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>
