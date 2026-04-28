@@ -31,17 +31,18 @@ public class PostResource {
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
-            @RequestParam("authorEmail") String authorEmail,
+            @RequestParam(value = "authorEmail", required = false) String authorEmail,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam(value = "mentions", required = false) List<String> mentions
     ) {
-        if (authorEmail == null || authorEmail.isBlank()) {
-            return ResponseEntity.status(400).body(null);
-        }
+        // Phase E: author is the verified token email. authorEmail param is
+        // ignored (kept on the signature for back-compat with old clients
+        // until the next mobile build forces a refresh).
+        String author = AuthUtils.requireAuthenticatedEmail();
 
         PostDto postDto = new PostDto();
-        postDto.setAuthor(authorEmail);
+        postDto.setAuthor(author);
         postDto.setContent(content);
         postDto.setGroupId(groupId);
         postDto.setGroupName(groupName);
@@ -49,7 +50,7 @@ public class PostResource {
         postDto.setTags(tags);
         postDto.setMentions(mentions);
 
-        PostDto saved = postService.createPost(postDto, authorEmail);
+        PostDto saved = postService.createPost(postDto, author);
         return ResponseEntity.status(201).body(saved);
     }
 
@@ -90,17 +91,15 @@ public class PostResource {
             @RequestParam(value = "mentions", required = false) List<String> mentions,
             @RequestParam(value = "authorEmail", required = false) String authorEmail
     ) {
+        // Phase E: must be signed in AND own the post.
+        String actor = AuthUtils.requireAuthenticatedEmail();
+
         Optional<Post> postOpt = postService.getPostById(postId);
         if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
         Post post = postOpt.get();
 
-        // Resolve actor: prefer security context, else authorEmail, else "anonymous"
-        String actor = Optional.ofNullable(AuthUtils.getCurrentUserEmail())
-                .orElse(Optional.ofNullable(authorEmail).orElse("anonymous"));
-
-        if (!"anonymous".equalsIgnoreCase(actor) &&
-                (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor))) {
+        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor)) {
             return ResponseEntity.status(403).build();
         }
 
@@ -130,9 +129,10 @@ public class PostResource {
             @PathVariable Long postId,
             @RequestParam(value = "actor", required = false) String actorParam
     ) {
-        String actor = Optional.ofNullable(AuthUtils.getCurrentUserEmail())
-                .orElse(Optional.ofNullable(actorParam).orElse("anonymous"));
-
+        // Phase E: actor is the verified email. PostService still throws
+        // SecurityException if the post belongs to someone else, so the
+        // ownership check is enforced at the service layer.
+        String actor = AuthUtils.requireAuthenticatedEmail();
         postService.deletePostAndBroadcast(postId, actor);
         return ResponseEntity.noContent().build();
     }
