@@ -44,14 +44,27 @@ public class CommunityDiscoverService {
         this.geocode = geocode;
     }
 
+    /**
+     * @param viewerEmail   optional — when provided, groups the viewer is
+     *                      already a member/admin/owner/pending of are
+     *                      filtered out (unless {@code includeMine} is true).
+     *                      Always lowercased before comparison.
+     * @param includeMine   if true, the viewer's existing groups are kept in
+     *                      the response and tagged with {@code viewerIsMember=true}.
+     *                      Default false.
+     */
     @Transactional(readOnly = true)
-    public CommunityDiscoverDto discover(Double lat, Double lng, double radiusKm) {
+    public CommunityDiscoverDto discover(Double lat, Double lng, double radiusKm,
+                                         String viewerEmail, boolean includeMine) {
         if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)) {
             throw new IllegalArgumentException("lat and lng are required");
         }
         if (radiusKm <= 0) radiusKm = 10.0;
 
         Place place = resolvePlace(lat, lng);
+
+        String normalizedViewer = (viewerEmail == null || viewerEmail.isBlank())
+                ? null : viewerEmail.trim().toLowerCase();
 
         List<Group> publicGroups = groupRepo.findAll().stream()
                 .filter(g -> "public".equalsIgnoreCase(safe(g.getPrivacy())))
@@ -64,7 +77,11 @@ public class CommunityDiscoverService {
             double gLng = parseOrNaN(g.getLongitude());
             double d = haversineKm(lat, lng, gLat, gLng);
             if (d > radiusKm) continue;
-            withinRadius.add(toNearbyGroup(g, d));
+
+            boolean viewerIsMember = isViewerInGroup(g, normalizedViewer);
+            if (viewerIsMember && !includeMine) continue; // skip "groups you're already in"
+
+            withinRadius.add(toNearbyGroup(g, d, viewerIsMember));
         }
 
         withinRadius.sort(Comparator.comparingDouble(NearbyGroup::distanceKm));
@@ -79,6 +96,24 @@ public class CommunityDiscoverService {
                         Instant.now(), VERSION, publicGroups.size(), capped.size()
                 )
         );
+    }
+
+    /** True if {@code viewerEmail} is in admin/member/pending lists, or is the owner. */
+    private static boolean isViewerInGroup(Group g, String viewerEmail) {
+        if (viewerEmail == null) return false;
+        if (viewerEmail.equalsIgnoreCase(g.getOwnerEmail())) return true;
+        if (containsCaseInsensitive(g.getAdminEmails(), viewerEmail)) return true;
+        if (containsCaseInsensitive(g.getMemberEmails(), viewerEmail)) return true;
+        if (containsCaseInsensitive(g.getPendingMemberEmails(), viewerEmail)) return true;
+        return false;
+    }
+
+    private static boolean containsCaseInsensitive(List<String> list, String needle) {
+        if (list == null || list.isEmpty()) return false;
+        for (String e : list) {
+            if (e != null && e.equalsIgnoreCase(needle)) return true;
+        }
+        return false;
     }
 
     private Place resolvePlace(double lat, double lng) {
@@ -96,7 +131,7 @@ public class CommunityDiscoverService {
         }
     }
 
-    private NearbyGroup toNearbyGroup(Group g, double distanceKm) {
+    private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember) {
         int memberCount = g.getMemberCount() != null ? g.getMemberCount()
                 : (g.getMemberEmails() == null ? 0 : g.getMemberEmails().size());
         return new NearbyGroup(
@@ -111,7 +146,8 @@ public class CommunityDiscoverService {
                 g.getAddress(),
                 g.getZipCode(),
                 g.getAlert(),
-                g.getPrivacy()
+                g.getPrivacy(),
+                viewerIsMember
         );
     }
 

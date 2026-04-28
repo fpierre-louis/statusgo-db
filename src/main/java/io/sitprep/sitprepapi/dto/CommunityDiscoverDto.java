@@ -39,7 +39,16 @@ public record CommunityDiscoverDto(
             String address,
             String zipCode,
             String alert,
-            String privacy
+            String privacy,
+            /**
+             * True when the viewer (per {@code viewerEmail} query param) is
+             * already a member, admin, owner, or pending of this group.
+             * The default service behavior <em>excludes</em> these from the
+             * response — this flag exists so a future "groups you're already
+             * in" surface can opt in by passing {@code includeMine=true}.
+             * Always false when no viewerEmail is supplied.
+             */
+            boolean viewerIsMember
     ) {}
 
     public record MetaDto(
