@@ -214,7 +214,8 @@ public class MeService {
                 u.getLongitude(),
                 u.getProfileImageURL(),
                 u.getSubscription(),
-                status
+                status,
+                u.getLastActiveAt()
         );
     }
 

@@ -91,4 +91,15 @@ public class UserInfo {
 
     @Column(name = "date_subscribed")
     private Instant dateSubscribed;
+
+    /**
+     * When this user last hit any authenticated endpoint. Updated by
+     * {@link io.sitprep.sitprepapi.service.LastActivityService} from the
+     * Firebase auth filter, throttled to ~5 min/user so write pressure
+     * stays bounded. Powers the Family-tab presence dots and any
+     * "active in the last X" admin views. Null for users who haven't
+     * hit a verified-token request since the column was added.
+     */
+    @Column(name = "last_active_at")
+    private Instant lastActiveAt;
 }

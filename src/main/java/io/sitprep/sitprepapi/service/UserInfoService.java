@@ -61,7 +61,8 @@ public class UserInfoService {
                         u.getProfileImageURL(),
                         u.getUserStatus(),
                         u.getStatusColor(),
-                        u.getUserStatusLastUpdated()
+                        u.getUserStatusLastUpdated(),
+                        u.getLastActiveAt()
                 ))
                 .collect(Collectors.toList());
     }

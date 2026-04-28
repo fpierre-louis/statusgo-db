@@ -35,7 +35,9 @@ public record MeDto(
             String longitude,
             String profileImageUrl,
             String subscription,
-            SelfStatusDto selfStatus
+            SelfStatusDto selfStatus,
+            /** Last time this user hit any authenticated endpoint. Null if never. */
+            Instant lastActiveAt
     ) {}
 
     public record SelfStatusDto(

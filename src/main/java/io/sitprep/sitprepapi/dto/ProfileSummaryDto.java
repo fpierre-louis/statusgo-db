@@ -9,5 +9,7 @@ public record ProfileSummaryDto(
         String profileImageUrl,
         String userStatus,
         String statusColor,
-        Instant userStatusLastUpdated
+        Instant userStatusLastUpdated,
+        /** Last time this user hit any authenticated endpoint. Null if never. */
+        Instant lastActiveAt
 ) {}

@@ -3,12 +3,14 @@ package io.sitprep.sitprepapi.security;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
+import io.sitprep.sitprepapi.service.LastActivityService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -36,6 +38,14 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(FirebaseAuthFilter.class);
 
+    /** Setter-injected to avoid a constructor cycle with services that import this class indirectly. */
+    private LastActivityService lastActivityService;
+
+    @Autowired
+    public void setLastActivityService(LastActivityService lastActivityService) {
+        this.lastActivityService = lastActivityService;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -51,6 +61,9 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
                             email.toLowerCase(), null, Collections.emptyList());
                     auth.setDetails(new FirebaseAuthenticationDetails(request, uid));
                     SecurityContextHolder.getContext().setAuthentication(auth);
+                    // Bump UserInfo.lastActiveAt for presence — throttled to
+                    // ~5 min/user inside the service so write pressure is bounded.
+                    if (lastActivityService != null) lastActivityService.touch(email);
                 }
             } catch (FirebaseAuthException e) {
                 // Invalid / expired / revoked token — don't reject, just log
