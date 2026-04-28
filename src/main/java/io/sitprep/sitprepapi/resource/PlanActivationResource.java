@@ -35,12 +35,13 @@ public class PlanActivationResource {
 
     @PostMapping
     public ResponseEntity<ActivationCreatedDto> create(@RequestBody CreateActivationRequest request) {
-        // Prefer the verified token's email when the Firebase filter populated
-        // SecurityContext; fall back to the body param during rollout.
-        String resolvedOwner = AuthUtils.resolveActor(
-                request == null ? null : request.ownerEmail());
+        // Phase E enforcement — owner is whoever signed the request. Body's
+        // ownerEmail is ignored; passing it (or a different email) would
+        // otherwise let an attacker create activations on someone else's
+        // behalf and share the link as if it were theirs.
+        String owner = AuthUtils.requireAuthenticatedEmail();
         CreateActivationRequest effective = request == null ? null : new CreateActivationRequest(
-                resolvedOwner,
+                owner,
                 request.meetingPlaceId(),
                 request.evacPlanId(),
                 request.meetingMode(),

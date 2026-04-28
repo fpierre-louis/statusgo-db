@@ -35,6 +35,16 @@ public class UserSavedLocationService {
         return repo.findByOwnerEmailIgnoreCaseOrderByIsHomeDescNameAsc(ownerEmail.trim().toLowerCase());
     }
 
+    /**
+     * Lookup a saved location by id. Used by the resource layer for
+     * ownership checks before mutating: fetch, compare owner to the
+     * verified caller email, then call {@link #update} / {@link #delete}.
+     */
+    @Transactional(readOnly = true)
+    public Optional<UserSavedLocation> findById(Long id) {
+        return id == null ? Optional.empty() : repo.findById(id);
+    }
+
     @Transactional(readOnly = true)
     public Optional<UserSavedLocation> homeFor(String ownerEmail) {
         if (ownerEmail == null || ownerEmail.isBlank()) return Optional.empty();
