@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.dto.CommentDto;
+import io.sitprep.sitprepapi.dto.TaskDto;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,9 @@ import org.springframework.stereotype.Component;
  *  - Activations: /topic/activations/{activationId}/acks
  *  - Chat:        /topic/chat/{groupId}
  *  - Chat del:    /topic/chat/{groupId}/delete
+ *  - Group tasks: /topic/group/{groupId}/tasks
+ *  - Group task del: /topic/group/{groupId}/tasks/delete
+ *  - Community tasks (by zip-bucket): /topic/community/tasks/{zipBucket}
  */
 @Component
 public class WebSocketMessageSender {
@@ -59,6 +63,36 @@ public class WebSocketMessageSender {
 
     public void sendChatMessageDeletion(String groupId, Long messageId) {
         messagingTemplate.convertAndSend("/topic/chat/" + groupId + "/delete", messageId);
+    }
+
+    // --- Tasks ---
+    /**
+     * Broadcasts a task create/update/lifecycle change. Routing depends on
+     * the task's scope:
+     *  - groupId != null  -> /topic/group/{groupId}/tasks
+     *  - groupId == null  -> /topic/community/tasks/{zipBucket} (when zip is known)
+     * Tasks claimed by a group ALSO broadcast on the claimer group's topic
+     * so admin dashboards see them appear under "tasks we own".
+     */
+    public void sendTaskUpdate(TaskDto dto) {
+        if (dto == null) return;
+        if (dto.groupId() != null && !dto.groupId().isBlank()) {
+            messagingTemplate.convertAndSend("/topic/group/" + dto.groupId() + "/tasks", dto);
+        } else if (dto.zipBucket() != null && !dto.zipBucket().isBlank()) {
+            messagingTemplate.convertAndSend("/topic/community/tasks/" + dto.zipBucket(), dto);
+        }
+        if (dto.claimedByGroupId() != null && !dto.claimedByGroupId().isBlank()
+                && !dto.claimedByGroupId().equals(dto.groupId())) {
+            messagingTemplate.convertAndSend("/topic/group/" + dto.claimedByGroupId() + "/tasks", dto);
+        }
+    }
+
+    public void sendTaskDeletion(String groupId, String zipBucket, Long taskId) {
+        if (groupId != null && !groupId.isBlank()) {
+            messagingTemplate.convertAndSend("/topic/group/" + groupId + "/tasks/delete", taskId);
+        } else if (zipBucket != null && !zipBucket.isBlank()) {
+            messagingTemplate.convertAndSend("/topic/community/tasks/" + zipBucket + "/delete", taskId);
+        }
     }
 
     // --- Notifications ---

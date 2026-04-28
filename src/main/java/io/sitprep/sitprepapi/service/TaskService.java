@@ -3,16 +3,17 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.Task.TaskStatus;
 import io.sitprep.sitprepapi.dto.TaskDto;
-import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Task / request-for-help service. Three scopes (group / community-personal /
@@ -36,13 +37,14 @@ public class TaskService {
     private static final double EARTH_RADIUS_KM = 6371.0088;
 
     private final TaskRepo taskRepo;
-    private final GroupRepo groupRepo;
     private final NominatimGeocodeService geocode;
+    private final WebSocketMessageSender ws;
 
-    public TaskService(TaskRepo taskRepo, GroupRepo groupRepo, NominatimGeocodeService geocode) {
+    public TaskService(TaskRepo taskRepo, NominatimGeocodeService geocode,
+                       WebSocketMessageSender ws) {
         this.taskRepo = taskRepo;
-        this.groupRepo = groupRepo;
         this.geocode = geocode;
+        this.ws = ws;
     }
 
     // ---------------------------------------------------------------------
@@ -84,7 +86,9 @@ public class TaskService {
         }
 
         Task saved = taskRepo.save(t);
-        return TaskDto.fromEntity(saved);
+        TaskDto dto = TaskDto.fromEntity(saved);
+        broadcastAfterCommit(dto);
+        return dto;
     }
 
     // ---------------------------------------------------------------------
@@ -162,7 +166,7 @@ public class TaskService {
         t.setClaimedByEmail(claimerEmail == null ? null : claimerEmail.trim().toLowerCase());
         t.setStatus(TaskStatus.CLAIMED);
         t.setClaimedAt(Instant.now());
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     /** Mark in-progress (claimer is actively working). */
@@ -173,7 +177,7 @@ public class TaskService {
             throw new IllegalStateException("Task must be claimed before marking in-progress");
         }
         t.setStatus(TaskStatus.IN_PROGRESS);
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     /** Claimer marks complete. */
@@ -185,7 +189,7 @@ public class TaskService {
         }
         t.setStatus(TaskStatus.DONE);
         t.setCompletedAt(Instant.now());
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     /** Requester cancels. Frees claimedBy state in case it was claimed. */
@@ -196,7 +200,7 @@ public class TaskService {
             throw new IllegalStateException("Cannot cancel a completed task");
         }
         t.setStatus(TaskStatus.CANCELLED);
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     /** Reopen a cancelled task — clears claimer state. */
@@ -210,7 +214,7 @@ public class TaskService {
         t.setClaimedByGroupId(null);
         t.setClaimedByEmail(null);
         t.setClaimedAt(null);
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     /**
@@ -235,12 +239,50 @@ public class TaskService {
         }
         if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
         if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
-        return TaskDto.fromEntity(taskRepo.save(t));
+        return saveAndBroadcast(t);
     }
 
     @Transactional
     public void delete(Long taskId) {
-        taskRepo.deleteById(taskId);
+        Task t = taskRepo.findById(taskId).orElse(null);
+        if (t == null) return;
+        String groupId = t.getGroupId();
+        String zipBucket = t.getZipBucket();
+        Long id = t.getId();
+        taskRepo.delete(t);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    ws.sendTaskDeletion(groupId, zipBucket, id);
+                } catch (Exception e) {
+                    log.error("WS task-delete broadcast failed for task {}", id, e);
+                }
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // Broadcast helpers — fire after commit so subscribers don't see a
+    // pre-commit state if the transaction rolls back.
+    // ---------------------------------------------------------------------
+
+    private TaskDto saveAndBroadcast(Task t) {
+        Task saved = taskRepo.save(t);
+        TaskDto dto = TaskDto.fromEntity(saved);
+        broadcastAfterCommit(dto);
+        return dto;
+    }
+
+    private void broadcastAfterCommit(TaskDto dto) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    ws.sendTaskUpdate(dto);
+                } catch (Exception e) {
+                    log.error("WS task broadcast failed for task {}", dto.id(), e);
+                }
+            }
+        });
     }
 
     // ---------------------------------------------------------------------
