@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.PostReactionDto;
 import io.sitprep.sitprepapi.dto.PostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
@@ -42,25 +43,26 @@ public class PostService {
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
     private final WebSocketMessageSender webSocketMessageSender;
+    private final PostReactionService reactionService;
 
     @Autowired
     public PostService(PostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
                        NotificationService notificationService,
-                       WebSocketMessageSender webSocketMessageSender) {
+                       WebSocketMessageSender webSocketMessageSender,
+                       PostReactionService reactionService) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
         this.webSocketMessageSender = webSocketMessageSender;
+        this.reactionService = reactionService;
     }
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
     @Transactional
     public PostDto createPost(PostDto postDto, String actorEmail) {
-        if (actorEmail != null && !actorEmail.isBlank()) {
-            if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
-                throw new SecurityException("User not authorized to create a post for another user.");
-            }
+        if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
+            throw new SecurityException("User not authorized to create a post for another user.");
         }
 
         Post post = new Post();
@@ -98,13 +100,10 @@ public class PostService {
         return createPost(postDto, actorEmail);
     }
 
-    /** REST update — actorEmail provided by controller; no SecurityContext. */
     @Transactional
     public Post updatePost(Post post, String actorEmail) {
-        if (actorEmail != null && !"anonymous".equalsIgnoreCase(actorEmail)) {
-            if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
-                throw new SecurityException("User not authorized to update this post.");
-            }
+        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
+            throw new SecurityException("User not authorized to update this post.");
         }
 
         Post updatedPost = postRepo.save(post);
@@ -123,10 +122,8 @@ public class PostService {
     public void deletePostAndBroadcast(Long postId, String actorEmail) {
         Post post = postRepo.findById(postId).orElseThrow(() -> new RuntimeException("Post not found"));
 
-        if (actorEmail != null && !"anonymous".equalsIgnoreCase(actorEmail)) {
-            if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
-                throw new SecurityException("User not authorized to delete this post.");
-            }
+        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
+            throw new SecurityException("User not authorized to delete this post.");
         }
 
         postRepo.delete(post);
@@ -179,8 +176,11 @@ public class PostService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
+        Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
+                reactionService.loadByPostIds(rows.stream().map(Post::getId).toList());
+
         List<PostDto> out = new ArrayList<>(rows.size());
-        for (Post p : rows) out.add(convertToPostDto(p, userByEmail));
+        for (Post p : rows) out.add(convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())));
         return out;
     }
 
@@ -193,7 +193,13 @@ public class PostService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return posts.stream().map(p -> convertToPostDto(p, userByEmail)).toList();
+        // Batched reaction roster — one repo call for the whole listing.
+        Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
+                reactionService.loadByPostIds(posts.stream().map(Post::getId).toList());
+
+        return posts.stream()
+                .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
+                .toList();
     }
 
     public Optional<Post> getPostById(Long id) { return postRepo.findById(id); }
@@ -278,7 +284,7 @@ public class PostService {
     }
 
     private PostDto convertToPostDto(Post post) {
-        PostDto dto = baseDto(post);
+        PostDto dto = baseDto(post, reactionService.loadByPostId(post.getId()));
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
@@ -287,8 +293,10 @@ public class PostService {
         return dto;
     }
 
-    private PostDto convertToPostDto(Post post, Map<String, UserInfo> userByEmail) {
-        PostDto dto = baseDto(post);
+    private PostDto convertToPostDto(Post post,
+                                     Map<String, UserInfo> userByEmail,
+                                     Map<String, List<PostReactionDto>> reactions) {
+        PostDto dto = baseDto(post, reactions);
         UserInfo u = userByEmail.get(post.getAuthor());
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
@@ -298,7 +306,7 @@ public class PostService {
         return dto;
     }
 
-    private PostDto baseDto(Post post) {
+    private PostDto baseDto(Post post, Map<String, List<PostReactionDto>> reactions) {
         PostDto dto = new PostDto();
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());
@@ -312,7 +320,7 @@ public class PostService {
             dto.setImageKey(post.getImageKey());
             dto.setImageUrl(PublicCdn.toPublicUrl(post.getImageKey()));
         }
-        dto.setReactions(post.getReactions() != null ? post.getReactions() : new HashMap<>());
+        dto.setReactions(reactions != null ? reactions : new HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
         dto.setCommentsCount(post.getCommentsCount());

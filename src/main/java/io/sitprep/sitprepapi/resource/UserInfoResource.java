@@ -52,6 +52,7 @@ public class UserInfoResource {
 
     @GetMapping("/{id}")
     public ResponseEntity<UserInfo> getUserById(@PathVariable String id) {
+        AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -59,6 +60,7 @@ public class UserInfoResource {
 
     @GetMapping("/email/{email}")
     public ResponseEntity<UserInfo> getUserByEmail(@PathVariable String email) {
+        AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserByEmail(email)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -66,6 +68,7 @@ public class UserInfoResource {
 
     @GetMapping("/firebase/{uid}")
     public ResponseEntity<UserInfo> getUserByFirebaseUid(@PathVariable String uid) {
+        AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserByFirebaseUid(uid)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -75,18 +78,53 @@ public class UserInfoResource {
      * Batch profile lookup. Body: {@code { "emails": ["a@x", "b@y", ...] }}.
      * Returns one {@link ProfileSummaryDto} per known email; unknown/blank
      * emails are omitted. Replaces per-email fan-out on group rosters.
-     *
-     * Stays open during the rollout — group roster renders fan out to this
-     * even before the user finishes auth handshake. Enforce alongside the
-     * other reads in a later pass.
      */
     @PostMapping("/profiles/batch")
     public ResponseEntity<List<ProfileSummaryDto>> getProfilesBatch(@RequestBody BatchProfilesRequest request) {
+        AuthUtils.requireAuthenticatedEmail();
         List<String> emails = request == null ? List.of() : request.emails();
         return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails));
     }
 
     public record BatchProfilesRequest(List<String> emails) {}
+
+    /**
+     * Presence-location ping. Frontend's {@code useTrackPresence} hook
+     * captures the user's current geolocation (when permission is granted)
+     * and sends it here, throttled client-side. We update three fields on
+     * the verified caller's UserInfo:
+     *   {@code lastKnownLat, lastKnownLng, lastKnownLocationAt}
+     *
+     * <p>Distinct from {@code latitude}/{@code longitude} which back the
+     * user's home address. The presence dot on the household Family tab
+     * (home / nearby / out) reads from these.</p>
+     */
+    @PatchMapping("/me/location")
+    public ResponseEntity<Void> updateMyLocation(@RequestBody UpdateLocationRequest body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        if (body == null || body.lat() == null || body.lng() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        userInfoService.updateLastKnownLocationByEmail(email, body.lat(), body.lng());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record UpdateLocationRequest(Double lat, Double lng) {}
+
+    /**
+     * Per-group location sharing preferences. Body is a partial map of
+     * {@code groupId} → mode ({@code always} | {@code check-in-only} |
+     * {@code never}). The request merges into the user's existing map —
+     * absent keys are left untouched. Pass mode {@code null} to clear an
+     * entry (revert to the group's default).
+     */
+    @PatchMapping("/me/group-location-sharing")
+    public ResponseEntity<Map<String, String>> updateGroupLocationSharing(
+            @RequestBody Map<String, String> body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        Map<String, String> merged = userInfoService.mergeGroupLocationSharingByEmail(email, body);
+        return ResponseEntity.ok(merged);
+    }
 
     /**
      * Idempotent upsert by email — used by the signup path after Firebase

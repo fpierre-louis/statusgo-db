@@ -42,12 +42,13 @@ public class CommunityDiscoverResource {
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
-            @RequestParam(value = "viewerEmail", required = false) String viewerEmail,
             @RequestParam(value = "includeMine", required = false, defaultValue = "false") boolean includeMine
     ) {
-        // Prefer the verified-token email when the Firebase filter populated
-        // SecurityContext; fall back to the body param during the auth rollout.
-        String resolvedViewer = AuthUtils.resolveActor(viewerEmail);
-        return ResponseEntity.ok(service.discover(lat, lng, radiusKm, resolvedViewer, includeMine));
+        // Auth required — the FE only renders this surface for signed-in
+        // users (route is ProtectedRoute). Verified token email is the
+        // source of viewer identity; the legacy viewerEmail body param is
+        // gone now that Phase E is enforced here.
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.discover(lat, lng, radiusKm, viewer, includeMine));
     }
 }

@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MealPlanData;
+import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.slf4j.Logger;
@@ -19,14 +20,24 @@ public class MealPlanDataResource {
     private static final Logger logger = LoggerFactory.getLogger(MealPlanDataResource.class);
 
     private final MealPlanDataService service;
+    private final HouseholdAccessService access;
 
-    public MealPlanDataResource(MealPlanDataService service) {
+    public MealPlanDataResource(MealPlanDataService service,
+                                HouseholdAccessService access) {
         this.service = service;
+        this.access = access;
     }
 
-    /** Frontend: GET /api/mealPlans/{ownerEmail} */
+    /**
+     * Frontend: GET /api/mealPlans/{ownerEmail}. Household plan-sharing
+     * has members reading the head's plan, so the path can target a
+     * different user — but only if the caller shares a household with
+     * them. Otherwise 403.
+     */
     @GetMapping("/{ownerEmail}")
     public ResponseEntity<MealPlanData> getByOwner(@PathVariable String ownerEmail) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadPlanDataFor(caller, ownerEmail);
         return service.findByOwnerEmailCI(ownerEmail)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
@@ -35,6 +46,7 @@ public class MealPlanDataResource {
     /** Admin/dev helper (optional) */
     @GetMapping
     public List<MealPlanData> getAll() {
+        AuthUtils.requireAuthenticatedEmail();
         logger.info("Fetching all meal plans");
         return service.getAllMealPlans();
     }

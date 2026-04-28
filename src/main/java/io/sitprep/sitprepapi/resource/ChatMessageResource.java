@@ -53,6 +53,7 @@ public class ChatMessageResource {
             @PathVariable String groupId,
             @RequestParam(required = false) String before,
             @RequestParam(required = false) Integer limit) {
+        AuthUtils.requireAuthenticatedEmail();
         Instant beforeTs = parseInstant(before);
         return ResponseEntity.ok(service.getPage(groupId, beforeTs, limit));
     }
@@ -61,6 +62,7 @@ public class ChatMessageResource {
     public ResponseEntity<List<ChatMessageDto>> since(
             @PathVariable String groupId,
             @RequestParam String sinceIso) {
+        AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(service.getSince(groupId, parseInstant(sinceIso)));
     }
 

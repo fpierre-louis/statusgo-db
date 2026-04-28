@@ -36,17 +36,9 @@ public class Post {
      * R2 object key for the post's image. Format: {@code post/<uuid>.jpg}.
      * Null when the post has no image. Public delivery URL is derived via
      * {@link io.sitprep.sitprepapi.util.PublicCdn#toPublicUrl(String)}.
-     *
-     * <p>The legacy {@code byte[] image} column has been removed from the
-     * entity; the DB column itself is left in place (unused) for hibernate
-     * {@code ddl-auto: update} compatibility. Drop with a manual ALTER
-     * once the schema is ready.</p>
      */
     @Column(name = "image_key")
     private String imageKey;
-
-    @ElementCollection(fetch = FetchType.EAGER)
-    private Map<String, Integer> reactions = new HashMap<>();
 
     /** user-initiated edit moment */
     private Instant editedAt;

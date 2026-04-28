@@ -28,11 +28,13 @@ public class DemographicResource {
 
     @GetMapping
     public ResponseEntity<List<Demographic>> getAllDemographics() {
+        AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(demographicService.getAllDemographics());
     }
 
     @GetMapping("/owner")
     public ResponseEntity<Demographic> getDemographicForCurrentUser() {
+        AuthUtils.requireAuthenticatedEmail();
         return demographicService.getDemographicForCurrentUser()
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -40,6 +42,7 @@ public class DemographicResource {
 
     @GetMapping("/admin")
     public ResponseEntity<List<Demographic>> getDemographicsByAdminEmail() {
+        AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(demographicService.getDemographicsForCurrentAdmin());
     }
 }

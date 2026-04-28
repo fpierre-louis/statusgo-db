@@ -7,6 +7,17 @@ public record GroupMemberViewDto(
         GroupInfo group,
         String viewerRole,
         List<MemberSummary> members,
+        /**
+         * Household-only — populated when {@code group.groupType == "Household"},
+         * empty otherwise. Manual members are children/elders without app
+         * accounts.
+         */
+        List<HouseholdManualMemberDto> manualMembers,
+        /**
+         * Active "with me" claims inside this household. Empty for
+         * non-household groups.
+         */
+        List<HouseholdAccompanimentDto> accompaniments,
         List<PostSummaryDto> recentPosts,
         MetaDto meta
 ) {
@@ -37,7 +48,13 @@ public record GroupMemberViewDto(
             String firstName,
             String lastName,
             String profileImageUrl,
-            SelfStatus selfStatus
+            SelfStatus selfStatus,
+            /** Last verified-token request from this member; null if never. */
+            Instant lastActiveAt,
+            /** Last reported device location; null until permission granted. */
+            Double lastKnownLat,
+            Double lastKnownLng,
+            Instant lastKnownLocationAt
     ) {}
 
     public record SelfStatus(

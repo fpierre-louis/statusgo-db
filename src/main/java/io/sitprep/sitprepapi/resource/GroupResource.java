@@ -22,9 +22,11 @@ import java.util.List;
  *   <li>Delete / owner transfer — owner only.</li>
  * </ul>
  *
- * <p>Reads stay open through the rollout — public group discovery hits
- * {@code GET /api/groups} anonymously and share-link OG generation hits
- * {@code GET /api/groups/{id}} the same way.</p>
+ * <p>Reads now require a verified token. The community-discover endpoint
+ * is the right surface for unauthenticated browsing and lives at
+ * {@code /api/community/discover} — anything that needs a public preview
+ * of a single group should carve a dedicated read-only endpoint instead
+ * of opening this one back up.</p>
  */
 @RestController
 @RequestMapping("/api/groups")
@@ -36,6 +38,7 @@ public class GroupResource {
 
     @GetMapping("/admin")
     public List<Group> getGroupsByAdminEmail() {
+        AuthUtils.requireAuthenticatedEmail();
         return groupService.getGroupsForCurrentAdmin();
     }
 
@@ -70,11 +73,13 @@ public class GroupResource {
 
     @GetMapping
     public List<Group> getAllGroups() {
+        AuthUtils.requireAuthenticatedEmail();
         return groupService.getAllGroups();
     }
 
     @GetMapping("/{groupId}")
     public Group getGroupById(@PathVariable String groupId) {
+        AuthUtils.requireAuthenticatedEmail();
         return groupService.getGroupByPublicId(groupId);
     }
 

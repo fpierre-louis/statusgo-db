@@ -3,9 +3,16 @@ package io.sitprep.sitprepapi.websocket;
 import io.sitprep.sitprepapi.dto.ChatMessageDtos.ChatMessageDto;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
+import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
+import io.sitprep.sitprepapi.dto.HouseholdEventDto;
+import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.PostReactionFrame;
 import io.sitprep.sitprepapi.dto.CommentDto;
 import io.sitprep.sitprepapi.dto.TaskDto;
+
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -40,6 +47,17 @@ public class WebSocketMessageSender {
 
     public void sendPostDeletion(String groupId, Long postId) {
         messagingTemplate.convertAndSend("/topic/posts/" + groupId + "/delete", postId);
+    }
+
+    /**
+     * Broadcast an emoji reaction add/remove on the same posts topic. The
+     * frame's {@code type:"reaction"} discriminator lets the post-list
+     * subscriber ignore it (it's not a full PostDto) while the reactions
+     * subscriber picks it up.
+     */
+    public void sendPostReaction(String groupId, PostReactionFrame frame) {
+        if (groupId == null || groupId.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend("/topic/posts/" + groupId, frame);
     }
 
     // --- Comments ---
@@ -85,6 +103,54 @@ public class WebSocketMessageSender {
                 && !dto.claimedByGroupId().equals(dto.groupId())) {
             messagingTemplate.convertAndSend("/topic/group/" + dto.claimedByGroupId() + "/tasks", dto);
         }
+    }
+
+    // --- Household events ---
+    /**
+     * Broadcast a new household activity event so the chat thread updates
+     * live without a refresh. Topic mirrors the REST resource path:
+     *   /topic/households/{householdId}/events
+     */
+    public void sendHouseholdEvent(String householdId, HouseholdEventDto dto) {
+        if (householdId == null || householdId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/events", dto);
+    }
+
+    // --- Household accompaniments (with-me feature) ---
+    public void sendHouseholdAccompanimentUpdate(String householdId, HouseholdAccompanimentDto dto) {
+        if (householdId == null || householdId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/accompaniments", dto);
+    }
+
+    public void sendHouseholdAccompanimentRelease(String householdId, Map<String, String> ref) {
+        if (householdId == null || householdId.isBlank() || ref == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/accompaniments/release", ref);
+    }
+
+    /**
+     * Replace-all snapshot push — used after a manual-member removal cascade
+     * since the per-row delete events would be racy.
+     */
+    public void sendHouseholdAccompanimentReplaceAll(String householdId, List<HouseholdAccompanimentDto> all) {
+        if (householdId == null || householdId.isBlank()) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/accompaniments/snapshot", all);
+    }
+
+    // --- Household manual members ---
+    public void sendHouseholdManualMemberUpdate(String householdId, HouseholdManualMemberDto dto) {
+        if (householdId == null || householdId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/manual-members", dto);
+    }
+
+    public void sendHouseholdManualMemberDeletion(String householdId, String manualMemberId) {
+        if (householdId == null || householdId.isBlank() || manualMemberId == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/manual-members/delete", manualMemberId);
     }
 
     public void sendTaskDeletion(String groupId, String zipBucket, Long taskId) {

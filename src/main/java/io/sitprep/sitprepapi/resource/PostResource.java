@@ -31,14 +31,10 @@ public class PostResource {
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
-            @RequestParam(value = "authorEmail", required = false) String authorEmail,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam(value = "mentions", required = false) List<String> mentions
     ) {
-        // Phase E: author is the verified token email. authorEmail param is
-        // ignored (kept on the signature for back-compat with old clients
-        // until the next mobile build forces a refresh).
         String author = AuthUtils.requireAuthenticatedEmail();
 
         PostDto postDto = new PostDto();
@@ -56,6 +52,7 @@ public class PostResource {
 
     @GetMapping("/group/{groupId}")
     public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
+        AuthUtils.requireAuthenticatedEmail();
         return postService.getPostsByGroupIdDto(groupId);
     }
 
@@ -64,17 +61,20 @@ public class PostResource {
             @RequestParam String groupId,
             @RequestParam String sinceIso
     ) {
+        AuthUtils.requireAuthenticatedEmail();
         return postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso));
     }
 
     @GetMapping("/groups/latest")
     public Map<String, PostSummaryDto> getLatestPostsForGroups(
             @RequestParam("groupIds") List<String> groupIds) {
+        AuthUtils.requireAuthenticatedEmail();
         return postService.getLatestPostsForGroups(groupIds);
     }
 
     @GetMapping("/{postId}")
     public ResponseEntity<PostDto> getPostById(@PathVariable Long postId) {
+        AuthUtils.requireAuthenticatedEmail();
         Optional<PostDto> postOpt = postService.getPostDtoById(postId);
         return postOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -88,10 +88,8 @@ public class PostResource {
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "removeImage", required = false) Boolean removeImage,
             @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "mentions", required = false) List<String> mentions,
-            @RequestParam(value = "authorEmail", required = false) String authorEmail
+            @RequestParam(value = "mentions", required = false) List<String> mentions
     ) {
-        // Phase E: must be signed in AND own the post.
         String actor = AuthUtils.requireAuthenticatedEmail();
 
         Optional<Post> postOpt = postService.getPostById(postId);
@@ -125,13 +123,7 @@ public class PostResource {
     }
 
     @DeleteMapping("/{postId}")
-    public ResponseEntity<Void> deletePost(
-            @PathVariable Long postId,
-            @RequestParam(value = "actor", required = false) String actorParam
-    ) {
-        // Phase E: actor is the verified email. PostService still throws
-        // SecurityException if the post belongs to someone else, so the
-        // ownership check is enforced at the service layer.
+    public ResponseEntity<Void> deletePost(@PathVariable Long postId) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         postService.deletePostAndBroadcast(postId, actor);
         return ResponseEntity.noContent().build();

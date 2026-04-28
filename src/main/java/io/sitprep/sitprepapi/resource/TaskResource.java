@@ -69,6 +69,7 @@ public class TaskResource {
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) TaskStatus status
     ) {
+        AuthUtils.requireAuthenticatedEmail();
         return tasks.listByGroup(groupId, status);
     }
 
@@ -79,6 +80,7 @@ public class TaskResource {
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
             @RequestParam(value = "status", required = false) List<TaskStatus> statuses
     ) {
+        AuthUtils.requireAuthenticatedEmail();
         Set<TaskStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(TaskStatus.OPEN, TaskStatus.CLAIMED) : EnumSet.copyOf(statuses);
         return tasks.discoverCommunity(lat, lng, radiusKm, wanted);
@@ -96,6 +98,7 @@ public class TaskResource {
 
     @GetMapping("/api/tasks/{id}")
     public ResponseEntity<TaskDto> get(@PathVariable Long id) {
+        AuthUtils.requireAuthenticatedEmail();
         return tasks.findById(id)
                 .map(t -> ResponseEntity.ok(io.sitprep.sitprepapi.dto.TaskDto.fromEntity(t)))
                 .orElse(ResponseEntity.notFound().build());

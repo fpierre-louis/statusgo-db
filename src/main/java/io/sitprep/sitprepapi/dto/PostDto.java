@@ -28,7 +28,15 @@ public class PostDto {
     /** Public delivery URL derived from {@link #imageKey} via PublicCdn. Read-only. */
     private String imageUrl;
 
-    private Map<String, Integer> reactions;
+    /**
+     * Roster of who reacted with which emoji, populated when the listing path
+     * resolves it (chat feed always; per-post fetch always; legacy callers
+     * may receive an empty map). Frontend reads this as
+     * {@code { [emoji]: [{ userEmail, addedAt }, ...] }} and re-derives
+     * counts client-side. Replaces the legacy {@code Map<String,Integer>}
+     * counts-only shape.
+     */
+    private Map<String, List<PostReactionDto>> reactions;
 
     /** user-initiated edit moment (you already had this) */
     private Instant editedAt;

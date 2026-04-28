@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.GroupReadinessSummaryDto;
 import io.sitprep.sitprepapi.service.GroupReadinessService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,7 @@ public class GroupReadinessResource {
     public ResponseEntity<GroupReadinessSummaryDto> getReadinessSummary(
             @PathVariable("groupId") String groupId
     ) {
+        AuthUtils.requireAuthenticatedEmail();
         GroupReadinessSummaryDto dto = groupReadinessService.buildReadinessSummary(groupId);
         return ResponseEntity.ok(dto);
     }

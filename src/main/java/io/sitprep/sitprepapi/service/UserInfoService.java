@@ -17,10 +17,13 @@ import java.util.stream.Collectors;
 public class UserInfoService {
 
     private final UserInfoRepo userInfoRepo;
+    private final HouseholdEventService householdEventService;
 
     @Autowired
-    public UserInfoService(UserInfoRepo userInfoRepo) {
+    public UserInfoService(UserInfoRepo userInfoRepo,
+                           HouseholdEventService householdEventService) {
         this.userInfoRepo = userInfoRepo;
+        this.householdEventService = householdEventService;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -107,15 +110,65 @@ public class UserInfoService {
 
     public void deleteUser(String id) { userInfoRepo.deleteById(id); }
 
+    /**
+     * Merge an incoming partial map into the user's groupLocationSharing
+     * preference. {@code null} mode values clear an entry (reverts to the
+     * group's default). Unknown groups are accepted — the FE may
+     * pre-record a preference before joining.
+     */
+    @Transactional
+    public Map<String, String> mergeGroupLocationSharingByEmail(String email, Map<String, String> patch) {
+        if (email == null || email.isBlank()) return Map.of();
+        return userInfoRepo.findByUserEmailIgnoreCase(email.trim())
+                .map(u -> {
+                    Map<String, String> map = u.getGroupLocationSharing();
+                    if (map == null) {
+                        map = new HashMap<>();
+                        u.setGroupLocationSharing(map);
+                    }
+                    if (patch != null) {
+                        for (Map.Entry<String, String> e : patch.entrySet()) {
+                            String k = e.getKey();
+                            String v = e.getValue();
+                            if (k == null || k.isBlank()) continue;
+                            if (v == null) map.remove(k);
+                            else map.put(k, v);
+                        }
+                    }
+                    userInfoRepo.save(u);
+                    return new HashMap<>(map);
+                })
+                .orElseGet(HashMap::new);
+    }
+
+    /**
+     * Presence-location ping handler. Updates {@code lastKnownLat/Lng} +
+     * {@code lastKnownLocationAt} on the user identified by email. Silently
+     * no-ops if the user doesn't exist (the FE may have stale identity).
+     */
+    @Transactional
+    public void updateLastKnownLocationByEmail(String email, Double lat, Double lng) {
+        if (email == null || email.isBlank() || lat == null || lng == null) return;
+        userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
+            u.setLastKnownLat(lat);
+            u.setLastKnownLng(lng);
+            u.setLastKnownLocationAt(Instant.now());
+            userInfoRepo.save(u);
+        });
+    }
+
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
         UserInfo userInfo = userInfoRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));
+
+        // Capture pre-patch userStatus so we can fire a status-changed event
+        // after a successful save when (and only when) it actually changed.
+        String oldUserStatus = userInfo.getUserStatus();
 
         updates.forEach((key, value) -> {
             if (key == null || value == null) return;
             if (Set.of("id", "userEmail").contains(key)) return;
 
-            // ✅ avoid UID being overwritten with null/blank
             if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;
 
             try {
@@ -135,7 +188,15 @@ public class UserInfoService {
             }
         });
 
-        return userInfoRepo.save(userInfo);
+        UserInfo saved = userInfoRepo.save(userInfo);
+
+        String newStatus = saved.getUserStatus();
+        if (newStatus != null && !Objects.equals(oldUserStatus, newStatus)
+                && saved.getUserEmail() != null) {
+            householdEventService.recordStatusChangedForActor(saved.getUserEmail(), newStatus);
+        }
+
+        return saved;
     }
 
     /** Existing: idempotent upsert by email */

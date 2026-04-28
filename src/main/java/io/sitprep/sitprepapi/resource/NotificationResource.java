@@ -25,7 +25,9 @@ public class NotificationResource {
             @RequestParam String sinceIso,
             @RequestParam(required = false) String type // e.g. "alert"
     ) {
-        String email = AuthUtils.getCurrentUserEmail();
+        // Backfill is strictly self — read the verified token email so a
+        // signed-in user can only pull their own missed notifications.
+        String email = AuthUtils.requireAuthenticatedEmail();
         Instant since = Instant.parse(sinceIso);
 
         List<NotificationLog> rows = (type == null || type.isBlank())

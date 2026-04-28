@@ -20,18 +20,15 @@ public class GroupViewResource {
     /**
      * Consolidated group view for members / viewers. Replaces the typical
      * group-detail page fan-out of fetchGroupById + fetchAllUserInfo-filter +
-     * fetchPostsByGroupId with a single call.
+     * fetchPostsByGroupId with a single call. The backend gates each
+     * member's lastKnownLat/Lng on their per-group sharing pref + the
+     * group's alert state.
      *
-     * <p>Viewer identity is resolved from the verified Firebase token when
-     * present; falls back to the {@code viewerEmail} query param while
-     * Phase E enforcement on reads is still pending.</p>
+     * <p>Viewer identity comes from the verified Firebase token.</p>
      */
     @GetMapping("/{groupId}/member")
-    public ResponseEntity<GroupMemberViewDto> getMemberView(
-            @PathVariable String groupId,
-            @RequestParam(name = "viewerEmail", required = false) String viewerEmail
-    ) {
-        String viewer = AuthUtils.resolveActor(viewerEmail);
+    public ResponseEntity<GroupMemberViewDto> getMemberView(@PathVariable String groupId) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
         return groupViewService.buildMemberView(groupId, viewer)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());

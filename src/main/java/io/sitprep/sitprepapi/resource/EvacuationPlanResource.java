@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.service.EvacuationPlanService;
+import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,9 +16,12 @@ import java.util.stream.Collectors;
 public class EvacuationPlanResource {
 
     private final EvacuationPlanService evacuationPlanService;
+    private final HouseholdAccessService access;
 
-    public EvacuationPlanResource(EvacuationPlanService evacuationPlanService) {
+    public EvacuationPlanResource(EvacuationPlanService evacuationPlanService,
+                                  HouseholdAccessService access) {
         this.evacuationPlanService = evacuationPlanService;
+        this.access = access;
     }
 
     /**
@@ -61,15 +65,18 @@ public class EvacuationPlanResource {
     }
 
     /**
-     * Fetch plans for a user (no auth). Example:
-     * GET /api/evacuation-plans?ownerEmail=user@example.com
+     * Fetch plans for a user. Household plan-sharing has members reading
+     * the head's plans, so {@code ownerEmail} can target another user —
+     * but only when the caller shares a household with them. Otherwise 403.
      */
     @GetMapping
     public ResponseEntity<List<EvacuationPlan>> getEvacuationPlansByOwner(
             @RequestParam("ownerEmail") String ownerEmail) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         if (ownerEmail == null || ownerEmail.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
+        access.requireCanReadPlanDataFor(caller, ownerEmail);
         return ResponseEntity.ok(evacuationPlanService.getEvacuationPlansByOwner(ownerEmail));
     }
 }

@@ -8,6 +8,8 @@ import lombok.Setter;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 @Entity
@@ -102,4 +104,40 @@ public class UserInfo {
      */
     @Column(name = "last_active_at")
     private Instant lastActiveAt;
+
+    /**
+     * Last *current* location reported by the user's device — distinct from
+     * {@link #latitude}/{@link #longitude} which back the user's home address.
+     * Populated by {@code PATCH /api/userinfo/me/location} on the frontend's
+     * presence ping (throttled — see useTrackPresence). Null until permission
+     * granted at least once. Powers the household presence dots
+     * (home / nearby / out / unknown) and the future {@code effectiveLocation}
+     * resolution in the per-group sharing story.
+     */
+    @Column(name = "last_known_lat")
+    private Double lastKnownLat;
+
+    @Column(name = "last_known_lng")
+    private Double lastKnownLng;
+
+    @Column(name = "last_known_location_at")
+    private Instant lastKnownLocationAt;
+
+    /**
+     * Per-group location sharing preference. Map of {@code groupId} →
+     * sharing mode (one of {@code "always"}, {@code "check-in-only"},
+     * {@code "never"}). The household feed gates {@code lastKnownLat/Lng}
+     * on this map plus the group's alert state.
+     *
+     * <p>Defaults are not stored: an absent entry means "use the group's
+     * default" (Households default to {@code check-in-only}, others to
+     * {@code never}). The frontend's {@code shouldShareLocation} helper
+     * computes the same way.</p>
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_info_group_location_sharing",
+            joinColumns = @JoinColumn(name = "user_info_id"))
+    @MapKeyColumn(name = "group_id", length = 64)
+    @Column(name = "mode", length = 32)
+    private Map<String, String> groupLocationSharing = new HashMap<>();
 }

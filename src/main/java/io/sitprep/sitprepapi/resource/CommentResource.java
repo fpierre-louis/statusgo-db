@@ -22,9 +22,10 @@ import java.util.stream.Collectors;
  * cannot post or edit comments. Author is the verified token email; PUT
  * and DELETE additionally verify the caller authored the target comment.
  *
- * <p>Reads stay open during the rollout — same reasoning as {@code Post}.
- * Public-group comment threads are visible without auth, and share-link
- * OG generation may hit them anonymously.</p>
+ * <p>Reads require a verified token. Comment threads belong to groups
+ * (private to members) so anonymous reads aren't a real use case in this
+ * app — if a future flow needs them (e.g. public-link OG generation),
+ * carve a dedicated endpoint instead of opening this one back up.</p>
  */
 @RestController
 @RequestMapping("/api/comments")
@@ -51,6 +52,7 @@ public class CommentResource {
     public Map<Long, List<CommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
+        AuthUtils.requireAuthenticatedEmail();
         var validPostIds = postIds.stream()
                 .map(id -> {
                     try { return Long.parseLong(id); } catch (NumberFormatException e) { return null; }
@@ -66,12 +68,14 @@ public class CommentResource {
     public List<CommentDto> getCommentsSince(
             @RequestParam Long postId,
             @RequestParam String sinceIso) {
+        AuthUtils.requireAuthenticatedEmail();
         return commentService.getCommentsSince(postId, Instant.parse(sinceIso));
     }
 
     // All for a post (oldest -> newest)
     @GetMapping("/{postId}")
     public ResponseEntity<List<CommentDto>> getCommentsByPostId(@PathVariable Long postId) {
+        AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(commentService.getCommentsByPostId(postId));
     }
 

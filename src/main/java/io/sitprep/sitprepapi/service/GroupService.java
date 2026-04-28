@@ -22,15 +22,18 @@ public class GroupService {
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender webSocketMessageSender;
+    private final HouseholdEventService householdEventService;
     private NotificationService notificationService; // setter-injected
 
     public GroupService(GroupRepo groupRepo,
                         UserInfoRepo userInfoRepo,
                         WebSocketMessageSender webSocketMessageSender,
+                        HouseholdEventService householdEventService,
                         NotificationService notificationService) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.webSocketMessageSender = webSocketMessageSender;
+        this.householdEventService = householdEventService;
         this.notificationService = notificationService;
     }
 
@@ -126,6 +129,11 @@ public class GroupService {
         final String newAlert = groupDetails.getAlert();
         final boolean alertChanged = !Objects.equals(previousAlert, newAlert);
         final boolean alertBecameActive = alertChanged && "Active".equalsIgnoreCase(newAlert);
+        final boolean alertBecameInactive = alertChanged
+                && "Active".equalsIgnoreCase(previousAlert)
+                && !"Active".equalsIgnoreCase(newAlert);
+        final boolean isHousehold =
+                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
 
         group.setAdminEmails(safeList(groupDetails.getAdminEmails()));
         group.setAlert(groupDetails.getAlert());
@@ -151,6 +159,15 @@ public class GroupService {
 
         if (alertBecameActive) {
             notifyGroupMembers(group);
+        }
+
+        if (isHousehold && alertChanged) {
+            String actor = groupDetails.getLastUpdatedBy();
+            if (alertBecameActive) {
+                householdEventService.recordCheckinStarted(group.getGroupId(), actor);
+            } else if (alertBecameInactive) {
+                householdEventService.recordCheckinEnded(group.getGroupId(), actor);
+            }
         }
 
         notifyNewMembers(group, oldMemberEmails);
