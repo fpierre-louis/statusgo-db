@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
 import io.sitprep.sitprepapi.service.GroupViewService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,19 +22,16 @@ public class GroupViewResource {
      * group-detail page fan-out of fetchGroupById + fetchAllUserInfo-filter +
      * fetchPostsByGroupId with a single call.
      *
-     * Pass the caller's email as `viewerEmail` (optional) so viewerRole is
-     * populated; falls back to the X-Impersonate-Email request header set by
-     * the frontend http interceptor.
+     * <p>Viewer identity is resolved from the verified Firebase token when
+     * present; falls back to the {@code viewerEmail} query param while
+     * Phase E enforcement on reads is still pending.</p>
      */
     @GetMapping("/{groupId}/member")
     public ResponseEntity<GroupMemberViewDto> getMemberView(
             @PathVariable String groupId,
-            @RequestParam(name = "viewerEmail", required = false) String viewerEmail,
-            @RequestHeader(name = "X-Impersonate-Email", required = false) String impersonateHeader
+            @RequestParam(name = "viewerEmail", required = false) String viewerEmail
     ) {
-        String viewer = viewerEmail != null && !viewerEmail.isBlank()
-                ? viewerEmail
-                : impersonateHeader;
+        String viewer = AuthUtils.resolveActor(viewerEmail);
         return groupViewService.buildMemberView(groupId, viewer)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
