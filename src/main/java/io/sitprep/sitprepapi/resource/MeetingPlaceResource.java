@@ -27,7 +27,7 @@ public class MeetingPlaceResource {
      */
     @PostMapping("/bulk")
     public ResponseEntity<List<MeetingPlace>> saveAllMeetingPlaces(@RequestBody Map<String, Object> requestData) {
-        String ownerEmail = AuthUtils.getCurrentUserEmail();
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<Map<String, Object>> placesData = (List<Map<String, Object>>) requestData.get("meetingPlaces");
 
         if (placesData == null || placesData.isEmpty()) {
@@ -60,6 +60,9 @@ public class MeetingPlaceResource {
             @PathVariable Long id,
             @RequestBody MeetingPlace meetingPlace
     ) {
+        // Owner is whoever signed the request; body's ownerEmail (if any) is overridden.
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        meetingPlace.setOwnerEmail(caller);
         MeetingPlace updatedPlace = meetingPlaceService.updateMeetingPlace(id, meetingPlace);
         return ResponseEntity.ok(updatedPlace);
     }
@@ -69,7 +72,7 @@ public class MeetingPlaceResource {
      */
     @GetMapping
     public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail() {
-        String ownerEmail = AuthUtils.getCurrentUserEmail();
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail);
         return ResponseEntity.ok(meetingPlaces);
     }

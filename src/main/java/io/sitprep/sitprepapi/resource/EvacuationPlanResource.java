@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.service.EvacuationPlanService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -29,10 +30,11 @@ public class EvacuationPlanResource {
      */
     @PostMapping("/bulk")
     public ResponseEntity<List<EvacuationPlan>> saveAllEvacuationPlans(@RequestBody Map<String, Object> requestData) {
-        String ownerEmail = (String) requestData.get("ownerEmail");
+        // Owner is the verified caller — body's ownerEmail (if present) ignored.
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<Map<String, Object>> plansData = (List<Map<String, Object>>) requestData.get("evacuationPlans");
 
-        if (ownerEmail == null || ownerEmail.isBlank() || plansData == null) {
+        if (plansData == null) {
             return ResponseEntity.badRequest().build();
         }
 

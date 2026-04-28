@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.service.OriginLocationService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,38 +22,32 @@ public class OriginLocationResource {
     }
 
     /**
-     * GET /api/origin-locations?ownerEmail=user@example.com
+     * GET /api/origin-locations
+     * Returns the verified caller's origin locations. ownerEmail param ignored.
      */
     @GetMapping
     public ResponseEntity<List<OriginLocation>> getByOwner(
-            @RequestParam("ownerEmail") String ownerEmail) {
-        if (ownerEmail == null || ownerEmail.isBlank()) {
-            return ResponseEntity.badRequest().build();
-        }
+            @RequestParam(value = "ownerEmail", required = false) String ownerEmailIgnored) {
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
     }
 
     /**
      * POST /api/origin-locations/bulk
-     * Body:
-     * {
-     *   "ownerEmail": "user@example.com",
-     *   "origins": [{ "name":"Home","address":"...","lat":1.0,"lng":2.0 }, ...]
-     * }
-     * Replaces all existing origins for the user.
+     * Replaces all existing origins for the verified caller.
+     * Body's ownerEmail (if present) is ignored.
      */
     @PostMapping("/bulk")
     public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
-        String ownerEmail = (String) requestData.get("ownerEmail");
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<Map<String, Object>> originData = (List<Map<String, Object>>) requestData.get("origins");
-
-        if (ownerEmail == null || ownerEmail.isBlank() || originData == null) {
+        if (originData == null) {
             return ResponseEntity.badRequest().build();
         }
 
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
-            origin.setOwnerEmail(ownerEmail); // enforce owner from top-level
+            origin.setOwnerEmail(ownerEmail);
             origin.setName((String) data.get("name"));
             origin.setAddress((String) data.get("address"));
             origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
@@ -64,33 +59,29 @@ public class OriginLocationResource {
     }
 
     /**
-     * PUT /api/origin-locations/{id}?ownerEmail=user@example.com
-     * Body: OriginLocation fields (name, address, lat, lng)
+     * PUT /api/origin-locations/{id}
+     * Body: OriginLocation fields. Owner is the verified caller; query/body
+     * ownerEmail (if present) is ignored.
      */
     @PutMapping("/{id}")
     public ResponseEntity<OriginLocation> update(
             @PathVariable Long id,
-            @RequestParam("ownerEmail") String ownerEmail,
+            @RequestParam(value = "ownerEmail", required = false) String ownerEmailIgnored,
             @RequestBody OriginLocation origin) {
-
-        if (ownerEmail == null || ownerEmail.isBlank()) {
-            return ResponseEntity.badRequest().build();
-        }
-        return ResponseEntity.ok(originService.update(id, ownerEmail, origin));
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(originService.update(id, caller, origin));
     }
 
     /**
-     * DELETE /api/origin-locations/{id}?ownerEmail=user@example.com
+     * DELETE /api/origin-locations/{id}
+     * Deletes the verified caller's origin. Query ownerEmail (if present) ignored.
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
             @PathVariable Long id,
-            @RequestParam("ownerEmail") String ownerEmail) {
-
-        if (ownerEmail == null || ownerEmail.isBlank()) {
-            return ResponseEntity.badRequest().build();
-        }
-        originService.delete(id, ownerEmail);
+            @RequestParam(value = "ownerEmail", required = false) String ownerEmailIgnored) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        originService.delete(id, caller);
         return ResponseEntity.noContent().build();
     }
 }

@@ -2,10 +2,12 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -37,9 +39,11 @@ public class MealPlanDataResource {
         return service.getAllMealPlans();
     }
 
-    /** Idempotent create/update by payload.ownerEmail */
+    /** Idempotent create/update — owner is the verified caller. */
     @PostMapping
     public ResponseEntity<MealPlanData> save(@RequestBody MealPlanData mealPlanData) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        mealPlanData.setOwnerEmail(caller);
         try {
             return ResponseEntity.ok(service.upsert(mealPlanData));
         } catch (IllegalArgumentException e) {
@@ -47,10 +51,12 @@ public class MealPlanDataResource {
         }
     }
 
-    /** Update by route email; 404 if none exists */
+    /** Update by route email; must match the verified caller. 404 if none exists. */
     @PutMapping("/{ownerEmail}")
     public ResponseEntity<MealPlanData> update(@PathVariable String ownerEmail,
                                                @RequestBody MealPlanData mealPlanData) {
+        ensurePathOwnerIsCaller(ownerEmail);
+        mealPlanData.setOwnerEmail(ownerEmail);
         try {
             return ResponseEntity.ok(service.updateByOwnerEmail(ownerEmail, mealPlanData));
         } catch (IllegalArgumentException e) {
@@ -58,10 +64,19 @@ public class MealPlanDataResource {
         }
     }
 
-    /** Delete by route email (no-op if missing) */
+    /** Delete by route email; must match the verified caller. */
     @DeleteMapping("/{ownerEmail}")
     public ResponseEntity<Void> delete(@PathVariable String ownerEmail) {
+        ensurePathOwnerIsCaller(ownerEmail);
         service.deleteByOwnerEmail(ownerEmail);
         return ResponseEntity.noContent().build();
+    }
+
+    private void ensurePathOwnerIsCaller(String pathOwnerEmail) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        if (pathOwnerEmail == null || !pathOwnerEmail.equalsIgnoreCase(caller)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Meal plan belongs to a different user");
+        }
     }
 }

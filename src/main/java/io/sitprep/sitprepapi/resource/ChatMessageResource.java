@@ -41,7 +41,7 @@ public class ChatMessageResource {
             @PathVariable String groupId,
             @RequestBody CreateMessageRequest request) {
         CreateMessageRequest effective = request == null ? null : new CreateMessageRequest(
-                AuthUtils.resolveActor(request.authorEmail()),
+                AuthUtils.requireAuthenticatedEmail(),
                 request.content(),
                 request.tempId()
         );
@@ -69,7 +69,7 @@ public class ChatMessageResource {
             @PathVariable Long id,
             @RequestBody UpdateMessageRequest request) {
         UpdateMessageRequest effective = request == null ? null : new UpdateMessageRequest(
-                AuthUtils.resolveActor(request.authorEmail()),
+                AuthUtils.requireAuthenticatedEmail(), // service still verifies authorship
                 request.content()
         );
         return ResponseEntity.ok(service.edit(id, effective));
@@ -79,7 +79,9 @@ public class ChatMessageResource {
     public ResponseEntity<Void> delete(
             @PathVariable Long id,
             @RequestParam(required = false) String actor) {
-        service.delete(id, AuthUtils.resolveActor(actor));
+        // actor query param ignored — caller is the verified token email.
+        // Kept on the signature to avoid 4xx on legacy clients still sending it.
+        service.delete(id, AuthUtils.requireAuthenticatedEmail());
         return ResponseEntity.noContent().build();
     }
 

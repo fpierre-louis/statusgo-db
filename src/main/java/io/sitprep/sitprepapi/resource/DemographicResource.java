@@ -21,6 +21,8 @@ public class DemographicResource {
 
     @PostMapping
     public ResponseEntity<Demographic> saveDemographic(@RequestBody Demographic demographic) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        demographic.setOwnerEmail(caller); // override body — caller can only save their own
         return ResponseEntity.ok(demographicService.saveDemographic(demographic));
     }
 

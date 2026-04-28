@@ -2,10 +2,14 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.service.EmergencyContactGroupService;
+import io.sitprep.sitprepapi.util.AuthUtils;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/emergency-groups")
@@ -36,9 +40,10 @@ public class EmergencyContactGroupResource {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // FE sends ownerEmail in body (MVP, no JWT)
     @PostMapping
     public ResponseEntity<EmergencyContactGroup> createGroup(@RequestBody EmergencyContactGroup group) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        group.setOwnerEmail(caller); // override body
         EmergencyContactGroup saved = groupService.createGroup(group);
         return ResponseEntity.ok(saved);
     }
@@ -48,13 +53,30 @@ public class EmergencyContactGroupResource {
             @PathVariable Long id,
             @RequestBody EmergencyContactGroup updatedGroup
     ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        ensureOwns(id, caller);
+        updatedGroup.setOwnerEmail(caller); // owner is immutable
         EmergencyContactGroup saved = groupService.updateGroup(id, updatedGroup);
         return ResponseEntity.ok(saved);
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteGroup(@PathVariable Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        ensureOwns(id, caller);
         groupService.deleteGroup(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private void ensureOwns(Long id, String caller) {
+        Optional<EmergencyContactGroup> existing = groupService.getGroupById(id);
+        if (existing.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        String owner = existing.get().getOwnerEmail();
+        if (owner == null || !owner.equalsIgnoreCase(caller)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Emergency contact group belongs to a different user");
+        }
     }
 }
