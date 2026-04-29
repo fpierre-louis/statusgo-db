@@ -157,6 +157,21 @@ public class UserInfoService {
         });
     }
 
+    /**
+     * Stamp {@code lastAssessmentAt = now()} on the user record. Backs
+     * {@code POST /api/userinfo/me/assessment} which the frontend calls
+     * when the Readiness Assessment quiz at /sitprep-quiz finishes.
+     * Idempotent — calling twice just refreshes the timestamp.
+     */
+    @Transactional
+    public void markAssessmentCompleteByEmail(String email) {
+        if (email == null || email.isBlank()) return;
+        userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
+            u.setLastAssessmentAt(Instant.now());
+            userInfoRepo.save(u);
+        });
+    }
+
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
         UserInfo userInfo = userInfoRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));

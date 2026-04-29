@@ -112,6 +112,17 @@ public class UserInfo {
     private Instant lastActiveAt;
 
     /**
+     * When this user last completed the Readiness Assessment quiz at
+     * /sitprep-quiz. Drives the quarterly nudge banner on /home (per
+     * docs/ECOSYSTEM_INTEGRATION.md step 6) — when null OR > 90d ago,
+     * the banner appears prompting the user to re-run the assessment.
+     * Bumped by {@code POST /api/userinfo/me/assessment} when the FE
+     * marks the quiz complete; never reset by anything else.
+     */
+    @Column(name = "last_assessment_at")
+    private Instant lastAssessmentAt;
+
+    /**
      * Last *current* location reported by the user's device — distinct from
      * {@link #latitude}/{@link #longitude} which back the user's home address.
      * Populated by {@code PATCH /api/userinfo/me/location} on the frontend's

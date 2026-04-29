@@ -43,6 +43,7 @@ public class MeService {
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final OriginLocationRepo originLocationRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
+    private final PlanActivationRepo planActivationRepo;
 
     public MeService(
             UserInfoRepo userInfoRepo,
@@ -52,7 +53,8 @@ public class MeService {
             EvacuationPlanRepo evacuationPlanRepo,
             MeetingPlaceRepo meetingPlaceRepo,
             OriginLocationRepo originLocationRepo,
-            EmergencyContactGroupRepo emergencyContactGroupRepo
+            EmergencyContactGroupRepo emergencyContactGroupRepo,
+            PlanActivationRepo planActivationRepo
     ) {
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -62,6 +64,7 @@ public class MeService {
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.originLocationRepo = originLocationRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
+        this.planActivationRepo = planActivationRepo;
     }
 
     @Transactional(readOnly = true)
@@ -162,11 +165,24 @@ public class MeService {
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts
         );
 
+        // Most recent non-expired activation owned by this user, if any.
+        // Drives the Active Dashboard auto-promote on /home (per
+        // docs/ECOSYSTEM_INTEGRATION.md step 5). Wrapped in safeGet so a
+        // misbehaving query doesn't sink the whole /me payload.
+        String activeActivationId = email.isBlank() ? null : safeGet(
+                "activeActivationId", logCtx,
+                () -> planActivationRepo
+                        .findFirstActiveByOwnerEmail(email, Instant.now())
+                        .map(a -> a.getId())
+                        .orElse(null),
+                null);
+
         return new MeDto(
                 toProfile(user),
                 householdDto,
                 new GroupsDto(managed, joined),
                 readiness,
+                activeActivationId,
                 new MetaDto(Instant.now(), DTO_VERSION)
         );
     }
@@ -232,7 +248,8 @@ public class MeService {
                 u.getProfileImageURL(),
                 u.getSubscription(),
                 status,
-                u.getLastActiveAt()
+                u.getLastActiveAt(),
+                u.getLastAssessmentAt()
         );
     }
 
@@ -253,7 +270,9 @@ public class MeService {
                 memberCount,
                 adminCount,
                 demoDto,
-                null
+                null,
+                g.getAlert(),
+                g.getActiveHazardType()
         );
     }
 
@@ -270,6 +289,7 @@ public class MeService {
                 pendingCount,
                 role,
                 g.getAlert(),
+                g.getActiveHazardType(),
                 g.getUpdatedAt()
         );
     }

@@ -19,6 +19,16 @@ public record MeDto(
         HouseholdDto household,
         GroupsDto groups,
         ReadinessDto readiness,
+        /**
+         * Opaque id of the user's most recent non-expired plan activation,
+         * or null if they don't have one. Drives the Active Dashboard
+         * auto-promote on /home (per docs/ECOSYSTEM_INTEGRATION.md step 5):
+         * when this is non-null, HomeDashboard flips its hero to active
+         * mode and links the user back to /deployedplan?activationId=...
+         * The frontend doesn't need a separate poll — this rides on the
+         * existing /api/me/{uid} payload.
+         */
+        String activeActivationId,
         MetaDto meta
 ) {
 
@@ -37,7 +47,14 @@ public record MeDto(
             String subscription,
             SelfStatusDto selfStatus,
             /** Last time this user hit any authenticated endpoint. Null if never. */
-            Instant lastActiveAt
+            Instant lastActiveAt,
+            /**
+             * Last time this user completed the Readiness Assessment quiz
+             * at /sitprep-quiz. Null if they haven't taken it. Used by the
+             * frontend to decide whether to surface the quarterly nudge
+             * banner on /home.
+             */
+            Instant lastAssessmentAt
     ) {}
 
     public record SelfStatusDto(
@@ -56,7 +73,11 @@ public record MeDto(
             int memberCount,
             int adminCount,
             DemographicDto demographic,
-            Integer readinessPercent
+            Integer readinessPercent,
+            /** "Active" when household alert mode is on, else null/idle. */
+            String alert,
+            /** Hazard type captured by the admin when activating, or null. */
+            String activeHazardType
     ) {}
 
     public record DemographicDto(
@@ -81,6 +102,14 @@ public record MeDto(
             int pendingMemberCount,
             String role,
             String alert,
+            /**
+             * Hazard type the admin chose when activating the alert (e.g.
+             * "hurricane", "wildfire", "earthquake"). Null when alert is
+             * calm or the admin didn't specify. The frontend uses this to
+             * pin the matching curated guide on /home + /ask without
+             * keyword-matching the alert headline.
+             */
+            String activeHazardType,
             Instant updatedAt
     ) {}
 

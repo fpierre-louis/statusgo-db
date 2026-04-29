@@ -23,6 +23,17 @@ public class Group {
     private List<String> adminEmails;
 
     private String alert;
+    /**
+     * When alert mode is active, the kind of hazard the admin selected
+     * (one of: "hurricane", "wildfire", "earthquake", "flood", "blizzard",
+     * "other"). Lowercase, free-form for forward compat. Null when alert
+     * is calm OR when the admin didn't specify a type. Drives the
+     * contextual guide pin on /home + /ask (per docs/ECOSYSTEM_INTEGRATION.md
+     * step 7) AND the auto-post template selection (per
+     * docs/ALERTS_INTEGRATION.md auto-post dispatcher).
+     */
+    @Column(name = "active_hazard_type")
+    private String activeHazardType;
     private Instant createdAt;
     private String description;
     private String groupCode;
