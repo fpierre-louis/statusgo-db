@@ -1,11 +1,13 @@
 package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.PlanActivation;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface PlanActivationRepo extends JpaRepository<PlanActivation, String> {
@@ -27,4 +29,19 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
             @Param("email") String email,
             @Param("now") Instant now
     );
+
+    /**
+     * IDs of activations whose {@code expiresAt} is older than the cutoff,
+     * paginated. Used by {@code ActivationExpirySweepService} to bound each
+     * scheduled tick — a single backlog burst (e.g. after a long pause in
+     * scheduler runs) can't lock the table or balloon memory. The cutoff
+     * is typically {@code now - retentionAfterExpiry} so recipients still
+     * have a grace window to view their stale link before it's purged.
+     */
+    @Query(
+        "SELECT a.id FROM PlanActivation a " +
+        "WHERE a.expiresAt < :cutoff " +
+        "ORDER BY a.expiresAt ASC"
+    )
+    List<String> findIdsExpiredBefore(@Param("cutoff") Instant cutoff, Pageable page);
 }
