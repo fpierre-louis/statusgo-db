@@ -105,6 +105,19 @@
 			<artifactId>s3</artifactId>
 			<version>2.28.16</version>
 		</dependency>
+		<!--
+			Sentry — automatic exception capture for Spring controllers.
+			Activated by sentry.dsn in application.yml (sourced from
+			SENTRY_DSN env var). When the env var is unset, the starter
+			no-ops at runtime. Stage 2 launch gate per LAUNCH_READINESS.md
+			"Operational readiness" / crash reporting.
+			Spring Boot 3.x → -jakarta variant.
+		-->
+		<dependency>
+			<groupId>io.sentry</groupId>
+			<artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+			<version>7.18.0</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>

@@ -64,6 +64,29 @@ app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
   jwtExpirationMs: ${APP_JWT_EXPIRATION_MS:86400000}
 
+# --- SENTRY (crash reporting) ---
+# When SENTRY_DSN is unset, the starter is a no-op at runtime — no
+# config beyond what's here is needed to fail-quiet on local dev /
+# environments without a Sentry project. To activate:
+#   1. Create a Sentry project (Java / Spring Boot) at sentry.io
+#   2. Copy the DSN
+#   3. heroku config:set SENTRY_DSN=<dsn> (or wherever the BE runs)
+#   4. Redeploy. Exceptions thrown by controllers start reporting.
+# Sample rate kept low so error volume stays bounded; transaction
+# tracing disabled by default (we only want exception capture for v1).
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:${SPRING_PROFILES_ACTIVE:production}}
+  release: ${SENTRY_RELEASE:}
+  # Bounded error volume — Sentry quotas are per-event.
+  sample-rate: 1.0
+  # Disable performance tracing for v1; flip to a small float (e.g.
+  # 0.1) once we want endpoint latency data.
+  traces-sample-rate: 0.0
+  # We don't want to ship request bodies (may contain PII like
+  # household demographics, post content, geolocation).
+  send-default-pii: false
+
 # --- LOGGING CONFIGURATION ---
 logging:
   level:
