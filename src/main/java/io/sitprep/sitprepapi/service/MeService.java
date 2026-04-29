@@ -66,15 +66,32 @@ public class MeService {
 
     @Transactional(readOnly = true)
     public Optional<MeDto> buildMe(String firebaseUid) {
-        if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
-        return userInfoRepo.findByFirebaseUid(firebaseUid.trim()).map(this::assemble);
+        return loadUser(firebaseUid).map(this::assemble);
     }
 
     /** Lazy plans payload — only fetched when {@code me/plans/*} pages need it. */
     @Transactional(readOnly = true)
     public Optional<MePlansDto> buildMePlans(String firebaseUid) {
+        return loadUser(firebaseUid).map(this::assemblePlans);
+    }
+
+    /**
+     * User lookup with defense-in-depth. Any exception that escapes the
+     * repo (SQL error, schema drift, primitive-from-NULL mapping, EAGER
+     * collection load failure on a corrupt row, duplicate firebase_uid)
+     * degrades to {@link Optional#empty()} so the caller surfaces a clean
+     * 404 instead of a 500. The exception is logged with the uid so prod
+     * issues are still searchable.
+     */
+    private Optional<UserInfo> loadUser(String firebaseUid) {
         if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
-        return userInfoRepo.findByFirebaseUid(firebaseUid.trim()).map(this::assemblePlans);
+        try {
+            return userInfoRepo.findByFirebaseUid(firebaseUid.trim());
+        } catch (Exception e) {
+            log.error("MeService: user lookup failed uid={} cause={}",
+                    firebaseUid, e.getMessage(), e);
+            return Optional.empty();
+        }
     }
 
     private MeDto assemble(UserInfo user) {

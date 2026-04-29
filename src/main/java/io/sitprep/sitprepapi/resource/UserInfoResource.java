@@ -37,19 +37,6 @@ public class UserInfoResource {
         this.userInfoService = userInfoService;
     }
 
-    /**
-     * Dump every user. Originally a dev/debug endpoint; now tightened to
-     * require a verified token at minimum. Real admin gating (e.g. via a
-     * platform-level admin role) is a follow-up — for now any signed-in
-     * user can see this, which is still better than fully open since
-     * the response includes other users' emails + group memberships.
-     */
-    @GetMapping
-    public List<UserInfo> getAllUsers() {
-        AuthUtils.requireAuthenticatedEmail();
-        return userInfoService.getAllUsers();
-    }
-
     @GetMapping("/{id}")
     public ResponseEntity<UserInfo> getUserById(@PathVariable String id) {
         AuthUtils.requireAuthenticatedEmail();

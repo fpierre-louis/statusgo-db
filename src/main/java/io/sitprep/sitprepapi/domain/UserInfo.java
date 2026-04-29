@@ -79,8 +79,14 @@ public class UserInfo {
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;
 
-    @Column(name = "active_group_alert_count", nullable = false)
-    private int activeGroupAlertCounts = 0;
+    // Boxed Integer — not primitive int — so legacy rows with NULL in
+    // active_group_alert_count don't blow up entity load. The column was
+    // added via ddl-auto=update on a populated table; Postgres added it
+    // nullable, so rows that existed before the migration carry NULL.
+    // Mapping NULL into a primitive int throws PropertyAccessException
+    // and bubbles out of /api/me/{uid} as a 500.
+    @Column(name = "active_group_alert_count")
+    private Integer activeGroupAlertCounts = 0;
 
     @Column(name = "group_alert_last_updated")
     private Instant groupAlertLastUpdated;
