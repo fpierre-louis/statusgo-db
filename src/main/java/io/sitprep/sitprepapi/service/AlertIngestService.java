@@ -51,6 +51,15 @@ public class AlertIngestService {
     /** All active US alerts, single GET. Returns a GeoJSON FeatureCollection. */
     private static final String NWS_ACTIVE_URL = "https://api.weather.gov/alerts/active";
 
+    /**
+     * USGS recent significant quakes — M4.5+ in the last 24h, global.
+     * Tractable size (typically 5-30 features). Lower magnitudes flood the
+     * cache with non-actionable signals; consumers can still get more via
+     * USGS direct query if they need it.
+     */
+    private static final String USGS_RECENT_URL =
+            "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson";
+
     /** NWS asks for a User-Agent identifying the consumer. */
     private static final String USER_AGENT =
             "(SitPrep/sitprep.app, contactus@sitprep.app)";
@@ -78,51 +87,74 @@ public class AlertIngestService {
      */
     @PostConstruct
     public void primeOnStartup() {
-        // Prime in a separate thread so a slow NWS doesn't block app
-        // startup. If the prime fails, the @Scheduled tick will retry.
+        // Prime in a separate thread so a slow upstream doesn't block app
+        // startup. If a prime fails, the @Scheduled tick will retry.
         new Thread(() -> {
-            try { pollNws(); } catch (Exception ignored) {}
+            try { refreshNow(); } catch (Exception ignored) {}
         }, "alert-ingest-prime").start();
     }
 
     /**
-     * Poll NWS every 5 minutes. {@code fixedDelay} (not {@code fixedRate})
-     * so a slow poll doesn't queue up another. {@code initialDelay} of
-     * 60s lets the @PostConstruct prime finish first.
+     * Poll NWS + USGS every 5 minutes. {@code fixedDelay} (not
+     * {@code fixedRate}) so a slow poll doesn't queue up another.
+     * {@code initialDelay} of 60s lets the @PostConstruct prime finish
+     * first. Both polls run sequentially in this method — they're cheap
+     * enough that parallelism isn't worth the extra complexity, and a
+     * sequential failure is easier to reason about in logs.
      */
     @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT1M")
     public void scheduledPoll() {
-        try {
-            pollNws();
-        } catch (Exception e) {
-            log.warn("AlertIngest: scheduled poll failed: {}", e.getMessage());
-        }
+        refreshNow();
     }
 
-    private void pollNws() throws Exception {
-        long started = System.currentTimeMillis();
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(NWS_ACTIVE_URL))
-                .timeout(HTTP_TIMEOUT)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "application/geo+json")
-                .GET()
-                .build();
+    /**
+     * Run both upstream polls and merge results into a single snapshot.
+     * Each source is independent — if NWS fails but USGS succeeds we
+     * still update with the USGS half (and vice versa), preserving the
+     * other source's last-good data.
+     */
+    private void pollAll() {
+        // Each source updates the snapshot independently so a failure in
+        // one doesn't drop the other.
+        Snapshot prev = latest.get();
 
-        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        int code = resp.statusCode();
-        if (code < 200 || code >= 300) {
-            log.warn("AlertIngest: NWS returned {} ({}ms). Keeping previous snapshot.",
-                    code, System.currentTimeMillis() - started);
-            return;
+        List<NormalizedAlert> nws;
+        try {
+            nws = pollNws();
+        } catch (Exception e) {
+            log.warn("AlertIngest: NWS poll failed: {}", e.getMessage());
+            // Keep previous NWS data
+            nws = prev.alerts.stream().filter(a -> "NWS".equals(a.source())).toList();
         }
 
-        JsonNode root = json.readTree(resp.body());
+        List<NormalizedAlert> usgs;
+        try {
+            usgs = pollUsgs();
+        } catch (Exception e) {
+            log.warn("AlertIngest: USGS poll failed: {}", e.getMessage());
+            usgs = prev.alerts.stream().filter(a -> "USGS".equals(a.source())).toList();
+        }
+
+        List<NormalizedAlert> merged = new ArrayList<>(nws.size() + usgs.size());
+        merged.addAll(nws);
+        merged.addAll(usgs);
+
+        Snapshot next = new Snapshot(
+                List.copyOf(merged),
+                Instant.now(),
+                Instant.now()
+        );
+        latest.set(next);
+    }
+
+    private List<NormalizedAlert> pollNws() throws Exception {
+        long started = System.currentTimeMillis();
+        JsonNode root = fetchJson(NWS_ACTIVE_URL, "application/geo+json");
         JsonNode features = root.path("features");
         if (!features.isArray()) {
-            log.warn("AlertIngest: NWS response had no 'features' array. " +
-                    "Keeping previous snapshot.");
-            return;
+            log.warn("AlertIngest: NWS response had no 'features' array; " +
+                    "treating as empty for this tick.");
+            return List.of();
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(features.size());
@@ -130,7 +162,7 @@ public class AlertIngestService {
         while (it.hasNext()) {
             JsonNode f = it.next();
             try {
-                normalized.add(normalize(f));
+                normalized.add(normalizeNws(f));
             } catch (Exception ex) {
                 // Skip individual feature parse errors — don't drop the
                 // whole batch because one alert was malformed.
@@ -138,18 +170,58 @@ public class AlertIngestService {
             }
         }
 
-        Snapshot next = new Snapshot(
-                List.copyOf(normalized),
-                Instant.now(),
-                Instant.now()
-        );
-        latest.set(next);
-
         log.info("AlertIngest: NWS poll OK — {} alerts ingested in {}ms",
                 normalized.size(), System.currentTimeMillis() - started);
+        return normalized;
     }
 
-    private NormalizedAlert normalize(JsonNode f) {
+    private List<NormalizedAlert> pollUsgs() throws Exception {
+        long started = System.currentTimeMillis();
+        JsonNode root = fetchJson(USGS_RECENT_URL, "application/geo+json");
+        JsonNode features = root.path("features");
+        if (!features.isArray()) {
+            log.warn("AlertIngest: USGS response had no 'features' array.");
+            return List.of();
+        }
+
+        List<NormalizedAlert> normalized = new ArrayList<>(features.size());
+        Iterator<JsonNode> it = features.elements();
+        while (it.hasNext()) {
+            JsonNode f = it.next();
+            try {
+                normalized.add(normalizeUsgs(f));
+            } catch (Exception ex) {
+                log.debug("AlertIngest: skipped malformed USGS feature: {}", ex.getMessage());
+            }
+        }
+
+        log.info("AlertIngest: USGS poll OK — {} quakes ingested in {}ms",
+                normalized.size(), System.currentTimeMillis() - started);
+        return normalized;
+    }
+
+    /**
+     * Shared HTTP fetch + JSON parse. Throws on non-2xx so the caller's
+     * error path (preserve previous snapshot) fires.
+     */
+    private JsonNode fetchJson(String url, String accept) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(HTTP_TIMEOUT)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", accept + ", application/json;q=0.9, */*;q=0.8")
+                .GET()
+                .build();
+
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        int code = resp.statusCode();
+        if (code < 200 || code >= 300) {
+            throw new RuntimeException("Upstream " + url + " returned HTTP " + code);
+        }
+        return json.readTree(resp.body());
+    }
+
+    private NormalizedAlert normalizeNws(JsonNode f) {
         JsonNode p = f.path("properties");
         String id = textOrNull(p, "id");
         if (id == null) id = textOrNull(f, "id");
@@ -184,6 +256,54 @@ public class AlertIngestService {
         );
     }
 
+    /**
+     * USGS quake → NormalizedAlert. Severity is derived from magnitude
+     * (M6+ Severe, M5+ Moderate, else Minor) so consumers (CrisisBand
+     * filter, AlertPost dispatcher) can route by severity without
+     * knowing about magnitudes specifically.
+     */
+    private NormalizedAlert normalizeUsgs(JsonNode f) {
+        JsonNode p = f.path("properties");
+        String id = textOrNull(f, "id");
+
+        double mag = p.path("mag").asDouble(0.0);
+        String place = textOrNull(p, "place");
+        String headline = String.format(
+                "M%.1f — %s",
+                mag,
+                place != null ? place : "Earthquake"
+        );
+
+        String severity =
+                mag >= 6.0 ? "Severe" :
+                mag >= 5.0 ? "Moderate" :
+                "Minor";
+
+        // USGS time is epoch-millis. Convert to ISO-8601 string for
+        // schema parity with NWS.
+        String startedAt = null;
+        long timeMs = p.path("time").asLong(0L);
+        if (timeMs > 0) startedAt = Instant.ofEpochMilli(timeMs).toString();
+
+        // Quake geometry is a Point [lon, lat, depth].
+        JsonNode geomNode = f.path("geometry");
+        Object geometry = geomNode.isMissingNode() || geomNode.isNull()
+                ? null
+                : json.convertValue(geomNode, Map.class);
+
+        return new NormalizedAlert(
+                id,
+                "USGS",
+                severity,
+                headline,
+                textOrNull(p, "title"),
+                place,
+                startedAt,
+                /* endsAt */ null, // quakes are point-in-time
+                geometry
+        );
+    }
+
     private static String textOrNull(JsonNode n, String field) {
         JsonNode v = n.path(field);
         if (v.isMissingNode() || v.isNull()) return null;
@@ -205,21 +325,98 @@ public class AlertIngestService {
         return null;
     }
 
-    /** Read-only access for the AlertResource. */
+    /** Read-only access for the AlertResource — full snapshot, no filter. */
     public Snapshot getSnapshot() {
         return latest.get();
     }
 
     /**
-     * Manual refresh hook. Used by a forthcoming
-     * {@code POST /api/alerts/refresh} dev-only endpoint to bypass the
-     * 5-minute cadence during testing. Catches its own errors so callers
-     * can fire-and-forget.
+     * Filtered snapshot: only alerts whose geometry's centroid falls
+     * within {@code radiusMi} of {@code (lat, lng)}. Alerts with no
+     * geometry are included unconditionally (they may apply broadly —
+     * e.g. SAME-code NWS zones without polygon data, FEMA recovery
+     * declarations once Phase 2 ingests them).
+     *
+     * <p>Coarse filter — uses the alert geometry's first vertex (Point
+     * for quakes; first ring vertex for polygons) rather than a true
+     * point-in-polygon test. Adequate for cutting a 387-alert NWS feed
+     * down to the dozen relevant to a user's area; precise filtering
+     * happens client-side via Leaflet's geometry rendering.</p>
+     */
+    public Snapshot getSnapshotForPoint(double lat, double lng, double radiusMi) {
+        Snapshot s = latest.get();
+        double radiusKm = radiusMi * 1.609344;
+        List<NormalizedAlert> filtered = new ArrayList<>();
+        for (NormalizedAlert a : s.alerts) {
+            double[] coord = firstCoord(a.geometry);
+            if (coord == null) {
+                // Geometry-less alert: include by default. Coarse but safe —
+                // these are usually broad-impact (e.g. statewide advisories).
+                filtered.add(a);
+                continue;
+            }
+            double distKm = haversineKm(lat, lng, coord[1], coord[0]);
+            if (distKm <= radiusKm) filtered.add(a);
+        }
+        return new Snapshot(List.copyOf(filtered), Instant.now(), s.lastSuccessAt);
+    }
+
+    /**
+     * Pull the first [lon, lat] coordinate from a GeoJSON geometry. Handles
+     * Point (USGS quakes) + Polygon (NWS warnings) + MultiPolygon. Returns
+     * null when the structure isn't recognized.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static double[] firstCoord(Object geom) {
+        if (!(geom instanceof Map)) return null;
+        Map m = (Map) geom;
+        Object type = m.get("type");
+        Object coords = m.get("coordinates");
+        if (!(type instanceof String) || coords == null) return null;
+        try {
+            switch ((String) type) {
+                case "Point":
+                    // [lon, lat] (or [lon, lat, depth] for quakes)
+                    List<Number> p = (List<Number>) coords;
+                    return new double[] { p.get(0).doubleValue(), p.get(1).doubleValue() };
+                case "Polygon": {
+                    // [[ [lon,lat], [lon,lat], ... ]]
+                    List<List<List<Number>>> rings = (List<List<List<Number>>>) coords;
+                    List<Number> v = rings.get(0).get(0);
+                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
+                }
+                case "MultiPolygon": {
+                    // [[[ [lon,lat], ... ]]]
+                    List<List<List<List<Number>>>> polys = (List<List<List<List<Number>>>>) coords;
+                    List<Number> v = polys.get(0).get(0).get(0);
+                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
+                }
+                default:
+                    return null;
+            }
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** Great-circle distance in km. R = 6371. */
+    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double R = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                  * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    /**
+     * Manual refresh hook. Used by {@code POST /api/alerts/refresh} to
+     * bypass the 5-minute cadence during testing. Polls both sources
+     * synchronously then merges into the cache.
      */
     public void refreshNow() {
-        try { pollNws(); } catch (Exception e) {
-            log.warn("AlertIngest: manual refresh failed: {}", e.getMessage());
-        }
+        pollAll();
     }
 
     // -------------------------------------------------------------------
