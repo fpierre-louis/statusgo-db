@@ -2,6 +2,8 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
+import io.sitprep.sitprepapi.service.AccountDeletionService;
+import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
@@ -32,9 +34,12 @@ import java.util.Optional;
 public class UserInfoResource {
 
     private final UserInfoService userInfoService;
+    private final AccountDeletionService accountDeletionService;
 
-    public UserInfoResource(UserInfoService userInfoService) {
+    public UserInfoResource(UserInfoService userInfoService,
+                            AccountDeletionService accountDeletionService) {
         this.userInfoService = userInfoService;
+        this.accountDeletionService = accountDeletionService;
     }
 
     @GetMapping("/{id}")
@@ -113,6 +118,37 @@ public class UserInfoResource {
         userInfoService.markAssessmentCompleteByEmail(email);
         return ResponseEntity.noContent().build();
     }
+
+    /**
+     * Hard-deletes the verified caller's account and associated personal
+     * data. Apple App Store compliance (since 2022) — apps that support
+     * account creation must offer in-app deletion.
+     *
+     * <p>Returns:
+     * <ul>
+     *   <li>200 + DeletionResult on success.</li>
+     *   <li>409 + {@link OwnedGroupsBlocking} body when the user owns a
+     *       multi-member household OR any non-household group. The body
+     *       lists the blocking groups so the FE can render
+     *       "transfer ownership of X first."</li>
+     * </ul>
+     * The frontend should sign the user out + redirect to /welcome on a
+     * 200 response.
+     */
+    @DeleteMapping("/me/account")
+    public ResponseEntity<?> deleteMyAccount() {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        try {
+            return ResponseEntity.ok(accountDeletionService.deleteAccount(email));
+        } catch (OwnedGroupsBlockingException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new OwnedGroupsBlocking(ex.blocked()));
+        }
+    }
+
+    public record OwnedGroupsBlocking(
+            List<AccountDeletionService.BlockingGroup> blockedGroups
+    ) {}
 
     /**
      * Per-group location sharing preferences. Body is a partial map of
