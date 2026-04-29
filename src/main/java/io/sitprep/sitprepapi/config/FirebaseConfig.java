@@ -66,12 +66,15 @@ public class FirebaseConfig {
     }
 
     private boolean initFromEnvVars() {
+        String projectId = trimOrNull(System.getenv("FIREBASE_PROJECT_ID"));
         String clientEmail = trimOrNull(System.getenv("FIREBASE_CLIENT_EMAIL"));
         String privateKeyEscaped = System.getenv("FIREBASE_PRIVATE_KEY");
         String privateKeyId = trimOrNull(System.getenv("FIREBASE_PRIVATE_KEY_ID"));
         String clientId = trimOrNull(System.getenv("FIREBASE_CLIENT_ID")); // optional
 
-        if (clientEmail == null || privateKeyEscaped == null || privateKeyEscaped.isBlank() || privateKeyId == null) {
+        if (projectId == null || clientEmail == null
+                || privateKeyEscaped == null || privateKeyEscaped.isBlank()
+                || privateKeyId == null) {
             log.info("FirebaseConfig: env-var path not available (one or more " +
                     "FIREBASE_* vars missing); will try classpath JSON fallback.");
             return false;
@@ -91,11 +94,18 @@ public class FirebaseConfig {
                             null             // default scopes; Firebase Admin SDK sets these
                     );
 
+            // setProjectId is REQUIRED when credentials are built via
+            // fromPkcs8 (vs GoogleCredentials.fromStream(json) which infers
+            // it from the JSON's project_id field). Without it,
+            // FirebaseAuth.verifyIdToken throws "Must initialize FirebaseApp
+            // with a project ID to call verifyIdToken()".
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(credentials)
+                    .setProjectId(projectId)
                     .build();
             FirebaseApp.initializeApp(options);
-            log.info("FirebaseApp initialized from env vars (account={}).", clientEmail);
+            log.info("FirebaseApp initialized from env vars (project={}, account={}).",
+                    projectId, clientEmail);
             return true;
         } catch (IOException | RuntimeException e) {
             log.error("FirebaseConfig: env-var init failed: {}", e.getMessage(), e);
