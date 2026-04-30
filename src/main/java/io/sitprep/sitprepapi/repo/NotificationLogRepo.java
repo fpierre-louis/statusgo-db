@@ -34,4 +34,89 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     @Modifying
     @Query("DELETE FROM NotificationLog n WHERE n.id IN :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);
+
+    // -------------------------------------------------------------------
+    // Inbox reads (per docs/NOTIFICATIONS_INBOX.md)
+    // -------------------------------------------------------------------
+
+    /**
+     * Inbox page for one user, paginated and time-bounded. Excludes
+     * archived rows. {@code since} / {@code before} are optional
+     * cursors — pass null on the side you don't want bounded. Order
+     * is {@code timestamp DESC} so newest sits at the top of the
+     * inbox. Caller controls page size via {@link Pageable}.
+     */
+    @Query("""
+           SELECT n FROM NotificationLog n
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.archivedAt IS NULL
+              AND (:since  IS NULL OR n.timestamp > :since)
+              AND (:before IS NULL OR n.timestamp < :before)
+            ORDER BY n.timestamp DESC
+           """)
+    List<NotificationLog> findInboxPage(@Param("email") String email,
+                                        @Param("since") Instant since,
+                                        @Param("before") Instant before,
+                                        Pageable page);
+
+    /**
+     * Unread count for the FooterNav badge. Counts rows where
+     * {@code readAt IS NULL} and {@code archivedAt IS NULL}. The
+     * {@code idx_notif_recipient_unread} index covers this query —
+     * runs in constant time per user.
+     */
+    @Query("""
+           SELECT COUNT(n) FROM NotificationLog n
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.archivedAt IS NULL
+              AND n.readAt IS NULL
+           """)
+    long countUnreadForUser(@Param("email") String email);
+
+    /**
+     * Mark one row read (only if it belongs to the caller — the
+     * recipient predicate is the row-level auth check).
+     */
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.readAt = :at
+            WHERE n.id = :id
+              AND LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.readAt IS NULL
+           """)
+    int markReadByIdForUser(@Param("id") Long id,
+                            @Param("email") String email,
+                            @Param("at") Instant at);
+
+    /**
+     * Bulk mark-all-read with the {@code before} cursor pattern from
+     * the spec — anything older than {@code before} that's still
+     * unread becomes read. Lets the user clear without losing rows
+     * that arrived mid-tap.
+     */
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.readAt = :at
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.archivedAt IS NULL
+              AND n.readAt IS NULL
+              AND n.timestamp < :before
+           """)
+    int markAllReadBefore(@Param("email") String email,
+                          @Param("before") Instant before,
+                          @Param("at") Instant at);
+
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.archivedAt = :at
+            WHERE n.id = :id
+              AND LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.archivedAt IS NULL
+           """)
+    int archiveByIdForUser(@Param("id") Long id,
+                           @Param("email") String email,
+                           @Param("at") Instant at);
 }
