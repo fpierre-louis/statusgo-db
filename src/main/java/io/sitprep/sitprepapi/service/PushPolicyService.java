@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.UserAlertPreference;
+import io.sitprep.sitprepapi.dto.UserAlertPreferenceDto;
 import io.sitprep.sitprepapi.repo.UserAlertPreferenceRepo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -130,11 +131,37 @@ public class PushPolicyService {
     }
 
     /**
+     * PATCH-merge the provided fields into this user's preference
+     * record. Null fields on the DTO are skipped — only present
+     * fields overwrite. Auto-creates the record if missing so the FE
+     * can hit PATCH on a fresh account without a separate POST.
+     */
+    @Transactional
+    public UserAlertPreference updatePreferences(String userEmail, UserAlertPreferenceDto dto) {
+        UserAlertPreference p = getOrCreate(userEmail);
+        if (dto == null) return p;
+        if (dto.pushEnabled() != null)        p.setPushEnabled(dto.pushEnabled());
+        if (dto.inboxEnabled() != null)       p.setInboxEnabled(dto.inboxEnabled());
+        if (dto.nwsAlerts() != null)          p.setNwsAlerts(dto.nwsAlerts());
+        if (dto.earthquakes() != null)        p.setEarthquakes(dto.earthquakes());
+        if (dto.wildfires() != null)          p.setWildfires(dto.wildfires());
+        if (dto.groupAlerts() != null)        p.setGroupAlerts(dto.groupAlerts());
+        if (dto.planActivations() != null)    p.setPlanActivations(dto.planActivations());
+        if (dto.activationAcks() != null)     p.setActivationAcks(dto.activationAcks());
+        if (dto.taskAssignments() != null)    p.setTaskAssignments(dto.taskAssignments());
+        if (dto.pendingMembers() != null)     p.setPendingMembers(dto.pendingMembers());
+        if (dto.quietHoursEnabled() != null)  p.setQuietHoursEnabled(dto.quietHoursEnabled());
+        if (dto.quietStart() != null)         p.setQuietStart(dto.quietStart());
+        if (dto.quietEnd() != null)           p.setQuietEnd(dto.quietEnd());
+        if (dto.timezone() != null && !dto.timezone().isBlank()) p.setTimezone(dto.timezone());
+        return repo.save(p);
+    }
+
+    /**
      * Get-or-create the preference record for this user. Default is
      * opt-in to everything per the policy doc; existing users land
      * in the right shape on first push send without a backfill. Users
-     * who later customize their settings overwrite via the FE settings
-     * page (which calls a PATCH endpoint that lands in a future session).
+     * who later customize their settings overwrite via {@link #updatePreferences}.
      */
     @Transactional
     public UserAlertPreference getOrCreate(String userEmail) {
