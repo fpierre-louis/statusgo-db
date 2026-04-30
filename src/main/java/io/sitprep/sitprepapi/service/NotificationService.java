@@ -14,6 +14,8 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
+import io.sitprep.sitprepapi.service.PushPolicyService.Lane;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import io.sitprep.sitprepapi.websocket.WebSocketPresenceService;
 import org.slf4j.Logger;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -39,15 +42,84 @@ public class NotificationService {
     private final UserInfoRepo userInfoRepo;
     private final NotificationLogRepo notificationLogRepo;
     private final WebSocketPresenceService presenceService;
+    private final PushPolicyService pushPolicyService;
 
     public NotificationService(WebSocketMessageSender webSocketMessageSender,
                                UserInfoRepo userInfoRepo,
                                NotificationLogRepo notificationLogRepo,
-                               WebSocketPresenceService presenceService) {
+                               WebSocketPresenceService presenceService,
+                               PushPolicyService pushPolicyService) {
         this.webSocketMessageSender = webSocketMessageSender;
         this.userInfoRepo = userInfoRepo;
         this.notificationLogRepo = notificationLogRepo;
         this.presenceService = presenceService;
+        this.pushPolicyService = pushPolicyService;
+    }
+
+    /**
+     * Decide push lane for an outgoing notification by mapping the
+     * legacy free-form {@code notificationType} string onto a structured
+     * {@link Category}. Returns null when the type isn't mapped — caller
+     * should fall through to legacy behavior in that case (no policy
+     * applied, but log row still written for audit).
+     *
+     * <p>Mapping is the boundary between the free-form caller API and
+     * the policy chokepoint. Future call sites should pass {@link Category}
+     * directly (overload below) so this best-effort lookup isn't needed.</p>
+     */
+    private Category mapTypeToCategory(String notificationType) {
+        if (notificationType == null) return null;
+        return switch (notificationType.toLowerCase(Locale.ROOT)) {
+            // Group / household alert flips. The fan-out doesn't
+            // distinguish household vs org by group type — defaulting
+            // to ORG; household-specific flips can pass Category directly
+            // via the overload to opt into critical-bypass quiet hours.
+            case "alert", "group_status" -> Category.GROUP_ALERT_ORG;
+            case "post_notification", "post_mention" -> Category.MENTION;
+            case "comment_on_post" -> Category.COMMENT_REPLY;
+            case "new_member" -> Category.NEW_MEMBER;
+            case "pending_member" -> Category.PENDING_MEMBER_REQUEST;
+            case "task_assigned" -> Category.TASK_ASSIGNED;
+            case "plan_activation" -> Category.PLAN_ACTIVATION_RECEIVED;
+            case "activation_ack" -> Category.ACTIVATION_ACK;
+            default -> null;
+        };
+    }
+
+    /**
+     * Single chokepoint for {@code NotificationLog} writes. Always
+     * populates the new {@code lane} + {@code category} columns
+     * (shipped 2026-04-29 for the inbox redesign) so the inbox
+     * surface can render cleanly. Existing call sites pass null lane
+     * + null category for unmapped types — the FE inbox treats null
+     * lane as Lane B (silent inbox) per the spec.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category) {
+        NotificationLog row = new NotificationLog(
+                recipientEmail,
+                notificationType,
+                token,
+                title,
+                body,
+                referenceId,
+                targetUrl,
+                Instant.now(),
+                success,
+                errorMessage
+        );
+        if (lane != null) row.setLane(lane.name());
+        if (category != null) row.setCategory(category.name());
+        notificationLogRepo.save(row);
     }
 
     /**
@@ -70,7 +142,24 @@ public class NotificationService {
         String channelId = channelForType(notificationType);
         String category = categoryForType(notificationType);
 
+        // Apply policy: map legacy notificationType → structured Category,
+        // evaluate against UserAlertPreference + quiet hours, get a Lane.
+        // Unmapped types skip policy entirely (lane = null) so legacy
+        // behavior is preserved — the inbox FE treats null lane as B.
+        Category catEnum = mapTypeToCategory(notificationType);
+        Lane lane = (catEnum != null)
+                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+                : null;
+        if (lane == Lane.DROP) {
+            // User opted out of this category entirely (or master-switched
+            // off). No log, no push, no socket. Suppressed per policy.
+            return;
+        }
+
         if (online) {
+            // Lane C is in-session-only ephemeral — no log row. Lanes A
+            // and B and "no-policy" all still log + socket since the
+            // user is currently looking at the app.
             try {
                 webSocketMessageSender.sendInAppNotification(new NotificationPayload(
                         recipientEmail,
@@ -82,7 +171,10 @@ public class NotificationService {
                         referenceId,
                         Instant.now()
                 ));
-                logSocketDelivery(recipientEmail, notificationType, title, body, referenceId, targetUrl);
+                if (lane != Lane.C) {
+                    logSocketDelivery(recipientEmail, notificationType, title, body,
+                            referenceId, targetUrl, lane, catEnum);
+                }
                 logger.info("🟢 Socket notification sent to online user {}", recipientEmail);
             } catch (Exception e) {
                 logger.warn("Socket notification failed for {}: {}", recipientEmail, e.getMessage());
@@ -91,21 +183,27 @@ public class NotificationService {
             return;
         }
 
-        // Offline → FCM (if token available)
+        // Offline. Lane C requires the user be present, so it's a
+        // no-op when offline.
+        if (lane == Lane.C) return;
+
+        // Offline + Lane B: skip FCM, just log so the inbox surface
+        // gets the row when the user opens the app.
+        if (lane == Lane.B) {
+            saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
+                    title, body, referenceId, targetUrl,
+                    /* success */ false,
+                    /* error */ "Lane B (silent inbox)",
+                    lane, catEnum);
+            return;
+        }
+
+        // Offline + Lane A (or no-policy fallback) → FCM if token available.
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
             logger.info("No FCM token for offline user {}, logging only.", recipientEmail);
-            notificationLogRepo.save(new NotificationLog(
-                    recipientEmail,
-                    notificationType,
-                    null,
-                    title,
-                    body,
-                    referenceId,
-                    targetUrl,
-                    Instant.now(),
-                    false,
-                    "No token (offline)"
-            ));
+            saveLogRow(recipientEmail, notificationType, null,
+                    title, body, referenceId, targetUrl,
+                    false, "No token (offline)", lane, catEnum);
             return;
         }
 
@@ -171,18 +269,9 @@ public class NotificationService {
             errorMessage = e.getMessage();
             logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
         } finally {
-            notificationLogRepo.save(new NotificationLog(
-                    recipientEmail,
-                    notificationType,
-                    recipientFcmTokenOrNull,
-                    title,
-                    body,
-                    referenceId,
-                    targetUrl,
-                    Instant.now(),
-                    success,
-                    errorMessage
-            ));
+            saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
+                    title, body, referenceId, targetUrl,
+                    success, errorMessage, lane, catEnum);
         }
     }
 
@@ -200,20 +289,33 @@ public class NotificationService {
                                  String targetUrl,
                                  String additionalData,
                                  String recipientEmail) {
+        // Apply policy at the top — same gating as deliverPresenceAware.
+        // sendNotification is the legacy multi-token wrapper but the
+        // policy still applies: a user who muted earthquakes shouldn't
+        // get an FCM through the legacy path either.
+        Category catEnum = mapTypeToCategory(notificationType);
+        Lane lane = (catEnum != null && recipientEmail != null)
+                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+                : null;
+        if (lane == Lane.DROP) return;
+        // Lane B = silent inbox: skip FCM, write log row.
+        if (lane == Lane.B) {
+            saveLogRow(recipientEmail, notificationType, null,
+                    title, body, referenceId, targetUrl,
+                    false, "Lane B (silent inbox)",
+                    lane, catEnum);
+            return;
+        }
+        // Lane C = ephemeral: this path is offline-FCM only, so Lane C
+        // here is a no-op (banner happens elsewhere).
+        if (lane == Lane.C) return;
+
         if (tokens == null || tokens.isEmpty()) {
             logger.info("No tokens for {}, skipping FCM.", recipientEmail);
-            notificationLogRepo.save(new NotificationLog(
-                    recipientEmail,
-                    notificationType,
-                    null,
-                    title,
-                    body,
-                    referenceId,
-                    targetUrl,
-                    Instant.now(),
-                    false,
-                    "No tokens provided"
-            ));
+            saveLogRow(recipientEmail, notificationType, null,
+                    title, body, referenceId, targetUrl,
+                    false, "No tokens provided",
+                    lane, catEnum);
             return;
         }
 
@@ -279,18 +381,9 @@ public class NotificationService {
                 errorMessage = e.getMessage();
                 logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
             } finally {
-                notificationLogRepo.save(new NotificationLog(
-                        recipientEmail,
-                        notificationType,
-                        token,
-                        title,
-                        body,
-                        referenceId,
-                        targetUrl,
-                        Instant.now(),
-                        success,
-                        errorMessage
-                ));
+                saveLogRow(recipientEmail, notificationType, token,
+                        title, body, referenceId, targetUrl,
+                        success, errorMessage, lane, catEnum);
             }
         }
     }
@@ -339,18 +432,28 @@ public class NotificationService {
                                   String body,
                                   String referenceId,
                                   String targetUrl) {
-        notificationLogRepo.save(new NotificationLog(
-                recipientEmail,
-                type,
-                null,           // no token for socket writes
-                title,
-                body,
-                referenceId,
-                targetUrl,
-                Instant.now(),
-                true,           // socket write attempted
-                null
-        ));
+        logSocketDelivery(recipientEmail, type, title, body, referenceId, targetUrl, null, null);
+    }
+
+    /**
+     * Lane-aware overload. Used by {@code deliverPresenceAware} after
+     * policy evaluation so the {@code NotificationLog} row carries the
+     * lane + category for the inbox surface.
+     */
+    public void logSocketDelivery(String recipientEmail,
+                                  String type,
+                                  String title,
+                                  String body,
+                                  String referenceId,
+                                  String targetUrl,
+                                  Lane lane,
+                                  Category category) {
+        saveLogRow(recipientEmail, type,
+                /* token */ null,
+                title, body, referenceId, targetUrl,
+                /* success */ true,
+                /* error */ null,
+                lane, category);
     }
 
     // ---------------------- helpers ----------------------
