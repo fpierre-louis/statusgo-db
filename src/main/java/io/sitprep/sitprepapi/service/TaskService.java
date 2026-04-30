@@ -135,13 +135,25 @@ public class TaskService {
         // at SitPrep scale; add bucket prefilter when row counts grow.
         List<Task> candidates = taskRepo.findCommunityCandidates(wanted, null);
 
+        // Geo-less tasks are community-wide by construction — the requester
+        // didn't pin them to a place, so they belong in every viewer's feed
+        // regardless of radius. We tag them with null distanceKm so the FE
+        // can render a "Wider community" indicator instead of a "X mi" pill.
+        // The previous behavior (drop unconditionally) made geo-less tasks
+        // invisible in every feed, even at the "Anywhere" radius — bug fix.
         List<TaskDto> within = new ArrayList<>();
         for (Task t : candidates) {
-            if (t.getLatitude() == null || t.getLongitude() == null) continue;
+            if (t.getLatitude() == null || t.getLongitude() == null) {
+                within.add(TaskDto.fromEntity(t, null));
+                continue;
+            }
             double d = haversineKm(lat, lng, t.getLatitude(), t.getLongitude());
             if (d > radiusKm) continue;
             within.add(TaskDto.fromEntity(t, roundKm(d)));
         }
+        // null distance sorts last (after all geo-tagged within-radius tasks),
+        // which matches the FE proximity-score expectation: nearby first,
+        // then community-wide.
         within.sort(Comparator.comparingDouble(d -> d.distanceKm() == null ? Double.MAX_VALUE : d.distanceKm()));
         return within.size() > 50 ? within.subList(0, 50) : within;
     }
