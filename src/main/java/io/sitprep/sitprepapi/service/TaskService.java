@@ -48,6 +48,11 @@ public class TaskService {
      * length 32.
      */
     private static final Set<String> AUTHORIZED_KINDS = Set.of(
+            // post = Nextdoor-style "what's on your mind" generic
+            // share. The default for the composer's free-form
+            // textarea path; kind-specific cards (Sell / Ask / Tip)
+            // route to ask / marketplace / tip.
+            "post",
             "ask", "offer", "tip", "recommendation",
             "lost-found", "alert-update", "blog-promo", "marketplace"
     );
