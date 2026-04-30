@@ -69,6 +69,34 @@ public class Task {
     @Column(nullable = false, length = 16)
     private TaskPriority priority;
 
+    /**
+     * Post kind — the row's role in the community feed. Per
+     * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Feed: post types
+     * beyond Asks", the same {@code Task} entity now carries the full
+     * vocabulary so the feed surface can render mixed content via one
+     * pipeline.
+     *
+     * <p><b>Vocabulary</b> (lowercase, free-form for forward compat;
+     * service-layer validates against an authorized set):</p>
+     * <ul>
+     *   <li>{@code ask} — request for help (legacy default)</li>
+     *   <li>{@code offer} — neighbor offering to help / lend</li>
+     *   <li>{@code tip} — short prep tip / lessons-learned</li>
+     *   <li>{@code recommendation} — vouched-for local services</li>
+     *   <li>{@code lost-found} — pets, items</li>
+     *   <li>{@code alert-update} — neighbor situational awareness during a declared incident</li>
+     *   <li>{@code blog-promo} — surfaces a SitPrep blog article in-feed</li>
+     *   <li>{@code marketplace} — for-sale / free / service listings (the eventual Marketplace tab)</li>
+     * </ul>
+     *
+     * <p><b>Default {@code "ask"}</b> on legacy rows + on the
+     * existing FE composer flow (no FE change needed for the schema
+     * landing). New kinds unlock as the FE composer expands per spec
+     * build order.</p>
+     */
+    @Column(name = "kind", nullable = false, length = 32)
+    private String kind = "ask";
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -149,6 +177,34 @@ public class Task {
      */
     @Column(name = "sponsored_by", length = 128)
     private String sponsoredBy;
+
+    // -----------------------------------------------------------------
+    // Marketplace fields — per docs/MARKETPLACE_AND_FEED_CALM.md
+    // "Data model sketch". Only meaningful when kind="marketplace";
+    // null/false on every other kind. SitPrep does NOT process
+    // payments — these fields are pure metadata. Buyer pays seller
+    // off-app via the seller's chosen platform (Venmo / CashApp /
+    // Zelle / Apple Pay / Google Pay / PayPal / Cash on pickup).
+    // Status reuse: OPEN = available, DONE = sold, CANCELLED =
+    // withdrawn. No new enum value to keep the schema simple.
+    // -----------------------------------------------------------------
+
+    /**
+     * Listing price in USD. Null when not applicable (asks, tips,
+     * etc.) or when {@link #isFree} is true. The seller can edit this
+     * up until first claim; afterwards locked.
+     */
+    @Column(name = "price", precision = 10, scale = 2)
+    private java.math.BigDecimal price;
+
+    /**
+     * Marketplace "free" listings — community gift signal. Marketplace
+     * sort boosts these so they surface ahead of priced items at
+     * equal proximity. Mutually exclusive with {@link #price} (set one
+     * or the other; setting both is a service-layer validation error).
+     */
+    @Column(name = "is_free", nullable = false)
+    private boolean isFree = false;
 
     @PrePersist
     void onCreate() {

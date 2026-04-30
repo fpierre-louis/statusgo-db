@@ -56,7 +56,16 @@ public record TaskDto(
         boolean sponsored,
         boolean crisisRelevant,
         Instant sponsoredUntil,
-        String sponsoredBy
+        String sponsoredBy,
+        // Post-kind vocabulary (MARKETPLACE_AND_FEED_CALM step 1).
+        // Lowercase free-form: ask | offer | tip | recommendation |
+        // lost-found | alert-update | blog-promo | marketplace.
+        String kind,
+        // Marketplace-only fields (kind="marketplace"). Null/false on
+        // every other kind. SitPrep doesn't process payments; these
+        // are pure metadata for the listing card.
+        java.math.BigDecimal price,
+        boolean isFree
 ) {
 
     /**
@@ -99,7 +108,10 @@ public record TaskDto(
                 t.isSponsored(),
                 t.isCrisisRelevant(),
                 t.getSponsoredUntil(),
-                t.getSponsoredBy()
+                t.getSponsoredBy(),
+                t.getKind(),
+                t.getPrice(),
+                t.isFree()
         );
     }
 
@@ -146,7 +158,10 @@ public record TaskDto(
                 sponsored,
                 crisisRelevant,
                 sponsoredUntil,
-                sponsoredBy
+                sponsoredBy,
+                kind,
+                price,
+                isFree
         );
     }
 }

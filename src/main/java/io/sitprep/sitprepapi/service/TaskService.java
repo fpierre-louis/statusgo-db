@@ -40,6 +40,18 @@ public class TaskService {
     /** Mean Earth radius in km — matches CommunityDiscoverService. */
     private static final double EARTH_RADIUS_KM = 6371.0088;
 
+    /**
+     * Authorized post kinds — see Task.kind Javadoc + the spec
+     * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Feed: post types
+     * beyond Asks". Lowercased. Adding a new kind is a one-line
+     * change here; no schema change since the column is free-form
+     * length 32.
+     */
+    private static final Set<String> AUTHORIZED_KINDS = Set.of(
+            "ask", "offer", "tip", "recommendation",
+            "lost-found", "alert-update", "blog-promo", "marketplace"
+    );
+
     private final TaskRepo taskRepo;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
@@ -154,6 +166,33 @@ public class TaskService {
         t.setParentTaskId(incoming.getParentTaskId());
         if (incoming.getTags() != null) t.getTags().addAll(incoming.getTags());
         if (incoming.getImageKeys() != null) t.getImageKeys().addAll(incoming.getImageKeys());
+
+        // Kind validation — defaults to "ask" so legacy callers (the
+        // existing CommunityTaskComposer) work unchanged. Non-default
+        // kinds get the spec's authorized-set check before persist.
+        String kind = incoming.getKind();
+        if (kind == null || kind.isBlank()) {
+            t.setKind("ask");
+        } else {
+            String k = kind.trim().toLowerCase();
+            if (!AUTHORIZED_KINDS.contains(k)) {
+                throw new IllegalArgumentException(
+                        "kind must be one of " + AUTHORIZED_KINDS + ", got " + kind);
+            }
+            t.setKind(k);
+        }
+
+        // Marketplace fields. price + isFree are mutually exclusive
+        // and only meaningful when kind="marketplace"; silently drop
+        // them on other kinds rather than throw, since they may be
+        // present in legacy payloads.
+        if ("marketplace".equals(t.getKind())) {
+            if (incoming.getPrice() != null && incoming.isFree()) {
+                throw new IllegalArgumentException("Listing can be priced or free, not both");
+            }
+            t.setPrice(incoming.getPrice());
+            t.setFree(incoming.isFree());
+        }
 
         // Reverse-geocode to populate zipBucket so community-feed queries
         // can use it as a pre-filter. Safe to skip on group-scope tasks.
