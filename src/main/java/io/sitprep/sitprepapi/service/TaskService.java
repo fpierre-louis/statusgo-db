@@ -2,8 +2,10 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.Task.TaskStatus;
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.TaskDto;
 import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +16,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Task / request-for-help service. Three scopes (group / community-personal /
@@ -37,14 +41,54 @@ public class TaskService {
     private static final double EARTH_RADIUS_KM = 6371.0088;
 
     private final TaskRepo taskRepo;
+    private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
 
-    public TaskService(TaskRepo taskRepo, NominatimGeocodeService geocode,
+    public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
+                       NominatimGeocodeService geocode,
                        WebSocketMessageSender ws) {
         this.taskRepo = taskRepo;
+        this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
+    }
+
+    /**
+     * Batch-fold author profile fields into a list of TaskDto. Honors
+     * the codebase principle "backend shapes the data, frontend just
+     * displays" — feed surfaces render the standard post anatomy
+     * (avatar + name + 3-dot menu) without fanning out a separate
+     * /userinfo/profiles/batch round trip per page-load.
+     *
+     * <p>One DB call total via {@code findByUserEmailIn}. Tasks whose
+     * requesterEmail can't be resolved (deleted account, anon) flow
+     * through unchanged with null author fields — the FE handles that
+     * by falling back to email-as-name + initials.</p>
+     */
+    private List<TaskDto> withAuthors(List<TaskDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<String> emails = dtos.stream()
+                .map(TaskDto::requesterEmail)
+                .filter(Objects::nonNull)
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.toList());
+        if (emails.isEmpty()) return dtos;
+        Map<String, UserInfo> byEmail = userInfoRepo.findByUserEmailIn(emails).stream()
+                .filter(u -> u.getUserEmail() != null)
+                .collect(Collectors.toMap(
+                        u -> u.getUserEmail().toLowerCase(Locale.ROOT),
+                        Function.identity(),
+                        (a, b) -> a
+                ));
+        return dtos.stream()
+                .map(d -> {
+                    if (d.requesterEmail() == null) return d;
+                    UserInfo u = byEmail.get(d.requesterEmail().toLowerCase(Locale.ROOT));
+                    return (u == null) ? d : d.withAuthor(u);
+                })
+                .collect(Collectors.toList());
     }
 
     // ---------------------------------------------------------------------
@@ -101,21 +145,21 @@ public class TaskService {
         List<Task> rows = (status == null)
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
-        return rows.stream().map(TaskDto::fromEntity).toList();
+        return withAuthors(rows.stream().map(TaskDto::fromEntity).collect(Collectors.toList()));
     }
 
     @Transactional(readOnly = true)
     public List<TaskDto> listRequestedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
-        return taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).toList();
+        return withAuthors(taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(TaskDto::fromEntity).collect(Collectors.toList()));
     }
 
     @Transactional(readOnly = true)
     public List<TaskDto> listClaimedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
-        return taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).toList();
+        return withAuthors(taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(TaskDto::fromEntity).collect(Collectors.toList()));
     }
 
     /**
@@ -155,7 +199,8 @@ public class TaskService {
         // which matches the FE proximity-score expectation: nearby first,
         // then community-wide.
         within.sort(Comparator.comparingDouble(d -> d.distanceKm() == null ? Double.MAX_VALUE : d.distanceKm()));
-        return within.size() > 50 ? within.subList(0, 50) : within;
+        List<TaskDto> capped = within.size() > 50 ? within.subList(0, 50) : within;
+        return withAuthors(capped);
     }
 
     // ---------------------------------------------------------------------
