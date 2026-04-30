@@ -249,7 +249,10 @@ public class MeService {
                 u.getSubscription(),
                 status,
                 u.getLastActiveAt(),
-                u.getLastAssessmentAt()
+                u.getLastAssessmentAt(),
+                u.getBio(),
+                u.getCoverImageUrl(),
+                u.getProfileVisibility()
         );
     }
 

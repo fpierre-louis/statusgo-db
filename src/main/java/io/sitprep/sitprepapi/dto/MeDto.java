@@ -54,7 +54,16 @@ public record MeDto(
              * frontend to decide whether to surface the quarterly nudge
              * banner on /home.
              */
-            Instant lastAssessmentAt
+            Instant lastAssessmentAt,
+            // Public-profile fields — surfaced on MeDto so the editor at
+            // /profile/edit can pre-populate without a second round trip.
+            // Per docs/PROFILE_AND_FOLLOW.md build-order step 2.
+            /** 200-char self-bio. Null when not set. */
+            String bio,
+            /** Free-form URL to the user's cover image. Null when not set. */
+            String coverImageUrl,
+            /** Who can see this profile. v1 vocab: public | circles | followers | private. Default "circles". */
+            String profileVisibility
     ) {}
 
     public record SelfStatusDto(
