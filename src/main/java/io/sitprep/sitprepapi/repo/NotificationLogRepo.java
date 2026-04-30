@@ -41,17 +41,26 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
 
     /**
      * Inbox page for one user, paginated and time-bounded. Excludes
-     * archived rows. {@code since} / {@code before} are optional
-     * cursors — pass null on the side you don't want bounded. Order
-     * is {@code timestamp DESC} so newest sits at the top of the
-     * inbox. Caller controls page size via {@link Pageable}.
+     * archived rows. {@code since} and {@code before} are required
+     * (non-null) — caller passes {@code Instant.EPOCH} for "no lower
+     * bound" and a far-future Instant for "no upper bound". Order is
+     * {@code timestamp DESC} so newest sits at the top of the inbox.
+     * Caller controls page size via {@link Pageable}.
+     *
+     * <p><b>Why no nullable params:</b> the obvious pattern
+     * {@code (:since IS NULL OR n.timestamp > :since)} fails on
+     * Postgres ({@code SQLState 42P18: could not determine data type
+     * of parameter}) because the bare parameter on the left side of
+     * {@code IS NULL} has no type binding. H2 (used in tests) infers
+     * a type silently; Postgres doesn't. Using sentinels keeps the
+     * SQL portable.</p>
      */
     @Query("""
            SELECT n FROM NotificationLog n
             WHERE LOWER(n.recipientEmail) = LOWER(:email)
               AND n.archivedAt IS NULL
-              AND (:since  IS NULL OR n.timestamp > :since)
-              AND (:before IS NULL OR n.timestamp < :before)
+              AND n.timestamp > :since
+              AND n.timestamp < :before
             ORDER BY n.timestamp DESC
            """)
     List<NotificationLog> findInboxPage(@Param("email") String email,

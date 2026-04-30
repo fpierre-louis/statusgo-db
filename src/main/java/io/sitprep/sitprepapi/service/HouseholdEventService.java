@@ -65,9 +65,20 @@ public class HouseholdEventService {
     // Public read API
     // ---------------------------------------------------------------------
 
+    /**
+     * Sentinels for "no time bound" — the repo query takes required
+     * Instant params (Postgres can't infer types of bare nullable
+     * params on the left of IS NULL). See sibling fix in
+     * NotificationInboxService.
+     */
+    private static final Instant FAR_PAST = Instant.EPOCH;
+    private static final Instant FAR_FUTURE = Instant.parse("9999-12-31T23:59:59Z");
+
     public List<HouseholdEventDto> list(String householdId, Instant since, Instant before) {
         if (householdId == null || householdId.isBlank()) return List.of();
-        List<HouseholdEvent> rows = eventRepo.findRange(householdId, since, before);
+        Instant sinceBound  = (since  != null) ? since  : FAR_PAST;
+        Instant beforeBound = (before != null) ? before : FAR_FUTURE;
+        List<HouseholdEvent> rows = eventRepo.findRange(householdId, sinceBound, beforeBound);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()

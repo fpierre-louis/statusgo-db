@@ -16,16 +16,22 @@ import java.util.List;
 public interface HouseholdEventRepo extends JpaRepository<HouseholdEvent, Long> {
 
     /**
-     * Range query for the household feed. Both bounds are optional —
-     * {@code since} / {@code before} are passed as null when the caller
-     * doesn't want that side bounded. Result is ascending so the frontend
-     * can interleave events with chat messages by timestamp.
+     * Range query for the household feed. Both bounds are required
+     * (non-null) — {@code HouseholdEventService} passes
+     * {@code Instant.EPOCH} for "no lower bound" and a far-future
+     * Instant for "no upper bound". Result is ascending so the
+     * frontend can interleave events with chat messages by timestamp.
+     *
+     * <p>Postgres rejects the bare-nullable-parameter idiom
+     * {@code (:since IS NULL OR ...)} with {@code SQLState 42P18} —
+     * see the same fix on
+     * {@link NotificationLogRepo#findInboxPage}.</p>
      */
     @Query("""
            SELECT e FROM HouseholdEvent e
             WHERE e.householdId = :householdId
-              AND (:since IS NULL OR e.at > :since)
-              AND (:before IS NULL OR e.at < :before)
+              AND e.at > :since
+              AND e.at < :before
             ORDER BY e.at ASC, e.id ASC
            """)
     List<HouseholdEvent> findRange(@Param("householdId") String householdId,

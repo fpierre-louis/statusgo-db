@@ -44,6 +44,16 @@ public class NotificationInboxService {
     /** Hard cap on inbox-page size to prevent runaway requests. */
     private static final int MAX_PAGE_SIZE = 100;
 
+    /**
+     * Sentinels for "no time bound" used when the FE doesn't pass a
+     * since/before cursor. Postgres rejects bare nullable parameters
+     * on the left of {@code IS NULL}, so the repo query takes
+     * required Instant params and these stand in for "open ended".
+     */
+    private static final Instant FAR_PAST = Instant.EPOCH;
+    private static final Instant FAR_FUTURE =
+            Instant.parse("9999-12-31T23:59:59Z");
+
     private final NotificationLogRepo repo;
 
     public NotificationInboxService(NotificationLogRepo repo) {
@@ -52,7 +62,9 @@ public class NotificationInboxService {
 
     public List<NotificationLog> page(String email, Instant since, Instant before, Integer limit) {
         int size = (limit == null || limit <= 0) ? 50 : Math.min(limit, MAX_PAGE_SIZE);
-        return repo.findInboxPage(email, since, before, PageRequest.of(0, size));
+        Instant sinceBound  = (since  != null) ? since  : FAR_PAST;
+        Instant beforeBound = (before != null) ? before : FAR_FUTURE;
+        return repo.findInboxPage(email, sinceBound, beforeBound, PageRequest.of(0, size));
     }
 
     public long unreadCount(String email) {
