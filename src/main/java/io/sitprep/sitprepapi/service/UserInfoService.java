@@ -26,16 +26,19 @@ public class UserInfoService {
     private final HouseholdEventService householdEventService;
     private final GroupRepo groupRepo;
     private final TaskRepo taskRepo;
+    private final FollowService followService;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
                            GroupRepo groupRepo,
-                           TaskRepo taskRepo) {
+                           TaskRepo taskRepo,
+                           FollowService followService) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
         this.taskRepo = taskRepo;
+        this.followService = followService;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -64,6 +67,11 @@ public class UserInfoService {
      */
     @Transactional(readOnly = true)
     public Optional<PublicProfileDto> getPublicProfile(String idOrEmail) {
+        return getPublicProfile(idOrEmail, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PublicProfileDto> getPublicProfile(String idOrEmail, String viewerEmail) {
         if (idOrEmail == null || idOrEmail.isBlank()) return Optional.empty();
         String key = idOrEmail.trim();
 
@@ -125,12 +133,18 @@ public class UserInfoService {
         // paginates the visible cards.
         int postCount = (int) tasks.stream().filter(t -> t.getGroupId() == null).count();
 
+        // viewerRelationship — resolved from the verified caller's
+        // email when supplied. Anonymous reads (none today; auth
+        // gate is in place) get "none".
+        String viewerRelationship = followService.getRelationship(viewerEmail, email);
+
         return Optional.of(PublicProfileDto.of(
                 u,
                 groupSummaries.size(),
                 postCount,
                 groupSummaries,
-                postSummaries
+                postSummaries,
+                viewerRelationship
         ));
     }
 

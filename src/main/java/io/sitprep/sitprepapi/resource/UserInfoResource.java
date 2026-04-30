@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.service.AccountDeletionService;
 import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
+import io.sitprep.sitprepapi.service.FollowService;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
@@ -36,11 +37,14 @@ public class UserInfoResource {
 
     private final UserInfoService userInfoService;
     private final AccountDeletionService accountDeletionService;
+    private final FollowService followService;
 
     public UserInfoResource(UserInfoService userInfoService,
-                            AccountDeletionService accountDeletionService) {
+                            AccountDeletionService accountDeletionService,
+                            FollowService followService) {
         this.userInfoService = userInfoService;
         this.accountDeletionService = accountDeletionService;
+        this.followService = followService;
     }
 
     @GetMapping("/{id}")
@@ -81,10 +85,39 @@ public class UserInfoResource {
      */
     @GetMapping("/{idOrEmail}/profile")
     public ResponseEntity<PublicProfileDto> getPublicProfile(@PathVariable String idOrEmail) {
-        AuthUtils.requireAuthenticatedEmail();
-        return userInfoService.getPublicProfile(idOrEmail)
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return userInfoService.getPublicProfile(idOrEmail, viewer)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Follow / unfollow {@code idOrEmail}. Per
+     * {@code docs/PROFILE_AND_FOLLOW.md} build-order step 3 — follow
+     * is one-way; mutual emerges when both sides have a row, no
+     * separate friend tier. Idempotent: tapping Follow when you
+     * already follow is a no-op (the FE optimistic pattern can
+     * double-fire on anxious taps without erroring out).
+     *
+     * <p>Returns 204 on success, 404 when the target doesn't exist,
+     * 400 when the caller tries to follow themselves.</p>
+     */
+    @PostMapping("/{idOrEmail}/follow")
+    public ResponseEntity<Void> follow(@PathVariable String idOrEmail) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        Optional<String> targetEmail = followService.resolveEmail(idOrEmail);
+        if (targetEmail.isEmpty()) return ResponseEntity.notFound().build();
+        followService.follow(viewer, targetEmail.get());
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{idOrEmail}/follow")
+    public ResponseEntity<Void> unfollow(@PathVariable String idOrEmail) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        Optional<String> targetEmail = followService.resolveEmail(idOrEmail);
+        if (targetEmail.isEmpty()) return ResponseEntity.notFound().build();
+        followService.unfollow(viewer, targetEmail.get());
+        return ResponseEntity.noContent().build();
     }
 
     /**

@@ -48,7 +48,13 @@ public record PublicProfileDto(
         List<PublicGroupSummary> groups,
         // Public posts they've authored, newest first. Capped at 10 to
         // keep the payload lean; FE paginates the rest if/when needed.
-        List<PublicPostSummary> posts
+        List<PublicPostSummary> posts,
+        // Viewer's relationship to this profile, resolved server-side
+        // from the verified caller email. Drives the Follow button
+        // state on the FE per docs/PROFILE_AND_FOLLOW.md step 3.
+        // Vocabulary: self | mutual | follower | followee | none
+        // (blocked lands with step 5).
+        String viewerRelationship
 ) {
 
     /**
@@ -90,7 +96,8 @@ public record PublicProfileDto(
             int circleCount,
             int postCount,
             List<PublicGroupSummary> groups,
-            List<PublicPostSummary> posts
+            List<PublicPostSummary> posts,
+            String viewerRelationship
     ) {
         return new PublicProfileDto(
                 u.getId(),
@@ -107,7 +114,8 @@ public record PublicProfileDto(
                 postCount,
                 u.getLastActiveAt(),
                 groups,
-                posts
+                posts,
+                viewerRelationship
         );
     }
 }
