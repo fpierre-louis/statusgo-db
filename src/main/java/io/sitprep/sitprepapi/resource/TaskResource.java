@@ -80,10 +80,14 @@ public class TaskResource {
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
             @RequestParam(value = "status", required = false) List<TaskStatus> statuses
     ) {
-        AuthUtils.requireAuthenticatedEmail();
+        // Viewer identity feeds the follow-source merge in the service —
+        // out-of-radius posts authored by emails the viewer follows
+        // ride along with the radius results. Per docs/PROFILE_AND_FOLLOW.md
+        // build-order step 4.
+        String viewer = AuthUtils.requireAuthenticatedEmail();
         Set<TaskStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(TaskStatus.OPEN, TaskStatus.CLAIMED) : EnumSet.copyOf(statuses);
-        return tasks.discoverCommunity(lat, lng, radiusKm, wanted);
+        return tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer);
     }
 
     @GetMapping("/api/me/tasks")

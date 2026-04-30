@@ -1,9 +1,11 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.Task.TaskStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.TaskDto;
+import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.TaskRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -62,16 +64,19 @@ public class TaskService {
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
     private final AlertModeService alertModeService;
+    private final FollowRepo followRepo;
 
     public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
                        WebSocketMessageSender ws,
-                       AlertModeService alertModeService) {
+                       AlertModeService alertModeService,
+                       FollowRepo followRepo) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
         this.alertModeService = alertModeService;
+        this.followRepo = followRepo;
     }
 
     /**
@@ -259,42 +264,89 @@ public class TaskService {
     }
 
     /**
-     * Community feed: open community-scope tasks within {@code radiusKm}
-     * of the viewer's coords, sorted by distance, capped at 50.
-     * {@code statuses} defaults to {OPEN, CLAIMED} so users still see
-     * what's been picked up but is not yet done.
+     * Community feed with follow-merge — per
+     * {@code docs/PROFILE_AND_FOLLOW.md} build-order step 4. Returns:
+     * <ul>
+     *   <li>Open community-scope tasks within {@code radiusKm} (existing behavior)</li>
+     *   <li>Geo-less tasks (community-wide, distanceKm=null)</li>
+     *   <li>Out-of-radius tasks authored by emails {@code viewerEmail}
+     *       follows, tagged {@code viaFollow=true} + computed distance</li>
+     * </ul>
+     *
+     * <p>Sort order: in-radius posts by proximity (existing), then
+     * geo-less posts, then follow-source posts by recency. The
+     * follow-source tail is intentionally less prominent than radius
+     * matches — the spec calls for "visible but not dominating".</p>
+     *
+     * <p>{@code viewerEmail} null skips the follow merge entirely
+     * (back-compat for callers that don't carry viewer identity).</p>
      */
     @Transactional(readOnly = true)
     public List<TaskDto> discoverCommunity(double lat, double lng, double radiusKm,
-                                           Set<TaskStatus> statuses) {
+                                           Set<TaskStatus> statuses, String viewerEmail) {
         Set<TaskStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(TaskStatus.OPEN, TaskStatus.CLAIMED) : statuses;
+
+        // Resolve the viewer's followed-emails set ONCE per request. Lower-
+        // cased to match the Follow column convention. Empty when the viewer
+        // is null OR follows nobody — both cases short-circuit the merge.
+        Set<String> followedEmails;
+        if (viewerEmail == null || viewerEmail.isBlank()) {
+            followedEmails = Set.of();
+        } else {
+            followedEmails = followRepo.findByFollowerEmail(viewerEmail.trim().toLowerCase(Locale.ROOT))
+                    .stream()
+                    .map(Follow::getFollowedEmail)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+        }
 
         // No bucket pre-filter for now (we don't know the viewer's zip ahead
         // of the request). Service-layer Haversine + status filter is fine
         // at SitPrep scale; add bucket prefilter when row counts grow.
         List<Task> candidates = taskRepo.findCommunityCandidates(wanted, null);
 
-        // Geo-less tasks are community-wide by construction — the requester
-        // didn't pin them to a place, so they belong in every viewer's feed
-        // regardless of radius. We tag them with null distanceKm so the FE
-        // can render a "Wider community" indicator instead of a "X mi" pill.
-        // The previous behavior (drop unconditionally) made geo-less tasks
-        // invisible in every feed, even at the "Anywhere" radius — bug fix.
+        // Walk candidates ONCE; bucket each into within-radius vs follow-
+        // source-out-of-radius vs drop. Geo-less rows are community-wide
+        // by construction — they belong in every viewer's feed (existing
+        // behavior, preserved here verbatim).
         List<TaskDto> within = new ArrayList<>();
+        List<TaskDto> followTail = new ArrayList<>();
         for (Task t : candidates) {
             if (t.getLatitude() == null || t.getLongitude() == null) {
                 within.add(TaskDto.fromEntity(t, null));
                 continue;
             }
             double d = haversineKm(lat, lng, t.getLatitude(), t.getLongitude());
-            if (d > radiusKm) continue;
-            within.add(TaskDto.fromEntity(t, roundKm(d)));
+            if (d <= radiusKm) {
+                within.add(TaskDto.fromEntity(t, roundKm(d)));
+                continue;
+            }
+            // Out-of-radius — only include if author is followed.
+            String author = t.getRequesterEmail();
+            if (author != null && followedEmails.contains(author.toLowerCase(Locale.ROOT))) {
+                followTail.add(TaskDto.fromEntity(t, roundKm(d)).asFollowSource());
+            }
         }
         // null distance sorts last (after all geo-tagged within-radius tasks),
         // which matches the FE proximity-score expectation: nearby first,
         // then community-wide.
         within.sort(Comparator.comparingDouble(d -> d.distanceKm() == null ? Double.MAX_VALUE : d.distanceKm()));
+
+        // Follow-source tail by recency — most-recent follow post first.
+        // Null createdAt sorts last so legacy rows don't dominate.
+        followTail.sort((a, b) -> {
+            Instant ai = a.createdAt();
+            Instant bi = b.createdAt();
+            if (ai == null && bi == null) return 0;
+            if (ai == null) return 1;
+            if (bi == null) return -1;
+            return bi.compareTo(ai);
+        });
+
+        List<TaskDto> merged = new ArrayList<>(within.size() + followTail.size());
+        merged.addAll(within);
+        merged.addAll(followTail);
 
         // Apply mode-aware sponsored suppression BEFORE the cap-50 trim
         // so a hidden sponsored row doesn't take a slot a real organic
@@ -311,7 +363,7 @@ public class TaskService {
             log.debug("TaskService: mode lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
             cellMode = AlertModeService.CALM;
         }
-        List<TaskDto> filtered = applySponsoredSuppression(within, cellMode);
+        List<TaskDto> filtered = applySponsoredSuppression(merged, cellMode);
 
         List<TaskDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
         return withAuthors(capped);

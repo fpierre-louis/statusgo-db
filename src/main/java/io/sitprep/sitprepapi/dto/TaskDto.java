@@ -76,7 +76,20 @@ public record TaskDto(
          * boolean accept-flag (applePay/googlePay/cashOnPickup).
          * Empty map when no handles attached or kind != marketplace.
          */
-        Map<String, Object> paymentMethods
+        Map<String, Object> paymentMethods,
+        /**
+         * True when this row is in the response only because the
+         * author is someone the viewer follows — i.e., the post is
+         * outside the viewer's chosen radius. Per
+         * {@code docs/PROFILE_AND_FOLLOW.md} build-order step 4 the
+         * FE renders a "Following · {distance}" subtitle modifier on
+         * these cards so the user understands why an out-of-radius
+         * post is in their local feed.
+         *
+         * <p>False on every radius-match (geo-tagged or geo-less),
+         * group-feed, by-me feed, etc.</p>
+         */
+        boolean viaFollow
 ) {
 
     /**
@@ -123,12 +136,33 @@ public record TaskDto(
                 t.getKind(),
                 t.getPrice(),
                 t.isFree(),
-                parsePaymentMethods(t.getPaymentMethodsJson())
+                parsePaymentMethods(t.getPaymentMethodsJson()),
+                /* viaFollow */ false
         );
     }
 
     public static TaskDto fromEntity(Task t) {
         return fromEntity(t, null);
+    }
+
+    /**
+     * Returns a copy with {@code viaFollow=true}. Used by the community
+     * feed merge in {@code TaskService.discoverCommunity} when a post is
+     * surfaced because the author is followed by the viewer (out-of-radius
+     * pull-through).
+     */
+    public TaskDto asFollowSource() {
+        return new TaskDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentTaskId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                kind, price, isFree, paymentMethods,
+                /* viaFollow */ true
+        );
     }
 
     /**
@@ -174,7 +208,8 @@ public record TaskDto(
                 kind,
                 price,
                 isFree,
-                paymentMethods
+                paymentMethods,
+                viaFollow
         );
     }
 
