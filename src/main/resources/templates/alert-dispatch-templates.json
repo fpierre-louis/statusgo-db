@@ -1,0 +1,110 @@
+{
+  "_comment": "Auto-post body templates per alert source × severity. Loaded by AlertDispatchService at boot; editable without redeploy. Placeholders: {name}, {mag}, {distance}, {direction}, {duration}. Spec: docs/ALERTS_INTEGRATION.md 'Templates per source'.",
+
+  "templates": [
+    {
+      "source": "NWS",
+      "event": "Hurricane",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "hurricane",
+      "headline": "Hurricane warning issued",
+      "body": "Hurricane {name} warning — hide flying objects, top up water, charge devices, review your evacuation plan.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "NWS",
+      "event": "Tornado",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "tornado",
+      "headline": "Tornado warning issued",
+      "body": "Tornado warning — go to interior windowless room now.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "NWS",
+      "event": "Flash Flood",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "flood",
+      "headline": "Flash flood warning",
+      "body": "Flash flood warning — turn around, don't drown. Move to higher ground.",
+      "askTag": "Flood"
+    },
+    {
+      "source": "NWS",
+      "event": "Flood",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "flood",
+      "headline": "Flood warning",
+      "body": "Flood warning — move valuables up. Don't drive through water — turn around, don't drown.",
+      "askTag": "Flood"
+    },
+    {
+      "source": "NWS",
+      "event": "Winter Storm",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "blizzard",
+      "headline": "Winter storm warning",
+      "body": "Winter storm warning — water/heat/food on hand. Watch for power loss; check on neighbors.",
+      "askTag": "Blizzard"
+    },
+    {
+      "source": "NWS",
+      "event": "Blizzard",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "blizzard",
+      "headline": "Blizzard warning",
+      "body": "Blizzard warning — stay off roads. Heat backup, food, water. Check on neighbors.",
+      "askTag": "Blizzard"
+    },
+    {
+      "source": "NWS",
+      "event": "Excessive Heat",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "heat",
+      "headline": "Excessive heat warning",
+      "body": "Excessive heat — hydrate, seek AC, check on elderly neighbors. Limit outdoor activity.",
+      "askTag": "Heat"
+    },
+    {
+      "source": "NWS",
+      "event": "Fire Weather",
+      "severity": ["Severe", "Extreme"],
+      "hazardType": "wildfire",
+      "headline": "Fire weather warning",
+      "body": "Fire weather conditions — no outdoor burning. Pack go-bag in case evacuation is ordered.",
+      "askTag": "Wildfire"
+    },
+    {
+      "source": "USGS",
+      "minMag": 5.5,
+      "hazardType": "earthquake",
+      "headline": "Earthquake felt",
+      "body": "Earthquake felt — M{mag} epicenter {distance}mi {direction}. Check structure, gas, water.",
+      "askTag": "Earthquake"
+    },
+    {
+      "source": "FEMA",
+      "incidentTypeAny": ["Hurricane", "Severe Storm", "Severe Storm(s)", "Coastal Storm"],
+      "hazardType": "hurricane",
+      "headline": "Federal disaster declaration",
+      "body": "FEMA disaster declaration active in your area. Recovery resources available — see fema.gov/assistance.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "FEMA",
+      "incidentTypeAny": ["Fire"],
+      "hazardType": "wildfire",
+      "headline": "Federal wildfire declaration",
+      "body": "FEMA wildfire declaration in your area. Recovery + assistance resources available — see fema.gov/assistance.",
+      "askTag": "Wildfire"
+    },
+    {
+      "source": "FEMA",
+      "_fallback": true,
+      "hazardType": "other",
+      "headline": "Federal disaster declaration",
+      "body": "FEMA disaster declaration active in your area. Recovery resources available — see fema.gov/assistance.",
+      "askTag": null
+    }
+  ]
+}
