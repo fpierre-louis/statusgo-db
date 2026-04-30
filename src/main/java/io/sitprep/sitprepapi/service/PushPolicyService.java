@@ -59,9 +59,11 @@ public class PushPolicyService {
     );
 
     private final UserAlertPreferenceRepo repo;
+    private final RateLimiterService rateLimiter;
 
-    public PushPolicyService(UserAlertPreferenceRepo repo) {
+    public PushPolicyService(UserAlertPreferenceRepo repo, RateLimiterService rateLimiter) {
         this.repo = repo;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -109,6 +111,17 @@ public class PushPolicyService {
         //    interruptive so the quiet window doesn't gate them.
         if (base == Lane.A && pref.isQuietHoursEnabled() && isWithinQuietHours(pref)) {
             if (!isCriticalBypass(category, severity)) {
+                base = Lane.B;
+            }
+        }
+
+        // -- rate caps apply only to Lane A. Excess pushes demote to
+        //    Lane B per spec ("Excess events drop to Lane B inbox").
+        //    Critical-bypass categories are exempt — a hurricane
+        //    warning shouldn't get rate-limited because the user
+        //    already saw a quake notification 2min ago.
+        if (base == Lane.A && !isCriticalBypass(category, severity)) {
+            if (!rateLimiter.tryConsume(userEmail, category)) {
                 base = Lane.B;
             }
         }
