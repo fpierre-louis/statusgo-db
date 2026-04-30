@@ -34,6 +34,22 @@ public class Group {
      */
     @Column(name = "active_hazard_type")
     private String activeHazardType;
+
+    /**
+     * Timestamp the alert most recently flipped to {@code "Active"}. Used by
+     * {@code GroupAlertDecayService} to find groups whose admin forgot to
+     * clear the alert and auto-resolve them after a threshold. Null when
+     * the alert has never been activated, or was cleared by an admin.
+     *
+     * <p>Set in {@code GroupService.updateGroupFields} on the
+     * {@code alertBecameActive} branch, cleared on {@code alertBecameInactive}.
+     * Pre-existing Active alerts at deploy time will have this null and
+     * therefore won't auto-decay until they're flipped manually once —
+     * acceptable trade-off vs. a backfill migration.</p>
+     */
+    @Column(name = "alert_activated_at")
+    private Instant alertActivatedAt;
+
     private Instant createdAt;
     private String description;
     private String groupCode;

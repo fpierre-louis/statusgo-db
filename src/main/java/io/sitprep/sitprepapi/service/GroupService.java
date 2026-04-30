@@ -157,6 +157,16 @@ public class GroupService {
         group.setLongitude(groupDetails.getLongitude());
         group.setLatitude(groupDetails.getLatitude());
 
+        // Track when the alert most recently went Active so the decay
+        // sweep can find stale ones. Cleared on flip-back so a future
+        // re-activation gets a fresh timestamp instead of inheriting the
+        // prior session's clock.
+        if (alertBecameActive) {
+            group.setAlertActivatedAt(Instant.now());
+        } else if (alertBecameInactive) {
+            group.setAlertActivatedAt(null);
+        }
+
         if (alertBecameActive) {
             notifyGroupMembers(group);
         }

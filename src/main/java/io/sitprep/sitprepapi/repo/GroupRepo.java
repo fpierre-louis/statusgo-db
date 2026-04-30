@@ -29,4 +29,22 @@ public interface GroupRepo extends JpaRepository<Group, String> {
 
     @Query("SELECT g FROM Group g LEFT JOIN FETCH g.memberEmails WHERE g.groupId = :groupId")
     Optional<Group> findByGroupIdWithMembers(@Param("groupId") String groupId);
+
+    /**
+     * Groups whose alert is currently {@code "Active"} AND whose
+     * {@code alertActivatedAt} is older than {@code cutoff}. Used by
+     * {@code GroupAlertDecayService} to find the alerts an admin forgot
+     * to clear. Null {@code alertActivatedAt} is excluded — those are
+     * pre-deploy backlog and require a manual flip to start being
+     * auto-decayable (avoids surprise mass-clears on rollout).
+     */
+    @Query(
+        "SELECT g FROM Group g " +
+        "WHERE LOWER(g.alert) = 'active' " +
+        "AND g.alertActivatedAt IS NOT NULL " +
+        "AND g.alertActivatedAt < :cutoff " +
+        "ORDER BY g.alertActivatedAt ASC"
+    )
+    List<Group> findStaleActiveAlerts(@Param("cutoff") java.time.Instant cutoff,
+                                      org.springframework.data.domain.Pageable page);
 }
