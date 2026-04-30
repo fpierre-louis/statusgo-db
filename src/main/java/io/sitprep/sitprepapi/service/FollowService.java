@@ -143,6 +143,32 @@ public class FollowService {
         return "none";
     }
 
+    /**
+     * Lightweight email lists for the Followers / Following management
+     * page (PROFILE_AND_FOLLOW step 6). Caller resolves these to
+     * {@link io.sitprep.sitprepapi.dto.ProfileSummaryDto} via the
+     * existing {@code getProfileSummariesByEmails} batch helper.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<String> followingEmails(String viewerEmail) {
+        String v = normalize(viewerEmail);
+        if (v == null) return java.util.List.of();
+        return followRepo.findByFollowerEmail(v).stream()
+                .map(io.sitprep.sitprepapi.domain.Follow::getFollowedEmail)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<String> followerEmails(String viewerEmail) {
+        String v = normalize(viewerEmail);
+        if (v == null) return java.util.List.of();
+        return followRepo.findByFollowedEmail(v).stream()
+                .map(io.sitprep.sitprepapi.domain.Follow::getFollowerEmail)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     private static String normalize(String email) {
         if (email == null) return null;
         String t = email.trim();

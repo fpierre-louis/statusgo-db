@@ -153,6 +153,40 @@ public class UserInfoResource {
     }
 
     /**
+     * Followers / following / blocked lists — private to the caller.
+     * Per docs/PROFILE_AND_FOLLOW.md step 6:
+     * <blockquote>
+     *   Followers / following lists are private to the user
+     *   themselves; not surfaced on the public profile.
+     * </blockquote>
+     *
+     * <p>Returns lightweight {@link ProfileSummaryDto} entries (avatar
+     * + name + verified tier — same shape used by the group-roster
+     * batch endpoint) so the FE renders the management page cards
+     * with one round trip. Email lookup goes through the existing
+     * {@code getProfileSummariesByEmails} batch helper, so accounts
+     * that have been deleted just drop from the result rather than
+     * leaving a placeholder row.</p>
+     */
+    @GetMapping("/me/following")
+    public List<ProfileSummaryDto> myFollowing() {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return userInfoService.getProfileSummariesByEmails(followService.followingEmails(me));
+    }
+
+    @GetMapping("/me/followers")
+    public List<ProfileSummaryDto> myFollowers() {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return userInfoService.getProfileSummariesByEmails(followService.followerEmails(me));
+    }
+
+    @GetMapping("/me/blocked")
+    public List<ProfileSummaryDto> myBlocked() {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return userInfoService.getProfileSummariesByEmails(blockService.blockedEmails(me));
+    }
+
+    /**
      * Batch profile lookup. Body: {@code { "emails": ["a@x", "b@y", ...] }}.
      * Returns one {@link ProfileSummaryDto} per known email; unknown/blank
      * emails are omitted. Replaces per-email fan-out on group rosters.

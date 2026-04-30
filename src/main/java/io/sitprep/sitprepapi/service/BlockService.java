@@ -125,6 +125,22 @@ public class BlockService {
         return out;
     }
 
+    /**
+     * Email list of users {@code blocker} has explicitly blocked —
+     * one direction only. Drives the Blocked-users management list
+     * (PROFILE_AND_FOLLOW step 6). Distinct from {@link #getBlockSet}
+     * which is the symmetric set used by feed suppression.
+     */
+    @Transactional(readOnly = true)
+    public List<String> blockedEmails(String blockerEmail) {
+        String b = normalize(blockerEmail);
+        if (b == null) return List.of();
+        return blockRepo.findByBlockerEmail(b).stream()
+                .map(Block::getBlockedEmail)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     private static String normalize(String email) {
         if (email == null) return null;
         String t = email.trim();
