@@ -2,45 +2,61 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sentry.Sentry;
+import io.sitprep.sitprepapi.domain.AlertPost;
+import io.sitprep.sitprepapi.domain.Task;
+import io.sitprep.sitprepapi.domain.Task.TaskPriority;
+import io.sitprep.sitprepapi.domain.Task.TaskStatus;
+import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.TaskDto;
 import io.sitprep.sitprepapi.repo.AlertPostRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
+import io.sitprep.sitprepapi.service.NominatimGeocodeService.Place;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Auto-post dispatcher — step 6 of {@code docs/ALERTS_INTEGRATION.md}.
- * The headline new behavior: when an alert intersects a populated
- * geocell, the SitPrep system user authors a community post in that
- * cell so users see the alert in their feed without dependence on
- * push notification permission.
  *
- * <p><b>Build state:</b> this is layer 1 of the dispatcher — entity
- * scaffolding ({@link io.sitprep.sitprepapi.domain.AlertPost}),
- * template loading, and the service skeleton. The cron tick + geocell
- * resolution + Post creation + STOMP broadcast + resolve path land in
- * follow-up sessions. Service is wired into Spring + ready to be
- * exercised, but {@link #dispatchOnce()} returns 0 until the rest is
- * built.</p>
+ * <p>When an active alert intersects a populated geocell, the SitPrep
+ * system user authors a community post in that cell. Posts use the
+ * existing {@link Task} entity (kind = "system-alert" via tags) so they
+ * flow through the canonical {@code TaskService.discoverCommunity} feed
+ * + STOMP broadcast on {@code /topic/community/tasks/{zipBucket}} + the
+ * shared {@code FeedItemShell} render — no separate entity or render
+ * path. Future migration to a unified {@code CommunityPost} per
+ * MARKETPLACE_AND_FEED_CALM.md is a refactor of consumers, not the
+ * dispatcher.</p>
  *
- * <p><b>Dedup invariant:</b> exactly one auto-post per (alertId,
- * geocellId). Enforced both by the unique index on AlertPost and by
- * the application-side {@link AlertPostRepo#findByAlertIdAndGeocellId}
- * check. The unique index is the safety net against racing dispatch
- * ticks; the application check makes the flow cleaner.</p>
+ * <p><b>Dedup:</b> exactly one auto-post per (alertId, geocellId).
+ * Enforced by the unique index on {@link AlertPost} and by the
+ * application-side {@link AlertPostRepo#findByAlertIdAndGeocellId}
+ * check ahead of the create call. Geocell is the
+ * {@code zipBucket} from a Nominatim reverse-geocode of the alert's
+ * first-vertex coord — same key the {@code TaskService} community
+ * feed uses.</p>
  *
- * <p><b>Templates:</b> body copy lives in
- * {@code resources/templates/alert-dispatch-templates.json}, loaded at
- * boot via {@link #loadTemplates()}. Editable without redeploy by
- * shipping a new JAR; future improvement is a DB-backed template
- * editor for ops.</p>
+ * <p><b>v1 scope:</b> NWS warnings (Severe + Extreme) and USGS quakes
+ * (M5.5+) only. FEMA declarations are in the alert ingest cache but
+ * have no geometry, so dispatch defers to a future state-keyed flow.
+ * Resolve path (layer 3) lands in a follow-up session.</p>
  */
 @Service
 public class AlertDispatchService {
@@ -49,23 +65,36 @@ public class AlertDispatchService {
 
     private static final String TEMPLATES_RESOURCE = "templates/alert-dispatch-templates.json";
 
+    /** Reserved system author for SitPrep auto-posts. */
+    static final String SYSTEM_EMAIL = "system@sitprep.app";
+
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
+    private final TaskService taskService;
+    private final UserInfoRepo userInfoRepo;
+    private final NominatimGeocodeService geocode;
     private final ObjectMapper json = new ObjectMapper();
 
-    /**
-     * Loaded once at boot. List rather than map because match logic
-     * walks templates by source-then-event-then-severity rather than
-     * indexing by a single key.
-     */
     private List<DispatchTemplate> templates = List.of();
 
-    public AlertDispatchService(AlertIngestService ingest, AlertPostRepo alertPostRepo) {
+    public AlertDispatchService(AlertIngestService ingest,
+                                AlertPostRepo alertPostRepo,
+                                TaskService taskService,
+                                UserInfoRepo userInfoRepo,
+                                NominatimGeocodeService geocode) {
         this.ingest = ingest;
         this.alertPostRepo = alertPostRepo;
+        this.taskService = taskService;
+        this.userInfoRepo = userInfoRepo;
+        this.geocode = geocode;
     }
 
     @PostConstruct
+    void init() {
+        loadTemplates();
+        ensureSystemUser();
+    }
+
     void loadTemplates() {
         try (InputStream in = new ClassPathResource(TEMPLATES_RESOURCE).getInputStream()) {
             JsonNode root = json.readTree(in);
@@ -77,8 +106,7 @@ public class AlertDispatchService {
             List<DispatchTemplate> loaded = new ArrayList<>(arr.size());
             Iterator<JsonNode> it = arr.elements();
             while (it.hasNext()) {
-                JsonNode n = it.next();
-                loaded.add(DispatchTemplate.fromJson(n));
+                loaded.add(DispatchTemplate.fromJson(it.next()));
             }
             this.templates = List.copyOf(loaded);
             log.info("AlertDispatch: loaded {} dispatch templates", templates.size());
@@ -88,79 +116,289 @@ public class AlertDispatchService {
     }
 
     /**
-     * Run one dispatch pass. Stub for now — returns 0 until the cron
-     * tick + geocell resolution land. Public + named so the resolve
-     * cron + tests + an admin-triggered out-of-band dispatch all share
-     * the same entry point.
+     * Idempotent system-user seed. Reserved {@code system@sitprep.app}
+     * with display name "SitPrep" + the SitPrep avatar so auto-posts
+     * render with a recognizable author through the existing
+     * {@code TaskService.withAuthors} pipeline. Runs once at boot;
+     * unique constraint on userEmail catches concurrent seeds across
+     * pod restarts.
+     */
+    void ensureSystemUser() {
+        try {
+            if (userInfoRepo.findByUserEmail(SYSTEM_EMAIL).isPresent()) return;
+            UserInfo u = new UserInfo();
+            u.setUserEmail(SYSTEM_EMAIL);
+            u.setUserFirstName("SitPrep");
+            u.setUserLastName("");
+            // Avatar lives in the public bundle — sitprep-images CDN domain.
+            // Falls back to hashed initials if the URL 404s on the FE side.
+            u.setProfileImageURL("https://sitprepimages.com/system/sitprep-avatar.png");
+            userInfoRepo.save(u);
+            log.info("AlertDispatch: seeded system user {}", SYSTEM_EMAIL);
+        } catch (Exception e) {
+            log.warn("AlertDispatch: ensureSystemUser failed (will retry on next boot): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Quarter-hourly cron tick. {@code initialDelay} of 7min keeps
+     * dispatch off the boot path while ingest's first prime resolves
+     * (ingest's own initialDelay is 1min + the prime is async). Lower
+     * cadence than ingest (5min) since dispatch is bounded by ingest's
+     * snapshot — running more often than ingest doesn't surface new
+     * alerts. Higher would compound costs.
+     */
+    @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT7M")
+    public void scheduledDispatch() {
+        try {
+            int created = dispatchOnce();
+            if (created > 0) {
+                log.info("AlertDispatch: dispatched {} new auto-posts", created);
+            } else {
+                log.debug("AlertDispatch: no new auto-posts");
+            }
+        } catch (Exception e) {
+            log.warn("AlertDispatch: tick failed: {}", e.getMessage(), e);
+            try { Sentry.captureException(e); } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * Run one dispatch pass. Public + named so layer 3's resolve cron,
+     * tests, and an admin-triggered out-of-band dispatch can share the
+     * same entry point. Returns the count of new auto-posts created.
      *
-     * <p>Future flow per spec:</p>
+     * <p>Pass:</p>
      * <ol>
-     *   <li>Read {@code ingest.getSnapshot()} for the active alert set.</li>
-     *   <li>For each alert: walk populated geocells where users have
-     *       opted in (UserAlertPreference). Compute candidate
-     *       (alertId, geocellId) pairs.</li>
-     *   <li>Filter via {@link AlertPostRepo#findByAlertIdAndGeocellId}
-     *       to skip already-posted pairs.</li>
-     *   <li>For each remaining pair: pick the matching template,
-     *       create a Post via {@code PostService}, persist an
-     *       AlertPost row, broadcast on STOMP.</li>
+     *   <li>Read {@code ingest.getSnapshot()}.</li>
+     *   <li>For each alert with geometry: derive a geocell via
+     *       reverse-geocode of the first-vertex coord.</li>
+     *   <li>Skip if {@link AlertPostRepo#findByAlertIdAndGeocellId}
+     *       already has a row.</li>
+     *   <li>Match a template; skip when no template matches (severity
+     *       below threshold, source not configured, etc.).</li>
+     *   <li>Build a Task body from the template + create via
+     *       {@link TaskService#create} (which handles WS broadcast +
+     *       zipBucket population). Persist an AlertPost tracking row.</li>
      * </ol>
      */
+    @Transactional
     public int dispatchOnce() {
         if (templates.isEmpty()) return 0;
-        // Layer 1: skeleton only. Layer 2 wires the actual dispatch
-        // through ingest.getSnapshot() + geocell resolution.
-        return 0;
+        AlertIngestService.Snapshot snap = ingest.getSnapshot();
+        if (snap == null || snap.alerts() == null || snap.alerts().isEmpty()) return 0;
+
+        int created = 0;
+        for (NormalizedAlert a : snap.alerts()) {
+            try {
+                if (a.id() == null || a.id().isBlank()) continue;
+                String alertId = a.source() + "-" + a.id();
+
+                // Geometry-required for v1 (FEMA declarations bucketed
+                // separately in a future state-keyed flow).
+                double[] coord = firstCoord(a.geometry());
+                if (coord == null) continue;
+
+                // Reverse-geocode → zipBucket. Skip silently when the
+                // geocoder fails or doesn't have a zip — alerts in
+                // remote ocean / desert areas don't get auto-posts.
+                String zipBucket = lookupZipBucket(coord[1], coord[0]); // lat, lng
+                if (zipBucket == null || zipBucket.isBlank()) continue;
+
+                // Application-side dedup ahead of the unique-index
+                // safety net. Cheap (one indexed lookup) and avoids a
+                // failed insert + rollback for the common case.
+                if (alertPostRepo.findByAlertIdAndGeocellId(alertId, zipBucket).isPresent()) continue;
+
+                // Template match drives both severity-eligibility and
+                // body content. No template = not eligible (e.g. NWS
+                // Moderate, USGS M4.5).
+                Optional<DispatchTemplate> tplOpt = matchForAlert(a);
+                if (tplOpt.isEmpty()) continue;
+                DispatchTemplate tpl = tplOpt.get();
+
+                Task body = buildAutoPostTask(a, tpl, coord);
+                TaskDto dto = taskService.create(body, SYSTEM_EMAIL);
+
+                AlertPost ap = new AlertPost();
+                ap.setAlertId(alertId);
+                ap.setHazardType(tpl.hazardType);
+                ap.setGeocellId(zipBucket);
+                ap.setPostId(dto.id());
+                ap.setExpiresAt(parseInstantOrNull(a.endsAt()));
+                alertPostRepo.save(ap);
+
+                created++;
+            } catch (Exception e) {
+                // Per-alert failure shouldn't break the whole tick. Log
+                // + Sentry-capture and move on.
+                log.warn("AlertDispatch: skipped alert {} {}: {}", a.source(), a.id(), e.getMessage());
+                try { Sentry.captureException(e); } catch (Throwable ignored) {}
+            }
+        }
+        return created;
     }
 
     /**
-     * Run one resolve pass. Stub for now. Future flow:
-     *
-     * <ol>
-     *   <li>For each {@code alertId} in {@link AlertPostRepo#findActiveAlertIds()}:
-     *       check if the upstream alert is still in
-     *       {@code ingest.getSnapshot()}.</li>
-     *   <li>If not (or if its endsAt has passed): mark the matching
-     *       AlertPost rows {@code resolvedAt = now} and update the
-     *       parent Post for visual demotion.</li>
-     * </ol>
+     * Run one resolve pass. Stub for layer 3 — see ALERTS_INTEGRATION
+     * step 6 layer 3 for the planned flow.
      */
     public int resolveOnce() {
-        if (alertPostRepo.findActiveAlertIds().isEmpty()) return 0;
-        // Layer 1: skeleton only. Layer 3 wires the resolve path.
         return 0;
     }
 
+    // ---------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------
+
+    private Task buildAutoPostTask(NormalizedAlert a, DispatchTemplate tpl, double[] coord) {
+        Task t = new Task();
+        // Title and body filled from the template, with simple slot
+        // substitution. {name} pulls from headline; {mag}/{distance}
+        // are USGS-specific (parsed from headline).
+        t.setTitle(tpl.headline);
+        t.setDescription(fillBody(tpl.body, a));
+        t.setPriority(TaskPriority.URGENT);
+        t.setStatus(TaskStatus.OPEN);
+        t.setLatitude(coord[1]);   // lat
+        t.setLongitude(coord[0]);  // lng
+        // groupId left null → community scope
+        Set<String> tags = new HashSet<>();
+        tags.add("system-alert");
+        if (tpl.hazardType != null) tags.add(tpl.hazardType);
+        if (a.source() != null) tags.add(a.source().toLowerCase(Locale.ROOT));
+        t.setTags(tags);
+        return t;
+    }
+
+    private static String fillBody(String body, NormalizedAlert a) {
+        if (body == null) return "";
+        String headline = a.headline() == null ? "" : a.headline();
+        String filled = body;
+        // {name}: pull a "name" from the NWS headline (best-effort —
+        // headlines typically read "Hurricane Helene warning" so we
+        // capture the second word for hurricanes; fall back to the
+        // hazard type word).
+        filled = filled.replace("{name}", inferAlertName(headline));
+        // {mag}: USGS magnitude from the headline format "M5.6 — ..."
+        Double mag = parseUsgsMag(headline);
+        if (mag != null) {
+            filled = filled.replace("{mag}", String.format(Locale.ROOT, "%.1f", mag));
+        }
+        // {distance} / {direction}: not computed in v1; leave the slot
+        // as a literal so future iterations can fill it without a
+        // template change.
+        return filled;
+    }
+
+    private static String inferAlertName(String headline) {
+        if (headline == null || headline.isBlank()) return "";
+        // Crude: split by spaces, take the second token if the first
+        // is a known hazard noun (Hurricane Helene → Helene).
+        String[] parts = headline.trim().split("\\s+");
+        if (parts.length >= 2) {
+            String head = parts[0].toLowerCase(Locale.ROOT);
+            if (head.equals("hurricane") || head.equals("tropical")) {
+                return parts[1].replaceAll("[^A-Za-z0-9]", "");
+            }
+        }
+        return "";
+    }
+
+    private static Double parseUsgsMag(String headline) {
+        if (headline == null) return null;
+        // "M5.6 — 14km E of Encinitas, CA"
+        int mIdx = headline.indexOf('M');
+        int dashIdx = headline.indexOf('—');
+        if (mIdx < 0 || dashIdx <= mIdx) return null;
+        try {
+            return Double.parseDouble(headline.substring(mIdx + 1, dashIdx).trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String lookupZipBucket(double lat, double lng) {
+        try {
+            Place p = geocode.reverse(lat, lng);
+            return p == null ? null : p.zipBucket();
+        } catch (Exception e) {
+            log.debug("AlertDispatch: reverse-geocode failed at ({}, {}): {}", lat, lng, e.getMessage());
+            return null;
+        }
+    }
+
+    private static Instant parseInstantOrNull(String iso) {
+        if (iso == null || iso.isBlank()) return null;
+        try { return Instant.parse(iso); }
+        catch (Exception ignored) { return null; }
+    }
+
     /**
-     * Find the matching template for an upstream alert. Returns the
-     * first template whose source + event/incidentType + severity all
-     * match. Falls back to a {@code _fallback: true} template per
-     * source when no specific match is found, so we never silently
-     * drop alerts that should generate a post.
+     * First [lon, lat] coord from a GeoJSON geometry. Mirrors
+     * {@code AlertIngestService.firstCoord} but inlined here since
+     * that method is private.
      */
-    Optional<DispatchTemplate> matchTemplate(String source, String event, String severity, Double magnitude) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static double[] firstCoord(Object geom) {
+        if (!(geom instanceof Map)) return null;
+        Map m = (Map) geom;
+        Object type = m.get("type");
+        Object coords = m.get("coordinates");
+        if (!(type instanceof String) || coords == null) return null;
+        try {
+            switch ((String) type) {
+                case "Point": {
+                    List<Number> p = (List<Number>) coords;
+                    return new double[] { p.get(0).doubleValue(), p.get(1).doubleValue() };
+                }
+                case "Polygon": {
+                    List<List<List<Number>>> rings = (List<List<List<Number>>>) coords;
+                    List<Number> v = rings.get(0).get(0);
+                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
+                }
+                case "MultiPolygon": {
+                    List<List<List<List<Number>>>> polys = (List<List<List<List<Number>>>>) coords;
+                    List<Number> v = polys.get(0).get(0).get(0);
+                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
+                }
+                default:
+                    return null;
+            }
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Find the matching template for a normalized alert. Walks
+     * templates in declaration order; first match wins. Severity
+     * threshold + USGS magnitude floor + FEMA incidentType are all
+     * encoded in the templates JSON, so a template miss == not
+     * eligible.
+     */
+    Optional<DispatchTemplate> matchForAlert(NormalizedAlert a) {
         for (DispatchTemplate t : templates) {
-            if (t.matches(source, event, severity, magnitude)) return Optional.of(t);
+            if (t.matchesAlert(a)) return Optional.of(t);
         }
         return Optional.empty();
     }
 
     // ---------------------------------------------------------------
-    // Template DTO. Package-private so future layer-2 logic can read
-    // body, hazardType, askTag etc. when assembling Post payloads.
+    // Template DTO
     // ---------------------------------------------------------------
 
     static final class DispatchTemplate {
         final String source;
-        final String event;            // NWS event name (Hurricane, Tornado, ...)
-        final List<String> severity;   // Lane-A severities for NWS (Severe / Extreme)
-        final List<String> incidentTypeAny; // FEMA incident types
-        final Double minMag;           // USGS — minimum magnitude
-        final boolean fallback;        // true => match any unmatched alert from this source
+        final String event;
+        final List<String> severity;
+        final List<String> incidentTypeAny;
+        final Double minMag;
+        final boolean fallback;
         final String hazardType;
         final String headline;
         final String body;
-        final String askTag;           // /ask?tag= deep link target, or null
+        final String askTag;
 
         DispatchTemplate(String source, String event, List<String> severity,
                          List<String> incidentTypeAny, Double minMag, boolean fallback,
@@ -177,19 +415,44 @@ public class AlertDispatchService {
             this.askTag = askTag;
         }
 
-        boolean matches(String alertSource, String alertEvent, String alertSeverity, Double alertMag) {
-            if (!source.equalsIgnoreCase(alertSource)) return false;
+        boolean matchesAlert(NormalizedAlert a) {
+            if (a == null || a.source() == null) return false;
+            if (!source.equalsIgnoreCase(a.source())) return false;
             if (fallback) return true;
-            if (event != null && !event.equalsIgnoreCase(alertEvent)) return false;
-            if (severity != null && !severity.isEmpty()
-                    && severity.stream().noneMatch(s -> s.equalsIgnoreCase(alertSeverity))) {
+
+            String headline = a.headline() == null ? "" : a.headline();
+            String headlineLower = headline.toLowerCase(Locale.ROOT);
+
+            // Event substring match (NWS templates carry an `event`
+            // field; we look it up in the headline since NormalizedAlert
+            // doesn't carry the raw NWS `event` property separately).
+            if (event != null && !event.isBlank()
+                    && !headlineLower.contains(event.toLowerCase(Locale.ROOT))) {
                 return false;
             }
-            if (incidentTypeAny != null && !incidentTypeAny.isEmpty()
-                    && incidentTypeAny.stream().noneMatch(it -> it.equalsIgnoreCase(alertEvent))) {
-                return false;
+
+            // Severity match (NWS).
+            if (severity != null && !severity.isEmpty()) {
+                if (a.severity() == null) return false;
+                boolean sevOk = severity.stream()
+                        .anyMatch(s -> s.equalsIgnoreCase(a.severity()));
+                if (!sevOk) return false;
             }
-            if (minMag != null && (alertMag == null || alertMag < minMag)) return false;
+
+            // FEMA incidentType — substring match against headline
+            // (which we constructed as "{incidentType} — {title}").
+            if (incidentTypeAny != null && !incidentTypeAny.isEmpty()) {
+                boolean any = incidentTypeAny.stream()
+                        .anyMatch(it -> headlineLower.contains(it.toLowerCase(Locale.ROOT)));
+                if (!any) return false;
+            }
+
+            // USGS magnitude floor.
+            if (minMag != null) {
+                Double mag = parseUsgsMag(headline);
+                if (mag == null || mag < minMag) return false;
+            }
+
             return true;
         }
 
