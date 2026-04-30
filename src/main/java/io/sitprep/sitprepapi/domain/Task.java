@@ -206,6 +206,35 @@ public class Task {
     @Column(name = "is_free", nullable = false)
     private boolean isFree = false;
 
+    /**
+     * Off-app payment handles for the listing. Per
+     * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Off-app payment
+     * platform routing" — SitPrep doesn't process payments; the
+     * seller attaches handles and the buyer settles directly.
+     *
+     * <p>Stored as JSON text rather than columns so adding a new
+     * platform (e.g. a future "Bitcoin" or regional payment app) is
+     * a FE picker change with zero schema migration. Shape:</p>
+     *
+     * <pre>
+     * {
+     *   "venmo":        "@dione",         // optional handle string
+     *   "cashApp":      "$dione",         // optional handle string
+     *   "zelle":        "dione@x.com",    // optional handle/phone
+     *   "paypal":       "dione@x.com",    // optional handle/email
+     *   "applePay":     true,             // optional accept flag
+     *   "googlePay":    true,             // optional accept flag
+     *   "cashOnPickup": true              // optional accept flag
+     * }
+     * </pre>
+     *
+     * <p>Null/empty when not a marketplace listing OR when the seller
+     * didn't attach any handles. Service-layer validates via JSON
+     * parse + a length cap so we don't accept arbitrary blobs.</p>
+     */
+    @Column(name = "payment_methods_json", columnDefinition = "TEXT")
+    private String paymentMethodsJson;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();

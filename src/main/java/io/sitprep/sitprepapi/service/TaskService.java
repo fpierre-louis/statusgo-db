@@ -197,6 +197,21 @@ public class TaskService {
             }
             t.setPrice(incoming.getPrice());
             t.setFree(incoming.isFree());
+            // Payment-method handles. Sized so an attacker can't bloat
+            // a row with a megabyte of garbage. Validates as parseable
+            // JSON before persist; null/empty/invalid → no handles.
+            String pm = incoming.getPaymentMethodsJson();
+            if (pm != null && !pm.isBlank()) {
+                if (pm.length() > 4096) {
+                    throw new IllegalArgumentException("paymentMethodsJson too large");
+                }
+                try {
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(pm);
+                } catch (Exception je) {
+                    throw new IllegalArgumentException("paymentMethodsJson is not valid JSON");
+                }
+                t.setPaymentMethodsJson(pm);
+            }
         }
 
         // Reverse-geocode to populate zipBucket so community-feed queries

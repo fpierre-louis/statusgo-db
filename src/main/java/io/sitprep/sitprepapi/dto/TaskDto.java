@@ -1,11 +1,14 @@
 package io.sitprep.sitprepapi.dto;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.util.PublicCdn;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -65,7 +68,15 @@ public record TaskDto(
         // every other kind. SitPrep doesn't process payments; these
         // are pure metadata for the listing card.
         java.math.BigDecimal price,
-        boolean isFree
+        boolean isFree,
+        /**
+         * Parsed payment-method map. Keys: venmo, cashApp, zelle,
+         * paypal, applePay, googlePay, cashOnPickup. Values are
+         * either a handle string (venmo/cashApp/zelle/paypal) or a
+         * boolean accept-flag (applePay/googlePay/cashOnPickup).
+         * Empty map when no handles attached or kind != marketplace.
+         */
+        Map<String, Object> paymentMethods
 ) {
 
     /**
@@ -111,7 +122,8 @@ public record TaskDto(
                 t.getSponsoredBy(),
                 t.getKind(),
                 t.getPrice(),
-                t.isFree()
+                t.isFree(),
+                parsePaymentMethods(t.getPaymentMethodsJson())
         );
     }
 
@@ -161,7 +173,37 @@ public record TaskDto(
                 sponsoredBy,
                 kind,
                 price,
-                isFree
+                isFree,
+                paymentMethods
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------
+
+    /**
+     * Shared Jackson instance for JSON payment-method parsing. Static
+     * + final so we don't allocate a new ObjectMapper per row across
+     * a 50-row community-feed response.
+     */
+    private static final ObjectMapper PAYMENT_JSON = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> PAYMENT_TYPE =
+            new TypeReference<>() {};
+
+    /**
+     * Parse the {@code payment_methods_json} column into a Map for
+     * the FE. Bad/empty JSON returns an empty map rather than null
+     * so consumers can safely call {@code .get("venmo")} without a
+     * null check.
+     */
+    static Map<String, Object> parsePaymentMethods(String jsonText) {
+        if (jsonText == null || jsonText.isBlank()) return Map.of();
+        try {
+            Map<String, Object> parsed = PAYMENT_JSON.readValue(jsonText, PAYMENT_TYPE);
+            return parsed == null ? Map.of() : parsed;
+        } catch (Exception e) {
+            return Map.of();
+        }
     }
 }
