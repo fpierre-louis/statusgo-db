@@ -157,4 +157,36 @@ public class UserInfo {
     @MapKeyColumn(name = "group_id", length = 64)
     @Column(name = "mode", length = 32)
     private Map<String, String> groupLocationSharing = new HashMap<>();
+
+    // -----------------------------------------------------------------
+    // Verified publisher tier — docs/SPONSORED_AND_ALERT_MODE.md "The
+    // verified-publisher tier". A separate trust tier above regular
+    // users: city/county/state government, local news affiliates,
+    // emergency services, utilities, Red Cross. Posts from verified
+    // publishers get higher ranking in alert/crisis modes + pin-eligible
+    // status during crisis. Verification is *manual* for v1 — no self-
+    // serve; a SitPrep admin reviews paperwork (state business
+    // registration, government domain email) and flips this flag via
+    // the admin endpoint.
+    // -----------------------------------------------------------------
+
+    @Column(name = "verified_publisher", nullable = false)
+    private boolean verifiedPublisher = false;
+
+    /**
+     * Free-form lowercase string identifying the publisher tier:
+     * {@code city | county | state | newsroom | utility | red-cross | other}.
+     * Forward-compat (admin can introduce new kinds without a schema
+     * change). Null when {@code verifiedPublisher == false}.
+     */
+    @Column(name = "verified_publisher_kind", length = 32)
+    private String verifiedPublisherKind;
+
+    /** When the admin flipped {@code verifiedPublisher} to true. */
+    @Column(name = "verified_since")
+    private Instant verifiedSince;
+
+    /** Email of the SitPrep admin who approved verification. Auditable. */
+    @Column(name = "verified_by", length = 255)
+    private String verifiedBy;
 }

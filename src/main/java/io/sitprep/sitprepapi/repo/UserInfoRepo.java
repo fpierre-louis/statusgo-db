@@ -25,4 +25,13 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
 
     @Query("SELECT u.userEmail FROM UserInfo u JOIN u.joinedGroupIDs g WHERE g = :groupId")
     List<String> findEmailsByGroupId(@Param("groupId") String groupId);
+
+    /**
+     * All currently-verified publishers (city / county / state / newsroom
+     * / utility / Red Cross). Caller refines with Haversine on
+     * (latitude, longitude) for the radius filter — same pattern as
+     * TaskService.discoverCommunity. Cap-50 trim happens at the service
+     * layer.
+     */
+    List<UserInfo> findByVerifiedPublisherTrue();
 }

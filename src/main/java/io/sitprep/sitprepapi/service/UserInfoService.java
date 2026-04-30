@@ -65,7 +65,9 @@ public class UserInfoService {
                         u.getUserStatus(),
                         u.getStatusColor(),
                         u.getUserStatusLastUpdated(),
-                        u.getLastActiveAt()
+                        u.getLastActiveAt(),
+                        u.isVerifiedPublisher(),
+                        u.getVerifiedPublisherKind()
                 ))
                 .collect(Collectors.toList());
     }
