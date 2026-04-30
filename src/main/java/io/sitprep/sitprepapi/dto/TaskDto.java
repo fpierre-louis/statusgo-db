@@ -49,7 +49,14 @@ public record TaskDto(
         List<String> imageKeys,
         List<String> imageUrls,
         /** Filled by community-discover service; null for group/by-me feeds. */
-        Double distanceKm
+        Double distanceKm,
+        // Sponsored fields (SPONSORED_AND_ALERT_MODE step 3). Surface
+        // them to the FE so disclosure pills ("Sponsored", "Verified
+        // service") render correctly inline on the feed cards.
+        boolean sponsored,
+        boolean crisisRelevant,
+        Instant sponsoredUntil,
+        String sponsoredBy
 ) {
 
     /**
@@ -88,7 +95,11 @@ public record TaskDto(
                 t.getTags() == null ? Set.of() : t.getTags(),
                 keys,
                 urls,
-                distanceKm
+                distanceKm,
+                t.isSponsored(),
+                t.isCrisisRelevant(),
+                t.getSponsoredUntil(),
+                t.getSponsoredBy()
         );
     }
 
@@ -131,7 +142,11 @@ public record TaskDto(
                 tags,
                 imageKeys,
                 imageUrls,
-                distanceKm
+                distanceKm,
+                sponsored,
+                crisisRelevant,
+                sponsoredUntil,
+                sponsoredBy
         );
     }
 }

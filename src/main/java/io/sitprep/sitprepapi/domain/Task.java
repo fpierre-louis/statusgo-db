@@ -113,6 +113,43 @@ public class Task {
     @Column(name = "parent_task_id")
     private Long parentTaskId;
 
+    // -----------------------------------------------------------------
+    // Sponsored content fields — docs/SPONSORED_AND_ALERT_MODE.md
+    // build-order step 3. v1 sponsorship is admin-flagged (no self-
+    // serve creation flow yet); these columns let TaskService.discover-
+    // Community apply mode-aware suppression rules per spec:
+    //
+    //   • mode=calm        → sponsored shown alongside organic
+    //   • mode=attention   → sponsored hidden UNLESS crisisRelevant
+    //   • mode=alert       → sponsored hidden UNLESS crisisRelevant
+    //                        (and rendered in a "Verified service" lane)
+    //   • mode=crisis      → ALL sponsored hidden, regardless of flag
+    //
+    // crisisRelevant marks asks/listings that are useful DURING a
+    // crisis (tree removal after a windstorm, water restoration,
+    // generator repair). Insurance comparison sites, weight-loss
+    // apps → crisisRelevant=false → suppress from the moment a cell
+    // enters attention mode.
+    // -----------------------------------------------------------------
+
+    @Column(name = "sponsored", nullable = false)
+    private boolean sponsored = false;
+
+    @Column(name = "crisis_relevant", nullable = false)
+    private boolean crisisRelevant = false;
+
+    /** When the sponsored placement expires. Null when not sponsored. */
+    @Column(name = "sponsored_until")
+    private Instant sponsoredUntil;
+
+    /**
+     * Billing handle / sponsor identifier. Free-form for v1 since the
+     * self-serve creation flow doesn't exist yet — admins typing a
+     * stable identifier per sponsor (e.g. "redroof-roofing-atl").
+     */
+    @Column(name = "sponsored_by", length = 128)
+    private String sponsoredBy;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();

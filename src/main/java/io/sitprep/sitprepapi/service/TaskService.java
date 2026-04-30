@@ -44,14 +44,51 @@ public class TaskService {
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
+    private final AlertModeService alertModeService;
 
     public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
-                       WebSocketMessageSender ws) {
+                       WebSocketMessageSender ws,
+                       AlertModeService alertModeService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
+        this.alertModeService = alertModeService;
+    }
+
+    /**
+     * Apply mode-aware sponsored suppression per
+     * {@code docs/SPONSORED_AND_ALERT_MODE.md} "Suppression rules in
+     * detail":
+     * <ul>
+     *   <li>{@code calm} — show everything (organic + sponsored).</li>
+     *   <li>{@code attention} / {@code alert} — drop sponsored UNLESS
+     *       {@code crisisRelevant=true} (those still show, with FE-side
+     *       "Verified service nearby" lane labeling).</li>
+     *   <li>{@code crisis} — drop ALL sponsored regardless of
+     *       crisisRelevant. Verified-publisher organic content gets
+     *       the focus instead.</li>
+     * </ul>
+     *
+     * <p>Run after the radius filter + distance sort but before the
+     * cap-50 trim, so suppressed sponsored doesn't take a slot a real
+     * organic ask could occupy.</p>
+     */
+    private List<TaskDto> applySponsoredSuppression(List<TaskDto> tasks, String mode) {
+        if (mode == null || AlertModeService.CALM.equalsIgnoreCase(mode)) return tasks;
+        boolean isCrisis = AlertModeService.CRISIS.equalsIgnoreCase(mode);
+        List<TaskDto> out = new ArrayList<>(tasks.size());
+        for (TaskDto t : tasks) {
+            if (!t.sponsored()) {
+                out.add(t);
+                continue;
+            }
+            if (isCrisis) continue; // hide all sponsored
+            if (t.crisisRelevant()) out.add(t); // keep crisis-relevant in attention/alert
+            // else: drop sponsored, non-crisis-relevant
+        }
+        return out;
     }
 
     /**
@@ -199,7 +236,25 @@ public class TaskService {
         // which matches the FE proximity-score expectation: nearby first,
         // then community-wide.
         within.sort(Comparator.comparingDouble(d -> d.distanceKm() == null ? Double.MAX_VALUE : d.distanceKm()));
-        List<TaskDto> capped = within.size() > 50 ? within.subList(0, 50) : within;
+
+        // Apply mode-aware sponsored suppression BEFORE the cap-50 trim
+        // so a hidden sponsored row doesn't take a slot a real organic
+        // ask could occupy. Mode lookup is cheap (single indexed
+        // findById) and doesn't recompute — the cron tick keeps the
+        // cell's row current, the FE's request just reads the latest.
+        String cellMode;
+        try {
+            cellMode = alertModeService.getForLatLng(lat, lng).getState();
+        } catch (Exception e) {
+            // If mode lookup fails, default to calm so we don't
+            // accidentally over-suppress on a misbehaving Nominatim or
+            // DB blip.
+            log.debug("TaskService: mode lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
+            cellMode = AlertModeService.CALM;
+        }
+        List<TaskDto> filtered = applySponsoredSuppression(within, cellMode);
+
+        List<TaskDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
         return withAuthors(capped);
     }
 
