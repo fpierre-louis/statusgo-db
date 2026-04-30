@@ -240,11 +240,109 @@ public class AlertDispatchService {
     }
 
     /**
-     * Run one resolve pass. Stub for layer 3 — see ALERTS_INTEGRATION
-     * step 6 layer 3 for the planned flow.
+     * Quarter-hourly resolve tick. Lower cadence than dispatch — alerts
+     * clear less often than they appear, and a delay of up to 15min
+     * before the auto-post drops from the feed is acceptable.
+     * {@code initialDelay} of 12min keeps it staggered against the
+     * dispatch tick (PT5M + 7min initial = first dispatch at boot+7min;
+     * resolve fires at boot+12min, 27min, 42min, ...).
      */
+    @Scheduled(fixedDelayString = "PT15M", initialDelayString = "PT12M")
+    public void scheduledResolve() {
+        try {
+            int resolved = resolveOnce();
+            if (resolved > 0) {
+                log.info("AlertDispatch: resolved {} cleared auto-posts", resolved);
+            } else {
+                log.debug("AlertDispatch: no auto-posts to resolve");
+            }
+        } catch (Exception e) {
+            log.warn("AlertDispatch: resolve tick failed: {}", e.getMessage(), e);
+            try { Sentry.captureException(e); } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * Run one resolve pass. Walks all unresolved {@link AlertPost} rows
+     * grouped by alertId, checks the upstream {@code ingest.getSnapshot()}
+     * for whether the alert is still active, and for cleared alerts:
+     *
+     * <ol>
+     *   <li>{@code TaskService.cancel(postId)} on each parent Task —
+     *       sets status CANCELLED + broadcasts on the same STOMP topic
+     *       that delivered the create. Connected clients drop the task
+     *       from their list per {@code useCommunityTasks}'s WS handler.</li>
+     *   <li>Mark {@code AlertPost.resolvedAt = now} so the next
+     *       resolve tick skips this row.</li>
+     * </ol>
+     *
+     * <p><b>Resolution criteria</b> (any one triggers):</p>
+     * <ul>
+     *   <li>Upstream alert no longer in {@code ingest.getSnapshot()}.</li>
+     *   <li>{@code AlertPost.expiresAt} has passed (defense in depth —
+     *       guards against an upstream that keeps a stale alert active
+     *       past its declared {@code endsAt}).</li>
+     * </ul>
+     */
+    @Transactional
     public int resolveOnce() {
-        return 0;
+        List<String> trackedAlertIds = alertPostRepo.findActiveAlertIds();
+        if (trackedAlertIds.isEmpty()) return 0;
+
+        // Build the active-set from the ingest snapshot for an O(N)
+        // lookup. Same alertId composition used at dispatch time:
+        // "{source}-{id}".
+        AlertIngestService.Snapshot snap = ingest.getSnapshot();
+        Set<String> activeIds = new HashSet<>();
+        if (snap != null && snap.alerts() != null) {
+            for (NormalizedAlert a : snap.alerts()) {
+                if (a.id() != null && !a.id().isBlank()) {
+                    activeIds.add(a.source() + "-" + a.id());
+                }
+            }
+        }
+
+        Instant now = Instant.now();
+        int resolvedCount = 0;
+        for (String alertId : trackedAlertIds) {
+            try {
+                List<AlertPost> rows = alertPostRepo.findActiveByAlertId(alertId);
+                if (rows.isEmpty()) continue;
+
+                // Decide: still active or cleared? Take the most-permissive
+                // interpretation (defense-in-depth): an alert is cleared
+                // when EITHER it's gone from the snapshot OR its
+                // expiresAt has passed.
+                AlertPost first = rows.get(0);
+                boolean inActiveSet = activeIds.contains(alertId);
+                boolean expired = first.getExpiresAt() != null
+                        && first.getExpiresAt().isBefore(now);
+                if (inActiveSet && !expired) continue;
+
+                for (AlertPost ap : rows) {
+                    try {
+                        // Cancel the parent Task — broadcasts via
+                        // TaskService.saveAndBroadcast so connected
+                        // clients drop it from useCommunityTasks.
+                        taskService.cancel(ap.getPostId());
+                    } catch (Exception inner) {
+                        // Task may already be CANCELLED (manual cancel)
+                        // or DONE (TaskService.cancel rejects DONE).
+                        // Either way, we still want to mark the AlertPost
+                        // resolved so the next tick stops trying.
+                        log.debug("AlertDispatch: cancel skipped for task {}: {}",
+                                ap.getPostId(), inner.getMessage());
+                    }
+                    ap.setResolvedAt(now);
+                    alertPostRepo.save(ap);
+                    resolvedCount++;
+                }
+            } catch (Exception e) {
+                log.warn("AlertDispatch: resolve skipped for alert {}: {}", alertId, e.getMessage());
+                try { Sentry.captureException(e); } catch (Throwable ignored) {}
+            }
+        }
+        return resolvedCount;
     }
 
     // ---------------------------------------------------------------
