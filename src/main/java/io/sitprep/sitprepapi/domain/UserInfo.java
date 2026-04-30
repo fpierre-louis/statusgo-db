@@ -189,4 +189,31 @@ public class UserInfo {
     /** Email of the SitPrep admin who approved verification. Auditable. */
     @Column(name = "verified_by", length = 255)
     private String verifiedBy;
+
+    // -----------------------------------------------------------------
+    // Public-profile fields — docs/PROFILE_AND_FOLLOW.md build-order
+    // step 1. The public ProfilePage at /profile/:userId reads these
+    // alongside the existing identity columns. Bio is short-form
+    // (200-char), cover image is a free-form URL the user pastes for
+    // now (no upload pipeline yet — FE renders a default skyline
+    // gradient when null).
+    //
+    // profileVisibility gates what a viewer outside the user's circles
+    // sees. Default "circles" matches the spec doc; values are
+    // free-form lowercase strings so we can extend the vocabulary
+    // without a schema migration. v1 vocab:
+    //   public | circles | followers | private
+    // Step 1 ships read-only — the FE doesn't yet honor the gate; the
+    // public profile endpoint surfaces the value so a future filter
+    // can layer in without an entity change.
+    // -----------------------------------------------------------------
+
+    @Column(name = "bio", length = 200)
+    private String bio;
+
+    @Column(name = "cover_image_url", length = 500)
+    private String coverImageUrl;
+
+    @Column(name = "profile_visibility", length = 32, nullable = false)
+    private String profileVisibility = "circles";
 }

@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
+import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.service.AccountDeletionService;
 import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
 import io.sitprep.sitprepapi.service.UserInfoService;
@@ -62,6 +63,26 @@ public class UserInfoResource {
     public ResponseEntity<UserInfo> getUserByFirebaseUid(@PathVariable String uid) {
         AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserByFirebaseUid(uid)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Public profile read. Per {@code docs/PROFILE_AND_FOLLOW.md}
+     * build-order step 1 — read-only; resolves the user by either id
+     * or email so the FE can route from {@code /profile/:userId} or
+     * an avatar-tap byline. Returns the full
+     * {@link PublicProfileDto} (identity + cover + bio + verified
+     * tier + groups + posts) so the page renders with one round trip.
+     *
+     * <p>Auth: requires a verified Firebase token (the resource layer
+     * doesn't yet honor {@code profileVisibility}; that gate lands in
+     * step 5 alongside Block + privacy controls).</p>
+     */
+    @GetMapping("/{idOrEmail}/profile")
+    public ResponseEntity<PublicProfileDto> getPublicProfile(@PathVariable String idOrEmail) {
+        AuthUtils.requireAuthenticatedEmail();
+        return userInfoService.getPublicProfile(idOrEmail)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

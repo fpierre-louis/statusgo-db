@@ -1,8 +1,14 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
+import io.sitprep.sitprepapi.dto.PublicProfileDto;
+import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.TaskRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,12 +24,18 @@ public class UserInfoService {
 
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
+    private final GroupRepo groupRepo;
+    private final TaskRepo taskRepo;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
-                           HouseholdEventService householdEventService) {
+                           HouseholdEventService householdEventService,
+                           GroupRepo groupRepo,
+                           TaskRepo taskRepo) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
+        this.groupRepo = groupRepo;
+        this.taskRepo = taskRepo;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -32,6 +44,94 @@ public class UserInfoService {
 
     public Optional<UserInfo> getUserByEmail(String email) {
         return userInfoRepo.findByUserEmailIgnoreCase(email);
+    }
+
+    /**
+     * Resolve the public-facing profile for {@code idOrEmail}. Per
+     * {@code docs/PROFILE_AND_FOLLOW.md} build-order step 1 — read-only;
+     * no follow / privacy / helps-given wiring yet. The lookup tries id
+     * first, then email (case-insensitive), so the FE can pass either
+     * key from a post byline or an avatar tap.
+     *
+     * <p>Folds in the user's public groups (excluding {@code Household})
+     * and their authored community-feed posts (Tasks with
+     * {@code groupId == null}, capped at 10) so the page renders with
+     * one round trip — matches the codebase principle "backend shapes
+     * the data, frontend just displays" (per CLAUDE.md).</p>
+     *
+     * <p>Returns {@code Optional.empty()} when no user matches; the
+     * resource layer turns that into a 404.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<PublicProfileDto> getPublicProfile(String idOrEmail) {
+        if (idOrEmail == null || idOrEmail.isBlank()) return Optional.empty();
+        String key = idOrEmail.trim();
+
+        // id first (UUID); fall back to email so both routing styles work.
+        Optional<UserInfo> hit = userInfoRepo.findById(key);
+        if (hit.isEmpty()) hit = userInfoRepo.findByUserEmailIgnoreCase(key);
+        if (hit.isEmpty()) return Optional.empty();
+
+        UserInfo u = hit.get();
+        String email = u.getUserEmail();
+
+        // Public groups — exclude Household (personal, not a public
+        // trust signal) and de-dup by groupId in case the user appears
+        // both as admin and member (legacy data quirk).
+        List<Group> raw = email == null ? List.of() : groupRepo.findByMemberEmail(email);
+        Map<String, Group> byId = new LinkedHashMap<>();
+        for (Group g : raw) {
+            if (g == null || g.getGroupId() == null) continue;
+            if ("Household".equalsIgnoreCase(g.getGroupType())) continue;
+            byId.putIfAbsent(g.getGroupId(), g);
+        }
+        List<PublicProfileDto.PublicGroupSummary> groupSummaries = byId.values().stream()
+                .map(g -> new PublicProfileDto.PublicGroupSummary(
+                        g.getGroupId(),
+                        g.getGroupName(),
+                        g.getGroupType(),
+                        g.getMemberCount()
+                ))
+                .collect(Collectors.toList());
+
+        // Public posts — community-scope Tasks (groupId == null) the
+        // user authored, newest first, capped at 10. Group-scope posts
+        // (Post entity) stay group-internal.
+        List<Task> tasks = email == null ? List.of()
+                : taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email);
+        List<PublicProfileDto.PublicPostSummary> postSummaries = tasks.stream()
+                .filter(t -> t.getGroupId() == null)
+                .limit(10)
+                .map(t -> {
+                    String firstImageUrl = null;
+                    List<String> keys = t.getImageKeys();
+                    if (keys != null && !keys.isEmpty()) {
+                        firstImageUrl = PublicCdn.toPublicUrl(keys.get(0));
+                    }
+                    return new PublicProfileDto.PublicPostSummary(
+                            t.getId(),
+                            t.getTitle(),
+                            t.getKind(),
+                            t.getDescription(),
+                            firstImageUrl,
+                            t.getStatus() == null ? null : t.getStatus().name(),
+                            t.getCreatedAt()
+                    );
+                })
+                .collect(Collectors.toList());
+
+        // postCount is the FULL community-post count, not the truncated
+        // list — so the trust row reads honestly even when the FE
+        // paginates the visible cards.
+        int postCount = (int) tasks.stream().filter(t -> t.getGroupId() == null).count();
+
+        return Optional.of(PublicProfileDto.of(
+                u,
+                groupSummaries.size(),
+                postCount,
+                groupSummaries,
+                postSummaries
+        ));
     }
 
     /**
@@ -325,6 +425,9 @@ public class UserInfoService {
         if (patch.getTitle()         != null) entity.setTitle(patch.getTitle());
         if (patch.getLatitude()      != null) entity.setLatitude(patch.getLatitude());
         if (patch.getLongitude()     != null) entity.setLongitude(patch.getLongitude());
+        if (patch.getBio()           != null) entity.setBio(patch.getBio());
+        if (patch.getCoverImageUrl() != null) entity.setCoverImageUrl(patch.getCoverImageUrl());
+        if (patch.getProfileVisibility() != null) entity.setProfileVisibility(patch.getProfileVisibility());
 
         // email handled by caller (uid upsert may need special rules)
     }
