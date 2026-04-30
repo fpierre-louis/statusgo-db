@@ -12,15 +12,20 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Server-side cached alert feed. Centralizes what the FE was doing
  * per-page (NWS direct-fetch in {@code emergencyApis.js}) so we don't
- * fan out to NWS once per user × per page-load.
+ * fan out to public-data APIs once per user × per page-load.
  *
- * <p>Reads are unauthenticated — alert data is public (NWS is a public
- * feed). The endpoint can stay open even if we tighten elsewhere because
- * the response carries no user-specific information.</p>
+ * <p>Sources merged into the snapshot: NWS active alerts, USGS recent
+ * quakes (M4.5+), FEMA active disaster declarations. All three are
+ * polled by {@link AlertIngestService} on a 5-min fixedDelay; this
+ * resource just reads the in-memory cache.</p>
  *
- * <p>Phase 1 returns the full snapshot; the FE filters by location.
- * Phase 2 (per docs/ALERTS_INTEGRATION.md) adds geocell-scoped filtering
- * + AlertPost dispatch + STOMP broadcast.</p>
+ * <p>Reads are unauthenticated — alert data is public. The endpoint
+ * can stay open even if we tighten elsewhere because the response
+ * carries no user-specific information.</p>
+ *
+ * <p>Phase 2a (current) supports lat/lng + radiusMi for coarse
+ * point-radius filtering. Phase 3 (per docs/ALERTS_INTEGRATION.md)
+ * adds geocell-scoped {@code AlertPost} dispatch + STOMP broadcast.</p>
  */
 @RestController
 @RequestMapping("/api/alerts")

@@ -60,6 +60,21 @@ public class AlertIngestService {
     private static final String USGS_RECENT_URL =
             "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson";
 
+    /**
+     * FEMA OpenFEMA disaster declarations — only currently-active ones
+     * ({@code incidentEndDate eq null}). Dedup at normalize-time on
+     * {@code femaDeclarationString} since FEMA emits one row per
+     * designated county (a single hurricane can produce 30+ rows).
+     * {@code $top=500} is generous — typical active set is well under
+     * 200 nationwide. {@code $orderby=declarationDate desc} puts recent
+     * declarations first so the dedup picks them.
+     */
+    private static final String FEMA_ACTIVE_URL =
+            "https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries"
+                    + "?$filter=incidentEndDate%20eq%20null"
+                    + "&$orderby=declarationDate%20desc"
+                    + "&$top=500";
+
     /** NWS asks for a User-Agent identifying the consumer. */
     private static final String USER_AGENT =
             "(SitPrep/sitprep.app, contactus@sitprep.app)";
@@ -135,9 +150,18 @@ public class AlertIngestService {
             usgs = prev.alerts.stream().filter(a -> "USGS".equals(a.source())).toList();
         }
 
-        List<NormalizedAlert> merged = new ArrayList<>(nws.size() + usgs.size());
+        List<NormalizedAlert> fema;
+        try {
+            fema = pollFema();
+        } catch (Exception e) {
+            log.warn("AlertIngest: FEMA poll failed: {}", e.getMessage());
+            fema = prev.alerts.stream().filter(a -> "FEMA".equals(a.source())).toList();
+        }
+
+        List<NormalizedAlert> merged = new ArrayList<>(nws.size() + usgs.size() + fema.size());
         merged.addAll(nws);
         merged.addAll(usgs);
+        merged.addAll(fema);
 
         Snapshot next = new Snapshot(
                 List.copyOf(merged),
@@ -172,6 +196,64 @@ public class AlertIngestService {
 
         log.info("AlertIngest: NWS poll OK — {} alerts ingested in {}ms",
                 normalized.size(), System.currentTimeMillis() - started);
+        return normalized;
+    }
+
+    /**
+     * Poll FEMA active disaster declarations and dedupe by
+     * {@code femaDeclarationString}. FEMA emits one row per designated
+     * county, so a hurricane affecting 30 counties shows up as 30 rows
+     * — we collapse those into one alert per disaster with a
+     * comma-joined area string. {@code $orderby=declarationDate desc}
+     * means dedup keeps the most recent row's metadata; secondary rows
+     * just contribute their county to the area list.
+     *
+     * <p><b>Severity:</b> presidential disaster declarations are by
+     * definition major events (the trigger is "beyond state and local
+     * capacity"). We mark all FEMA alerts {@code "Severe"} so they
+     * pass CrisisBand's Severe+Extreme filter — but consumers can still
+     * route by {@code source} when they want different UX for
+     * recovery-phase declarations vs. NWS warning-phase ones.</p>
+     *
+     * <p><b>Geometry:</b> FEMA returns county/state names, not
+     * polygons. We emit {@code geometry = null}, which falls into
+     * {@code getSnapshotForPoint}'s "include unconditionally" branch.
+     * Coarse but safe — these are always broad-impact.</p>
+     */
+    private List<NormalizedAlert> pollFema() throws Exception {
+        long started = System.currentTimeMillis();
+        JsonNode root = fetchJson(FEMA_ACTIVE_URL, "application/json");
+        JsonNode rows = root.path("DisasterDeclarationsSummaries");
+        if (!rows.isArray()) {
+            log.warn("AlertIngest: FEMA response had no 'DisasterDeclarationsSummaries' array.");
+            return List.of();
+        }
+
+        // Group by declaration string. LinkedHashMap preserves insertion
+        // order, which is API order (declarationDate desc) — first row
+        // per disaster wins for metadata, subsequent rows append areas.
+        java.util.LinkedHashMap<String, FemaAccum> byDecl = new java.util.LinkedHashMap<>();
+        Iterator<JsonNode> it = rows.elements();
+        while (it.hasNext()) {
+            JsonNode r = it.next();
+            String key = textOrNull(r, "femaDeclarationString");
+            if (key == null) continue;
+            FemaAccum acc = byDecl.computeIfAbsent(key, k -> new FemaAccum(r));
+            String area = textOrNull(r, "designatedArea");
+            if (area != null && !acc.areas.contains(area)) acc.areas.add(area);
+        }
+
+        List<NormalizedAlert> normalized = new ArrayList<>(byDecl.size());
+        for (FemaAccum acc : byDecl.values()) {
+            try {
+                normalized.add(normalizeFema(acc));
+            } catch (Exception ex) {
+                log.debug("AlertIngest: skipped malformed FEMA row: {}", ex.getMessage());
+            }
+        }
+
+        log.info("AlertIngest: FEMA poll OK — {} disasters ingested ({} rows) in {}ms",
+                normalized.size(), rows.size(), System.currentTimeMillis() - started);
         return normalized;
     }
 
@@ -253,6 +335,62 @@ public class AlertIngestService {
                 isoOrNull(p, "onset", "effective", "sent"),
                 isoOrNull(p, "ends", "expires"),
                 geometry
+        );
+    }
+
+    /**
+     * Per-disaster scratch holder used during FEMA dedup. Carries the
+     * first row's metadata (declarationTitle, incidentType, dates) plus
+     * a deduplicated list of designated areas as more rows for the same
+     * declaration arrive.
+     */
+    private static final class FemaAccum {
+        final JsonNode firstRow;
+        final List<String> areas = new ArrayList<>();
+        FemaAccum(JsonNode firstRow) { this.firstRow = firstRow; }
+    }
+
+    private NormalizedAlert normalizeFema(FemaAccum acc) {
+        JsonNode r = acc.firstRow;
+        String id = textOrNull(r, "femaDeclarationString");
+        String incidentType = textOrNull(r, "incidentType");
+        String title = textOrNull(r, "declarationTitle");
+        String state = textOrNull(r, "state");
+
+        // Headline carries the incident type word (Hurricane, Fire,
+        // Flood, etc.) so the FE's existing keyword-based tagForAlert
+        // mapping works against FEMA alerts without a code change.
+        String headline;
+        if (incidentType != null && title != null) {
+            headline = incidentType + " — " + title;
+        } else if (incidentType != null) {
+            headline = incidentType + (state != null ? " in " + state : "");
+        } else if (title != null) {
+            headline = title;
+        } else {
+            headline = "FEMA Disaster Declaration";
+        }
+
+        String area;
+        if (!acc.areas.isEmpty()) {
+            area = String.join(", ", acc.areas);
+            // Cap the joined string so headlines don't blow up on
+            // statewide declarations with 50+ counties.
+            if (area.length() > 240) area = area.substring(0, 237) + "…";
+        } else {
+            area = state;
+        }
+
+        return new NormalizedAlert(
+                id,
+                "FEMA",
+                "Severe",   // see pollFema() Javadoc — federal declarations are by definition major
+                headline,
+                title,
+                area,
+                textOrNull(r, "incidentBeginDate"),
+                textOrNull(r, "incidentEndDate"),  // null for active declarations
+                /* geometry */ null
         );
     }
 
