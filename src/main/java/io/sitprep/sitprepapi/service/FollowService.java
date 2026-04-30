@@ -30,10 +30,25 @@ public class FollowService {
 
     private final FollowRepo followRepo;
     private final UserInfoRepo userInfoRepo;
+    // BlockService lookup is lazy via setter to avoid a circular
+    // construction cycle (BlockService depends on FollowService for
+    // unfollow side-effects when a block is created).
+    private BlockService blockService;
 
     public FollowService(FollowRepo followRepo, UserInfoRepo userInfoRepo) {
         this.followRepo = followRepo;
         this.userInfoRepo = userInfoRepo;
+    }
+
+    /**
+     * Spring sets this after construction to break the cycle —
+     * BlockService(FollowService) ↔ FollowService.getRelationship
+     * (BlockService). Setter injection only, no @Autowired here so
+     * Spring picks the field via reflection on the public method.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setBlockService(BlockService blockService) {
+        this.blockService = blockService;
     }
 
     /**
@@ -110,6 +125,14 @@ public class FollowService {
         String t = normalize(targetEmail);
         if (v == null || t == null) return "none";
         if (v.equals(t)) return "self";
+
+        // Block trumps follow per docs/PROFILE_AND_FOLLOW.md step 5.
+        // Only the viewer-blocked-target direction surfaces here — the
+        // reverse (target blocked viewer) results in a 404 at the
+        // resource layer, so this code path doesn't see it.
+        if (blockService != null && blockService.blocks(v, t)) {
+            return "blocked";
+        }
 
         boolean viewerFollowsTarget = followRepo.existsByFollowerEmailAndFollowedEmail(v, t);
         boolean targetFollowsViewer = followRepo.existsByFollowerEmailAndFollowedEmail(t, v);

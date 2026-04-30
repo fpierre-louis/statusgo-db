@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.service.AccountDeletionService;
 import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
+import io.sitprep.sitprepapi.service.BlockService;
 import io.sitprep.sitprepapi.service.FollowService;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -38,13 +39,16 @@ public class UserInfoResource {
     private final UserInfoService userInfoService;
     private final AccountDeletionService accountDeletionService;
     private final FollowService followService;
+    private final BlockService blockService;
 
     public UserInfoResource(UserInfoService userInfoService,
                             AccountDeletionService accountDeletionService,
-                            FollowService followService) {
+                            FollowService followService,
+                            BlockService blockService) {
         this.userInfoService = userInfoService;
         this.accountDeletionService = accountDeletionService;
         this.followService = followService;
+        this.blockService = blockService;
     }
 
     @GetMapping("/{id}")
@@ -117,6 +121,34 @@ public class UserInfoResource {
         Optional<String> targetEmail = followService.resolveEmail(idOrEmail);
         if (targetEmail.isEmpty()) return ResponseEntity.notFound().build();
         followService.unfollow(viewer, targetEmail.get());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Block / unblock {@code idOrEmail}. Per docs/PROFILE_AND_FOLLOW.md
+     * step 5 — block is the safety primitive that trumps everything
+     * else. Block tears down both follow edges as a side effect so the
+     * relationship is fully severed.
+     *
+     * <p>Returns 204 on success, 404 when target doesn't exist, 400
+     * when the caller tries to block themselves. Idempotent: blocking
+     * an already-blocked user is silent success.</p>
+     */
+    @PostMapping("/{idOrEmail}/block")
+    public ResponseEntity<Void> block(@PathVariable String idOrEmail) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        Optional<String> targetEmail = followService.resolveEmail(idOrEmail);
+        if (targetEmail.isEmpty()) return ResponseEntity.notFound().build();
+        blockService.block(viewer, targetEmail.get());
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{idOrEmail}/block")
+    public ResponseEntity<Void> unblock(@PathVariable String idOrEmail) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        Optional<String> targetEmail = followService.resolveEmail(idOrEmail);
+        if (targetEmail.isEmpty()) return ResponseEntity.notFound().build();
+        blockService.unblock(viewer, targetEmail.get());
         return ResponseEntity.noContent().build();
     }
 

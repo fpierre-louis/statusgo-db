@@ -27,18 +27,21 @@ public class UserInfoService {
     private final GroupRepo groupRepo;
     private final TaskRepo taskRepo;
     private final FollowService followService;
+    private final BlockService blockService;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
                            GroupRepo groupRepo,
                            TaskRepo taskRepo,
-                           FollowService followService) {
+                           FollowService followService,
+                           BlockService blockService) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
         this.taskRepo = taskRepo;
         this.followService = followService;
+        this.blockService = blockService;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -82,6 +85,23 @@ public class UserInfoService {
 
         UserInfo u = hit.get();
         String email = u.getUserEmail();
+
+        // Block trumps everything — empty Optional turns into 404 at
+        // the resource layer per docs/PROFILE_AND_FOLLOW.md step 5
+        // ("Block trumps everything: a blocked user sees you don't
+        // exist"). Symmetric — either direction triggers the 404.
+        if (blockService.isAnyBlock(viewerEmail, email)) {
+            return Optional.empty();
+        }
+
+        String viewerRelationship = followService.getRelationship(viewerEmail, email);
+
+        // Privacy gate — when the viewer can't see the full profile,
+        // return a stub. Self always passes the gate.
+        boolean viewerIsSelf = "self".equals(viewerRelationship);
+        if (!viewerIsSelf && !isProfileVisibleToViewer(u, viewerEmail, viewerRelationship)) {
+            return Optional.of(PublicProfileDto.stub(u, viewerRelationship));
+        }
 
         // Public groups — exclude Household (personal, not a public
         // trust signal) and de-dup by groupId in case the user appears
@@ -133,11 +153,6 @@ public class UserInfoService {
         // paginates the visible cards.
         int postCount = (int) tasks.stream().filter(t -> t.getGroupId() == null).count();
 
-        // viewerRelationship — resolved from the verified caller's
-        // email when supplied. Anonymous reads (none today; auth
-        // gate is in place) get "none".
-        String viewerRelationship = followService.getRelationship(viewerEmail, email);
-
         return Optional.of(PublicProfileDto.of(
                 u,
                 groupSummaries.size(),
@@ -146,6 +161,70 @@ public class UserInfoService {
                 postSummaries,
                 viewerRelationship
         ));
+    }
+
+    /**
+     * Privacy gate per docs/PROFILE_AND_FOLLOW.md step 5. Maps the
+     * target's {@code profileVisibility} setting to a yes/no on
+     * "can the viewer see the full profile":
+     *
+     * <ul>
+     *   <li>{@code public}    — anyone</li>
+     *   <li>{@code circles}   — viewer shares any group with target (default)</li>
+     *   <li>{@code followers} — viewer follows target OR shares any group</li>
+     *   <li>{@code private}   — viewer shares any group with target (same gate as circles, but the FE will gate posts more tightly)</li>
+     * </ul>
+     *
+     * <p>Unknown / null setting falls through to the {@code circles}
+     * default. Caller must have already confirmed the viewer is not
+     * the target (self always passes).</p>
+     */
+    private boolean isProfileVisibleToViewer(UserInfo target, String viewerEmail, String viewerRelationship) {
+        String setting = target.getProfileVisibility();
+        if (setting == null || setting.isBlank()) setting = "circles";
+
+        if ("public".equalsIgnoreCase(setting)) return true;
+
+        boolean sharesCircle = sharesCircleWith(target, viewerEmail);
+
+        if ("circles".equalsIgnoreCase(setting)) return sharesCircle;
+        if ("private".equalsIgnoreCase(setting)) return sharesCircle;
+        if ("followers".equalsIgnoreCase(setting)) {
+            // "follower" = viewer follows target; "mutual" includes that.
+            boolean viewerFollows = "follower".equals(viewerRelationship)
+                    || "mutual".equals(viewerRelationship);
+            return viewerFollows || sharesCircle;
+        }
+        // Unknown vocabulary — fail safe to circles default.
+        return sharesCircle;
+    }
+
+    /**
+     * True when {@code viewerEmail} is a member of any group {@code target}
+     * is in (managed OR joined). The Group entity stores member lists as
+     * a flat collection — we compare via lookup-by-email so the check is
+     * a single repo round trip rather than walking both UserInfo group-id
+     * sets and resolving each group.
+     */
+    private boolean sharesCircleWith(UserInfo target, String viewerEmail) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return false;
+        if (target.getUserEmail() == null) return false;
+
+        // Pull both users' groups (Household excluded — those are private
+        // by construction and shouldn't grant cross-visibility). Compare
+        // by groupId.
+        String targetEmail = target.getUserEmail();
+        Set<String> targetGroupIds = groupRepo.findByMemberEmail(targetEmail).stream()
+                .filter(g -> !"Household".equalsIgnoreCase(g.getGroupType()))
+                .map(io.sitprep.sitprepapi.domain.Group::getGroupId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (targetGroupIds.isEmpty()) return false;
+
+        return groupRepo.findByMemberEmail(viewerEmail).stream()
+                .filter(g -> !"Household".equalsIgnoreCase(g.getGroupType()))
+                .map(io.sitprep.sitprepapi.domain.Group::getGroupId)
+                .anyMatch(targetGroupIds::contains);
     }
 
     /**

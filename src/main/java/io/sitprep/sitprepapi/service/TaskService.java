@@ -65,18 +65,21 @@ public class TaskService {
     private final WebSocketMessageSender ws;
     private final AlertModeService alertModeService;
     private final FollowRepo followRepo;
+    private final BlockService blockService;
 
     public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
                        WebSocketMessageSender ws,
                        AlertModeService alertModeService,
-                       FollowRepo followRepo) {
+                       FollowRepo followRepo,
+                       BlockService blockService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
         this.alertModeService = alertModeService;
         this.followRepo = followRepo;
+        this.blockService = blockService;
     }
 
     /**
@@ -301,6 +304,15 @@ public class TaskService {
                     .collect(Collectors.toSet());
         }
 
+        // Block-aware filter — drop posts authored by anyone in either
+        // direction of a block relationship with the viewer
+        // (PROFILE_AND_FOLLOW step 5: "Block trumps everything"). Empty
+        // for anonymous viewers, which is fine — block-suppression is
+        // viewer-specific by definition.
+        Set<String> blockSet = (viewerEmail == null || viewerEmail.isBlank())
+                ? Set.of()
+                : blockService.getBlockSet(viewerEmail);
+
         // No bucket pre-filter for now (we don't know the viewer's zip ahead
         // of the request). Service-layer Haversine + status filter is fine
         // at SitPrep scale; add bucket prefilter when row counts grow.
@@ -313,6 +325,12 @@ public class TaskService {
         List<TaskDto> within = new ArrayList<>();
         List<TaskDto> followTail = new ArrayList<>();
         for (Task t : candidates) {
+            // Block filter — symmetric, applied before any geo math so
+            // we don't waste cycles on rows the viewer will never see.
+            String author = t.getRequesterEmail();
+            String authorNormalized = author == null ? null : author.toLowerCase(Locale.ROOT);
+            if (authorNormalized != null && blockSet.contains(authorNormalized)) continue;
+
             if (t.getLatitude() == null || t.getLongitude() == null) {
                 within.add(TaskDto.fromEntity(t, null));
                 continue;
@@ -323,8 +341,7 @@ public class TaskService {
                 continue;
             }
             // Out-of-radius — only include if author is followed.
-            String author = t.getRequesterEmail();
-            if (author != null && followedEmails.contains(author.toLowerCase(Locale.ROOT))) {
+            if (authorNormalized != null && followedEmails.contains(authorNormalized)) {
                 followTail.add(TaskDto.fromEntity(t, roundKm(d)).asFollowSource());
             }
         }

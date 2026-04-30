@@ -52,9 +52,20 @@ public record PublicProfileDto(
         // Viewer's relationship to this profile, resolved server-side
         // from the verified caller email. Drives the Follow button
         // state on the FE per docs/PROFILE_AND_FOLLOW.md step 3.
-        // Vocabulary: self | mutual | follower | followee | none
-        // (blocked lands with step 5).
-        String viewerRelationship
+        // Vocabulary: self | mutual | follower | followee | none |
+        // blocked (the last added at step 5).
+        String viewerRelationship,
+        // Privacy gate result — true when the viewer is permitted to
+        // see the FULL profile (groups + posts + bio + cover). False
+        // when the target's profileVisibility blocks the viewer; the
+        // FE renders a stub with the name + Follow CTA + "This profile
+        // is private" message in that case. Per
+        // docs/PROFILE_AND_FOLLOW.md build-order step 5.
+        //
+        // Block trumps everything: when either party has blocked the
+        // other, the resource layer returns 404 and this DTO never
+        // ships, so visible=false here only ever means a privacy gate.
+        boolean visible
 ) {
 
     /**
@@ -115,7 +126,41 @@ public record PublicProfileDto(
                 u.getLastActiveAt(),
                 groups,
                 posts,
-                viewerRelationship
+                viewerRelationship,
+                /* visible */ true
+        );
+    }
+
+    /**
+     * Stub variant for the privacy-gated case — viewer isn't permitted
+     * to see the full profile (target's {@code profileVisibility} is
+     * tighter than the viewer's relationship satisfies). Surfaces only
+     * the bits the FE needs to render the stub: name + avatar + Follow
+     * CTA + the "This profile is private" message.
+     *
+     * <p>Bio / cover / groups / posts / counts / lastActiveAt are
+     * deliberately zeroed/nulled — the whole point of the gate is to
+     * not leak that data to a non-permitted viewer.</p>
+     */
+    public static PublicProfileDto stub(UserInfo u, String viewerRelationship) {
+        return new PublicProfileDto(
+                u.getId(),
+                u.getUserEmail(),
+                u.getUserFirstName(),
+                u.getUserLastName(),
+                u.getProfileImageURL(),
+                /* coverImageUrl */ null,
+                /* bio */ null,
+                u.isVerifiedPublisher(),
+                u.getVerifiedPublisherKind(),
+                u.getProfileVisibility(),
+                /* circleCount */ 0,
+                /* postCount */ 0,
+                /* lastActiveAt */ null,
+                /* groups */ List.of(),
+                /* posts */ List.of(),
+                viewerRelationship,
+                /* visible */ false
         );
     }
 }
