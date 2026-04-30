@@ -39,4 +39,36 @@ public interface TaskRepo extends JpaRepository<Task, Long> {
             @Param("statuses") Set<TaskStatus> statuses,
             @Param("zipBuckets") Set<String> zipBuckets
     );
+
+    /**
+     * Distinct zip-buckets that have any task with coords. Used by
+     * {@code AlertModeService} to find "populated cells" — the set of
+     * geocells whose mode the cron should recompute on each tick.
+     * Tasks are a useful signal because every community task gets a
+     * Nominatim reverse-geocode at create time, and any user who's
+     * posted/received help in a cell counts as "user activity here".
+     */
+    @Query("""
+        SELECT DISTINCT t.zipBucket FROM Task t
+         WHERE t.zipBucket IS NOT NULL
+           AND t.latitude IS NOT NULL
+           AND t.longitude IS NOT NULL
+        """)
+    List<String> findDistinctZipBuckets();
+
+    /**
+     * Anchor lat/lng for a zip-bucket — picks any task's coords. For
+     * mode evaluation we just need a representative point inside the
+     * cell to query the alert ingest snapshot's point-radius filter
+     * against. Returns a single Task (caller reads getLatitude /
+     * getLongitude) or empty when the bucket is unpopulated.
+     */
+    @Query("""
+        SELECT t FROM Task t
+         WHERE t.zipBucket = :zipBucket
+           AND t.latitude IS NOT NULL
+           AND t.longitude IS NOT NULL
+         ORDER BY t.createdAt DESC
+        """)
+    List<Task> findAnchorTasksByZipBucket(@Param("zipBucket") String zipBucket);
 }
