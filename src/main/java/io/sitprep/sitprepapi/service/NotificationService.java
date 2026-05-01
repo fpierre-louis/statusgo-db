@@ -200,7 +200,7 @@ public class NotificationService {
         java.util.Map<String, Object> m = new java.util.HashMap<>();
         m.put("id", n.getId());
         m.put("recipientEmail", n.getRecipientEmail());
-        m.put("notificationType", n.getNotificationType());
+        m.put("notificationType", n.getType());
         m.put("title", n.getTitle());
         m.put("body", n.getBody());
         m.put("referenceId", n.getReferenceId());
