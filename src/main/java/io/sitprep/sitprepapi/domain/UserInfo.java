@@ -170,7 +170,8 @@ public class UserInfo {
     // the admin endpoint.
     // -----------------------------------------------------------------
 
-    @Column(name = "verified_publisher", nullable = false)
+    @Column(name = "verified_publisher", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean verifiedPublisher = false;
 
     /**
@@ -214,6 +215,7 @@ public class UserInfo {
     @Column(name = "cover_image_url", length = 500)
     private String coverImageUrl;
 
-    @Column(name = "profile_visibility", length = 32, nullable = false)
+    @Column(name = "profile_visibility", length = 32, nullable = false,
+            columnDefinition = "varchar(32) NOT NULL DEFAULT 'circles'")
     private String profileVisibility = "circles";
 }

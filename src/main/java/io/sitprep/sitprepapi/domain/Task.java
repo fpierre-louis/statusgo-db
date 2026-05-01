@@ -94,7 +94,8 @@ public class Task {
      * landing). New kinds unlock as the FE composer expands per spec
      * build order.</p>
      */
-    @Column(name = "kind", nullable = false, length = 32)
+    @Column(name = "kind", nullable = false, length = 32,
+            columnDefinition = "varchar(32) NOT NULL DEFAULT 'ask'")
     private String kind = "ask";
 
     @Column(nullable = false, length = 200)
@@ -160,10 +161,12 @@ public class Task {
     // enters attention mode.
     // -----------------------------------------------------------------
 
-    @Column(name = "sponsored", nullable = false)
+    @Column(name = "sponsored", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean sponsored = false;
 
-    @Column(name = "crisis_relevant", nullable = false)
+    @Column(name = "crisis_relevant", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean crisisRelevant = false;
 
     /** When the sponsored placement expires. Null when not sponsored. */
@@ -203,7 +206,8 @@ public class Task {
      * equal proximity. Mutually exclusive with {@link #price} (set one
      * or the other; setting both is a service-layer validation error).
      */
-    @Column(name = "is_free", nullable = false)
+    @Column(name = "is_free", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean isFree = false;
 
     /**
