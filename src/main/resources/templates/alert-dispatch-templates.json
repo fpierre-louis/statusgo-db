@@ -1,5 +1,5 @@
 {
-  "_comment": "Auto-post body templates per alert source × severity. Loaded by AlertDispatchService at boot; editable without redeploy. Placeholders: {name}, {mag}, {distance}, {direction}, {duration}. Spec: docs/ALERTS_INTEGRATION.md 'Templates per source'.",
+  "_comment": "Auto-post body templates per alert source × severity. Loaded by AlertDispatchService at boot; editable without redeploy. Placeholders: {name}, {mag}, {distance}, {direction}, {duration}. Spec: docs/ALERTS_INTEGRATION.md 'Templates per source'. Copy reviewed 2026-04-30 for everyday-language tone — stay imperative + concrete, drop bureaucratic phrasing.",
 
   "templates": [
     {
@@ -7,8 +7,8 @@
       "event": "Hurricane",
       "severity": ["Severe", "Extreme"],
       "hazardType": "hurricane",
-      "headline": "Hurricane warning issued",
-      "body": "Hurricane {name} warning — hide flying objects, top up water, charge devices, review your evacuation plan.",
+      "headline": "Hurricane warning",
+      "body": "Hurricane {name} is on the way. Bring loose stuff inside, fill up on water, charge your phones, and look at your evacuation plan now.",
       "askTag": "Hurricane"
     },
     {
@@ -16,8 +16,8 @@
       "event": "Tornado",
       "severity": ["Severe", "Extreme"],
       "hazardType": "tornado",
-      "headline": "Tornado warning issued",
-      "body": "Tornado warning — go to interior windowless room now.",
+      "headline": "Tornado warning",
+      "body": "Tornado spotted. Get to the lowest floor and an inside room with no windows — right now.",
       "askTag": "Hurricane"
     },
     {
@@ -26,7 +26,7 @@
       "severity": ["Severe", "Extreme"],
       "hazardType": "flood",
       "headline": "Flash flood warning",
-      "body": "Flash flood warning — turn around, don't drown. Move to higher ground.",
+      "body": "Flash flood happening now. Turn around, don't drown. Get to higher ground.",
       "askTag": "Flood"
     },
     {
@@ -35,7 +35,7 @@
       "severity": ["Severe", "Extreme"],
       "hazardType": "flood",
       "headline": "Flood warning",
-      "body": "Flood warning — move valuables up. Don't drive through water — turn around, don't drown.",
+      "body": "Flood warning. Move what you can to higher floors. Don't drive through water — turn around, don't drown.",
       "askTag": "Flood"
     },
     {
@@ -44,7 +44,7 @@
       "severity": ["Severe", "Extreme"],
       "hazardType": "blizzard",
       "headline": "Winter storm warning",
-      "body": "Winter storm warning — water/heat/food on hand. Watch for power loss; check on neighbors.",
+      "body": "Winter storm coming. Make sure you have water, food, and a way to stay warm. Power may go out — check on neighbors who live alone.",
       "askTag": "Blizzard"
     },
     {
@@ -53,7 +53,7 @@
       "severity": ["Severe", "Extreme"],
       "hazardType": "blizzard",
       "headline": "Blizzard warning",
-      "body": "Blizzard warning — stay off roads. Heat backup, food, water. Check on neighbors.",
+      "body": "Blizzard warning. Stay off the roads. Have a backup way to keep warm, plus food and water. Check on neighbors who live alone.",
       "askTag": "Blizzard"
     },
     {
@@ -61,8 +61,8 @@
       "event": "Excessive Heat",
       "severity": ["Severe", "Extreme"],
       "hazardType": "heat",
-      "headline": "Excessive heat warning",
-      "body": "Excessive heat — hydrate, seek AC, check on elderly neighbors. Limit outdoor activity.",
+      "headline": "Dangerous heat",
+      "body": "Dangerous heat today. Drink water, find air conditioning, and skip outdoor exercise. Check on older neighbors and anyone without AC.",
       "askTag": "Heat"
     },
     {
@@ -71,39 +71,39 @@
       "severity": ["Severe", "Extreme"],
       "hazardType": "wildfire",
       "headline": "Fire weather warning",
-      "body": "Fire weather conditions — no outdoor burning. Pack go-bag in case evacuation is ordered.",
+      "body": "Conditions are right for fast-spreading fires. No outdoor burning. Pack a small bag with essentials in case you have to leave quickly.",
       "askTag": "Wildfire"
     },
     {
       "source": "USGS",
       "minMag": 5.5,
       "hazardType": "earthquake",
-      "headline": "Earthquake felt",
-      "body": "Earthquake felt — M{mag} epicenter {distance}mi {direction}. Check structure, gas, water.",
+      "headline": "Earthquake felt nearby",
+      "body": "M{mag} earthquake about {distance}mi {direction}. Look around for damage to your home. Check for gas smell and water leaks.",
       "askTag": "Earthquake"
     },
     {
       "source": "FEMA",
       "incidentTypeAny": ["Hurricane", "Severe Storm", "Severe Storm(s)", "Coastal Storm"],
       "hazardType": "hurricane",
-      "headline": "Federal disaster declaration",
-      "body": "FEMA disaster declaration active in your area. Recovery resources available — see fema.gov/assistance.",
+      "headline": "FEMA disaster declared",
+      "body": "FEMA declared a disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
       "askTag": "Hurricane"
     },
     {
       "source": "FEMA",
       "incidentTypeAny": ["Fire"],
       "hazardType": "wildfire",
-      "headline": "Federal wildfire declaration",
-      "body": "FEMA wildfire declaration in your area. Recovery + assistance resources available — see fema.gov/assistance.",
+      "headline": "FEMA wildfire disaster declared",
+      "body": "FEMA declared a wildfire disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
       "askTag": "Wildfire"
     },
     {
       "source": "FEMA",
       "_fallback": true,
       "hazardType": "other",
-      "headline": "Federal disaster declaration",
-      "body": "FEMA disaster declaration active in your area. Recovery resources available — see fema.gov/assistance.",
+      "headline": "FEMA disaster declared",
+      "body": "FEMA declared a disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
       "askTag": null
     }
   ]
