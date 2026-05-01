@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.websocket;
 
-import io.sitprep.sitprepapi.dto.ChatMessageDtos.ChatMessageDto;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
@@ -72,15 +71,6 @@ public class WebSocketMessageSender {
     // --- Activations ---
     public void sendActivationAck(String activationId, AckDto dto) {
         messagingTemplate.convertAndSend("/topic/activations/" + activationId + "/acks", dto);
-    }
-
-    // --- Chat ---
-    public void sendChatMessage(String groupId, ChatMessageDto dto) {
-        messagingTemplate.convertAndSend("/topic/chat/" + groupId, dto);
-    }
-
-    public void sendChatMessageDeletion(String groupId, Long messageId) {
-        messagingTemplate.convertAndSend("/topic/chat/" + groupId + "/delete", messageId);
     }
 
     // --- Tasks ---

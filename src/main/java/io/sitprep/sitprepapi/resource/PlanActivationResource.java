@@ -1,9 +1,11 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.*;
+import io.sitprep.sitprepapi.service.AckRateLimiter;
 import io.sitprep.sitprepapi.service.PlanActivationService;
 import io.sitprep.sitprepapi.service.PlanActivationService.ActivationExpiredException;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,9 +30,12 @@ import java.util.List;
 public class PlanActivationResource {
 
     private final PlanActivationService service;
+    private final AckRateLimiter ackRateLimiter;
 
-    public PlanActivationResource(PlanActivationService service) {
+    public PlanActivationResource(PlanActivationService service,
+                                  AckRateLimiter ackRateLimiter) {
         this.service = service;
+        this.ackRateLimiter = ackRateLimiter;
     }
 
     @PostMapping
@@ -64,10 +69,37 @@ public class PlanActivationResource {
     @PostMapping("/{activationId}/acks")
     public ResponseEntity<AckDto> ack(
             @PathVariable String activationId,
-            @RequestBody AckRequest request
+            @RequestBody AckRequest request,
+            HttpServletRequest http
     ) {
+        // Defensive rate limit — this endpoint is intentionally un-authed
+        // (recipients may not have a SitPrep account). Cap anonymous
+        // (activationId, IP) pairs at 10/minute per LAUNCH_READINESS.md
+        // privacy/safety section. Returns 429 when exceeded so the FE can
+        // surface a "slow down" state.
+        String ip = clientIp(http);
+        if (!ackRateLimiter.tryConsume(activationId, ip)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(service.recordAck(activationId, request));
+    }
+
+    /**
+     * Resolve the request's client IP. On Heroku (and any reverse-proxied
+     * setup) the {@code X-Forwarded-For} header carries the original
+     * client; the socket peer is the proxy. Falls back to the socket peer
+     * when the header is absent (local dev). Takes the first hop only —
+     * later hops in the chain are downstream proxies under our control.
+     */
+    private static String clientIp(HttpServletRequest http) {
+        if (http == null) return null;
+        String fwd = http.getHeader("X-Forwarded-For");
+        if (fwd != null && !fwd.isBlank()) {
+            int comma = fwd.indexOf(',');
+            return (comma > 0 ? fwd.substring(0, comma) : fwd).trim();
+        }
+        return http.getRemoteAddr();
     }
 
     @GetMapping("/{activationId}/acks")
