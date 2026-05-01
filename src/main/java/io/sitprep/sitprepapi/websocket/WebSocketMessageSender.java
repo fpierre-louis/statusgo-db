@@ -166,6 +166,32 @@ public class WebSocketMessageSender {
         messagingTemplate.convertAndSend("/topic/notifications", payload);
     }
 
+    /**
+     * Per-user inbox topic — drives the live-update path on the
+     * notifications inbox page (per docs/NOTIFICATIONS_INBOX.md). Lane B
+     * silent rows + Lane A audit rows + read-state changes (mark-read,
+     * mark-all-read, archive) all flow through here so the FE can patch
+     * its local list optimistically AND reconcile from the server.
+     *
+     * <p>Topic format: {@code /topic/notifications/{lowercased-email}}.
+     * Lowercase normalization is the same convention used elsewhere
+     * (Follow / Block) so a forged-case email can't subscribe to a
+     * different inbox. Null/blank user is a silent no-op.</p>
+     *
+     * <p>Payload shape — kind-tagged so the FE can switch:</p>
+     * <pre>
+     *   { "kind": "created",   "row": NotificationLogDto }
+     *   { "kind": "read",      "id": Long, "readAt": Instant }
+     *   { "kind": "all-read",  "before": Instant, "readAt": Instant }
+     *   { "kind": "archived",  "id": Long }
+     * </pre>
+     */
+    public void sendInboxEvent(String userEmail, Object payload) {
+        if (userEmail == null || userEmail.isBlank()) return;
+        String key = userEmail.trim().toLowerCase();
+        messagingTemplate.convertAndSend("/topic/notifications/" + key, payload);
+    }
+
     // --- Generic updates ---
     public void sendGenericUpdate(String topic, Object dto) {
         messagingTemplate.convertAndSend("/topic/" + topic, dto);

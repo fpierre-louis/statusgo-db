@@ -7,6 +7,7 @@ import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Notification;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
@@ -119,7 +120,97 @@ public class NotificationService {
         );
         if (lane != null) row.setLane(lane.name());
         if (category != null) row.setCategory(category.name());
-        notificationLogRepo.save(row);
+        NotificationLog saved = notificationLogRepo.save(row);
+
+        // Live-update fan-out: prepend the new row in any open inbox
+        // tab via STOMP. Per NOTIFICATIONS_INBOX.md the inbox page
+        // listens on /topic/notifications/{userEmail} for kind-tagged
+        // events; "created" carries the saved row so the FE can drop
+        // it into the list without an extra round trip. Skip rows
+        // whose lane is "DROP" — those weren't user-visible to begin
+        // with (rate-limited or DND-suppressed entirely) and shouldn't
+        // surface in the inbox.
+        if (saved != null && lane != Lane.DROP) {
+            try {
+                webSocketMessageSender.sendInboxEvent(
+                        recipientEmail,
+                        java.util.Map.of(
+                                "kind", "created",
+                                "row", toInboxRowMap(saved)
+                        )
+                );
+            } catch (Exception e) {
+                // Broadcast failure must never break the persisted save.
+                logger.warn("Inbox WS broadcast failed for {}: {}",
+                        recipientEmail, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Handle FCM stale-token errors by nulling the recipient's
+     * {@code fcmtoken} on UserInfo. Per
+     * docs/PUSH_NOTIFICATION_POLICY.md "FCM token lifecycle":
+     * <blockquote>
+     *   On send: if FCM returns UNREGISTERED or INVALID_ARGUMENT,
+     *   null the user's fcmtoken field. The next foreground app open
+     *   refreshes via firebase.messaging().getToken() and PATCHes
+     *   back.
+     * </blockquote>
+     *
+     * <p>Token-match guard: if the stored fcmtoken doesn't match the
+     * one we just tried, the user re-registered between our send and
+     * this error returning. Don't clobber the fresh token because of
+     * a stale-token failure.</p>
+     */
+    private void handleFcmDeliveryError(FirebaseMessagingException e,
+                                        String recipientEmail,
+                                        String triedToken) {
+        if (e == null || recipientEmail == null || triedToken == null) return;
+        MessagingErrorCode code = e.getMessagingErrorCode();
+        if (code != MessagingErrorCode.UNREGISTERED
+                && code != MessagingErrorCode.INVALID_ARGUMENT) {
+            return;
+        }
+        try {
+            userInfoRepo.findByUserEmailIgnoreCase(recipientEmail).ifPresent(u -> {
+                if (triedToken.equals(u.getFcmtoken())) {
+                    u.setFcmtoken(null);
+                    userInfoRepo.save(u);
+                    logger.info("Cleared stale FCM token for {} (code={})",
+                            recipientEmail, code);
+                }
+            });
+        } catch (Exception suppress) {
+            // Token cleanup is opportunistic — never let it bubble
+            // through and mask the original send failure.
+            logger.warn("Failed to clear stale FCM token for {}: {}",
+                    recipientEmail, suppress.getMessage());
+        }
+    }
+
+    /**
+     * Lightweight inbox-row payload for the WS push. Mirrors what the
+     * existing {@code GET /api/notifications} endpoint returns so the FE
+     * can drop the WS row straight into its list without a separate
+     * shape conversion. {@code Map} keeps the wire shape decoupled from
+     * the entity in case the inbox DTO diverges later.
+     */
+    private static java.util.Map<String, Object> toInboxRowMap(NotificationLog n) {
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("id", n.getId());
+        m.put("recipientEmail", n.getRecipientEmail());
+        m.put("notificationType", n.getNotificationType());
+        m.put("title", n.getTitle());
+        m.put("body", n.getBody());
+        m.put("referenceId", n.getReferenceId());
+        m.put("targetUrl", n.getTargetUrl());
+        m.put("timestamp", n.getTimestamp());
+        m.put("readAt", n.getReadAt());
+        m.put("lane", n.getLane());
+        m.put("category", n.getCategory());
+        m.put("archivedAt", n.getArchivedAt());
+        return m;
     }
 
     /**
@@ -265,6 +356,7 @@ public class NotificationService {
         } catch (FirebaseMessagingException e) {
             errorMessage = e.getMessage();
             logger.error("❌ FCM error for {}: {}", recipientEmail, errorMessage);
+            handleFcmDeliveryError(e, recipientEmail, recipientFcmTokenOrNull);
         } catch (Exception e) {
             errorMessage = e.getMessage();
             logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
@@ -377,6 +469,7 @@ public class NotificationService {
             } catch (FirebaseMessagingException e) {
                 errorMessage = e.getMessage();
                 logger.error("❌ FCM error for {}: {}", recipientEmail, errorMessage);
+                handleFcmDeliveryError(e, recipientEmail, token);
             } catch (Exception e) {
                 errorMessage = e.getMessage();
                 logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);

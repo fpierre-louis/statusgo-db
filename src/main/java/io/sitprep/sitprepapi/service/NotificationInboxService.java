@@ -2,12 +2,14 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Read-side / state-mutation operations for the notifications inbox.
@@ -31,12 +33,13 @@ import java.util.List;
  * the row count so the resource can choose between 200 (1+) and 404
  * (0) without an extra read.</p>
  *
- * <p>Live broadcast on read-state changes (per spec WS topic
- * {@code /topic/notifications/{userEmail}}) is deferred — initial
- * release returns the new state in the HTTP response and lets the FE
- * patch its local list. WS push for new inbox rows already exists via
- * the broader notification fan-out path; mark-read fan-out can be
- * added when multi-device sync becomes a real ask.</p>
+ * <p>Live broadcast on read-state changes — fans out on
+ * {@code /topic/notifications/{userEmail}} via
+ * {@link WebSocketMessageSender#sendInboxEvent} after each successful
+ * mutation. Multi-tab + multi-device clients pick up the change without
+ * polling. Payload kinds: {@code read} / {@code all-read} /
+ * {@code archived}. The matching {@code created} kind is fired by
+ * {@code NotificationService.saveLogRow} on every Lane A/B persist.</p>
  */
 @Service
 public class NotificationInboxService {
@@ -55,9 +58,12 @@ public class NotificationInboxService {
             Instant.parse("9999-12-31T23:59:59Z");
 
     private final NotificationLogRepo repo;
+    private final WebSocketMessageSender ws;
 
-    public NotificationInboxService(NotificationLogRepo repo) {
+    public NotificationInboxService(NotificationLogRepo repo,
+                                    WebSocketMessageSender ws) {
         this.repo = repo;
+        this.ws = ws;
     }
 
     public List<NotificationLog> page(String email, Instant since, Instant before, Integer limit) {
@@ -73,7 +79,16 @@ public class NotificationInboxService {
 
     @Transactional
     public boolean markRead(Long id, String email) {
-        return repo.markReadByIdForUser(id, email, Instant.now()) > 0;
+        Instant readAt = Instant.now();
+        boolean updated = repo.markReadByIdForUser(id, email, readAt) > 0;
+        if (updated) {
+            ws.sendInboxEvent(email, Map.of(
+                    "kind", "read",
+                    "id", id,
+                    "readAt", readAt
+            ));
+        }
+        return updated;
     }
 
     /**
@@ -85,11 +100,27 @@ public class NotificationInboxService {
     @Transactional
     public int markAllReadBefore(String email, Instant before) {
         Instant cutoff = (before != null) ? before : Instant.now();
-        return repo.markAllReadBefore(email, cutoff, Instant.now());
+        Instant readAt = Instant.now();
+        int updated = repo.markAllReadBefore(email, cutoff, readAt);
+        if (updated > 0) {
+            ws.sendInboxEvent(email, Map.of(
+                    "kind", "all-read",
+                    "before", cutoff,
+                    "readAt", readAt
+            ));
+        }
+        return updated;
     }
 
     @Transactional
     public boolean archive(Long id, String email) {
-        return repo.archiveByIdForUser(id, email, Instant.now()) > 0;
+        boolean updated = repo.archiveByIdForUser(id, email, Instant.now()) > 0;
+        if (updated) {
+            ws.sendInboxEvent(email, Map.of(
+                    "kind", "archived",
+                    "id", id
+            ));
+        }
+        return updated;
     }
 }
