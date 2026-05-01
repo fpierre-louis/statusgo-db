@@ -10,7 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Group CRUD + membership/role ops.
@@ -71,10 +73,32 @@ public class GroupResource {
         groupService.deleteGroupByPublicId(groupId);
     }
 
-    @GetMapping
-    public List<Group> getAllGroups() {
+    /**
+     * Lightweight uniqueness check for the group-create flows. Replaces
+     * the previous pattern of FE pulling the entire groups table on
+     * every keystroke and scanning in memory — that was the worst
+     * offender on the LAUNCH_READINESS.md "no render-blocking dump-
+     * everything endpoints on critical paths" item, even though
+     * group-create isn't quite a critical path.
+     *
+     * <p>Both query params are optional. If only {@code name} is
+     * provided, {@code codeTaken} is null (and vice versa) so the FE
+     * can debounce per-field independently. Empty / blank values
+     * short-circuit to false rather than hitting the DB.</p>
+     */
+    @GetMapping("/availability")
+    public Map<String, Boolean> checkAvailability(
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "code", required = false) String code) {
         AuthUtils.requireAuthenticatedEmail();
-        return groupService.getAllGroups();
+        Map<String, Boolean> out = new HashMap<>();
+        if (name != null && !name.isBlank()) {
+            out.put("nameTaken", groupService.isGroupNameTaken(name.trim()));
+        }
+        if (code != null && !code.isBlank()) {
+            out.put("codeTaken", groupService.isGroupCodeTaken(code.trim()));
+        }
+        return out;
     }
 
     @GetMapping("/{groupId}")

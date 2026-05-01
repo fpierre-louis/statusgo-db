@@ -24,6 +24,16 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     // ✅ For UUID-based lookup by public groupId
     Optional<Group> findByGroupId(String groupId);
 
+    /**
+     * Case-insensitive uniqueness check for the group-create flows.
+     * Replaces the FE pattern of pulling the entire groups table on
+     * every keystroke and filtering in memory. Returns true when at
+     * least one group already uses the supplied name / code.
+     */
+    boolean existsByGroupNameIgnoreCase(String groupName);
+
+    boolean existsByGroupCodeIgnoreCase(String groupCode);
+
     // ✅ Optional: For findByAdminEmailsContaining (alternative to @Query)
     List<Group> findByAdminEmailsContaining(String adminEmail);
 

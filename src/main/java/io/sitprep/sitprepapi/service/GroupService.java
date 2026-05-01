@@ -97,8 +97,20 @@ public class GroupService {
         return groupRepo.save(group);
     }
 
-    public List<Group> getAllGroups() {
-        return groupRepo.findAll();
+    /**
+     * Case-insensitive uniqueness check for the group-create flows.
+     * Backs the {@code GET /api/groups/availability} endpoint;
+     * replaces the previous FE-side "fetch all + scan in memory"
+     * pattern that ran on every keystroke.
+     */
+    public boolean isGroupNameTaken(String name) {
+        if (name == null || name.isBlank()) return false;
+        return groupRepo.existsByGroupNameIgnoreCase(name);
+    }
+
+    public boolean isGroupCodeTaken(String code) {
+        if (code == null || code.isBlank()) return false;
+        return groupRepo.existsByGroupCodeIgnoreCase(code);
     }
 
     public List<Group> getGroupsByAdminEmail(String adminEmail) {
