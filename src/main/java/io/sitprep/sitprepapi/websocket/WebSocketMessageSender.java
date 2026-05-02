@@ -8,6 +8,7 @@ import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostReactionFrame;
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
+import io.sitprep.sitprepapi.dto.GroupPostCommentReactionFrame;
 import io.sitprep.sitprepapi.dto.PostCommentDto;
 import io.sitprep.sitprepapi.dto.PostCommentReactionFrame;
 import io.sitprep.sitprepapi.dto.PostDto;
@@ -71,6 +72,20 @@ public class WebSocketMessageSender {
 
     public void sendGroupPostCommentDeletion(Long postId, Long commentId) {
         messagingTemplate.convertAndSend("/topic/group-post-comments/" + postId + "/delete", commentId);
+    }
+
+    /**
+     * Broadcast an emoji reaction add/remove on a group chat comment.
+     * Mirrors {@link #sendPostCommentReaction(PostCommentReactionFrame)}
+     * (community side). Rides the same per-thread topic the comment
+     * itself was broadcast on; the {@code type:"reaction"} discriminator
+     * lets the comment-list subscriber tell reaction frames apart from
+     * full GroupPostCommentDto frames.
+     */
+    public void sendGroupPostCommentReaction(GroupPostCommentReactionFrame frame) {
+        if (frame == null || frame.postId() == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/group-post-comments/" + frame.postId(), frame);
     }
 
     // --- Post comments ---

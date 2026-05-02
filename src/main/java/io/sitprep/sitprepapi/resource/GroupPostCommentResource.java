@@ -52,7 +52,10 @@ public class GroupPostCommentResource {
     public Map<Long, List<GroupPostCommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
-        AuthUtils.requireAuthenticatedEmail();
+        // Pass viewer through so each comment in the response carries
+        // viewerThanked — the FE renders the heart filled when the
+        // viewer has already reacted on a given comment.
+        String viewer = AuthUtils.requireAuthenticatedEmail();
         var validPostIds = postIds.stream()
                 .map(id -> {
                     try { return Long.parseLong(id); } catch (NumberFormatException e) { return null; }
@@ -60,7 +63,7 @@ public class GroupPostCommentResource {
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
         if (validPostIds.isEmpty()) return Collections.emptyMap();
-        return commentService.getCommentsForPosts(validPostIds, limitPerPost);
+        return commentService.getCommentsForPosts(validPostIds, limitPerPost, viewer);
     }
 
     // Backfill by updatedAt
@@ -68,15 +71,15 @@ public class GroupPostCommentResource {
     public List<GroupPostCommentDto> getCommentsSince(
             @RequestParam Long postId,
             @RequestParam String sinceIso) {
-        AuthUtils.requireAuthenticatedEmail();
-        return commentService.getCommentsSince(postId, Instant.parse(sinceIso));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return commentService.getCommentsSince(postId, Instant.parse(sinceIso), viewer);
     }
 
     // All for a post (oldest -> newest)
     @GetMapping("/{postId}")
     public ResponseEntity<List<GroupPostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(commentService.getCommentsByPostId(postId));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(commentService.getCommentsByPostId(postId, viewer));
     }
 
     @PutMapping("/{id}")

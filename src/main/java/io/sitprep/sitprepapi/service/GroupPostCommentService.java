@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.GroupPostComment;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.repo.GroupPostCommentRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
@@ -37,19 +38,22 @@ public class GroupPostCommentService {
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
+    private final GroupPostCommentReactionService reactionService;
 
     public GroupPostCommentService(
             GroupPostCommentRepo commentRepo,
             GroupPostRepo postRepo,
             UserInfoRepo userInfoRepo,
             WebSocketMessageSender ws,
-            NotificationService notificationService
+            NotificationService notificationService,
+            GroupPostCommentReactionService reactionService
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.ws = ws;
         this.notificationService = notificationService;
+        this.reactionService = reactionService;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -201,7 +205,7 @@ public class GroupPostCommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<GroupPostCommentDto> getCommentsByPostId(Long postId) {
+    public List<GroupPostCommentDto> getCommentsByPostId(Long postId, String viewerEmail) {
         if (postId == null) return List.of();
 
         List<GroupPostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
@@ -212,11 +216,20 @@ public class GroupPostCommentService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        List<GroupPostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    /** Back-compat overload — viewerThanked stays false for callers without identity. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<GroupPostCommentDto> getCommentsByPostId(Long postId) {
+        return getCommentsByPostId(postId, null);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<Long, List<GroupPostCommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
+    public Map<Long, List<GroupPostCommentDto>> getCommentsForPosts(
+            List<Long> postIds, Integer limitPerPost, String viewerEmail) {
         if (postIds == null || postIds.isEmpty()) return Map.of();
 
         List<GroupPostComment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(postIds);
@@ -230,19 +243,34 @@ public class GroupPostCommentService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
+        // Flatten + fold reactions across the whole batch in one pair of
+        // queries, then re-group by postId. Cheaper than per-post folding
+        // when the FE asks for many posts at once.
         Map<Long, List<GroupPostCommentDto>> out = new LinkedHashMap<>();
+        List<GroupPostCommentDto> all = new ArrayList<>();
         for (var e : byPost.entrySet()) {
             List<GroupPostComment> list = e.getValue();
             if (limitPerPost != null && limitPerPost > 0 && list.size() > limitPerPost) {
                 list = list.subList(list.size() - limitPerPost, list.size()); // last N
             }
-            out.put(e.getKey(), list.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList()));
+            List<GroupPostCommentDto> bucket = list.stream()
+                    .map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+            all.addAll(bucket);
+            out.put(e.getKey(), bucket);
         }
+        withReactions(all, viewerEmail);
         return out;
     }
 
+    /** Back-compat overload. */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<GroupPostCommentDto> getCommentsSince(Long postId, Instant since) {
+    public Map<Long, List<GroupPostCommentDto>> getCommentsForPosts(
+            List<Long> postIds, Integer limitPerPost) {
+        return getCommentsForPosts(postIds, limitPerPost, null);
+    }
+
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<GroupPostCommentDto> getCommentsSince(Long postId, Instant since, String viewerEmail) {
         if (postId == null || since == null) return List.of();
 
         var rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
@@ -253,7 +281,15 @@ public class GroupPostCommentService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        List<GroupPostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    /** Back-compat overload. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<GroupPostCommentDto> getCommentsSince(Long postId, Instant since) {
+        return getCommentsSince(postId, since, null);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -262,8 +298,34 @@ public class GroupPostCommentService {
         return commentRepo.findById(id).map(c -> {
             GroupPostCommentDto d = toDto(c);
             enrichAuthor(d);
+            d.setReactions(reactionService.loadByGroupPostCommentId(d.getId()));
             return d;
         });
+    }
+
+    /**
+     * Batch-fold per-emoji roster + heart "Thank" count + viewer-thanked
+     * flag onto a list of GroupPostCommentDtos. Mirrors
+     * {@code PostCommentService.withReactions}.
+     */
+    private List<GroupPostCommentDto> withReactions(List<GroupPostCommentDto> dtos, String viewerEmail) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> ids = dtos.stream()
+                .map(GroupPostCommentDto::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) return dtos;
+        Map<Long, Map<String, List<EmojiReactionDto>>> rosterByComment =
+                reactionService.loadByGroupPostCommentIds(ids);
+        GroupPostCommentReactionService.ThankSummary summary =
+                reactionService.loadThankSummary(ids, viewerEmail);
+        for (GroupPostCommentDto d : dtos) {
+            if (d.getId() == null) continue;
+            d.setReactions(rosterByComment.getOrDefault(d.getId(), Map.of()));
+            d.setThanksCount(summary.countFor(d.getId()));
+            d.setViewerThanked(summary.viewerThankedComment(d.getId()));
+        }
+        return dtos;
     }
 
     // --------------------------------------------------------------------------------------------
