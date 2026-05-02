@@ -36,7 +36,7 @@ public class GroupPostDto {
      * counts client-side. Replaces the legacy {@code Map<String,Integer>}
      * counts-only shape.
      */
-    private Map<String, List<PostReactionDto>> reactions;
+    private Map<String, List<EmojiReactionDto>> reactions;
 
     /** user-initiated edit moment (you already had this) */
     private Instant editedAt;

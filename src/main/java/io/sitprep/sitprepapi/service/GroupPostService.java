@@ -5,7 +5,7 @@ import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
-import io.sitprep.sitprepapi.dto.PostReactionDto;
+import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
@@ -176,7 +176,7 @@ public class GroupPostService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
+        Map<Long, Map<String, List<EmojiReactionDto>>> reactionsByPost =
                 reactionService.loadByPostIds(rows.stream().map(GroupPost::getId).toList());
 
         List<GroupPostDto> out = new ArrayList<>(rows.size());
@@ -194,7 +194,7 @@ public class GroupPostService {
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
         // Batched reaction roster — one repo call for the whole listing.
-        Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
+        Map<Long, Map<String, List<EmojiReactionDto>>> reactionsByPost =
                 reactionService.loadByPostIds(posts.stream().map(GroupPost::getId).toList());
 
         return posts.stream()
@@ -295,7 +295,7 @@ public class GroupPostService {
 
     private GroupPostDto convertToPostDto(GroupPost post,
                                      Map<String, UserInfo> userByEmail,
-                                     Map<String, List<PostReactionDto>> reactions) {
+                                     Map<String, List<EmojiReactionDto>> reactions) {
         GroupPostDto dto = baseDto(post, reactions);
         UserInfo u = userByEmail.get(post.getAuthor());
         if (u != null) {
@@ -306,7 +306,7 @@ public class GroupPostService {
         return dto;
     }
 
-    private GroupPostDto baseDto(GroupPost post, Map<String, List<PostReactionDto>> reactions) {
+    private GroupPostDto baseDto(GroupPost post, Map<String, List<EmojiReactionDto>> reactions) {
         GroupPostDto dto = new GroupPostDto();
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());

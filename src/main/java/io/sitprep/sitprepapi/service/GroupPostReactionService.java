@@ -2,7 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.GroupPostReaction;
-import io.sitprep.sitprepapi.dto.PostReactionDto;
+import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.GroupPostReactionFrame;
 import io.sitprep.sitprepapi.repo.GroupPostReactionRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
@@ -46,7 +46,7 @@ public class GroupPostReactionService {
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> add(Long postId, String userEmail, String emoji) {
+    public Map<String, List<EmojiReactionDto>> add(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
         GroupPost post = loadPostOr404(postId);
@@ -74,7 +74,7 @@ public class GroupPostReactionService {
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> remove(Long postId, String userEmail, String emoji) {
+    public Map<String, List<EmojiReactionDto>> remove(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
         GroupPost post = loadPostOr404(postId);
@@ -88,7 +88,7 @@ public class GroupPostReactionService {
     }
 
     /** Single-post load used by the resource GET and by the per-post DTO build. */
-    public Map<String, List<PostReactionDto>> loadByPostId(Long postId) {
+    public Map<String, List<EmojiReactionDto>> loadByPostId(Long postId) {
         return groupByEmoji(reactionRepo.findByPostId(postId));
     }
 
@@ -97,28 +97,28 @@ public class GroupPostReactionService {
      * in the page. Returns a map keyed by post id; absent post ids have no
      * reactions and are simply not in the map.
      */
-    public Map<Long, Map<String, List<PostReactionDto>>> loadByPostIds(Collection<Long> postIds) {
+    public Map<Long, Map<String, List<EmojiReactionDto>>> loadByPostIds(Collection<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
         List<GroupPostReaction> rows = reactionRepo.findByPostIdIn(postIds);
         if (rows.isEmpty()) return Collections.emptyMap();
 
         Map<Long, List<GroupPostReaction>> byPost = rows.stream()
                 .collect(Collectors.groupingBy(GroupPostReaction::getPostId));
-        Map<Long, Map<String, List<PostReactionDto>>> out = new HashMap<>(byPost.size());
+        Map<Long, Map<String, List<EmojiReactionDto>>> out = new HashMap<>(byPost.size());
         byPost.forEach((postId, list) -> out.put(postId, groupByEmoji(list)));
         return out;
     }
 
     // ------------------------------------------------------------------
 
-    private Map<String, List<PostReactionDto>> groupByEmoji(List<GroupPostReaction> rows) {
+    private Map<String, List<EmojiReactionDto>> groupByEmoji(List<GroupPostReaction> rows) {
         if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
         // Sort by addedAt so the roster is deterministic across calls.
         rows.sort(Comparator.comparing(GroupPostReaction::getAddedAt));
-        Map<String, List<PostReactionDto>> out = new LinkedHashMap<>();
+        Map<String, List<EmojiReactionDto>> out = new LinkedHashMap<>();
         for (GroupPostReaction r : rows) {
             out.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>())
-                    .add(new PostReactionDto(r.getUserEmail(), r.getAddedAt()));
+                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt()));
         }
         return out;
     }

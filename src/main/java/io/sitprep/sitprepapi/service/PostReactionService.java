@@ -2,7 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostReaction;
-import io.sitprep.sitprepapi.dto.PostReactionDto;
+import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.PostReactionFrame;
 import io.sitprep.sitprepapi.repo.PostReactionRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * Add / remove / load emoji reactions on tasks (community-feed posts).
  * Mirrors {@code GroupPostReactionService} so the eventual GroupPost/Post entity
  * merge collapses both into one — same broadcast convention, same idempotent
- * add-or-no-op semantics, same {@link PostReactionDto} reuse for the roster
+ * add-or-no-op semantics, same {@link EmojiReactionDto} reuse for the roster
  * shape returned to the FE.
  *
  * <p>Persists to the {@code task_reaction} table; broadcasts a
@@ -57,7 +57,7 @@ public class PostReactionService {
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> add(Long postId, String userEmail, String emoji) {
+    public Map<String, List<EmojiReactionDto>> add(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
         Post task = loadPostOr404(postId);
@@ -86,7 +86,7 @@ public class PostReactionService {
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> remove(Long postId, String userEmail, String emoji) {
+    public Map<String, List<EmojiReactionDto>> remove(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
         Post task = loadPostOr404(postId);
@@ -101,7 +101,7 @@ public class PostReactionService {
     }
 
     /** Single-task load used by the resource GET and by the per-task DTO build. */
-    public Map<String, List<PostReactionDto>> loadByPostId(Long postId) {
+    public Map<String, List<EmojiReactionDto>> loadByPostId(Long postId) {
         return groupByEmoji(reactionRepo.findByPostId(postId));
     }
 
@@ -110,14 +110,14 @@ public class PostReactionService {
      * map keyed by task id; tasks without reactions are simply absent so
      * callers don't need null-checks for empty rosters.
      */
-    public Map<Long, Map<String, List<PostReactionDto>>> loadByPostIds(Collection<Long> postIds) {
+    public Map<Long, Map<String, List<EmojiReactionDto>>> loadByPostIds(Collection<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
         List<PostReaction> rows = reactionRepo.findByPostIdIn(postIds);
         if (rows.isEmpty()) return Collections.emptyMap();
 
         Map<Long, List<PostReaction>> byTask = rows.stream()
                 .collect(Collectors.groupingBy(PostReaction::getPostId));
-        Map<Long, Map<String, List<PostReactionDto>>> out = new HashMap<>(byTask.size());
+        Map<Long, Map<String, List<EmojiReactionDto>>> out = new HashMap<>(byTask.size());
         byTask.forEach((postId, list) -> out.put(postId, groupByEmoji(list)));
         return out;
     }
@@ -165,13 +165,13 @@ public class PostReactionService {
 
     // ------------------------------------------------------------------
 
-    private Map<String, List<PostReactionDto>> groupByEmoji(List<PostReaction> rows) {
+    private Map<String, List<EmojiReactionDto>> groupByEmoji(List<PostReaction> rows) {
         if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
         rows.sort(Comparator.comparing(PostReaction::getAddedAt));
-        Map<String, List<PostReactionDto>> out = new LinkedHashMap<>();
+        Map<String, List<EmojiReactionDto>> out = new LinkedHashMap<>();
         for (PostReaction r : rows) {
             out.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>())
-                    .add(new PostReactionDto(r.getUserEmail(), r.getAddedAt()));
+                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt()));
         }
         return out;
     }
