@@ -126,7 +126,7 @@ public class AccountDeletionService {
         int comments    = bulkDelete("DELETE FROM GroupPostComment c WHERE LOWER(c.author) = :e", e);
         int posts       = bulkDelete("DELETE FROM GroupPost p WHERE LOWER(p.author) = :e", e);
         int tasks       = bulkDelete(
-                "DELETE FROM Task t WHERE LOWER(t.requesterEmail) = :e OR LOWER(t.claimedByEmail) = :e", e);
+                "DELETE FROM Post t WHERE LOWER(t.requesterEmail) = :e OR LOWER(t.claimedByEmail) = :e", e);
         int acks        = bulkDelete("DELETE FROM PlanActivationAck a WHERE LOWER(a.recipientEmail) = :e", e);
         int activations = bulkDelete("DELETE FROM PlanActivation a WHERE LOWER(a.ownerEmail) = :e", e);
         int meals       = bulkDelete("DELETE FROM MealPlanData m WHERE LOWER(m.ownerEmail) = :e", e);

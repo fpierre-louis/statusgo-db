@@ -2,7 +2,7 @@ package io.sitprep.sitprepapi.dto;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.sitprep.sitprepapi.domain.Task;
+import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.util.PublicCdn;
 
@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 
 /**
  * Wire shape for the community feed item. Despite the legacy
- * {@code TaskDto} name, this is the canonical generic-post DTO —
+ * {@code PostDto} name, this is the canonical generic-post DTO —
  * {@code kind} (see {@link io.sitprep.sitprepapi.constant.PostKind})
  * carries the discriminator that determines how the row is rendered
  * on the FE: ask / offer / marketplace / tip / recommendation /
@@ -23,27 +23,27 @@ import java.util.stream.Collectors;
  * renders. {@code distanceKm} is populated only on community-discover
  * responses; null elsewhere.
  *
- * <p><b>Why this is named "Task" but represents Posts:</b> the
- * underlying entity is {@code Task} for historical reasons (the
+ * <p><b>Why this is named "Post" but represents Posts:</b> the
+ * underlying entity is {@code Post} for historical reasons (the
  * surface started as community asks, which were modeled as tasks
  * with a requester). The data shape was generalized in the
  * {@code MARKETPLACE_AND_FEED_CALM} pass — same row, just more
  * kinds — but the table + DTO names stayed for migration safety.
- * Phase 3b Session 2 will rename entity {@code Task → Post} (the slot
+ * Phase 3b Session 2 will rename entity {@code Post → Post} (the slot
  * is now free after Phase 3b Session 1 renamed the chat-{@code Post}
  * entity to {@link io.sitprep.sitprepapi.domain.GroupPost}). Table
  * stays {@code task}. See {@code docs/WIP_POST_RENAME.md}.</p>
  *
  * <p>Author profile fields ({@code requesterFirstName},
  * {@code requesterLastName}, {@code requesterProfileImageUrl}) are
- * populated server-side by {@code TaskService} so feed surfaces can
+ * populated server-side by {@code PostService} so feed surfaces can
  * render the standard post anatomy (avatar + name + 3-dot menu) without
  * fanning out a separate {@code POST /userinfo/profiles/batch} round
  * trip per page-load. Honors the codebase principle "backend shapes the
  * data, frontend just displays" (per CLAUDE.md). Null when the
  * requester's profile can't be resolved (deleted account, etc.).</p>
  */
-public record TaskDto(
+public record PostDto(
         Long id,
         String groupId,
         String requesterEmail,
@@ -52,8 +52,8 @@ public record TaskDto(
         String requesterProfileImageUrl,
         String claimedByGroupId,
         String claimedByEmail,
-        Task.TaskStatus status,
-        Task.TaskPriority priority,
+        Post.PostStatus status,
+        Post.PostPriority priority,
         String title,
         String description,
         Double latitude,
@@ -119,7 +119,7 @@ public record TaskDto(
         /**
          * Number of heart "Thank" reactions on this task. Folded in by
          * the listing path via a single batched query (see
-         * {@code TaskReactionService.loadThankSummary}) so the FE can
+         * {@code PostReactionService.loadThankSummary}) so the FE can
          * render the heart count inline on every card without a
          * per-card reaction roundtrip.
          */
@@ -144,16 +144,16 @@ public record TaskDto(
 
     /**
      * Entity-only conversion. Author profile fields stay null — the
-     * caller (typically {@code TaskService}) is expected to fold in
+     * caller (typically {@code PostService}) is expected to fold in
      * profile data via {@link #withAuthor(UserInfo)} so the FE doesn't
      * need a separate profiles-batch round trip.
      */
-    public static TaskDto fromEntity(Task t, Double distanceKm) {
+    public static PostDto fromEntity(Post t, Double distanceKm) {
         List<String> keys = t.getImageKeys() == null ? List.of() : t.getImageKeys();
         List<String> urls = keys.stream()
                 .map(PublicCdn::toPublicUrl)
                 .collect(Collectors.toList());
-        return new TaskDto(
+        return new PostDto(
                 t.getId(),
                 t.getGroupId(),
                 t.getRequesterEmail(),
@@ -195,18 +195,18 @@ public record TaskDto(
         );
     }
 
-    public static TaskDto fromEntity(Task t) {
+    public static PostDto fromEntity(Post t) {
         return fromEntity(t, null);
     }
 
     /**
      * Returns a copy with {@code viaFollow=true}. Used by the community
-     * feed merge in {@code TaskService.discoverCommunity} when a post is
+     * feed merge in {@code PostService.discoverCommunity} when a post is
      * surfaced because the author is followed by the viewer (out-of-radius
      * pull-through).
      */
-    public TaskDto asFollowSource() {
-        return new TaskDto(
+    public PostDto asFollowSource() {
+        return new PostDto(
                 id, groupId, requesterEmail,
                 requesterFirstName, requesterLastName, requesterProfileImageUrl,
                 claimedByGroupId, claimedByEmail, status, priority,
@@ -222,15 +222,15 @@ public record TaskDto(
 
     /**
      * Returns a copy of this DTO with author profile fields populated
-     * from {@code u}. Used by {@code TaskService.discoverCommunity}
+     * from {@code u}. Used by {@code PostService.discoverCommunity}
      * after a batch UserInfo lookup. Profile-image key is converted to
      * a public CDN URL via {@link PublicCdn#toPublicUrl} so the FE just
      * sets {@code <img src=...>}.
      */
-    public TaskDto withAuthor(UserInfo u) {
+    public PostDto withAuthor(UserInfo u) {
         if (u == null) return this;
         String avatarUrl = u.getProfileImageURL();  // already a URL on UserInfo
-        return new TaskDto(
+        return new PostDto(
                 id,
                 groupId,
                 requesterEmail,
@@ -278,8 +278,8 @@ public record TaskDto(
      * query for reaction summary + one for comment counts, rather than
      * N round trips.
      */
-    public TaskDto withEngagement(int thanksCount, boolean viewerThanked, int commentsCount) {
-        return new TaskDto(
+    public PostDto withEngagement(int thanksCount, boolean viewerThanked, int commentsCount) {
+        return new PostDto(
                 id, groupId, requesterEmail,
                 requesterFirstName, requesterLastName, requesterProfileImageUrl,
                 claimedByGroupId, claimedByEmail, status, priority,

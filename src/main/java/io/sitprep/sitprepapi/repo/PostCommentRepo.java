@@ -1,6 +1,6 @@
 package io.sitprep.sitprepapi.repo;
 
-import io.sitprep.sitprepapi.domain.TaskComment;
+import io.sitprep.sitprepapi.domain.PostComment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,29 +10,29 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Repository for {@link TaskComment}. Mirrors {@code GroupPostCommentRepo} so the
+ * Repository for {@link PostComment}. Mirrors {@code GroupPostCommentRepo} so the
  * eventual entity unification is mechanical — same finder shapes, same
  * batched-load convention.
  */
-public interface TaskCommentRepo extends JpaRepository<TaskComment, Long> {
+public interface PostCommentRepo extends JpaRepository<PostComment, Long> {
 
     /** All comments for one task, oldest → newest. */
-    List<TaskComment> findByTaskIdOrderByTimestampAsc(Long taskId);
+    List<PostComment> findByTaskIdOrderByTimestampAsc(Long taskId);
 
     /** Delta by updatedAt (ascending) — used by backfill polling on the FE. */
-    List<TaskComment> findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long taskId, Instant since);
+    List<PostComment> findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long taskId, Instant since);
 
     /** Batched roster for multiple tasks (oldest → newest within each task). */
-    List<TaskComment> findAllByTaskIdInOrderByTaskIdAscTimestampAsc(Collection<Long> taskIds);
+    List<PostComment> findAllByTaskIdInOrderByTaskIdAscTimestampAsc(Collection<Long> taskIds);
 
     /**
      * Per-task comment count for a list of tasks. Used by
-     * {@code TaskService.withEngagement} to fold {@code commentsCount}
-     * onto every TaskDto in one query rather than N. Returns
+     * {@code PostService.withEngagement} to fold {@code commentsCount}
+     * onto every PostDto in one query rather than N. Returns
      * {@code Object[]{taskId, count}} rows; service layer maps to
      * {@code Map<Long, Long>}.
      */
-    @Query("SELECT c.taskId, COUNT(c) FROM TaskComment c " +
+    @Query("SELECT c.taskId, COUNT(c) FROM PostComment c " +
            "WHERE c.taskId IN :taskIds " +
            "GROUP BY c.taskId")
     List<Object[]> countByTaskIdIn(@Param("taskIds") Collection<Long> taskIds);

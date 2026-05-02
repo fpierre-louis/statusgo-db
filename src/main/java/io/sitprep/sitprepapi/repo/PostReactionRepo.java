@@ -1,6 +1,6 @@
 package io.sitprep.sitprepapi.repo;
 
-import io.sitprep.sitprepapi.domain.TaskReaction;
+import io.sitprep.sitprepapi.domain.PostReaction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -12,19 +12,19 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for {@link TaskReaction}. Mirrors {@code GroupPostReactionRepo} so
+ * Repository for {@link PostReaction}. Mirrors {@code GroupPostReactionRepo} so
  * future unification is mechanical.
  */
 @Repository
-public interface TaskReactionRepo extends JpaRepository<TaskReaction, Long> {
+public interface PostReactionRepo extends JpaRepository<PostReaction, Long> {
 
-    List<TaskReaction> findByTaskId(Long taskId);
+    List<PostReaction> findByTaskId(Long taskId);
 
     /** Batched roster fetch for a list of tasks (community feed listing). */
-    List<TaskReaction> findByTaskIdIn(Collection<Long> taskIds);
+    List<PostReaction> findByTaskIdIn(Collection<Long> taskIds);
 
     /** Used to detect "already reacted" so add-twice is a no-op. */
-    Optional<TaskReaction> findByTaskIdAndUserEmailIgnoreCaseAndEmoji(
+    Optional<PostReaction> findByTaskIdAndUserEmailIgnoreCaseAndEmoji(
             Long taskId, String userEmail, String emoji);
 
     /**
@@ -32,7 +32,7 @@ public interface TaskReactionRepo extends JpaRepository<TaskReaction, Long> {
      * Used by the listing path to populate {@code viewerThanked} per row
      * in one query rather than N separate lookups.
      */
-    @Query("SELECT r.taskId FROM TaskReaction r " +
+    @Query("SELECT r.taskId FROM PostReaction r " +
            "WHERE r.taskId IN :taskIds " +
            "AND lower(r.userEmail) = lower(:userEmail) " +
            "AND r.emoji = :emoji")
@@ -41,13 +41,13 @@ public interface TaskReactionRepo extends JpaRepository<TaskReaction, Long> {
                                              @Param("emoji") String emoji);
 
     @Modifying
-    @Query("DELETE FROM TaskReaction r WHERE r.taskId = :taskId " +
+    @Query("DELETE FROM PostReaction r WHERE r.taskId = :taskId " +
            "AND lower(r.userEmail) = lower(:userEmail) AND r.emoji = :emoji")
     int deleteByTaskUserEmoji(@Param("taskId") Long taskId,
                               @Param("userEmail") String userEmail,
                               @Param("emoji") String emoji);
 
     @Modifying
-    @Query("DELETE FROM TaskReaction r WHERE r.taskId = :taskId")
+    @Query("DELETE FROM PostReaction r WHERE r.taskId = :taskId")
     void deleteAllByTaskId(@Param("taskId") Long taskId);
 }

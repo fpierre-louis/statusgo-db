@@ -1,11 +1,11 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.Task.TaskStatus;
-import io.sitprep.sitprepapi.dto.TaskDto;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.Post.PostStatus;
+import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.service.GroupService;
-import io.sitprep.sitprepapi.service.TaskService;
+import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Task / request-for-help routes:
+ * Post / request-for-help routes:
  *
  * <pre>
  *   POST   /api/tasks                              create (group or community/personal)
@@ -40,12 +40,12 @@ import java.util.Set;
  * of the claimer group.</p>
  */
 @RestController
-public class TaskResource {
+public class PostResource {
 
-    private final TaskService tasks;
+    private final PostService tasks;
     private final GroupService groupService;
 
-    public TaskResource(TaskService tasks, GroupService groupService) {
+    public PostResource(PostService tasks, GroupService groupService) {
         this.tasks = tasks;
         this.groupService = groupService;
     }
@@ -55,7 +55,7 @@ public class TaskResource {
     // -----------------------------------------------------------------
 
     @PostMapping("/api/tasks")
-    public ResponseEntity<TaskDto> create(@RequestBody Task incoming) {
+    public ResponseEntity<PostDto> create(@RequestBody Post incoming) {
         String requester = AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.status(HttpStatus.CREATED).body(tasks.create(incoming, requester));
     }
@@ -65,9 +65,9 @@ public class TaskResource {
     // -----------------------------------------------------------------
 
     @GetMapping("/api/groups/{groupId}/tasks")
-    public List<TaskDto> listByGroup(
+    public List<PostDto> listByGroup(
             @PathVariable String groupId,
-            @RequestParam(value = "status", required = false) TaskStatus status
+            @RequestParam(value = "status", required = false) PostStatus status
     ) {
         // Pass the viewer through so the response carries viewerThanked
         // per row — the feed UI's heart shows filled when the viewer has
@@ -77,24 +77,24 @@ public class TaskResource {
     }
 
     @GetMapping("/api/community/tasks")
-    public List<TaskDto> discoverCommunity(
+    public List<PostDto> discoverCommunity(
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
-            @RequestParam(value = "status", required = false) List<TaskStatus> statuses
+            @RequestParam(value = "status", required = false) List<PostStatus> statuses
     ) {
         // Viewer identity feeds the follow-source merge in the service —
         // out-of-radius posts authored by emails the viewer follows
         // ride along with the radius results. Per docs/PROFILE_AND_FOLLOW.md
         // build-order step 4.
         String viewer = AuthUtils.requireAuthenticatedEmail();
-        Set<TaskStatus> wanted = (statuses == null || statuses.isEmpty())
-                ? EnumSet.of(TaskStatus.OPEN, TaskStatus.CLAIMED) : EnumSet.copyOf(statuses);
+        Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
+                ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : EnumSet.copyOf(statuses);
         return tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer);
     }
 
     @GetMapping("/api/me/tasks")
-    public List<TaskDto> listMine(
+    public List<PostDto> listMine(
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role
     ) {
         String me = AuthUtils.requireAuthenticatedEmail();
@@ -104,7 +104,7 @@ public class TaskResource {
     }
 
     @GetMapping("/api/tasks/{id}")
-    public ResponseEntity<TaskDto> get(@PathVariable Long id) {
+    public ResponseEntity<PostDto> get(@PathVariable Long id) {
         String viewer = AuthUtils.requireAuthenticatedEmail();
         return tasks.findDtoById(id, viewer)
                 .map(ResponseEntity::ok)
@@ -116,7 +116,7 @@ public class TaskResource {
     // -----------------------------------------------------------------
 
     @PatchMapping("/api/tasks/{id}")
-    public ResponseEntity<TaskDto> patch(@PathVariable Long id, @RequestBody Task patch) {
+    public ResponseEntity<PostDto> patch(@PathVariable Long id, @RequestBody Post patch) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.patch(id, patch));
     }
@@ -133,7 +133,7 @@ public class TaskResource {
      * "claimerEmail": "..." (optional) }}. claimerEmail defaults to caller.
      */
     @PostMapping("/api/tasks/{id}/claim")
-    public ResponseEntity<TaskDto> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
+    public ResponseEntity<PostDto> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         if (req == null || req.groupId == null || req.groupId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId required");
@@ -158,25 +158,25 @@ public class TaskResource {
     }
 
     @PostMapping("/api/tasks/{id}/in-progress")
-    public ResponseEntity<TaskDto> markInProgress(@PathVariable Long id) {
+    public ResponseEntity<PostDto> markInProgress(@PathVariable Long id) {
         ensureClaimer(id);
         return ResponseEntity.ok(tasks.markInProgress(id));
     }
 
     @PostMapping("/api/tasks/{id}/complete")
-    public ResponseEntity<TaskDto> complete(@PathVariable Long id) {
+    public ResponseEntity<PostDto> complete(@PathVariable Long id) {
         ensureClaimer(id);
         return ResponseEntity.ok(tasks.complete(id));
     }
 
     @PostMapping("/api/tasks/{id}/cancel")
-    public ResponseEntity<TaskDto> cancel(@PathVariable Long id) {
+    public ResponseEntity<PostDto> cancel(@PathVariable Long id) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.cancel(id));
     }
 
     @PostMapping("/api/tasks/{id}/reopen")
-    public ResponseEntity<TaskDto> reopen(@PathVariable Long id) {
+    public ResponseEntity<PostDto> reopen(@PathVariable Long id) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.reopen(id));
     }
@@ -187,7 +187,7 @@ public class TaskResource {
 
     private void ensureRequester(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Optional<Task> existing = tasks.findById(id);
+        Optional<Post> existing = tasks.findById(id);
         if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         if (!caller.equalsIgnoreCase(existing.get().getRequesterEmail())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
@@ -197,9 +197,9 @@ public class TaskResource {
 
     private void ensureClaimer(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Optional<Task> existing = tasks.findById(id);
+        Optional<Post> existing = tasks.findById(id);
         if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        Task t = existing.get();
+        Post t = existing.get();
         if (t.getClaimedByEmail() == null
                 || !caller.equalsIgnoreCase(t.getClaimedByEmail())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,

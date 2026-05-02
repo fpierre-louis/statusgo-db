@@ -12,9 +12,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.Instant;
 
 /**
- * A comment on a {@link Task} (community-feed post). Mirrors {@link GroupPostComment}
+ * A comment on a {@link Post} (community-feed post). Mirrors {@link GroupPostComment}
  * exactly modulo the foreign key column (post_id → task_id) so the eventual
- * GroupPost/Task entity merge — telegraphed in {@code TaskDto}'s class doc — can
+ * GroupPost/Post entity merge — telegraphed in {@code PostDto}'s class doc — can
  * collapse {@code comment} + {@code task_comment} into one table with a
  * mechanical migration.
  *
@@ -35,7 +35,7 @@ import java.time.Instant;
                 @Index(name = "idx_task_comment_updated_at", columnList = "updated_at")
         }
 )
-public class TaskComment {
+public class PostComment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

@@ -7,14 +7,14 @@ import lombok.Setter;
 import java.time.Instant;
 
 /**
- * Per-user emoji reaction on a {@link Task} (community-feed post). One row
+ * Per-user emoji reaction on a {@link Post} (community-feed post). One row
  * per (task, user, emoji) so toggling is exactly add-or-remove and the
  * listing path can return the full roster of who reacted with what.
  *
  * <p>Mirrors {@link GroupPostReaction} exactly — same column names (modulo
  * post_id → task_id), same uniqueness constraint shape, same indexes —
- * so the eventual GroupPost/Task entity merge (telegraphed in
- * {@code TaskDto}'s class doc) collapses both reaction tables into one
+ * so the eventual GroupPost/Post entity merge (telegraphed in
+ * {@code PostDto}'s class doc) collapses both reaction tables into one
  * with minimal migration effort.</p>
  *
  * <p>The "Thank" affordance on community feed cards toggles the heart
@@ -36,7 +36,7 @@ import java.time.Instant;
 )
 @Getter
 @Setter
-public class TaskReaction {
+public class PostReaction {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

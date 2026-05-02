@@ -7,29 +7,19 @@ import java.util.stream.Stream;
 /**
  * Post-kind discriminator for the community feed.
  *
- * <p>Note: "Post" here means the conceptual community-feed entry, not
- * {@link io.sitprep.sitprepapi.domain.GroupPost} (group chat posts).
- * The community-feed entity is currently stored as {@code Task} and
- * will be renamed to {@code Post} in Phase 3b Session 2 — see
- * {@code docs/WIP_POST_RENAME.md}.</p>
+ * <p>Note: this is the discriminator on {@link io.sitprep.sitprepapi.domain.Post}
+ * (community-feed posts), not {@link io.sitprep.sitprepapi.domain.GroupPost}
+ * (group chat posts). The {@code Post} entity backs the {@code task}
+ * table — table name preserved across the Phase 3b rename to avoid a
+ * DB migration. {@code Post.kind} is the discriminator that determines
+ * how the row is rendered + which composer flow created it.</p>
  *
- * <p>The feed entity is stored as {@code Task} for historical reasons,
- * but {@code Task.kind} is the discriminator that determines how the
- * row is rendered + which composer flow created it. A "post" is the
- * canonical user-facing concept; "task" is the persistence shape that
- * happens to back it.</p>
- *
- * <p>Pre-2026-05-03 the kind vocabulary was a free-form string
- * validated only at the service layer (see {@code TaskService.ALLOWED_KINDS}).
- * That worked but offered no IDE auto-completion, no compile-time
- * misspelling protection, and no central reference for what kinds
- * exist. This enum is the typed source of truth — the service
- * validation is now a thin wrapper around {@link #isValid(String)}.</p>
- *
- * <p>The enum carries the wire string ({@link #wire()}) explicitly
- * because some kinds use kebab-case ({@code lost-found},
- * {@code blog-promo}) which can't be Java enum names. The wire string
- * is what FE + DB + REST surfaces all see.</p>
+ * <p>This enum is the typed source of truth for the kind vocabulary —
+ * the service validation is a thin wrapper around {@link #isValid(String)}.
+ * The wire string ({@link #wire()}) is explicit because some kinds use
+ * kebab-case ({@code lost-found}, {@code blog-promo}) which can't be
+ * Java enum names. The wire string is what FE + DB + REST surfaces
+ * all see.</p>
  */
 public enum PostKind {
 
@@ -72,7 +62,7 @@ public enum PostKind {
     }
 
     /**
-     * Wire-string set used by the validation guard in TaskService. Built
+     * Wire-string set used by the validation guard in PostService. Built
      * once and held statically so each request doesn't rebuild it.
      */
     public static final Set<String> ALLOWED_WIRE_VALUES = Stream.of(values())
@@ -109,7 +99,7 @@ public enum PostKind {
      *
      * <p>Pre-2026-05-04 the FE composer synthesized a title from the
      * first 80 chars of description for {@code post}/{@code tip} so
-     * {@code Task.title}'s {@code nullable=false} constraint was
+     * {@code Post.title}'s {@code nullable=false} constraint was
      * satisfied. That produced a visible "bold-title-then-same-text-
      * in-body" duplicate on every neighbor share, since the synthesized
      * title was just the start of the description rendered twice. The

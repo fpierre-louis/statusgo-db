@@ -1,11 +1,11 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.TaskReaction;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.PostReaction;
 import io.sitprep.sitprepapi.dto.PostReactionDto;
-import io.sitprep.sitprepapi.dto.TaskReactionFrame;
-import io.sitprep.sitprepapi.repo.TaskReactionRepo;
-import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.dto.PostReactionFrame;
+import io.sitprep.sitprepapi.repo.PostReactionRepo;
+import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
@@ -20,13 +20,13 @@ import java.util.stream.Collectors;
 
 /**
  * Add / remove / load emoji reactions on tasks (community-feed posts).
- * Mirrors {@code GroupPostReactionService} so the eventual GroupPost/Task entity
+ * Mirrors {@code GroupPostReactionService} so the eventual GroupPost/Post entity
  * merge collapses both into one — same broadcast convention, same idempotent
  * add-or-no-op semantics, same {@link PostReactionDto} reuse for the roster
  * shape returned to the FE.
  *
  * <p>Persists to the {@code task_reaction} table; broadcasts a
- * {@link TaskReactionFrame} on the task's own topic
+ * {@link PostReactionFrame} on the task's own topic
  * ({@code /topic/group/{groupId}/tasks} or
  * {@code /topic/community/tasks/{zipBucket}}) after commit so other viewers
  * update live.</p>
@@ -36,20 +36,20 @@ import java.util.stream.Collectors;
  * extend without schema work.</p>
  */
 @Service
-public class TaskReactionService {
+public class PostReactionService {
 
-    /** Hard cap on emoji length — matches column length on TaskReaction.emoji. */
+    /** Hard cap on emoji length — matches column length on PostReaction.emoji. */
     private static final int MAX_EMOJI_LENGTH = 32;
 
     /** Default emoji used by the heart "Thank" UI affordance on feed cards. */
     public static final String THANK_EMOJI = "❤";
 
-    private final TaskReactionRepo reactionRepo;
-    private final TaskRepo taskRepo;
+    private final PostReactionRepo reactionRepo;
+    private final PostRepo taskRepo;
     private final WebSocketMessageSender ws;
 
-    public TaskReactionService(TaskReactionRepo reactionRepo,
-                               TaskRepo taskRepo,
+    public PostReactionService(PostReactionRepo reactionRepo,
+                               PostRepo taskRepo,
                                WebSocketMessageSender ws) {
         this.reactionRepo = reactionRepo;
         this.taskRepo = taskRepo;
@@ -60,9 +60,9 @@ public class TaskReactionService {
     public Map<String, List<PostReactionDto>> add(Long taskId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
-        Task task = loadTaskOr404(taskId);
+        Post task = loadTaskOr404(taskId);
 
-        Optional<TaskReaction> existing = reactionRepo
+        Optional<PostReaction> existing = reactionRepo
                 .findByTaskIdAndUserEmailIgnoreCaseAndEmoji(taskId, normalizedEmail, normalizedEmoji);
 
         Instant at;
@@ -71,13 +71,13 @@ public class TaskReactionService {
             // bump addedAt — just returns the current roster.
             at = existing.get().getAddedAt();
         } else {
-            TaskReaction r = new TaskReaction();
+            PostReaction r = new PostReaction();
             r.setTaskId(taskId);
             r.setUserEmail(normalizedEmail);
             r.setEmoji(normalizedEmoji);
             reactionRepo.save(r);
             at = r.getAddedAt();
-            broadcastAfterCommit(TaskReactionFrame.add(
+            broadcastAfterCommit(PostReactionFrame.add(
                     taskId, task.getGroupId(), task.getZipBucket(),
                     normalizedEmoji, normalizedEmail, at));
         }
@@ -89,11 +89,11 @@ public class TaskReactionService {
     public Map<String, List<PostReactionDto>> remove(Long taskId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
-        Task task = loadTaskOr404(taskId);
+        Post task = loadTaskOr404(taskId);
 
         int deleted = reactionRepo.deleteByTaskUserEmoji(taskId, normalizedEmail, normalizedEmoji);
         if (deleted > 0) {
-            broadcastAfterCommit(TaskReactionFrame.remove(
+            broadcastAfterCommit(PostReactionFrame.remove(
                     taskId, task.getGroupId(), task.getZipBucket(),
                     normalizedEmoji, normalizedEmail, Instant.now()));
         }
@@ -112,11 +112,11 @@ public class TaskReactionService {
      */
     public Map<Long, Map<String, List<PostReactionDto>>> loadByTaskIds(Collection<Long> taskIds) {
         if (taskIds == null || taskIds.isEmpty()) return Collections.emptyMap();
-        List<TaskReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
+        List<PostReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
         if (rows.isEmpty()) return Collections.emptyMap();
 
-        Map<Long, List<TaskReaction>> byTask = rows.stream()
-                .collect(Collectors.groupingBy(TaskReaction::getTaskId));
+        Map<Long, List<PostReaction>> byTask = rows.stream()
+                .collect(Collectors.groupingBy(PostReaction::getTaskId));
         Map<Long, Map<String, List<PostReactionDto>>> out = new HashMap<>(byTask.size());
         byTask.forEach((taskId, list) -> out.put(taskId, groupByEmoji(list)));
         return out;
@@ -124,8 +124,8 @@ public class TaskReactionService {
 
     /**
      * Heart-thank counts + viewer-thanked set in one cheap query each.
-     * Used by {@code TaskService} when shaping a feed listing — populates
-     * {@code thanksCount} and {@code viewerThanked} on every TaskDto so
+     * Used by {@code PostService} when shaping a feed listing — populates
+     * {@code thanksCount} and {@code viewerThanked} on every PostDto so
      * the FE doesn't need to fetch reactions separately for each card.
      *
      * <p>Returns a {@link ThankSummary} bundle so the listing path can
@@ -135,9 +135,9 @@ public class TaskReactionService {
         if (taskIds == null || taskIds.isEmpty()) {
             return new ThankSummary(Map.of(), Set.of());
         }
-        List<TaskReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
+        List<PostReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
         Map<Long, Integer> counts = new HashMap<>();
-        for (TaskReaction r : rows) {
+        for (PostReaction r : rows) {
             if (THANK_EMOJI.equals(r.getEmoji())) {
                 counts.merge(r.getTaskId(), 1, Integer::sum);
             }
@@ -165,20 +165,20 @@ public class TaskReactionService {
 
     // ------------------------------------------------------------------
 
-    private Map<String, List<PostReactionDto>> groupByEmoji(List<TaskReaction> rows) {
+    private Map<String, List<PostReactionDto>> groupByEmoji(List<PostReaction> rows) {
         if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
-        rows.sort(Comparator.comparing(TaskReaction::getAddedAt));
+        rows.sort(Comparator.comparing(PostReaction::getAddedAt));
         Map<String, List<PostReactionDto>> out = new LinkedHashMap<>();
-        for (TaskReaction r : rows) {
+        for (PostReaction r : rows) {
             out.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>())
                     .add(new PostReactionDto(r.getUserEmail(), r.getAddedAt()));
         }
         return out;
     }
 
-    private Task loadTaskOr404(Long taskId) {
+    private Post loadTaskOr404(Long taskId) {
         return taskRepo.findById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
     }
 
     private static String sanitizeEmoji(String emoji) {
@@ -202,7 +202,7 @@ public class TaskReactionService {
         return email.trim().toLowerCase();
     }
 
-    private void broadcastAfterCommit(TaskReactionFrame frame) {
+    private void broadcastAfterCommit(PostReactionFrame frame) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { ws.sendTaskReaction(frame); }

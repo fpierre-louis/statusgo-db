@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.PostReactionDto;
-import io.sitprep.sitprepapi.service.TaskReactionService;
+import io.sitprep.sitprepapi.service.PostReactionService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Emoji reactions on tasks (community-feed posts). Mirrors
- * {@code GroupPostReactionResource} so the eventual GroupPost/Task entity merge
+ * {@code GroupPostReactionResource} so the eventual GroupPost/Post entity merge
  * collapses both surfaces with no client-side change beyond a path swap.
  *
  * <p>The viewer is always the verified Firebase token email — clients
@@ -29,11 +29,11 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/tasks/{taskId}/reactions")
-public class TaskReactionResource {
+public class PostReactionResource {
 
-    private final TaskReactionService service;
+    private final PostReactionService service;
 
-    public TaskReactionResource(TaskReactionService service) {
+    public PostReactionResource(PostReactionService service) {
         this.service = service;
     }
 

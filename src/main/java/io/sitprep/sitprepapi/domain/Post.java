@@ -40,7 +40,7 @@ import java.util.Set;
                 @Index(name = "idx_task_claimer", columnList = "claimed_by_email")
         }
 )
-public class Task {
+public class Post {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -63,16 +63,16 @@ public class Task {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
-    private TaskStatus status;
+    private PostStatus status;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
-    private TaskPriority priority;
+    private PostPriority priority;
 
     /**
      * Post kind — the row's role in the community feed. Per
      * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Feed: post types
-     * beyond Asks", the same {@code Task} entity now carries the full
+     * beyond Asks", the same {@code Post} entity now carries the full
      * vocabulary so the feed surface can render mixed content via one
      * pipeline.
      *
@@ -167,7 +167,7 @@ public class Task {
     // -----------------------------------------------------------------
     // Sponsored content fields — docs/SPONSORED_AND_ALERT_MODE.md
     // build-order step 3. v1 sponsorship is admin-flagged (no self-
-    // serve creation flow yet); these columns let TaskService.discover-
+    // serve creation flow yet); these columns let PostService.discover-
     // Community apply mode-aware suppression rules per spec:
     //
     //   • mode=calm        → sponsored shown alongside organic
@@ -266,8 +266,8 @@ public class Task {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
         updatedAt = now;
-        if (status == null) status = TaskStatus.OPEN;
-        if (priority == null) priority = TaskPriority.MEDIUM;
+        if (status == null) status = PostStatus.OPEN;
+        if (priority == null) priority = PostPriority.MEDIUM;
     }
 
     @PreUpdate
@@ -275,11 +275,11 @@ public class Task {
         updatedAt = Instant.now();
     }
 
-    public enum TaskStatus {
+    public enum PostStatus {
         OPEN, CLAIMED, IN_PROGRESS, DONE, CANCELLED
     }
 
-    public enum TaskPriority {
+    public enum PostPriority {
         LOW, MEDIUM, HIGH, URGENT
     }
 }

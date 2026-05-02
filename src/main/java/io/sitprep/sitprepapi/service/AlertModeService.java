@@ -3,9 +3,9 @@ package io.sitprep.sitprepapi.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.AlertModeState;
-import io.sitprep.sitprepapi.domain.Task;
+import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.repo.AlertModeStateRepo;
-import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
 import org.slf4j.Logger;
@@ -89,13 +89,13 @@ public class AlertModeService {
 
     private final AlertIngestService ingest;
     private final AlertModeStateRepo modeRepo;
-    private final TaskRepo taskRepo;
+    private final PostRepo taskRepo;
     private final NominatimGeocodeService geocode;
     private final ObjectMapper json = new ObjectMapper();
 
     public AlertModeService(AlertIngestService ingest,
                             AlertModeStateRepo modeRepo,
-                            TaskRepo taskRepo,
+                            PostRepo taskRepo,
                             NominatimGeocodeService geocode) {
         this.ingest = ingest;
         this.modeRepo = modeRepo;
@@ -191,7 +191,7 @@ public class AlertModeService {
 
     /**
      * Cron tick — walk all populated cells (distinct zipBucket on
-     * Task, since every community task gets a reverse-geocode at
+     * Post, since every community task gets a reverse-geocode at
      * create time) and recompute their state. PT5M cadence matches
      * the alert ingest poll, so a brand-new NWS alert can show up in
      * the right cell's mode within 5–10 min.
@@ -216,9 +216,9 @@ public class AlertModeService {
         int n = 0;
         for (String b : buckets) {
             try {
-                List<Task> anchors = taskRepo.findAnchorTasksByZipBucket(b);
+                List<Post> anchors = taskRepo.findAnchorTasksByZipBucket(b);
                 if (anchors.isEmpty()) continue;
-                Task anchor = anchors.get(0);
+                Post anchor = anchors.get(0);
                 evaluateForCell(b, anchor.getLatitude(), anchor.getLongitude());
                 n++;
             } catch (Exception inner) {

@@ -2,12 +2,12 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.Follow;
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.Task.TaskStatus;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.TaskDto;
+import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.repo.FollowRepo;
-import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
@@ -23,8 +23,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Task / request-for-help service. Three scopes (group / community-personal /
- * group-claimed-community) share one {@link Task} entity. Scope is implicit
+ * Post / request-for-help service. Three scopes (group / community-personal /
+ * group-claimed-community) share one {@link Post} entity. Scope is implicit
  * from groupId / claimedByGroupId nullability — see entity Javadoc.
  *
  * <p>This service does the create + lifecycle transitions (claim, complete,
@@ -36,15 +36,15 @@ import java.util.stream.Collectors;
  * </ul>
  */
 @Service
-public class TaskService {
+public class PostService {
 
-    private static final Logger log = LoggerFactory.getLogger(TaskService.class);
+    private static final Logger log = LoggerFactory.getLogger(PostService.class);
 
     /** Mean Earth radius in km — matches CommunityDiscoverService. */
     private static final double EARTH_RADIUS_KM = 6371.0088;
 
     /**
-     * Authorized post kinds — see Task.kind Javadoc + the spec
+     * Authorized post kinds — see Post.kind Javadoc + the spec
      * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Feed: post types
      * beyond Asks". Lowercased.
      *
@@ -56,24 +56,24 @@ public class TaskService {
      */
     private static final Set<String> AUTHORIZED_KINDS = PostKind.ALLOWED_WIRE_VALUES;
 
-    private final TaskRepo taskRepo;
+    private final PostRepo taskRepo;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
     private final AlertModeService alertModeService;
     private final FollowRepo followRepo;
     private final BlockService blockService;
-    private final TaskReactionService reactionService;
-    private final TaskCommentService commentService;
+    private final PostReactionService reactionService;
+    private final PostCommentService commentService;
 
-    public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
+    public PostService(PostRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
                        WebSocketMessageSender ws,
                        AlertModeService alertModeService,
                        FollowRepo followRepo,
                        BlockService blockService,
-                       TaskReactionService reactionService,
-                       TaskCommentService commentService) {
+                       PostReactionService reactionService,
+                       PostCommentService commentService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -103,11 +103,11 @@ public class TaskService {
      * cap-50 trim, so suppressed sponsored doesn't take a slot a real
      * organic ask could occupy.</p>
      */
-    private List<TaskDto> applySponsoredSuppression(List<TaskDto> tasks, String mode) {
+    private List<PostDto> applySponsoredSuppression(List<PostDto> tasks, String mode) {
         if (mode == null || AlertModeService.CALM.equalsIgnoreCase(mode)) return tasks;
         boolean isCrisis = AlertModeService.CRISIS.equalsIgnoreCase(mode);
-        List<TaskDto> out = new ArrayList<>(tasks.size());
-        for (TaskDto t : tasks) {
+        List<PostDto> out = new ArrayList<>(tasks.size());
+        for (PostDto t : tasks) {
             if (!t.sponsored()) {
                 out.add(t);
                 continue;
@@ -120,7 +120,7 @@ public class TaskService {
     }
 
     /**
-     * Batch-fold author profile fields into a list of TaskDto. Honors
+     * Batch-fold author profile fields into a list of PostDto. Honors
      * the codebase principle "backend shapes the data, frontend just
      * displays" — feed surfaces render the standard post anatomy
      * (avatar + name + 3-dot menu) without fanning out a separate
@@ -131,10 +131,10 @@ public class TaskService {
      * through unchanged with null author fields — the FE handles that
      * by falling back to email-as-name + initials.</p>
      */
-    private List<TaskDto> withAuthors(List<TaskDto> dtos) {
+    private List<PostDto> withAuthors(List<PostDto> dtos) {
         if (dtos == null || dtos.isEmpty()) return dtos;
         List<String> emails = dtos.stream()
-                .map(TaskDto::requesterEmail)
+                .map(PostDto::requesterEmail)
                 .filter(Objects::nonNull)
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .distinct()
@@ -166,19 +166,19 @@ public class TaskService {
      * read where viewer identity isn't available); {@code viewerThanked}
      * defaults to false everywhere. Counts always populate regardless.</p>
      *
-     * <p>Phase 2 (2026-05-04) wires comment counts via {@code TaskCommentService.loadCountsByTaskIds}
+     * <p>Phase 2 (2026-05-04) wires comment counts via {@code PostCommentService.loadCountsByTaskIds}
      * — one batched count query per page-load alongside the reaction summary.
      * Tasks with no comments are absent from the count map; we default to 0
      * for missing keys so the FE renders the comment icon without a count.</p>
      */
-    private List<TaskDto> withEngagement(List<TaskDto> dtos, String viewerEmail) {
+    private List<PostDto> withEngagement(List<PostDto> dtos, String viewerEmail) {
         if (dtos == null || dtos.isEmpty()) return dtos;
         List<Long> ids = dtos.stream()
-                .map(TaskDto::id)
+                .map(PostDto::id)
                 .filter(Objects::nonNull)
                 .toList();
         if (ids.isEmpty()) return dtos;
-        TaskReactionService.ThankSummary summary =
+        PostReactionService.ThankSummary summary =
                 reactionService.loadThankSummary(ids, viewerEmail);
         Map<Long, Integer> commentCounts = commentService.loadCountsByTaskIds(ids);
         return dtos.stream()
@@ -198,19 +198,19 @@ public class TaskService {
     // ---------------------------------------------------------------------
 
     @Transactional
-    public TaskDto create(Task incoming, String requesterEmail) {
+    public PostDto create(Post incoming, String requesterEmail) {
         if (requesterEmail == null || requesterEmail.isBlank()) {
             throw new IllegalArgumentException("requesterEmail required");
         }
 
-        Task t = new Task();
+        Post t = new Post();
         t.setRequesterEmail(requesterEmail.trim().toLowerCase());
         t.setGroupId(incoming.getGroupId()); // null = community/personal scope
         // Title goes through per-kind validation below; description first
         // so the validation can require one when title is absent.
         t.setDescription(incoming.getDescription());
-        t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : TaskStatus.OPEN);
-        t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Task.TaskPriority.MEDIUM);
+        t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : PostStatus.OPEN);
+        t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Post.PostPriority.MEDIUM);
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
         t.setDueAt(incoming.getDueAt());
@@ -299,12 +299,12 @@ public class TaskService {
                     t.setPlaceLabel(p.shortLabel());
                 }
             } catch (Exception e) {
-                log.debug("Task geo enrichment failed: {}", e.getMessage());
+                log.debug("Post geo enrichment failed: {}", e.getMessage());
             }
         }
 
-        Task saved = taskRepo.save(t);
-        TaskDto dto = TaskDto.fromEntity(saved);
+        Post saved = taskRepo.save(t);
+        PostDto dto = PostDto.fromEntity(saved);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -314,37 +314,37 @@ public class TaskService {
     // ---------------------------------------------------------------------
 
     @Transactional(readOnly = true)
-    public List<TaskDto> listByGroup(String groupId, TaskStatus status, String viewerEmail) {
+    public List<PostDto> listByGroup(String groupId, PostStatus status, String viewerEmail) {
         if (groupId == null || groupId.isBlank()) return List.of();
-        List<Task> rows = (status == null)
+        List<Post> rows = (status == null)
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
-        List<TaskDto> dtos = rows.stream().map(TaskDto::fromEntity).collect(Collectors.toList());
+        List<PostDto> dtos = rows.stream().map(PostDto::fromEntity).collect(Collectors.toList());
         return withEngagement(withAuthors(dtos), viewerEmail);
     }
 
     /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
     @Transactional(readOnly = true)
-    public List<TaskDto> listByGroup(String groupId, TaskStatus status) {
+    public List<PostDto> listByGroup(String groupId, PostStatus status) {
         return listByGroup(groupId, status, null);
     }
 
     @Transactional(readOnly = true)
-    public List<TaskDto> listRequestedBy(String email) {
+    public List<PostDto> listRequestedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
         // Requester is the viewer for this surface — viewerThanked uses the
         // same email so a user's own thanks render correctly on their list.
-        List<TaskDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).collect(Collectors.toList());
+        List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(PostDto::fromEntity).collect(Collectors.toList());
         return withEngagement(withAuthors(dtos), email);
     }
 
     @Transactional(readOnly = true)
-    public List<TaskDto> listClaimedBy(String email) {
+    public List<PostDto> listClaimedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
         // Claimer is the viewer for this surface (same reasoning as listRequestedBy).
-        List<TaskDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).collect(Collectors.toList());
+        List<PostDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(PostDto::fromEntity).collect(Collectors.toList());
         return withEngagement(withAuthors(dtos), email);
     }
 
@@ -367,10 +367,10 @@ public class TaskService {
      * (back-compat for callers that don't carry viewer identity).</p>
      */
     @Transactional(readOnly = true)
-    public List<TaskDto> discoverCommunity(double lat, double lng, double radiusKm,
-                                           Set<TaskStatus> statuses, String viewerEmail) {
-        Set<TaskStatus> wanted = (statuses == null || statuses.isEmpty())
-                ? EnumSet.of(TaskStatus.OPEN, TaskStatus.CLAIMED) : statuses;
+    public List<PostDto> discoverCommunity(double lat, double lng, double radiusKm,
+                                           Set<PostStatus> statuses, String viewerEmail) {
+        Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
+                ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : statuses;
 
         // Resolve the viewer's followed-emails set ONCE per request. Lower-
         // cased to match the Follow column convention. Empty when the viewer
@@ -398,15 +398,15 @@ public class TaskService {
         // No bucket pre-filter for now (we don't know the viewer's zip ahead
         // of the request). Service-layer Haversine + status filter is fine
         // at SitPrep scale; add bucket prefilter when row counts grow.
-        List<Task> candidates = taskRepo.findCommunityCandidates(wanted, null);
+        List<Post> candidates = taskRepo.findCommunityCandidates(wanted, null);
 
         // Walk candidates ONCE; bucket each into within-radius vs follow-
         // source-out-of-radius vs drop. Geo-less rows are community-wide
         // by construction — they belong in every viewer's feed (existing
         // behavior, preserved here verbatim).
-        List<TaskDto> within = new ArrayList<>();
-        List<TaskDto> followTail = new ArrayList<>();
-        for (Task t : candidates) {
+        List<PostDto> within = new ArrayList<>();
+        List<PostDto> followTail = new ArrayList<>();
+        for (Post t : candidates) {
             // Block filter — symmetric, applied before any geo math so
             // we don't waste cycles on rows the viewer will never see.
             String author = t.getRequesterEmail();
@@ -414,17 +414,17 @@ public class TaskService {
             if (authorNormalized != null && blockSet.contains(authorNormalized)) continue;
 
             if (t.getLatitude() == null || t.getLongitude() == null) {
-                within.add(TaskDto.fromEntity(t, null));
+                within.add(PostDto.fromEntity(t, null));
                 continue;
             }
             double d = haversineKm(lat, lng, t.getLatitude(), t.getLongitude());
             if (d <= radiusKm) {
-                within.add(TaskDto.fromEntity(t, roundKm(d)));
+                within.add(PostDto.fromEntity(t, roundKm(d)));
                 continue;
             }
             // Out-of-radius — only include if author is followed.
             if (authorNormalized != null && followedEmails.contains(authorNormalized)) {
-                followTail.add(TaskDto.fromEntity(t, roundKm(d)).asFollowSource());
+                followTail.add(PostDto.fromEntity(t, roundKm(d)).asFollowSource());
             }
         }
         // null distance sorts last (after all geo-tagged within-radius tasks),
@@ -443,7 +443,7 @@ public class TaskService {
             return bi.compareTo(ai);
         });
 
-        List<TaskDto> merged = new ArrayList<>(within.size() + followTail.size());
+        List<PostDto> merged = new ArrayList<>(within.size() + followTail.size());
         merged.addAll(within);
         merged.addAll(followTail);
 
@@ -459,12 +459,12 @@ public class TaskService {
             // If mode lookup fails, default to calm so we don't
             // accidentally over-suppress on a misbehaving Nominatim or
             // DB blip.
-            log.debug("TaskService: mode lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
+            log.debug("PostService: mode lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
             cellMode = AlertModeService.CALM;
         }
-        List<TaskDto> filtered = applySponsoredSuppression(merged, cellMode);
+        List<PostDto> filtered = applySponsoredSuppression(merged, cellMode);
 
-        List<TaskDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
+        List<PostDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
         return withEngagement(withAuthors(capped), viewerEmail);
     }
 
@@ -479,60 +479,60 @@ public class TaskService {
      * the caller has been authorized.
      */
     @Transactional
-    public TaskDto claim(Long taskId, String claimerGroupId, String claimerEmail) {
-        Task t = mustExist(taskId);
-        if (t.getStatus() != TaskStatus.OPEN || t.getClaimedByGroupId() != null) {
-            throw new IllegalStateException("Task is not open for claim");
+    public PostDto claim(Long taskId, String claimerGroupId, String claimerEmail) {
+        Post t = mustExist(taskId);
+        if (t.getStatus() != PostStatus.OPEN || t.getClaimedByGroupId() != null) {
+            throw new IllegalStateException("Post is not open for claim");
         }
         t.setClaimedByGroupId(claimerGroupId);
         t.setClaimedByEmail(claimerEmail == null ? null : claimerEmail.trim().toLowerCase());
-        t.setStatus(TaskStatus.CLAIMED);
+        t.setStatus(PostStatus.CLAIMED);
         t.setClaimedAt(Instant.now());
         return saveAndBroadcast(t);
     }
 
     /** Mark in-progress (claimer is actively working). */
     @Transactional
-    public TaskDto markInProgress(Long taskId) {
-        Task t = mustExist(taskId);
-        if (t.getStatus() != TaskStatus.CLAIMED) {
-            throw new IllegalStateException("Task must be claimed before marking in-progress");
+    public PostDto markInProgress(Long taskId) {
+        Post t = mustExist(taskId);
+        if (t.getStatus() != PostStatus.CLAIMED) {
+            throw new IllegalStateException("Post must be claimed before marking in-progress");
         }
-        t.setStatus(TaskStatus.IN_PROGRESS);
+        t.setStatus(PostStatus.IN_PROGRESS);
         return saveAndBroadcast(t);
     }
 
     /** Claimer marks complete. */
     @Transactional
-    public TaskDto complete(Long taskId) {
-        Task t = mustExist(taskId);
-        if (t.getStatus() == TaskStatus.DONE || t.getStatus() == TaskStatus.CANCELLED) {
-            throw new IllegalStateException("Task is already closed");
+    public PostDto complete(Long taskId) {
+        Post t = mustExist(taskId);
+        if (t.getStatus() == PostStatus.DONE || t.getStatus() == PostStatus.CANCELLED) {
+            throw new IllegalStateException("Post is already closed");
         }
-        t.setStatus(TaskStatus.DONE);
+        t.setStatus(PostStatus.DONE);
         t.setCompletedAt(Instant.now());
         return saveAndBroadcast(t);
     }
 
     /** Requester cancels. Frees claimedBy state in case it was claimed. */
     @Transactional
-    public TaskDto cancel(Long taskId) {
-        Task t = mustExist(taskId);
-        if (t.getStatus() == TaskStatus.DONE) {
+    public PostDto cancel(Long taskId) {
+        Post t = mustExist(taskId);
+        if (t.getStatus() == PostStatus.DONE) {
             throw new IllegalStateException("Cannot cancel a completed task");
         }
-        t.setStatus(TaskStatus.CANCELLED);
+        t.setStatus(PostStatus.CANCELLED);
         return saveAndBroadcast(t);
     }
 
     /** Reopen a cancelled task — clears claimer state. */
     @Transactional
-    public TaskDto reopen(Long taskId) {
-        Task t = mustExist(taskId);
-        if (t.getStatus() != TaskStatus.CANCELLED) {
+    public PostDto reopen(Long taskId) {
+        Post t = mustExist(taskId);
+        if (t.getStatus() != PostStatus.CANCELLED) {
             throw new IllegalStateException("Only cancelled tasks can be reopened");
         }
-        t.setStatus(TaskStatus.OPEN);
+        t.setStatus(PostStatus.OPEN);
         t.setClaimedByGroupId(null);
         t.setClaimedByEmail(null);
         t.setClaimedAt(null);
@@ -545,8 +545,8 @@ public class TaskService {
      * claimer*, claimedAt, completedAt) flow through dedicated methods.
      */
     @Transactional
-    public TaskDto patch(Long taskId, Task patch) {
-        Task t = mustExist(taskId);
+    public PostDto patch(Long taskId, Post patch) {
+        Post t = mustExist(taskId);
         if (patch.getTitle() != null) t.setTitle(patch.getTitle());
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
@@ -566,7 +566,7 @@ public class TaskService {
 
     @Transactional
     public void delete(Long taskId) {
-        Task t = taskRepo.findById(taskId).orElse(null);
+        Post t = taskRepo.findById(taskId).orElse(null);
         if (t == null) return;
         String groupId = t.getGroupId();
         String zipBucket = t.getZipBucket();
@@ -588,14 +588,14 @@ public class TaskService {
     // pre-commit state if the transaction rolls back.
     // ---------------------------------------------------------------------
 
-    private TaskDto saveAndBroadcast(Task t) {
-        Task saved = taskRepo.save(t);
-        TaskDto dto = TaskDto.fromEntity(saved);
+    private PostDto saveAndBroadcast(Post t) {
+        Post saved = taskRepo.save(t);
+        PostDto dto = PostDto.fromEntity(saved);
         broadcastAfterCommit(dto);
         return dto;
     }
 
-    private void broadcastAfterCommit(TaskDto dto) {
+    private void broadcastAfterCommit(PostDto dto) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 try {
@@ -613,7 +613,7 @@ public class TaskService {
 
     /** For resource-layer ownership / role checks. */
     @Transactional(readOnly = true)
-    public Optional<Task> findById(Long id) {
+    public Optional<Post> findById(Long id) {
         return id == null ? Optional.empty() : taskRepo.findById(id);
     }
 
@@ -624,19 +624,19 @@ public class TaskService {
      * reactions separately.
      */
     @Transactional(readOnly = true)
-    public Optional<TaskDto> findDtoById(Long id, String viewerEmail) {
+    public Optional<PostDto> findDtoById(Long id, String viewerEmail) {
         if (id == null) return Optional.empty();
         return taskRepo.findById(id)
-                .map(TaskDto::fromEntity)
+                .map(PostDto::fromEntity)
                 .map(d -> {
-                    List<TaskDto> folded = withEngagement(withAuthors(List.of(d)), viewerEmail);
+                    List<PostDto> folded = withEngagement(withAuthors(List.of(d)), viewerEmail);
                     return folded.isEmpty() ? d : folded.get(0);
                 });
     }
 
-    private Task mustExist(Long id) {
+    private Post mustExist(Long id) {
         return taskRepo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Task not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Post not found: " + id));
     }
 
     private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {

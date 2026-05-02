@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.repo;
 
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.Task.TaskStatus;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,19 +9,19 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Set;
 
-public interface TaskRepo extends JpaRepository<Task, Long> {
+public interface PostRepo extends JpaRepository<Post, Long> {
 
     /** Group-scope feed — tasks bound to a single group, newest first. */
-    List<Task> findByGroupIdOrderByCreatedAtDesc(String groupId);
+    List<Post> findByGroupIdOrderByCreatedAtDesc(String groupId);
 
     /** Group-scope feed filtered by status. */
-    List<Task> findByGroupIdAndStatusOrderByCreatedAtDesc(String groupId, TaskStatus status);
+    List<Post> findByGroupIdAndStatusOrderByCreatedAtDesc(String groupId, PostStatus status);
 
     /** Anything the requester posted. */
-    List<Task> findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(String requesterEmail);
+    List<Post> findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(String requesterEmail);
 
     /** Anything the user has claimed (across groups). */
-    List<Task> findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(String claimedByEmail);
+    List<Post> findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(String claimedByEmail);
 
     /**
      * Community-scope candidates: groupId IS NULL plus zip-bucket pre-filter.
@@ -29,14 +29,14 @@ public interface TaskRepo extends JpaRepository<Task, Long> {
      * lets the page show OPEN-only by default.
      */
     @Query("""
-        SELECT t FROM Task t
+        SELECT t FROM Post t
          WHERE t.groupId IS NULL
            AND t.status IN :statuses
            AND (:zipBuckets IS NULL OR t.zipBucket IN :zipBuckets)
          ORDER BY t.createdAt DESC
         """)
-    List<Task> findCommunityCandidates(
-            @Param("statuses") Set<TaskStatus> statuses,
+    List<Post> findCommunityCandidates(
+            @Param("statuses") Set<PostStatus> statuses,
             @Param("zipBuckets") Set<String> zipBuckets
     );
 
@@ -49,7 +49,7 @@ public interface TaskRepo extends JpaRepository<Task, Long> {
      * posted/received help in a cell counts as "user activity here".
      */
     @Query("""
-        SELECT DISTINCT t.zipBucket FROM Task t
+        SELECT DISTINCT t.zipBucket FROM Post t
          WHERE t.zipBucket IS NOT NULL
            AND t.latitude IS NOT NULL
            AND t.longitude IS NOT NULL
@@ -60,15 +60,15 @@ public interface TaskRepo extends JpaRepository<Task, Long> {
      * Anchor lat/lng for a zip-bucket — picks any task's coords. For
      * mode evaluation we just need a representative point inside the
      * cell to query the alert ingest snapshot's point-radius filter
-     * against. Returns a single Task (caller reads getLatitude /
+     * against. Returns a single Post (caller reads getLatitude /
      * getLongitude) or empty when the bucket is unpopulated.
      */
     @Query("""
-        SELECT t FROM Task t
+        SELECT t FROM Post t
          WHERE t.zipBucket = :zipBucket
            AND t.latitude IS NOT NULL
            AND t.longitude IS NOT NULL
          ORDER BY t.createdAt DESC
         """)
-    List<Task> findAnchorTasksByZipBucket(@Param("zipBucket") String zipBucket);
+    List<Post> findAnchorTasksByZipBucket(@Param("zipBucket") String zipBucket);
 }

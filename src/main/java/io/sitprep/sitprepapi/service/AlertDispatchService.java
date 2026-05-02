@@ -4,11 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.AlertPost;
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.Task.TaskPriority;
-import io.sitprep.sitprepapi.domain.Task.TaskStatus;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.Post.PostPriority;
+import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.TaskDto;
+import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.repo.AlertPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
@@ -37,8 +37,8 @@ import java.util.Set;
  *
  * <p>When an active alert intersects a populated geocell, the SitPrep
  * system user authors a community post in that cell. Posts use the
- * existing {@link Task} entity (kind = "system-alert" via tags) so they
- * flow through the canonical {@code TaskService.discoverCommunity} feed
+ * existing {@link Post} entity (kind = "system-alert" via tags) so they
+ * flow through the canonical {@code PostService.discoverCommunity} feed
  * + STOMP broadcast on {@code /topic/community/tasks/{zipBucket}} + the
  * shared {@code FeedItemShell} render — no separate entity or render
  * path. Future migration to a unified {@code CommunityPost} per
@@ -50,7 +50,7 @@ import java.util.Set;
  * application-side {@link AlertPostRepo#findByAlertIdAndGeocellId}
  * check ahead of the create call. Geocell is the
  * {@code zipBucket} from a Nominatim reverse-geocode of the alert's
- * first-vertex coord — same key the {@code TaskService} community
+ * first-vertex coord — same key the {@code PostService} community
  * feed uses.</p>
  *
  * <p><b>v1 scope:</b> NWS warnings (Severe + Extreme) and USGS quakes
@@ -70,7 +70,7 @@ public class AlertDispatchService {
 
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
-    private final TaskService taskService;
+    private final PostService taskService;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final ObjectMapper json = new ObjectMapper();
@@ -79,7 +79,7 @@ public class AlertDispatchService {
 
     public AlertDispatchService(AlertIngestService ingest,
                                 AlertPostRepo alertPostRepo,
-                                TaskService taskService,
+                                PostService taskService,
                                 UserInfoRepo userInfoRepo,
                                 NominatimGeocodeService geocode) {
         this.ingest = ingest;
@@ -119,7 +119,7 @@ public class AlertDispatchService {
      * Idempotent system-user seed. Reserved {@code system@sitprep.app}
      * with display name "SitPrep" + the SitPrep avatar so auto-posts
      * render with a recognizable author through the existing
-     * {@code TaskService.withAuthors} pipeline. Runs once at boot;
+     * {@code PostService.withAuthors} pipeline. Runs once at boot;
      * unique constraint on userEmail catches concurrent seeds across
      * pod restarts.
      */
@@ -177,8 +177,8 @@ public class AlertDispatchService {
      *       already has a row.</li>
      *   <li>Match a template; skip when no template matches (severity
      *       below threshold, source not configured, etc.).</li>
-     *   <li>Build a Task body from the template + create via
-     *       {@link TaskService#create} (which handles WS broadcast +
+     *   <li>Build a Post body from the template + create via
+     *       {@link PostService#create} (which handles WS broadcast +
      *       zipBucket population). Persist an AlertPost tracking row.</li>
      * </ol>
      */
@@ -217,8 +217,8 @@ public class AlertDispatchService {
                 if (tplOpt.isEmpty()) continue;
                 DispatchTemplate tpl = tplOpt.get();
 
-                Task body = buildAutoPostTask(a, tpl, coord);
-                TaskDto dto = taskService.create(body, SYSTEM_EMAIL);
+                Post body = buildAutoPostTask(a, tpl, coord);
+                PostDto dto = taskService.create(body, SYSTEM_EMAIL);
 
                 AlertPost ap = new AlertPost();
                 ap.setAlertId(alertId);
@@ -268,7 +268,7 @@ public class AlertDispatchService {
      * for whether the alert is still active, and for cleared alerts:
      *
      * <ol>
-     *   <li>{@code TaskService.cancel(postId)} on each parent Task —
+     *   <li>{@code PostService.cancel(postId)} on each parent Post —
      *       sets status CANCELLED + broadcasts on the same STOMP topic
      *       that delivered the create. Connected clients drop the task
      *       from their list per {@code useCommunityTasks}'s WS handler.</li>
@@ -321,13 +321,13 @@ public class AlertDispatchService {
 
                 for (AlertPost ap : rows) {
                     try {
-                        // Cancel the parent Task — broadcasts via
-                        // TaskService.saveAndBroadcast so connected
+                        // Cancel the parent Post — broadcasts via
+                        // PostService.saveAndBroadcast so connected
                         // clients drop it from useCommunityTasks.
                         taskService.cancel(ap.getPostId());
                     } catch (Exception inner) {
-                        // Task may already be CANCELLED (manual cancel)
-                        // or DONE (TaskService.cancel rejects DONE).
+                        // Post may already be CANCELLED (manual cancel)
+                        // or DONE (PostService.cancel rejects DONE).
                         // Either way, we still want to mark the AlertPost
                         // resolved so the next tick stops trying.
                         log.debug("AlertDispatch: cancel skipped for task {}: {}",
@@ -349,15 +349,15 @@ public class AlertDispatchService {
     // Private helpers
     // ---------------------------------------------------------------
 
-    private Task buildAutoPostTask(NormalizedAlert a, DispatchTemplate tpl, double[] coord) {
-        Task t = new Task();
+    private Post buildAutoPostTask(NormalizedAlert a, DispatchTemplate tpl, double[] coord) {
+        Post t = new Post();
         // Title and body filled from the template, with simple slot
         // substitution. {name} pulls from headline; {mag}/{distance}
         // are USGS-specific (parsed from headline).
         t.setTitle(tpl.headline);
         t.setDescription(fillBody(tpl.body, a));
-        t.setPriority(TaskPriority.URGENT);
-        t.setStatus(TaskStatus.OPEN);
+        t.setPriority(PostPriority.URGENT);
+        t.setStatus(PostStatus.OPEN);
         t.setLatitude(coord[1]);   // lat
         t.setLongitude(coord[0]);  // lng
         // groupId left null → community scope

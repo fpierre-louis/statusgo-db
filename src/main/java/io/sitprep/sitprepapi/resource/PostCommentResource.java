@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.dto.TaskCommentDto;
-import io.sitprep.sitprepapi.service.TaskCommentService;
+import io.sitprep.sitprepapi.dto.PostCommentDto;
+import io.sitprep.sitprepapi.service.PostCommentService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,11 +36,11 @@ import java.util.Optional;
  * additionally verify the caller authored the target comment.</p>
  */
 @RestController
-public class TaskCommentResource {
+public class PostCommentResource {
 
-    private final TaskCommentService service;
+    private final PostCommentService service;
 
-    public TaskCommentResource(TaskCommentService service) {
+    public PostCommentResource(PostCommentService service) {
         this.service = service;
     }
 
@@ -49,25 +49,25 @@ public class TaskCommentResource {
     // -----------------------------------------------------------------
 
     @PostMapping("/api/tasks/{taskId}/comments")
-    public ResponseEntity<TaskCommentDto> createComment(
+    public ResponseEntity<PostCommentDto> createComment(
             @PathVariable Long taskId,
-            @RequestBody TaskCommentDto dto) {
+            @RequestBody PostCommentDto dto) {
         String author = AuthUtils.requireAuthenticatedEmail();
         // Always trust the token over the body — body author is informational.
         dto.setAuthor(author);
         dto.setTaskId(taskId);
-        TaskCommentDto saved = service.createCommentFromDto(dto);
+        PostCommentDto saved = service.createCommentFromDto(dto);
         return ResponseEntity.ok(saved);
     }
 
     @GetMapping("/api/tasks/{taskId}/comments")
-    public ResponseEntity<List<TaskCommentDto>> getCommentsByTaskId(@PathVariable Long taskId) {
+    public ResponseEntity<List<PostCommentDto>> getCommentsByTaskId(@PathVariable Long taskId) {
         AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(service.getCommentsByTaskId(taskId));
     }
 
     @GetMapping("/api/tasks/{taskId}/comments/since")
-    public List<TaskCommentDto> getCommentsSince(
+    public List<PostCommentDto> getCommentsSince(
             @PathVariable Long taskId,
             @RequestParam String sinceIso) {
         AuthUtils.requireAuthenticatedEmail();
@@ -79,12 +79,12 @@ public class TaskCommentResource {
     // -----------------------------------------------------------------
 
     @PutMapping("/api/task-comments/{id}")
-    public ResponseEntity<TaskCommentDto> updateComment(
+    public ResponseEntity<PostCommentDto> updateComment(
             @PathVariable Long id,
-            @RequestBody TaskCommentDto dto) {
+            @RequestBody PostCommentDto dto) {
         ensureAuthors(id);
         dto.setId(id);
-        TaskCommentDto updated = service.updateCommentFromDto(dto);
+        PostCommentDto updated = service.updateCommentFromDto(dto);
         return ResponseEntity.ok(updated);
     }
 
@@ -102,7 +102,7 @@ public class TaskCommentResource {
      */
     private void ensureAuthors(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Optional<TaskCommentDto> existing = service.getCommentById(id);
+        Optional<PostCommentDto> existing = service.getCommentById(id);
         if (existing.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }

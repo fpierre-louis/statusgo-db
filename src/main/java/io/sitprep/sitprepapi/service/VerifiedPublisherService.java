@@ -39,7 +39,7 @@ public class VerifiedPublisherService {
 
     private static final Logger log = LoggerFactory.getLogger(VerifiedPublisherService.class);
 
-    /** Mean Earth radius in km — matches TaskService / AlertModeService. */
+    /** Mean Earth radius in km — matches PostService / AlertModeService. */
     private static final double EARTH_RADIUS_KM = 6371.0088;
 
     /**
@@ -119,7 +119,7 @@ public class VerifiedPublisherService {
 
     // -------------------------------------------------------------------
     // Helpers (Haversine kept inline since the codebase's
-    // distance-rounding conventions live in TaskService — copy is small
+    // distance-rounding conventions live in PostService — copy is small
     // enough not to justify extracting a util class).
     // -------------------------------------------------------------------
 

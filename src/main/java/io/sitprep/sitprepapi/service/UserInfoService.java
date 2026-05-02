@@ -1,12 +1,12 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.domain.Task;
+import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +25,7 @@ public class UserInfoService {
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
     private final GroupRepo groupRepo;
-    private final TaskRepo taskRepo;
+    private final PostRepo taskRepo;
     private final FollowService followService;
     private final BlockService blockService;
 
@@ -33,7 +33,7 @@ public class UserInfoService {
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
                            GroupRepo groupRepo,
-                           TaskRepo taskRepo,
+                           PostRepo taskRepo,
                            FollowService followService,
                            BlockService blockService) {
         this.userInfoRepo = userInfoRepo;
@@ -125,7 +125,7 @@ public class UserInfoService {
         // Public posts — community-scope Tasks (groupId == null) the
         // user authored, newest first, capped at 10. Group-scope posts
         // (GroupPost entity) stay group-internal.
-        List<Task> tasks = email == null ? List.of()
+        List<Post> tasks = email == null ? List.of()
                 : taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email);
         List<PublicProfileDto.PublicPostSummary> postSummaries = tasks.stream()
                 .filter(t -> t.getGroupId() == null)

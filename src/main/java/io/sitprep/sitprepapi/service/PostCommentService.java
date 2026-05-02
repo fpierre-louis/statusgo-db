@@ -1,11 +1,11 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.domain.Task;
-import io.sitprep.sitprepapi.domain.TaskComment;
+import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.TaskCommentDto;
-import io.sitprep.sitprepapi.repo.TaskCommentRepo;
-import io.sitprep.sitprepapi.repo.TaskRepo;
+import io.sitprep.sitprepapi.dto.PostCommentDto;
+import io.sitprep.sitprepapi.repo.PostCommentRepo;
+import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import jakarta.transaction.Transactional;
@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 
 /**
  * Comments on tasks (community-feed posts). Mirrors {@link GroupPostCommentService}
- * exactly so the eventual GroupPost/Task entity merge collapses both surfaces
+ * exactly so the eventual GroupPost/Post entity merge collapses both surfaces
  * with no semantic drift.
  *
  * <ul>
@@ -36,21 +36,21 @@ import java.util.stream.Collectors;
  *
  * <p>Replies use the quote-prefix content convention from {@code PostComments}
  * ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}). No
- * {@code parentCommentId} column — see {@link TaskComment} class doc.</p>
+ * {@code parentCommentId} column — see {@link PostComment} class doc.</p>
  */
 @Service
-public class TaskCommentService {
+public class PostCommentService {
 
-    private static final Logger log = LoggerFactory.getLogger(TaskCommentService.class);
+    private static final Logger log = LoggerFactory.getLogger(PostCommentService.class);
 
-    private final TaskCommentRepo commentRepo;
-    private final TaskRepo taskRepo;
+    private final PostCommentRepo commentRepo;
+    private final PostRepo taskRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
 
-    public TaskCommentService(TaskCommentRepo commentRepo,
-                              TaskRepo taskRepo,
+    public PostCommentService(PostCommentRepo commentRepo,
+                              PostRepo taskRepo,
                               UserInfoRepo userInfoRepo,
                               WebSocketMessageSender ws,
                               NotificationService notificationService) {
@@ -65,8 +65,8 @@ public class TaskCommentService {
     // Create
     // --------------------------------------------------------------------------------------------
     @Transactional
-    public TaskCommentDto createCommentFromDto(TaskCommentDto dto) {
-        if (dto == null) throw new IllegalArgumentException("TaskCommentDto is null");
+    public PostCommentDto createCommentFromDto(PostCommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("PostCommentDto is null");
         if (dto.getTaskId() == null) throw new IllegalArgumentException("taskId is required");
         if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
             throw new IllegalArgumentException("content is required");
@@ -78,15 +78,15 @@ public class TaskCommentService {
             dto.setAuthor("anonymous@sitprep");
         }
 
-        TaskComment c = new TaskComment();
+        PostComment c = new PostComment();
         c.setTaskId(dto.getTaskId());
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
         // @CreatedDate / @LastModifiedDate auditing populates timestamp/updatedAt
 
-        TaskComment saved = commentRepo.save(c);
+        PostComment saved = commentRepo.save(c);
 
-        TaskCommentDto out = toDto(saved);
+        PostCommentDto out = toDto(saved);
         out.setTempId(dto.getTempId()); // preserve optimistic correlation
         enrichAuthor(out);
 
@@ -114,12 +114,12 @@ public class TaskCommentService {
     // Update
     // --------------------------------------------------------------------------------------------
     @Transactional
-    public TaskCommentDto updateCommentFromDto(TaskCommentDto dto) {
-        if (dto == null) throw new IllegalArgumentException("TaskCommentDto is null");
+    public PostCommentDto updateCommentFromDto(PostCommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("PostCommentDto is null");
         if (dto.getId() == null) throw new IllegalArgumentException("id is required for update");
 
-        TaskComment existing = commentRepo.findById(dto.getId())
-                .orElseThrow(() -> new IllegalArgumentException("TaskComment not found: " + dto.getId()));
+        PostComment existing = commentRepo.findById(dto.getId())
+                .orElseThrow(() -> new IllegalArgumentException("PostComment not found: " + dto.getId()));
 
         // Ownership check — same MVP shape as GroupPostCommentService.
         if (dto.getAuthor() != null && !dto.getAuthor().isBlank()) {
@@ -134,9 +134,9 @@ public class TaskCommentService {
         }
         existing.setEditedAt(Instant.now());
 
-        TaskComment saved = commentRepo.save(existing);
+        PostComment saved = commentRepo.save(existing);
 
-        TaskCommentDto out = toDto(saved);
+        PostCommentDto out = toDto(saved);
         out.setTempId(dto.getTempId());
         out.setEdited(true);
         enrichAuthor(out);
@@ -162,7 +162,7 @@ public class TaskCommentService {
     @Transactional
     public void deleteCommentByIdAndBroadcast(Long id) {
         if (id == null) return;
-        TaskComment c = commentRepo.findById(id).orElse(null);
+        PostComment c = commentRepo.findById(id).orElse(null);
         if (c == null) return;
 
         Long taskId = c.getTaskId();
@@ -184,14 +184,14 @@ public class TaskCommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<TaskCommentDto> getCommentsByTaskId(Long taskId) {
+    public List<PostCommentDto> getCommentsByTaskId(Long taskId) {
         if (taskId == null) return List.of();
 
-        List<TaskComment> rows = commentRepo.findByTaskIdOrderByTimestampAsc(taskId);
+        List<PostComment> rows = commentRepo.findByTaskIdOrderByTimestampAsc(taskId);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
-                .map(TaskComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+                .map(PostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
@@ -199,14 +199,14 @@ public class TaskCommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<TaskCommentDto> getCommentsSince(Long taskId, Instant since) {
+    public List<PostCommentDto> getCommentsSince(Long taskId, Instant since) {
         if (taskId == null || since == null) return List.of();
 
-        List<TaskComment> rows = commentRepo.findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(taskId, since);
+        List<PostComment> rows = commentRepo.findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(taskId, since);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
-                .map(TaskComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+                .map(PostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
@@ -214,10 +214,10 @@ public class TaskCommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Optional<TaskCommentDto> getCommentById(Long id) {
+    public Optional<PostCommentDto> getCommentById(Long id) {
         if (id == null) return Optional.empty();
         return commentRepo.findById(id).map(c -> {
-            TaskCommentDto d = toDto(c);
+            PostCommentDto d = toDto(c);
             enrichAuthor(d);
             return d;
         });
@@ -225,8 +225,8 @@ public class TaskCommentService {
 
     /**
      * Per-task comment count for a list of task ids. Used by
-     * {@code TaskService.withEngagement} to fold {@code commentsCount}
-     * onto every {@code TaskDto} in one query rather than N. Tasks with no
+     * {@code PostService.withEngagement} to fold {@code commentsCount}
+     * onto every {@code PostDto} in one query rather than N. Tasks with no
      * comments are simply absent from the returned map; callers default to
      * 0 for missing keys.
      */
@@ -249,8 +249,8 @@ public class TaskCommentService {
     // --------------------------------------------------------------------------------------------
     // Internals
     // --------------------------------------------------------------------------------------------
-    private TaskCommentDto toDto(TaskComment c) {
-        TaskCommentDto d = new TaskCommentDto();
+    private PostCommentDto toDto(PostComment c) {
+        PostCommentDto d = new PostCommentDto();
         d.setId(c.getId());
         d.setTaskId(c.getTaskId());
         d.setAuthor(c.getAuthor());
@@ -262,8 +262,8 @@ public class TaskCommentService {
         return d;
     }
 
-    private TaskCommentDto toDto(TaskComment c, Map<String, UserInfo> userByEmail) {
-        TaskCommentDto d = toDto(c);
+    private PostCommentDto toDto(PostComment c, Map<String, UserInfo> userByEmail) {
+        PostCommentDto d = toDto(c);
         if (c.getAuthor() != null) {
             UserInfo u = userByEmail.get(c.getAuthor());
             if (u != null) {
@@ -275,7 +275,7 @@ public class TaskCommentService {
         return d;
     }
 
-    private void enrichAuthor(TaskCommentDto d) {
+    private void enrichAuthor(PostCommentDto d) {
         if (d == null || d.getAuthor() == null) return;
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
@@ -289,14 +289,14 @@ public class TaskCommentService {
      * Mirrors the post-comment notification but routes to the community
      * task detail page rather than the group post page.
      */
-    private void notifyTaskAuthorOnNewComment(TaskComment savedComment, TaskCommentDto enrichedDto) {
+    private void notifyTaskAuthorOnNewComment(PostComment savedComment, PostCommentDto enrichedDto) {
         Long taskId = savedComment.getTaskId();
         if (taskId == null) return;
 
-        Optional<Task> taskOpt = taskRepo.findById(taskId);
+        Optional<Post> taskOpt = taskRepo.findById(taskId);
         if (taskOpt.isEmpty()) return;
 
-        Task task = taskOpt.get();
+        Post task = taskOpt.get();
         String taskAuthorEmail = task.getRequesterEmail();
         if (taskAuthorEmail == null) return;
 

@@ -8,9 +8,9 @@ import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostReactionFrame;
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
-import io.sitprep.sitprepapi.dto.TaskCommentDto;
-import io.sitprep.sitprepapi.dto.TaskDto;
-import io.sitprep.sitprepapi.dto.TaskReactionFrame;
+import io.sitprep.sitprepapi.dto.PostCommentDto;
+import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.PostReactionFrame;
 
 import java.util.List;
 import java.util.Map;
@@ -25,8 +25,8 @@ import org.springframework.stereotype.Component;
  *  - GroupPost del:    /topic/posts/{groupId}/delete
  *  - Comments:    /topic/comments/{postId}
  *  - Cmt del:     /topic/comments/{postId}/delete
- *  - Task cmts:   /topic/task-comments/{taskId}
- *  - Task cmt del:/topic/task-comments/{taskId}/delete
+ *  - Post cmts:   /topic/task-comments/{taskId}
+ *  - Post cmt del:/topic/task-comments/{taskId}/delete
  *  - Activations: /topic/activations/{activationId}/acks
  *  - Chat:        /topic/chat/{groupId}
  *  - Chat del:    /topic/chat/{groupId}/delete
@@ -72,7 +72,7 @@ public class WebSocketMessageSender {
         messagingTemplate.convertAndSend("/topic/comments/" + postId + "/delete", commentId);
     }
 
-    // --- Task comments ---
+    // --- Post comments ---
     /**
      * New / edited comment on a community-feed task. Topic is parallel to
      * the post-comments topic ({@code /topic/comments/{postId}}) but
@@ -82,7 +82,7 @@ public class WebSocketMessageSender {
      * <p>Same convention as {@link #sendNewComment(Long, GroupPostCommentDto)}:
      * create + edit deltas ride the same topic; the FE upserts by id.</p>
      */
-    public void sendNewTaskComment(Long taskId, TaskCommentDto dto) {
+    public void sendNewTaskComment(Long taskId, PostCommentDto dto) {
         if (taskId == null || dto == null) return;
         messagingTemplate.convertAndSend("/topic/task-comments/" + taskId, dto);
     }
@@ -106,7 +106,7 @@ public class WebSocketMessageSender {
      * Tasks claimed by a group ALSO broadcast on the claimer group's topic
      * so admin dashboards see them appear under "tasks we own".
      */
-    public void sendTaskUpdate(TaskDto dto) {
+    public void sendTaskUpdate(PostDto dto) {
         if (dto == null) return;
         if (dto.groupId() != null && !dto.groupId().isBlank()) {
             messagingTemplate.convertAndSend("/topic/group/" + dto.groupId() + "/tasks", dto);
@@ -179,7 +179,7 @@ public class WebSocketMessageSender {
      * Broadcast an emoji reaction add/remove on the same task topic the
      * task itself rides on. The frame's {@code type:"reaction"}
      * discriminator lets the task-list subscriber ignore it (it's not
-     * a full TaskDto) while a reactions subscriber picks it up.
+     * a full PostDto) while a reactions subscriber picks it up.
      *
      * <p>Routes to whichever topic the task lives on — group-scope
      * tasks go to {@code /topic/group/{groupId}/tasks}, community-scope
@@ -187,7 +187,7 @@ public class WebSocketMessageSender {
      * endpoints can carry reaction frames on the same channel because
      * the FE listens with a discriminator switch.</p>
      */
-    public void sendTaskReaction(TaskReactionFrame frame) {
+    public void sendTaskReaction(PostReactionFrame frame) {
         if (frame == null) return;
         if (frame.groupId() != null && !frame.groupId().isBlank()) {
             messagingTemplate.convertAndSend(
