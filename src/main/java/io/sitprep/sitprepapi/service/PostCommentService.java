@@ -100,7 +100,7 @@ public class PostCommentService {
                     log.error("WS broadcast failed for new task comment id={}", saved.getId(), e);
                 }
                 try {
-                    notifyTaskAuthorOnNewComment(saved, out);
+                    notifyPostAuthorOnNewComment(saved, out);
                 } catch (Exception e) {
                     log.error("Notification fan-out failed for new task comment id={}", saved.getId(), e);
                 }
@@ -184,7 +184,7 @@ public class PostCommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsByTaskId(Long postId) {
+    public List<PostCommentDto> getCommentsByPostId(Long postId) {
         if (postId == null) return List.of();
 
         List<PostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
@@ -231,7 +231,7 @@ public class PostCommentService {
      * 0 for missing keys.
      */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<Long, Integer> loadCountsByTaskIds(Collection<Long> postIds) {
+    public Map<Long, Integer> loadCountsByPostIds(Collection<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return Map.of();
         List<Object[]> rows = commentRepo.countByPostIdIn(postIds);
         Map<Long, Integer> out = new HashMap<>(rows.size());
@@ -289,7 +289,7 @@ public class PostCommentService {
      * Mirrors the post-comment notification but routes to the community
      * task detail page rather than the group post page.
      */
-    private void notifyTaskAuthorOnNewComment(PostComment savedComment, PostCommentDto enrichedDto) {
+    private void notifyPostAuthorOnNewComment(PostComment savedComment, PostCommentDto enrichedDto) {
         Long postId = savedComment.getPostId();
         if (postId == null) return;
 

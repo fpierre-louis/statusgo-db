@@ -175,7 +175,7 @@ public record PostDto(
                 t.getUpdatedAt(),
                 t.getClaimedAt(),
                 t.getCompletedAt(),
-                t.getParentTaskId(),
+                t.getParentPostId(),
                 t.getTags() == null ? Set.of() : t.getTags(),
                 keys,
                 urls,

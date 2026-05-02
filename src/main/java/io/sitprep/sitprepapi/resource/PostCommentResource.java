@@ -61,9 +61,9 @@ public class PostCommentResource {
     }
 
     @GetMapping("/api/posts/{postId}/comments")
-    public ResponseEntity<List<PostCommentDto>> getCommentsByTaskId(@PathVariable Long postId) {
+    public ResponseEntity<List<PostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.getCommentsByTaskId(postId));
+        return ResponseEntity.ok(service.getCommentsByPostId(postId));
     }
 
     @GetMapping("/api/posts/{postId}/comments/since")

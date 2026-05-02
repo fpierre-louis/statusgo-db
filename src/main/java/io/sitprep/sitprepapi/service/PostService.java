@@ -166,7 +166,7 @@ public class PostService {
      * read where viewer identity isn't available); {@code viewerThanked}
      * defaults to false everywhere. Counts always populate regardless.</p>
      *
-     * <p>Phase 2 (2026-05-04) wires comment counts via {@code PostCommentService.loadCountsByTaskIds}
+     * <p>Phase 2 (2026-05-04) wires comment counts via {@code PostCommentService.loadCountsByPostIds}
      * — one batched count query per page-load alongside the reaction summary.
      * Tasks with no comments are absent from the count map; we default to 0
      * for missing keys so the FE renders the comment icon without a count.</p>
@@ -180,7 +180,7 @@ public class PostService {
         if (ids.isEmpty()) return dtos;
         PostReactionService.ThankSummary summary =
                 reactionService.loadThankSummary(ids, viewerEmail);
-        Map<Long, Integer> commentCounts = commentService.loadCountsByTaskIds(ids);
+        Map<Long, Integer> commentCounts = commentService.loadCountsByPostIds(ids);
         return dtos.stream()
                 .map(d -> {
                     if (d.id() == null) return d;
@@ -214,7 +214,7 @@ public class PostService {
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
         t.setDueAt(incoming.getDueAt());
-        t.setParentTaskId(incoming.getParentTaskId());
+        t.setParentPostId(incoming.getParentPostId());
         if (incoming.getTags() != null) t.getTags().addAll(incoming.getTags());
         if (incoming.getImageKeys() != null) t.getImageKeys().addAll(incoming.getImageKeys());
 
