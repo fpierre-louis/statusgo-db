@@ -7,7 +7,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PostSummaryDto {
+public class GroupPostSummaryDto {
     private Long id;
     private String groupId;
     private String groupName;

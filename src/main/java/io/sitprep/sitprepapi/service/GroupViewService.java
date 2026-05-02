@@ -1,15 +1,15 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto.*;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
-import io.sitprep.sitprepapi.dto.PostSummaryDto;
+import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.repo.PostRepo;
+import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +31,13 @@ public class GroupViewService {
 
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
-    private final PostRepo postRepo;
+    private final GroupPostRepo postRepo;
     private final HouseholdManualMemberService manualMemberService;
     private final HouseholdAccompanimentService accompanimentService;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
-                            PostRepo postRepo,
+                            GroupPostRepo postRepo,
                             HouseholdManualMemberService manualMemberService,
                             HouseholdAccompanimentService accompanimentService) {
         this.groupRepo = groupRepo;
@@ -75,7 +75,7 @@ public class GroupViewService {
                 ? accompanimentService.list(g.getGroupId())
                 : List.of();
 
-        List<PostSummaryDto> recentPosts = postRepo.findPostsByGroupId(g.getGroupId()).stream()
+        List<GroupPostSummaryDto> recentPosts = postRepo.findPostsByGroupId(g.getGroupId()).stream()
                 .limit(RECENT_POST_LIMIT)
                 .map(p -> toPostSummary(p, byEmail))
                 .toList();
@@ -173,9 +173,9 @@ public class GroupViewService {
         };
     }
 
-    private PostSummaryDto toPostSummary(Post p, Map<String, UserInfo> byEmail) {
+    private GroupPostSummaryDto toPostSummary(GroupPost p, Map<String, UserInfo> byEmail) {
         UserInfo u = p.getAuthor() == null ? null : byEmail.get(normalize(p.getAuthor()));
-        PostSummaryDto dto = new PostSummaryDto();
+        GroupPostSummaryDto dto = new GroupPostSummaryDto();
         dto.setId(p.getId());
         dto.setGroupId(p.getGroupId());
         dto.setGroupName(p.getGroupName());

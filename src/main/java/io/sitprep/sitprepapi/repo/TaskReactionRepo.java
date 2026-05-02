@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for {@link TaskReaction}. Mirrors {@code PostReactionRepo} so
+ * Repository for {@link TaskReaction}. Mirrors {@code GroupPostReactionRepo} so
  * future unification is mechanical.
  */
 @Repository

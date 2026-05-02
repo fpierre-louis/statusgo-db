@@ -5,7 +5,7 @@ import lombok.Data;
 import java.time.Instant;
 
 @Data
-public class CommentDto {
+public class GroupPostCommentDto {
     private Long id;
     private String tempId;                       // optimistic correlation
     private Long postId;

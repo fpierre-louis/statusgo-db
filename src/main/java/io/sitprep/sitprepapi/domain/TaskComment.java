@@ -12,13 +12,13 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.Instant;
 
 /**
- * A comment on a {@link Task} (community-feed post). Mirrors {@link Comment}
+ * A comment on a {@link Task} (community-feed post). Mirrors {@link GroupPostComment}
  * exactly modulo the foreign key column (post_id → task_id) so the eventual
- * Post/Task entity merge — telegraphed in {@code TaskDto}'s class doc — can
+ * GroupPost/Task entity merge — telegraphed in {@code TaskDto}'s class doc — can
  * collapse {@code comment} + {@code task_comment} into one table with a
  * mechanical migration.
  *
- * <p>Replies use the same content-prefix convention {@link Comment} already
+ * <p>Replies use the same content-prefix convention {@link GroupPostComment} already
  * uses ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}). No
  * {@code parent_comment_id} column — threading is content-side and the FE
  * (forked from {@code PostComments.js}) renders the quote block by parsing
@@ -47,7 +47,7 @@ public class TaskComment {
     private String author;
 
     // IMPORTANT: Do NOT use @Lob for Postgres Strings. Map as TEXT/LONGVARCHAR instead
-    // (matches the Comment entity convention).
+    // (matches the GroupPostComment entity convention).
     @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(nullable = false, columnDefinition = "text")
     private String content;

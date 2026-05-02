@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Comments on tasks (community-feed posts). Mirrors {@code CommentResource}
+ * Comments on tasks (community-feed posts). Mirrors {@code GroupPostCommentResource}
  * exactly modulo the path prefix:
  *
  * <pre>
@@ -97,7 +97,7 @@ public class TaskCommentResource {
 
     /**
      * 404 if the comment doesn't exist (don't leak ids), 403 if the caller
-     * isn't its author. Matches the semantics of {@code CommentResource}'s
+     * isn't its author. Matches the semantics of {@code GroupPostCommentResource}'s
      * equivalent helper.
      */
     private void ensureAuthors(Long id) {

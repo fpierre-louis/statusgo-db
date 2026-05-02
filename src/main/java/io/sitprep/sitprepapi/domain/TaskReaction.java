@@ -11,9 +11,9 @@ import java.time.Instant;
  * per (task, user, emoji) so toggling is exactly add-or-remove and the
  * listing path can return the full roster of who reacted with what.
  *
- * <p>Mirrors {@link PostReaction} exactly — same column names (modulo
+ * <p>Mirrors {@link GroupPostReaction} exactly — same column names (modulo
  * post_id → task_id), same uniqueness constraint shape, same indexes —
- * so the eventual Post/Task entity merge (telegraphed in
+ * so the eventual GroupPost/Task entity merge (telegraphed in
  * {@code TaskDto}'s class doc) collapses both reaction tables into one
  * with minimal migration effort.</p>
  *

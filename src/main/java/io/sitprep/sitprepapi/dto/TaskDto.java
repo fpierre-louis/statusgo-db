@@ -29,9 +29,10 @@ import java.util.stream.Collectors;
  * with a requester). The data shape was generalized in the
  * {@code MARKETPLACE_AND_FEED_CALM} pass — same row, just more
  * kinds — but the table + DTO names stayed for migration safety.
- * Future renames (entity → {@code Post}, table → {@code post}) can
- * happen as a coordinated FE+BE pass; for now treat
- * "Task entity == Post for storage purposes" as the mental model.</p>
+ * Phase 3b Session 2 will rename entity {@code Task → Post} (the slot
+ * is now free after Phase 3b Session 1 renamed the chat-{@code Post}
+ * entity to {@link io.sitprep.sitprepapi.domain.GroupPost}). Table
+ * stays {@code task}. See {@code docs/WIP_POST_RENAME.md}.</p>
  *
  * <p>Author profile fields ({@code requesterFirstName},
  * {@code requesterLastName}, {@code requesterProfileImageUrl}) are
@@ -132,7 +133,7 @@ public record TaskDto(
          */
         boolean viewerThanked,
         /**
-         * Number of {@code Comment} rows whose {@code postId == this.id}.
+         * Number of {@code GroupPostComment} rows whose {@code postId == this.id}.
          * Folded in by the listing path via one batched count query so
          * the feed card can render "Reply · N" without fetching the
          * comment list per card. Zero means no replies; the FE renders

@@ -1,9 +1,9 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.domain.Post;
-import io.sitprep.sitprepapi.dto.PostDto;
-import io.sitprep.sitprepapi.dto.PostSummaryDto;
-import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.domain.GroupPost;
+import io.sitprep.sitprepapi.dto.GroupPostDto;
+import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
+import io.sitprep.sitprepapi.service.GroupPostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,13 +21,13 @@ import java.util.Optional;
  */
 @RestController
 @RequestMapping("/api/posts")
-public class PostResource {
+public class GroupPostResource {
 
     @Autowired
-    private PostService postService;
+    private GroupPostService postService;
 
     @PostMapping(value = "", consumes = { "multipart/form-data" })
-    public ResponseEntity<PostDto> createPost(
+    public ResponseEntity<GroupPostDto> createPost(
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
@@ -37,7 +37,7 @@ public class PostResource {
     ) {
         String author = AuthUtils.requireAuthenticatedEmail();
 
-        PostDto postDto = new PostDto();
+        GroupPostDto postDto = new GroupPostDto();
         postDto.setAuthor(author);
         postDto.setContent(content);
         postDto.setGroupId(groupId);
@@ -46,18 +46,18 @@ public class PostResource {
         postDto.setTags(tags);
         postDto.setMentions(mentions);
 
-        PostDto saved = postService.createPost(postDto, author);
+        GroupPostDto saved = postService.createPost(postDto, author);
         return ResponseEntity.status(201).body(saved);
     }
 
     @GetMapping("/group/{groupId}")
-    public List<PostDto> getPostsByGroupId(@PathVariable String groupId) {
+    public List<GroupPostDto> getPostsByGroupId(@PathVariable String groupId) {
         AuthUtils.requireAuthenticatedEmail();
         return postService.getPostsByGroupIdDto(groupId);
     }
 
     @GetMapping("/since")
-    public List<PostDto> getPostsSince(
+    public List<GroupPostDto> getPostsSince(
             @RequestParam String groupId,
             @RequestParam String sinceIso
     ) {
@@ -66,21 +66,21 @@ public class PostResource {
     }
 
     @GetMapping("/groups/latest")
-    public Map<String, PostSummaryDto> getLatestPostsForGroups(
+    public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(
             @RequestParam("groupIds") List<String> groupIds) {
         AuthUtils.requireAuthenticatedEmail();
         return postService.getLatestPostsForGroups(groupIds);
     }
 
     @GetMapping("/{postId}")
-    public ResponseEntity<PostDto> getPostById(@PathVariable Long postId) {
+    public ResponseEntity<GroupPostDto> getPostById(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
-        Optional<PostDto> postOpt = postService.getPostDtoById(postId);
+        Optional<GroupPostDto> postOpt = postService.getPostDtoById(postId);
         return postOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
-    public ResponseEntity<Post> updatePost(
+    public ResponseEntity<GroupPost> updatePost(
             @PathVariable Long postId,
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
@@ -92,10 +92,10 @@ public class PostResource {
     ) {
         String actor = AuthUtils.requireAuthenticatedEmail();
 
-        Optional<Post> postOpt = postService.getPostById(postId);
+        Optional<GroupPost> postOpt = postService.getPostById(postId);
         if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
 
-        Post post = postOpt.get();
+        GroupPost post = postOpt.get();
 
         if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor)) {
             return ResponseEntity.status(403).build();
@@ -118,7 +118,7 @@ public class PostResource {
             post.setImageKey(null);
         }
 
-        Post updatedPost = postService.updatePost(post, actor);
+        GroupPost updatedPost = postService.updatePost(post, actor);
         return ResponseEntity.ok(updatedPost);
     }
 

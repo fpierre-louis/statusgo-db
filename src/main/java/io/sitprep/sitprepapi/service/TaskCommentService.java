@@ -21,8 +21,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Comments on tasks (community-feed posts). Mirrors {@link CommentService}
- * exactly so the eventual Post/Task entity merge collapses both surfaces
+ * Comments on tasks (community-feed posts). Mirrors {@link GroupPostCommentService}
+ * exactly so the eventual GroupPost/Task entity merge collapses both surfaces
  * with no semantic drift.
  *
  * <ul>
@@ -72,7 +72,7 @@ public class TaskCommentService {
             throw new IllegalArgumentException("content is required");
         }
         if (dto.getAuthor() == null || dto.getAuthor().trim().isEmpty()) {
-            // Match CommentService's lenient default — the resource layer
+            // Match GroupPostCommentService's lenient default — the resource layer
             // overwrites with the verified token email anyway, so this is a
             // belt-and-suspenders for non-resource paths.
             dto.setAuthor("anonymous@sitprep");
@@ -121,7 +121,7 @@ public class TaskCommentService {
         TaskComment existing = commentRepo.findById(dto.getId())
                 .orElseThrow(() -> new IllegalArgumentException("TaskComment not found: " + dto.getId()));
 
-        // Ownership check — same MVP shape as CommentService.
+        // Ownership check — same MVP shape as GroupPostCommentService.
         if (dto.getAuthor() != null && !dto.getAuthor().isBlank()) {
             if (existing.getAuthor() != null &&
                     !existing.getAuthor().equalsIgnoreCase(dto.getAuthor().trim())) {

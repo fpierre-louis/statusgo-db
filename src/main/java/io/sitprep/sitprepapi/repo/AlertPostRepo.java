@@ -22,7 +22,7 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
      * Active (unresolved) AlertPosts for one alertId. Resolve tick
      * iterates this when the upstream alert ends, marking each row's
      * {@code resolvedAt} + cascading visual demotion to the parent
-     * {@link io.sitprep.sitprepapi.domain.Post} via PostRepo.
+     * {@link io.sitprep.sitprepapi.domain.GroupPost} via GroupPostRepo.
      */
     @Query("""
            SELECT ap FROM AlertPost ap

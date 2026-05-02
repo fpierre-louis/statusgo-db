@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.controller;
 
-import io.sitprep.sitprepapi.dto.CommentDto;
-import io.sitprep.sitprepapi.service.CommentService;
+import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
+import io.sitprep.sitprepapi.service.GroupPostCommentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.Header;
@@ -16,10 +16,10 @@ public class CommentWebSocketController {
 
     private static final Logger log = LoggerFactory.getLogger(CommentWebSocketController.class);
 
-    private final CommentService commentService;
+    private final GroupPostCommentService commentService;
     private final SimpMessagingTemplate messagingTemplate; // optional ACKs
 
-    public CommentWebSocketController(CommentService commentService,
+    public CommentWebSocketController(GroupPostCommentService commentService,
                                       SimpMessagingTemplate messagingTemplate) {
         this.commentService = commentService;
         this.messagingTemplate = messagingTemplate;
@@ -32,7 +32,7 @@ public class CommentWebSocketController {
      */
     @MessageMapping("/comment")
     public void handleNewComment(
-            CommentDto dto,
+            GroupPostCommentDto dto,
             @Header(name = "email", required = false) String emailHeader
     ) {
         try {
@@ -64,7 +64,7 @@ public class CommentWebSocketController {
      */
     @MessageMapping("/comment/edit")
     public void handleEditComment(
-            CommentDto dto,
+            GroupPostCommentDto dto,
             @Header(name = "email", required = false) String emailHeader
     ) {
         try {

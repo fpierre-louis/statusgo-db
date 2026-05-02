@@ -14,7 +14,7 @@ import java.time.Instant;
  * (alertId, geocellId) unique constraint enforces that at the DB level so
  * a racing dispatch tick can't double-create.
  *
- * <p>The actual community post lives in {@link Post} — this row is the
+ * <p>The actual community post lives in {@link GroupPost} — this row is the
  * tracking record that lets the resolve path find the right post to
  * mark expired when the upstream alert ends, and lets the dispatch tick
  * skip alerts already posted.</p>
@@ -22,7 +22,7 @@ import java.time.Instant;
  * <p>Created by {@code AlertDispatchService} when the dispatch tick
  * intersects an active alert with a populated geocell. Cleaned up by
  * the resolve tick when the alert ends (sets {@code resolvedAt} +
- * marks the parent {@link Post} for visual demotion).</p>
+ * marks the parent {@link GroupPost} for visual demotion).</p>
  */
 @Entity
 @Getter
@@ -70,9 +70,9 @@ public class AlertPost {
     private String geocellId;
 
     /**
-     * FK to the {@link Post} created for this auto-post. Stored as the
+     * FK to the {@link GroupPost} created for this auto-post. Stored as the
      * post's id rather than a JPA association so the resolve path can
-     * touch the Post via the existing {@code PostRepo} without a
+     * touch the GroupPost via the existing {@code GroupPostRepo} without a
      * cascade-managed lifecycle.
      */
     @Column(name = "post_id", nullable = false)

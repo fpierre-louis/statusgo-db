@@ -82,7 +82,7 @@ public record PublicProfileDto(
     ) {}
 
     /**
-     * Post summary surfaced on a public profile. Mirrors the community
+     * GroupPost summary surfaced on a public profile. Mirrors the community
      * feed card's minimum shape — title, kind, status, first image,
      * truncated description. {@code id} keys the link to the full post
      * surface ({@code /posts/{id}} or whatever the FE picks).

@@ -122,9 +122,9 @@ public class AccountDeletionService {
         // 2. Cascade-delete content the user authored / owns. JPQL bulk
         // DELETE — efficient and won't pull entities into memory.
         // -----------------------------------------------------------------
-        int reactions   = bulkDelete("DELETE FROM PostReaction r WHERE LOWER(r.userEmail) = :e", e);
-        int comments    = bulkDelete("DELETE FROM Comment c WHERE LOWER(c.author) = :e", e);
-        int posts       = bulkDelete("DELETE FROM Post p WHERE LOWER(p.author) = :e", e);
+        int reactions   = bulkDelete("DELETE FROM GroupPostReaction r WHERE LOWER(r.userEmail) = :e", e);
+        int comments    = bulkDelete("DELETE FROM GroupPostComment c WHERE LOWER(c.author) = :e", e);
+        int posts       = bulkDelete("DELETE FROM GroupPost p WHERE LOWER(p.author) = :e", e);
         int tasks       = bulkDelete(
                 "DELETE FROM Task t WHERE LOWER(t.requesterEmail) = :e OR LOWER(t.claimedByEmail) = :e", e);
         int acks        = bulkDelete("DELETE FROM PlanActivationAck a WHERE LOWER(a.recipientEmail) = :e", e);

@@ -124,7 +124,7 @@ public class UserInfoService {
 
         // Public posts — community-scope Tasks (groupId == null) the
         // user authored, newest first, capped at 10. Group-scope posts
-        // (Post entity) stay group-internal.
+        // (GroupPost entity) stay group-internal.
         List<Task> tasks = email == null ? List.of()
                 : taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email);
         List<PublicProfileDto.PublicPostSummary> postSummaries = tasks.stream()

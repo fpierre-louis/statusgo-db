@@ -18,7 +18,7 @@ public record GroupMemberViewDto(
          * non-household groups.
          */
         List<HouseholdAccompanimentDto> accompaniments,
-        List<PostSummaryDto> recentPosts,
+        List<GroupPostSummaryDto> recentPosts,
         MetaDto meta
 ) {
 

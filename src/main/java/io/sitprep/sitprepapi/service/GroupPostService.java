@@ -2,13 +2,13 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
-import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.PostReactionDto;
-import io.sitprep.sitprepapi.dto.PostSummaryDto;
+import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.repo.PostRepo;
+import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 
@@ -28,28 +28,28 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Post create/update/read. Image bytes are no longer handled here —
+ * GroupPost create/update/read. Image bytes are no longer handled here —
  * clients upload via {@code POST /api/images} (Cloudflare R2), then
  * attach the returned {@code imageKey} to the post on create/edit.
  * Public delivery URLs are derived via {@link PublicCdn}.
  */
 @Service
-public class PostService {
+public class GroupPostService {
 
-    private static final Logger logger = LoggerFactory.getLogger(PostService.class);
+    private static final Logger logger = LoggerFactory.getLogger(GroupPostService.class);
 
-    private final PostRepo postRepo;
+    private final GroupPostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
     private final WebSocketMessageSender webSocketMessageSender;
-    private final PostReactionService reactionService;
+    private final GroupPostReactionService reactionService;
 
     @Autowired
-    public PostService(PostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
+    public GroupPostService(GroupPostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
                        NotificationService notificationService,
                        WebSocketMessageSender webSocketMessageSender,
-                       PostReactionService reactionService) {
+                       GroupPostReactionService reactionService) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -60,12 +60,12 @@ public class PostService {
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
     @Transactional
-    public PostDto createPost(PostDto postDto, String actorEmail) {
+    public GroupPostDto createPost(GroupPostDto postDto, String actorEmail) {
         if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
             throw new SecurityException("User not authorized to create a post for another user.");
         }
 
-        Post post = new Post();
+        GroupPost post = new GroupPost();
         post.setAuthor(postDto.getAuthor());
         post.setContent(postDto.getContent());
         post.setGroupId(postDto.getGroupId());
@@ -77,8 +77,8 @@ public class PostService {
             post.setImageKey(postDto.getImageKey().trim());
         }
 
-        Post savedPost = postRepo.save(post);
-        PostDto savedDto = convertToPostDto(savedPost);
+        GroupPost savedPost = postRepo.save(post);
+        GroupPostDto savedDto = convertToPostDto(savedPost);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
@@ -86,7 +86,7 @@ public class PostService {
                     notifyGroupMembersOfNewPost(savedPost);
                     webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedDto);
                 } catch (Exception e) {
-                    logger.error("Post-commit WS/notify error for post {}", savedPost.getId(), e);
+                    logger.error("GroupPost-commit WS/notify error for post {}", savedPost.getId(), e);
                 }
             }
         });
@@ -96,18 +96,18 @@ public class PostService {
 
     /** WS-path creation (text + optional imageKey). Same shape as REST. */
     @Transactional
-    public PostDto createPostFromDto(PostDto postDto, String actorEmail) {
+    public GroupPostDto createPostFromDto(GroupPostDto postDto, String actorEmail) {
         return createPost(postDto, actorEmail);
     }
 
     @Transactional
-    public Post updatePost(Post post, String actorEmail) {
+    public GroupPost updatePost(GroupPost post, String actorEmail) {
         if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
             throw new SecurityException("User not authorized to update this post.");
         }
 
-        Post updatedPost = postRepo.save(post);
-        PostDto updatedPostDto = convertToPostDto(updatedPost);
+        GroupPost updatedPost = postRepo.save(post);
+        GroupPostDto updatedPostDto = convertToPostDto(updatedPost);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
@@ -120,7 +120,7 @@ public class PostService {
 
     @Transactional
     public void deletePostAndBroadcast(Long postId, String actorEmail) {
-        Post post = postRepo.findById(postId).orElseThrow(() -> new RuntimeException("Post not found"));
+        GroupPost post = postRepo.findById(postId).orElseThrow(() -> new RuntimeException("GroupPost not found"));
 
         if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
             throw new SecurityException("User not authorized to delete this post.");
@@ -131,11 +131,11 @@ public class PostService {
     }
 
     @Transactional
-    public void updatePostFromDto(PostDto dto) {
+    public void updatePostFromDto(GroupPostDto dto) {
         String actorEmail = dto.getAuthor(); // WS path provides author in dto
 
-        Post post = postRepo.findById(dto.getId()).orElseThrow(() ->
-                new IllegalArgumentException("Post not found for update: " + dto.getId()));
+        GroupPost post = postRepo.findById(dto.getId()).orElseThrow(() ->
+                new IllegalArgumentException("GroupPost not found for update: " + dto.getId()));
 
         if (actorEmail != null && !post.getAuthor().equalsIgnoreCase(actorEmail)) {
             throw new SecurityException("Not allowed to edit this post.");
@@ -155,8 +155,8 @@ public class PostService {
             post.setImageKey(null);
         }
 
-        Post updated = postRepo.save(post);
-        PostDto updatedDto = convertToPostDto(updated);
+        GroupPost updated = postRepo.save(post);
+        GroupPostDto updatedDto = convertToPostDto(updated);
         updatedDto.setTempId(dto.getTempId());
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -166,71 +166,71 @@ public class PostService {
         });
     }
 
-    public List<Post> getPostsByGroupId(String groupId) { return postRepo.findPostsByGroupId(groupId); }
+    public List<GroupPost> getPostsByGroupId(String groupId) { return postRepo.findPostsByGroupId(groupId); }
 
-    public List<PostDto> getPostsByGroupSince(String groupId, Instant since) {
-        List<Post> rows = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
+    public List<GroupPostDto> getPostsByGroupSince(String groupId, Instant since) {
+        List<GroupPost> rows = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
         if (rows.isEmpty()) return List.of();
 
-        Set<String> emails = rows.stream().map(Post::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> emails = rows.stream().map(GroupPost::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
         Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
-                reactionService.loadByPostIds(rows.stream().map(Post::getId).toList());
+                reactionService.loadByPostIds(rows.stream().map(GroupPost::getId).toList());
 
-        List<PostDto> out = new ArrayList<>(rows.size());
-        for (Post p : rows) out.add(convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())));
+        List<GroupPostDto> out = new ArrayList<>(rows.size());
+        for (GroupPost p : rows) out.add(convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())));
         return out;
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostDto> getPostsByGroupIdDto(String groupId) {
-        List<Post> posts = postRepo.findPostsByGroupId(groupId);
+    public List<GroupPostDto> getPostsByGroupIdDto(String groupId) {
+        List<GroupPost> posts = postRepo.findPostsByGroupId(groupId);
         if (posts.isEmpty()) return List.of();
 
-        Set<String> emails = posts.stream().map(Post::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> emails = posts.stream().map(GroupPost::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
         // Batched reaction roster — one repo call for the whole listing.
         Map<Long, Map<String, List<PostReactionDto>>> reactionsByPost =
-                reactionService.loadByPostIds(posts.stream().map(Post::getId).toList());
+                reactionService.loadByPostIds(posts.stream().map(GroupPost::getId).toList());
 
         return posts.stream()
                 .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
                 .toList();
     }
 
-    public Optional<Post> getPostById(Long id) { return postRepo.findById(id); }
+    public Optional<GroupPost> getPostById(Long id) { return postRepo.findById(id); }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Optional<PostDto> getPostDtoById(Long id) { return postRepo.findById(id).map(this::convertToPostDto); }
+    public Optional<GroupPostDto> getPostDtoById(Long id) { return postRepo.findById(id).map(this::convertToPostDto); }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<String, PostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
+    public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
         if (groupIds == null || groupIds.isEmpty()) return Collections.emptyMap();
 
-        List<Post> candidates = postRepo.findLatestPostsByGroupIds(groupIds);
-        Map<String, Post> bestByGroup = new HashMap<>();
-        for (Post p : candidates) {
-            Post cur = bestByGroup.get(p.getGroupId());
+        List<GroupPost> candidates = postRepo.findLatestPostsByGroupIds(groupIds);
+        Map<String, GroupPost> bestByGroup = new HashMap<>();
+        for (GroupPost p : candidates) {
+            GroupPost cur = bestByGroup.get(p.getGroupId());
             if (cur == null || p.getTimestamp().isAfter(cur.getTimestamp())
                     || (p.getTimestamp().equals(cur.getTimestamp()) && p.getId() > cur.getId())) {
                 bestByGroup.put(p.getGroupId(), p);
             }
         }
 
-        Set<String> emails = bestByGroup.values().stream().map(Post::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> emails = bestByGroup.values().stream().map(GroupPost::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        Map<String, PostSummaryDto> out = new HashMap<>();
+        Map<String, GroupPostSummaryDto> out = new HashMap<>();
         for (var e : bestByGroup.entrySet()) {
-            Post p = e.getValue();
+            GroupPost p = e.getValue();
             UserInfo u = userByEmail.get(p.getAuthor());
 
-            PostSummaryDto dto = new PostSummaryDto();
+            GroupPostSummaryDto dto = new GroupPostSummaryDto();
             dto.setId(p.getId());
             dto.setGroupId(p.getGroupId());
             dto.setGroupName(p.getGroupName());
@@ -248,7 +248,7 @@ public class PostService {
         return out;
     }
 
-    private void notifyGroupMembersOfNewPost(Post post) {
+    private void notifyGroupMembersOfNewPost(GroupPost post) {
         groupRepo.findByGroupId(post.getGroupId()).ifPresentOrElse(group -> {
             var recipientEmails = group.getMemberEmails() == null ? List.<String>of() :
                     group.getMemberEmails().stream().filter(e -> !e.equalsIgnoreCase(post.getAuthor())).toList();
@@ -279,12 +279,12 @@ public class PostService {
                 );
             }
 
-            logger.info("Post notification sent for '{}' to {} members.", group.getGroupName(), users.size());
+            logger.info("GroupPost notification sent for '{}' to {} members.", group.getGroupName(), users.size());
         }, () -> logger.warn("Group with ID {} not found (notify)", post.getGroupId()));
     }
 
-    private PostDto convertToPostDto(Post post) {
-        PostDto dto = baseDto(post, reactionService.loadByPostId(post.getId()));
+    private GroupPostDto convertToPostDto(GroupPost post) {
+        GroupPostDto dto = baseDto(post, reactionService.loadByPostId(post.getId()));
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
@@ -293,10 +293,10 @@ public class PostService {
         return dto;
     }
 
-    private PostDto convertToPostDto(Post post,
+    private GroupPostDto convertToPostDto(GroupPost post,
                                      Map<String, UserInfo> userByEmail,
                                      Map<String, List<PostReactionDto>> reactions) {
-        PostDto dto = baseDto(post, reactions);
+        GroupPostDto dto = baseDto(post, reactions);
         UserInfo u = userByEmail.get(post.getAuthor());
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
@@ -306,8 +306,8 @@ public class PostService {
         return dto;
     }
 
-    private PostDto baseDto(Post post, Map<String, List<PostReactionDto>> reactions) {
-        PostDto dto = new PostDto();
+    private GroupPostDto baseDto(GroupPost post, Map<String, List<PostReactionDto>> reactions) {
+        GroupPostDto dto = new GroupPostDto();
         dto.setId(post.getId());
         dto.setAuthor(post.getAuthor());
         dto.setContent(post.getContent());

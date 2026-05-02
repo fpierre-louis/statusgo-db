@@ -1,4 +1,4 @@
-// src/main/java/io/sitprep/sitprepapi/domain/Comment.java
+// src/main/java/io/sitprep/sitprepapi/domain/GroupPostComment.java
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
@@ -23,7 +23,7 @@ import java.time.Instant;
                 @Index(name = "idx_comment_updated_at", columnList = "updated_at")
         }
 )
-public class Comment {
+public class GroupPostComment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

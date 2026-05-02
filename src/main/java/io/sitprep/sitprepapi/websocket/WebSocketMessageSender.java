@@ -5,9 +5,9 @@ import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
-import io.sitprep.sitprepapi.dto.PostDto;
-import io.sitprep.sitprepapi.dto.PostReactionFrame;
-import io.sitprep.sitprepapi.dto.CommentDto;
+import io.sitprep.sitprepapi.dto.GroupPostDto;
+import io.sitprep.sitprepapi.dto.GroupPostReactionFrame;
+import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.dto.TaskCommentDto;
 import io.sitprep.sitprepapi.dto.TaskDto;
 import io.sitprep.sitprepapi.dto.TaskReactionFrame;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
  * Centralized STOMP broadcast helper.
  * Topics:
  *  - Posts:       /topic/posts/{groupId}
- *  - Post del:    /topic/posts/{groupId}/delete
+ *  - GroupPost del:    /topic/posts/{groupId}/delete
  *  - Comments:    /topic/comments/{postId}
  *  - Cmt del:     /topic/comments/{postId}/delete
  *  - Task cmts:   /topic/task-comments/{taskId}
@@ -44,7 +44,7 @@ public class WebSocketMessageSender {
     }
 
     // --- Posts ---
-    public void sendNewPost(String groupId, PostDto dto) {
+    public void sendNewPost(String groupId, GroupPostDto dto) {
         messagingTemplate.convertAndSend("/topic/posts/" + groupId, dto);
     }
 
@@ -55,16 +55,16 @@ public class WebSocketMessageSender {
     /**
      * Broadcast an emoji reaction add/remove on the same posts topic. The
      * frame's {@code type:"reaction"} discriminator lets the post-list
-     * subscriber ignore it (it's not a full PostDto) while the reactions
+     * subscriber ignore it (it's not a full GroupPostDto) while the reactions
      * subscriber picks it up.
      */
-    public void sendPostReaction(String groupId, PostReactionFrame frame) {
+    public void sendPostReaction(String groupId, GroupPostReactionFrame frame) {
         if (groupId == null || groupId.isBlank() || frame == null) return;
         messagingTemplate.convertAndSend("/topic/posts/" + groupId, frame);
     }
 
     // --- Comments ---
-    public void sendNewComment(Long postId, CommentDto dto) {
+    public void sendNewComment(Long postId, GroupPostCommentDto dto) {
         messagingTemplate.convertAndSend("/topic/comments/" + postId, dto);
     }
 
@@ -79,7 +79,7 @@ public class WebSocketMessageSender {
      * scoped under {@code /topic/task-comments/} so the FE can subscribe
      * cleanly without sniffing payload shape.
      *
-     * <p>Same convention as {@link #sendNewComment(Long, CommentDto)}:
+     * <p>Same convention as {@link #sendNewComment(Long, GroupPostCommentDto)}:
      * create + edit deltas ride the same topic; the FE upserts by id.</p>
      */
     public void sendNewTaskComment(Long taskId, TaskCommentDto dto) {

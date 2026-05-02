@@ -1,8 +1,8 @@
-// src/main/java/io/sitprep/sitprepapi/resource/CommentResource.java
+// src/main/java/io/sitprep/sitprepapi/resource/GroupPostCommentResource.java
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.dto.CommentDto;
-import io.sitprep.sitprepapi.service.CommentService;
+import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
+import io.sitprep.sitprepapi.service.GroupPostCommentService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -22,34 +22,34 @@ import java.util.stream.Collectors;
  * cannot post or edit comments. Author is the verified token email; PUT
  * and DELETE additionally verify the caller authored the target comment.
  *
- * <p>Reads require a verified token. Comment threads belong to groups
+ * <p>Reads require a verified token. GroupPostComment threads belong to groups
  * (private to members) so anonymous reads aren't a real use case in this
  * app — if a future flow needs them (e.g. public-link OG generation),
  * carve a dedicated endpoint instead of opening this one back up.</p>
  */
 @RestController
 @RequestMapping("/api/comments")
-public class CommentResource {
-    private final CommentService commentService;
+public class GroupPostCommentResource {
+    private final GroupPostCommentService commentService;
 
     @Autowired
-    public CommentResource(CommentService commentService) {
+    public GroupPostCommentResource(GroupPostCommentService commentService) {
         this.commentService = commentService;
     }
 
     @PostMapping
-    public ResponseEntity<CommentDto> createComment(@RequestBody CommentDto dto) {
+    public ResponseEntity<GroupPostCommentDto> createComment(@RequestBody GroupPostCommentDto dto) {
         String author = AuthUtils.requireAuthenticatedEmail();
         // Always trust the token over the body. An attacker can't post a
         // comment under another user's email even if the body says so.
         dto.setAuthor(author);
-        CommentDto saved = commentService.createCommentFromDto(dto);
+        GroupPostCommentDto saved = commentService.createCommentFromDto(dto);
         return ResponseEntity.ok(saved);
     }
 
     // Batch: ?postIds=1&postIds=2&limitPerPost=10
     @GetMapping
-    public Map<Long, List<CommentDto>> getCommentsBatch(
+    public Map<Long, List<GroupPostCommentDto>> getCommentsBatch(
             @RequestParam List<String> postIds,
             @RequestParam(required = false) Integer limitPerPost) {
         AuthUtils.requireAuthenticatedEmail();
@@ -65,7 +65,7 @@ public class CommentResource {
 
     // Backfill by updatedAt
     @GetMapping("/since")
-    public List<CommentDto> getCommentsSince(
+    public List<GroupPostCommentDto> getCommentsSince(
             @RequestParam Long postId,
             @RequestParam String sinceIso) {
         AuthUtils.requireAuthenticatedEmail();
@@ -74,17 +74,17 @@ public class CommentResource {
 
     // All for a post (oldest -> newest)
     @GetMapping("/{postId}")
-    public ResponseEntity<List<CommentDto>> getCommentsByPostId(@PathVariable Long postId) {
+    public ResponseEntity<List<GroupPostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(commentService.getCommentsByPostId(postId));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<CommentDto> updateComment(@PathVariable Long id, @RequestBody CommentDto dto) {
+    public ResponseEntity<GroupPostCommentDto> updateComment(@PathVariable Long id, @RequestBody GroupPostCommentDto dto) {
         ensureAuthors(id);
         dto.setId(id);
         // Author can't be changed on edit — preserve the original.
-        CommentDto updated = commentService.updateCommentFromDto(dto);
+        GroupPostCommentDto updated = commentService.updateCommentFromDto(dto);
         return ResponseEntity.ok(updated);
     }
 
@@ -101,14 +101,14 @@ public class CommentResource {
      */
     private void ensureAuthors(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Optional<CommentDto> existing = commentService.getCommentById(id);
+        Optional<GroupPostCommentDto> existing = commentService.getCommentById(id);
         if (existing.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         String author = existing.get().getAuthor();
         if (author == null || !author.equalsIgnoreCase(caller)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Comment belongs to a different user");
+                    "GroupPostComment belongs to a different user");
         }
     }
 }

@@ -14,7 +14,7 @@ import java.time.Instant;
  * UI). Two rows is mutual; the data model stays flat.
  *
  * <p>Emails are the identity key — same convention as the rest of
- * SitPrep ({@code Post.author}, {@code Task.requesterEmail}, group
+ * SitPrep ({@code GroupPost.author}, {@code Task.requesterEmail}, group
  * member emails). Stored lowercase by the service layer to keep the
  * unique constraint case-insensitive without a generated column.</p>
  *

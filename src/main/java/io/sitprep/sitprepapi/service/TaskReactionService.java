@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 
 /**
  * Add / remove / load emoji reactions on tasks (community-feed posts).
- * Mirrors {@code PostReactionService} so the eventual Post/Task entity
+ * Mirrors {@code GroupPostReactionService} so the eventual GroupPost/Task entity
  * merge collapses both into one — same broadcast convention, same idempotent
  * add-or-no-op semantics, same {@link PostReactionDto} reuse for the roster
  * shape returned to the FE.

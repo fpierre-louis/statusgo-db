@@ -9,8 +9,8 @@ import java.time.Instant;
  * discriminator lets the task-list subscriber tell reaction frames apart
  * from full {@link TaskDto} broadcasts on the same topic.
  *
- * <p>Mirrors {@link PostReactionFrame} exactly (modulo postId → taskId,
- * groupId → routing context) so the eventual Post/Task entity merge
+ * <p>Mirrors {@link GroupPostReactionFrame} exactly (modulo postId → taskId,
+ * groupId → routing context) so the eventual GroupPost/Task entity merge
  * collapses both frames into one.</p>
  */
 public record TaskReactionFrame(

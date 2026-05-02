@@ -7,14 +7,14 @@ import lombok.Setter;
 import java.time.Instant;
 
 /**
- * Per-user emoji reaction on a {@link Post}. One row per (post, user, emoji) so
+ * Per-user emoji reaction on a {@link GroupPost}. One row per (post, user, emoji) so
  * toggling is exactly add-or-remove and the listing path can return the full
  * roster of who reacted with what.
  *
- * <p>The legacy {@code Post.reactions} {@code Map<String,Integer>} is left in
+ * <p>The legacy {@code GroupPost.reactions} {@code Map<String,Integer>} is left in
  * place so Hibernate's {@code ddl-auto} doesn't drop the {@code post_reactions}
  * collection table mid-flight, but it is no longer read or written. The
- * {@link PostReaction} table is the source of truth.</p>
+ * {@link GroupPostReaction} table is the source of truth.</p>
  */
 @Entity
 @Table(
@@ -30,7 +30,7 @@ import java.time.Instant;
 )
 @Getter
 @Setter
-public class PostReaction {
+public class GroupPostReaction {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

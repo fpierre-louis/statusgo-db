@@ -10,7 +10,7 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Repository for {@link TaskComment}. Mirrors {@code CommentRepo} so the
+ * Repository for {@link TaskComment}. Mirrors {@code GroupPostCommentRepo} so the
  * eventual entity unification is mechanical — same finder shapes, same
  * batched-load convention.
  */

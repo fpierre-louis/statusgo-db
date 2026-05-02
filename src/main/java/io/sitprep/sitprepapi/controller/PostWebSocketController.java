@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.controller;
 
-import io.sitprep.sitprepapi.dto.PostDto;
-import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.dto.GroupPostDto;
+import io.sitprep.sitprepapi.service.GroupPostService;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Header;
@@ -14,13 +14,13 @@ import java.time.Instant;
 public class PostWebSocketController {
 
     @Autowired
-    private PostService postService;
+    private GroupPostService postService;
 
     @Autowired
     private WebSocketMessageSender wsSender;
 
     @MessageMapping("/post")
-    public void handleNewPost(PostDto postDto,
+    public void handleNewPost(GroupPostDto postDto,
                               @Header(name = "email", required = false) String emailHeader) {
         try {
             final String author = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");
@@ -31,7 +31,7 @@ public class PostWebSocketController {
             }
 
             // Persist and get real id
-            PostDto saved = postService.createPostFromDto(postDto, author);
+            GroupPostDto saved = postService.createPostFromDto(postDto, author);
 
             // Preserve tempId for optimistic replacement
             saved.setTempId(postDto.getTempId());
@@ -48,12 +48,12 @@ public class PostWebSocketController {
     }
 
     @MessageMapping("/post/delete")
-    public void handleDeletePost(PostDto postDto,
+    public void handleDeletePost(GroupPostDto postDto,
                                  @Header(name = "email", required = false) String emailHeader) {
         try {
             final String actor = firstNonBlank(emailHeader, "anonymous@sitprep");
             postService.deletePostAndBroadcast(postDto.getId(), actor);
-            // PostService should call wsSender.sendPostDeletion(groupId, postId)
+            // GroupPostService should call wsSender.sendPostDeletion(groupId, postId)
         } catch (Exception e) {
             System.err.println("❌ Error deleting post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
@@ -61,7 +61,7 @@ public class PostWebSocketController {
     }
 
     @MessageMapping("/post/edit")
-    public void handleEditPost(PostDto postDto,
+    public void handleEditPost(GroupPostDto postDto,
                                @Header(name = "email", required = false) String emailHeader) {
         try {
             final String actor = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");

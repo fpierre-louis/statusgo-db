@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Emoji reactions on tasks (community-feed posts). Mirrors
- * {@code PostReactionResource} so the eventual Post/Task entity merge
+ * {@code GroupPostReactionResource} so the eventual GroupPost/Task entity merge
  * collapses both surfaces with no client-side change beyond a path swap.
  *
  * <p>The viewer is always the verified Firebase token email — clients
@@ -24,7 +24,7 @@ import java.util.Map;
  * </pre>
  *
  * <p>The roster shape ({@code Map<String, List<PostReactionDto>>}) is
- * deliberately reused from PostReaction so FE consumers can share the
+ * deliberately reused from GroupPostReaction so FE consumers can share the
  * same render code regardless of source surface.</p>
  */
 @RestController

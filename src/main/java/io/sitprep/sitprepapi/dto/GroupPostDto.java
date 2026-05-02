@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 @Data
-public class PostDto {
+public class GroupPostDto {
     private Long id;
     private String tempId;
     private String author;

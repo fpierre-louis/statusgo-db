@@ -1,11 +1,11 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.domain.Comment;
-import io.sitprep.sitprepapi.domain.Post;
+import io.sitprep.sitprepapi.domain.GroupPostComment;
+import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.dto.CommentDto;
-import io.sitprep.sitprepapi.repo.CommentRepo;
-import io.sitprep.sitprepapi.repo.PostRepo;
+import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
+import io.sitprep.sitprepapi.repo.GroupPostCommentRepo;
+import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import jakarta.transaction.Transactional;
@@ -21,26 +21,26 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Comment service:
+ * GroupPostComment service:
  * - Creates/updates/deletes comments
  * - Broadcasts EXACTLY ONCE after successful commit
  * - Enriches author fields for clients (name, avatar)
  * - Sends presence-aware notifications (e.g., "comment on your post")
  */
 @Service
-public class CommentService {
+public class GroupPostCommentService {
 
-    private static final Logger log = LoggerFactory.getLogger(CommentService.class);
+    private static final Logger log = LoggerFactory.getLogger(GroupPostCommentService.class);
 
-    private final CommentRepo commentRepo;
-    private final PostRepo postRepo;
+    private final GroupPostCommentRepo commentRepo;
+    private final GroupPostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
 
-    public CommentService(
-            CommentRepo commentRepo,
-            PostRepo postRepo,
+    public GroupPostCommentService(
+            GroupPostCommentRepo commentRepo,
+            GroupPostRepo postRepo,
             UserInfoRepo userInfoRepo,
             WebSocketMessageSender ws,
             NotificationService notificationService
@@ -56,8 +56,8 @@ public class CommentService {
     // Create (REST or WS)
     // --------------------------------------------------------------------------------------------
     @Transactional
-    public CommentDto createCommentFromDto(CommentDto dto) {
-        if (dto == null) throw new IllegalArgumentException("CommentDto is null");
+    public GroupPostCommentDto createCommentFromDto(GroupPostCommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("GroupPostCommentDto is null");
         if (dto.getPostId() == null) throw new IllegalArgumentException("postId is required");
         if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
             throw new IllegalArgumentException("content is required");
@@ -66,16 +66,16 @@ public class CommentService {
             dto.setAuthor("anonymous@sitprep");
         }
 
-        Comment c = new Comment();
+        GroupPostComment c = new GroupPostComment();
         c.setPostId(dto.getPostId());
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
         // @CreatedDate/@LastModifiedDate auditing populates timestamp/updatedAt
 
-        Comment saved = commentRepo.save(c);
+        GroupPostComment saved = commentRepo.save(c);
         bumpCommentsCount(saved.getPostId(), +1);
 
-        CommentDto out = toDto(saved);
+        GroupPostCommentDto out = toDto(saved);
         // preserve tempId for optimistic merge on the client
         out.setTempId(dto.getTempId());
         enrichAuthor(out);
@@ -105,12 +105,12 @@ public class CommentService {
     // Update (REST or WS)
     // --------------------------------------------------------------------------------------------
     @Transactional
-    public CommentDto updateCommentFromDto(CommentDto dto) {
-        if (dto == null) throw new IllegalArgumentException("CommentDto is null");
+    public GroupPostCommentDto updateCommentFromDto(GroupPostCommentDto dto) {
+        if (dto == null) throw new IllegalArgumentException("GroupPostCommentDto is null");
         if (dto.getId() == null) throw new IllegalArgumentException("id is required for update");
 
-        Comment existing = commentRepo.findById(dto.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Comment not found: " + dto.getId()));
+        GroupPostComment existing = commentRepo.findById(dto.getId())
+                .orElseThrow(() -> new IllegalArgumentException("GroupPostComment not found: " + dto.getId()));
 
         // Minimal ownership check (MVP)
         if (dto.getAuthor() != null && !dto.getAuthor().isBlank()) {
@@ -125,9 +125,9 @@ public class CommentService {
         }
         existing.setEditedAt(Instant.now());
 
-        Comment saved = commentRepo.save(existing);
+        GroupPostComment saved = commentRepo.save(existing);
 
-        CommentDto out = toDto(saved);
+        GroupPostCommentDto out = toDto(saved);
         out.setTempId(dto.getTempId()); // keep optimistic correlation if present
         out.setEdited(true);
         enrichAuthor(out);
@@ -178,7 +178,7 @@ public class CommentService {
     @Transactional
     public void deleteCommentByIdAndBroadcast(Long id) {
         if (id == null) return;
-        Comment c = commentRepo.findById(id).orElse(null);
+        GroupPostComment c = commentRepo.findById(id).orElse(null);
         if (c == null) return;
 
         Long postId = c.getPostId();
@@ -201,14 +201,14 @@ public class CommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<CommentDto> getCommentsByPostId(Long postId) {
+    public List<GroupPostCommentDto> getCommentsByPostId(Long postId) {
         if (postId == null) return List.of();
 
-        List<Comment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
+        List<GroupPostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
-                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+                .map(GroupPostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
@@ -216,23 +216,23 @@ public class CommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<Long, List<CommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
+    public Map<Long, List<GroupPostCommentDto>> getCommentsForPosts(List<Long> postIds, Integer limitPerPost) {
         if (postIds == null || postIds.isEmpty()) return Map.of();
 
-        List<Comment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(postIds);
+        List<GroupPostComment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(postIds);
         if (rows.isEmpty()) return Map.of();
 
-        Map<Long, List<Comment>> byPost = rows.stream()
-                .collect(Collectors.groupingBy(Comment::getPostId, LinkedHashMap::new, Collectors.toList()));
+        Map<Long, List<GroupPostComment>> byPost = rows.stream()
+                .collect(Collectors.groupingBy(GroupPostComment::getPostId, LinkedHashMap::new, Collectors.toList()));
 
         Set<String> emails = rows.stream()
-                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+                .map(GroupPostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        Map<Long, List<CommentDto>> out = new LinkedHashMap<>();
+        Map<Long, List<GroupPostCommentDto>> out = new LinkedHashMap<>();
         for (var e : byPost.entrySet()) {
-            List<Comment> list = e.getValue();
+            List<GroupPostComment> list = e.getValue();
             if (limitPerPost != null && limitPerPost > 0 && list.size() > limitPerPost) {
                 list = list.subList(list.size() - limitPerPost, list.size()); // last N
             }
@@ -242,14 +242,14 @@ public class CommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<CommentDto> getCommentsSince(Long postId, Instant since) {
+    public List<GroupPostCommentDto> getCommentsSince(Long postId, Instant since) {
         if (postId == null || since == null) return List.of();
 
         var rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
-                .map(Comment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+                .map(GroupPostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
@@ -257,10 +257,10 @@ public class CommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Optional<CommentDto> getCommentById(Long id) {
+    public Optional<GroupPostCommentDto> getCommentById(Long id) {
         if (id == null) return Optional.empty();
         return commentRepo.findById(id).map(c -> {
-            CommentDto d = toDto(c);
+            GroupPostCommentDto d = toDto(c);
             enrichAuthor(d);
             return d;
         });
@@ -284,8 +284,8 @@ public class CommentService {
         }
     }
 
-    private CommentDto toDto(Comment c) {
-        CommentDto d = new CommentDto();
+    private GroupPostCommentDto toDto(GroupPostComment c) {
+        GroupPostCommentDto d = new GroupPostCommentDto();
         d.setId(c.getId());
         d.setPostId(c.getPostId());
         d.setAuthor(c.getAuthor());
@@ -297,8 +297,8 @@ public class CommentService {
         return d;
     }
 
-    private CommentDto toDto(Comment c, Map<String, UserInfo> userByEmail) {
-        CommentDto d = toDto(c);
+    private GroupPostCommentDto toDto(GroupPostComment c, Map<String, UserInfo> userByEmail) {
+        GroupPostCommentDto d = toDto(c);
         if (c.getAuthor() != null) {
             UserInfo u = userByEmail.get(c.getAuthor());
             if (u != null) {
@@ -310,7 +310,7 @@ public class CommentService {
         return d;
     }
 
-    private void enrichAuthor(CommentDto d) {
+    private void enrichAuthor(GroupPostCommentDto d) {
         if (d == null || d.getAuthor() == null) return;
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
@@ -322,14 +322,14 @@ public class CommentService {
     /**
      * Notify the post author when someone else comments on their post.
      */
-    private void notifyPostAuthorOnNewComment(Comment savedComment, CommentDto enrichedDto) {
+    private void notifyPostAuthorOnNewComment(GroupPostComment savedComment, GroupPostCommentDto enrichedDto) {
         Long postId = savedComment.getPostId();
         if (postId == null) return;
 
-        Optional<Post> postOpt = postRepo.findById(postId);
+        Optional<GroupPost> postOpt = postRepo.findById(postId);
         if (postOpt.isEmpty()) return;
 
-        Post post = postOpt.get();
+        GroupPost post = postOpt.get();
         String postAuthorEmail = post.getAuthor();
         if (postAuthorEmail == null) return;
 

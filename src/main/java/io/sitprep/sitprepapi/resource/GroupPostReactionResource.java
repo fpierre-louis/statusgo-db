@@ -1,7 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.PostReactionDto;
-import io.sitprep.sitprepapi.service.PostReactionService;
+import io.sitprep.sitprepapi.service.GroupPostReactionService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,11 +19,11 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/posts/{postId}/reactions")
-public class PostReactionResource {
+public class GroupPostReactionResource {
 
-    private final PostReactionService service;
+    private final GroupPostReactionService service;
 
-    public PostReactionResource(PostReactionService service) {
+    public GroupPostReactionResource(GroupPostReactionService service) {
         this.service = service;
     }
 

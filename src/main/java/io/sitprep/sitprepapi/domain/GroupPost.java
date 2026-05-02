@@ -16,7 +16,7 @@ import java.util.*;
                 @Index(name = "idx_post_group_ts", columnList = "group_id,timestamp")
         }
 )
-public class Post {
+public class GroupPost {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

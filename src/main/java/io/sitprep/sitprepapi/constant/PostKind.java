@@ -7,6 +7,12 @@ import java.util.stream.Stream;
 /**
  * Post-kind discriminator for the community feed.
  *
+ * <p>Note: "Post" here means the conceptual community-feed entry, not
+ * {@link io.sitprep.sitprepapi.domain.GroupPost} (group chat posts).
+ * The community-feed entity is currently stored as {@code Task} and
+ * will be renamed to {@code Post} in Phase 3b Session 2 — see
+ * {@code docs/WIP_POST_RENAME.md}.</p>
+ *
  * <p>The feed entity is stored as {@code Task} for historical reasons,
  * but {@code Task.kind} is the discriminator that determines how the
  * row is rendered + which composer flow created it. A "post" is the
