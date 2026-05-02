@@ -60,12 +60,35 @@ public class PostCommentResource {
         return ResponseEntity.ok(saved);
     }
 
+    /**
+     * Comment thread fetch. Cursor-paginated when either query param is
+     * supplied; falls back to full-thread (legacy) when both are absent.
+     *
+     * <ul>
+     *   <li>{@code limit} — page size (1..100, default 30)</li>
+     *   <li>{@code beforeId} — return comments older than this id; omit
+     *       for the most-recent page</li>
+     * </ul>
+     *
+     * <p>Returns chronological order within the page so the FE can
+     * prepend incoming pages above its existing list when scrolling up.</p>
+     */
     @GetMapping("/api/posts/{postId}/comments")
-    public ResponseEntity<List<PostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
+    public ResponseEntity<List<PostCommentDto>> getCommentsByPostId(
+            @PathVariable Long postId,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            @RequestParam(value = "beforeId", required = false) Long beforeId) {
         // Pass viewer through so the response carries viewerThanked per row
         // — the comment thread UI's heart shows filled when the viewer has
         // already reacted on a given comment.
         String viewer = AuthUtils.requireAuthenticatedEmail();
+        // When pagination params are supplied, use the cursor path; else
+        // fall back to legacy full-thread fetch (back-compat for any
+        // caller still expecting the unbounded list).
+        if (limit != null || beforeId != null) {
+            int safeLimit = (limit == null) ? 30 : limit;
+            return ResponseEntity.ok(service.getCommentsPage(postId, viewer, beforeId, safeLimit));
+        }
         return ResponseEntity.ok(service.getCommentsByPostId(postId, viewer));
     }
 

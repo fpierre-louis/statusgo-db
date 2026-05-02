@@ -227,6 +227,47 @@ public class GroupPostCommentService {
         return getCommentsByPostId(postId, null);
     }
 
+    /**
+     * Cursor-paginated thread fetch — returns the most-recent {@code limit}
+     * comments before {@code beforeId} (or the most-recent {@code limit}
+     * if {@code beforeId} is null). Result is in chronological order
+     * (oldest → newest within the page) so the FE can prepend it above
+     * its existing list when scrolling up. Mirrors
+     * {@code PostCommentService.getCommentsPage}.
+     */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<GroupPostCommentDto> getCommentsPage(
+            Long postId, String viewerEmail, Long beforeId, int limit) {
+        if (postId == null) return List.of();
+        int safeLimit = clampLimit(limit);
+        org.springframework.data.domain.Pageable page =
+                org.springframework.data.domain.PageRequest.of(0, safeLimit);
+
+        List<GroupPostComment> rows = (beforeId == null)
+                ? commentRepo.findByPostIdOrderByIdDesc(postId, page)
+                : commentRepo.findByPostIdAndIdLessThanOrderByIdDesc(postId, beforeId, page);
+        if (rows.isEmpty()) return List.of();
+
+        java.util.Collections.reverse(rows);
+
+        Set<String> emails = rows.stream()
+                .map(GroupPostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        List<GroupPostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail))
+                .collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    private static final int DEFAULT_PAGE_SIZE = 30;
+    private static final int MAX_PAGE_SIZE = 100;
+    private static int clampLimit(int limit) {
+        if (limit < 1) return DEFAULT_PAGE_SIZE;
+        return Math.min(limit, MAX_PAGE_SIZE);
+    }
+
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<Long, List<GroupPostCommentDto>> getCommentsForPosts(
             List<Long> postIds, Integer limitPerPost, String viewerEmail) {

@@ -211,6 +211,55 @@ public class PostCommentService {
         return getCommentsByPostId(postId, null);
     }
 
+    /**
+     * Cursor-paginated thread fetch — returns the most-recent {@code limit}
+     * comments before {@code beforeId} (or the most-recent {@code limit}
+     * if {@code beforeId} is null). Result is in chronological order
+     * (oldest → newest within the page) so the FE can append it to the
+     * top of its existing list when scrolling up.
+     *
+     * <p>Reactions + author profiles + thank counts are folded in via
+     * the same batched path as {@link #getCommentsByPostId(Long, String)}
+     * — one extra DB roundtrip total per page, not N.</p>
+     *
+     * <p>Caller passes {@code limit} between 1 and {@link #MAX_PAGE_SIZE}
+     * inclusive; values outside that range get clamped (no error).</p>
+     */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<PostCommentDto> getCommentsPage(
+            Long postId, String viewerEmail, Long beforeId, int limit) {
+        if (postId == null) return List.of();
+        int safeLimit = clampLimit(limit);
+        org.springframework.data.domain.Pageable page =
+                org.springframework.data.domain.PageRequest.of(0, safeLimit);
+
+        List<PostComment> rows = (beforeId == null)
+                ? commentRepo.findByPostIdOrderByIdDesc(postId, page)
+                : commentRepo.findByPostIdAndIdLessThanOrderByIdDesc(postId, beforeId, page);
+        if (rows.isEmpty()) return List.of();
+
+        // Reverse to chronological for FE consumption (oldest within the
+        // page first; the FE prepends pages above its existing list).
+        java.util.Collections.reverse(rows);
+
+        Set<String> emails = rows.stream()
+                .map(PostComment::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
+                .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
+
+        List<PostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail))
+                .collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    private static final int DEFAULT_PAGE_SIZE = 30;
+    private static final int MAX_PAGE_SIZE = 100;
+    private static int clampLimit(int limit) {
+        if (limit < 1) return DEFAULT_PAGE_SIZE;
+        return Math.min(limit, MAX_PAGE_SIZE);
+    }
+
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<PostCommentDto> getCommentsSince(Long postId, Instant since, String viewerEmail) {
         if (postId == null || since == null) return List.of();

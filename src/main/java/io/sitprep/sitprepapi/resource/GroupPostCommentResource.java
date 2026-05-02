@@ -75,10 +75,26 @@ public class GroupPostCommentResource {
         return commentService.getCommentsSince(postId, Instant.parse(sinceIso), viewer);
     }
 
-    // All for a post (oldest -> newest)
+    /**
+     * Comment thread fetch. Cursor-paginated when either query param is
+     * supplied; falls back to full-thread (legacy) when both are absent.
+     *
+     * <ul>
+     *   <li>{@code limit} — page size (1..100, default 30)</li>
+     *   <li>{@code beforeId} — return comments older than this id; omit
+     *       for the most-recent page</li>
+     * </ul>
+     */
     @GetMapping("/{postId}")
-    public ResponseEntity<List<GroupPostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
+    public ResponseEntity<List<GroupPostCommentDto>> getCommentsByPostId(
+            @PathVariable Long postId,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            @RequestParam(value = "beforeId", required = false) Long beforeId) {
         String viewer = AuthUtils.requireAuthenticatedEmail();
+        if (limit != null || beforeId != null) {
+            int safeLimit = (limit == null) ? 30 : limit;
+            return ResponseEntity.ok(commentService.getCommentsPage(postId, viewer, beforeId, safeLimit));
+        }
         return ResponseEntity.ok(commentService.getCommentsByPostId(postId, viewer));
     }
 
