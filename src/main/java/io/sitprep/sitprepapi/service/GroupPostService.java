@@ -84,7 +84,7 @@ public class GroupPostService {
             @Override public void afterCommit() {
                 try {
                     notifyGroupMembersOfNewPost(savedPost);
-                    webSocketMessageSender.sendNewPost(savedPost.getGroupId(), savedDto);
+                    webSocketMessageSender.sendNewGroupPost(savedPost.getGroupId(), savedDto);
                 } catch (Exception e) {
                     logger.error("GroupPost-commit WS/notify error for post {}", savedPost.getId(), e);
                 }
@@ -111,7 +111,7 @@ public class GroupPostService {
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
-                webSocketMessageSender.sendNewPost(updatedPost.getGroupId(), updatedPostDto);
+                webSocketMessageSender.sendNewGroupPost(updatedPost.getGroupId(), updatedPostDto);
             }
         });
 
@@ -127,7 +127,7 @@ public class GroupPostService {
         }
 
         postRepo.delete(post);
-        webSocketMessageSender.sendPostDeletion(post.getGroupId(), post.getId());
+        webSocketMessageSender.sendGroupPostDeletion(post.getGroupId(), post.getId());
     }
 
     @Transactional
@@ -161,7 +161,7 @@ public class GroupPostService {
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
-                webSocketMessageSender.sendNewPost(updated.getGroupId(), updatedDto);
+                webSocketMessageSender.sendNewGroupPost(updated.getGroupId(), updatedDto);
             }
         });
     }

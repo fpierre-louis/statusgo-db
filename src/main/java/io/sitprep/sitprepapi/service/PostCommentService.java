@@ -67,7 +67,7 @@ public class PostCommentService {
     @Transactional
     public PostCommentDto createCommentFromDto(PostCommentDto dto) {
         if (dto == null) throw new IllegalArgumentException("PostCommentDto is null");
-        if (dto.getTaskId() == null) throw new IllegalArgumentException("taskId is required");
+        if (dto.getPostId() == null) throw new IllegalArgumentException("postId is required");
         if (dto.getContent() == null || dto.getContent().trim().isEmpty()) {
             throw new IllegalArgumentException("content is required");
         }
@@ -79,7 +79,7 @@ public class PostCommentService {
         }
 
         PostComment c = new PostComment();
-        c.setTaskId(dto.getTaskId());
+        c.setPostId(dto.getPostId());
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
         // @CreatedDate / @LastModifiedDate auditing populates timestamp/updatedAt
@@ -95,7 +95,7 @@ public class PostCommentService {
             @Override
             public void afterCommit() {
                 try {
-                    ws.sendNewTaskComment(saved.getTaskId(), out);
+                    ws.sendNewPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for new task comment id={}", saved.getId(), e);
                 }
@@ -146,7 +146,7 @@ public class PostCommentService {
             public void afterCommit() {
                 try {
                     // Reuse the same topic for create + edit deltas.
-                    ws.sendNewTaskComment(saved.getTaskId(), out);
+                    ws.sendNewPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for edit task comment id={}", saved.getId(), e);
                 }
@@ -157,7 +157,7 @@ public class PostCommentService {
     }
 
     // --------------------------------------------------------------------------------------------
-    // Delete (REST path: look up taskId from the comment)
+    // Delete (REST path: look up postId from the comment)
     // --------------------------------------------------------------------------------------------
     @Transactional
     public void deleteCommentByIdAndBroadcast(Long id) {
@@ -165,14 +165,14 @@ public class PostCommentService {
         PostComment c = commentRepo.findById(id).orElse(null);
         if (c == null) return;
 
-        Long taskId = c.getTaskId();
+        Long postId = c.getPostId();
         commentRepo.deleteById(id);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 try {
-                    ws.sendTaskCommentDeletion(taskId, id);
+                    ws.sendPostCommentDeletion(postId, id);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for delete task comment id={}", id, e);
                 }
@@ -184,10 +184,10 @@ public class PostCommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsByTaskId(Long taskId) {
-        if (taskId == null) return List.of();
+    public List<PostCommentDto> getCommentsByTaskId(Long postId) {
+        if (postId == null) return List.of();
 
-        List<PostComment> rows = commentRepo.findByTaskIdOrderByTimestampAsc(taskId);
+        List<PostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
@@ -199,10 +199,10 @@ public class PostCommentService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsSince(Long taskId, Instant since) {
-        if (taskId == null || since == null) return List.of();
+    public List<PostCommentDto> getCommentsSince(Long postId, Instant since) {
+        if (postId == null || since == null) return List.of();
 
-        List<PostComment> rows = commentRepo.findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(taskId, since);
+        List<PostComment> rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
         if (rows.isEmpty()) return List.of();
 
         Set<String> emails = rows.stream()
@@ -231,16 +231,16 @@ public class PostCommentService {
      * 0 for missing keys.
      */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<Long, Integer> loadCountsByTaskIds(Collection<Long> taskIds) {
-        if (taskIds == null || taskIds.isEmpty()) return Map.of();
-        List<Object[]> rows = commentRepo.countByTaskIdIn(taskIds);
+    public Map<Long, Integer> loadCountsByTaskIds(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) return Map.of();
+        List<Object[]> rows = commentRepo.countByPostIdIn(postIds);
         Map<Long, Integer> out = new HashMap<>(rows.size());
         for (Object[] row : rows) {
             if (row == null || row.length < 2) continue;
-            Long taskId = (Long) row[0];
+            Long postId = (Long) row[0];
             Long count = (Long) row[1];
-            if (taskId != null && count != null) {
-                out.put(taskId, count.intValue());
+            if (postId != null && count != null) {
+                out.put(postId, count.intValue());
             }
         }
         return out;
@@ -252,7 +252,7 @@ public class PostCommentService {
     private PostCommentDto toDto(PostComment c) {
         PostCommentDto d = new PostCommentDto();
         d.setId(c.getId());
-        d.setTaskId(c.getTaskId());
+        d.setPostId(c.getPostId());
         d.setAuthor(c.getAuthor());
         d.setContent(c.getContent());
         d.setTimestamp(c.getTimestamp());
@@ -290,10 +290,10 @@ public class PostCommentService {
      * task detail page rather than the group post page.
      */
     private void notifyTaskAuthorOnNewComment(PostComment savedComment, PostCommentDto enrichedDto) {
-        Long taskId = savedComment.getTaskId();
-        if (taskId == null) return;
+        Long postId = savedComment.getPostId();
+        if (postId == null) return;
 
-        Optional<Post> taskOpt = taskRepo.findById(taskId);
+        Optional<Post> taskOpt = taskRepo.findById(postId);
         if (taskOpt.isEmpty()) return;
 
         Post task = taskOpt.get();

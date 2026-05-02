@@ -479,8 +479,8 @@ public class PostService {
      * the caller has been authorized.
      */
     @Transactional
-    public PostDto claim(Long taskId, String claimerGroupId, String claimerEmail) {
-        Post t = mustExist(taskId);
+    public PostDto claim(Long postId, String claimerGroupId, String claimerEmail) {
+        Post t = mustExist(postId);
         if (t.getStatus() != PostStatus.OPEN || t.getClaimedByGroupId() != null) {
             throw new IllegalStateException("Post is not open for claim");
         }
@@ -493,8 +493,8 @@ public class PostService {
 
     /** Mark in-progress (claimer is actively working). */
     @Transactional
-    public PostDto markInProgress(Long taskId) {
-        Post t = mustExist(taskId);
+    public PostDto markInProgress(Long postId) {
+        Post t = mustExist(postId);
         if (t.getStatus() != PostStatus.CLAIMED) {
             throw new IllegalStateException("Post must be claimed before marking in-progress");
         }
@@ -504,8 +504,8 @@ public class PostService {
 
     /** Claimer marks complete. */
     @Transactional
-    public PostDto complete(Long taskId) {
-        Post t = mustExist(taskId);
+    public PostDto complete(Long postId) {
+        Post t = mustExist(postId);
         if (t.getStatus() == PostStatus.DONE || t.getStatus() == PostStatus.CANCELLED) {
             throw new IllegalStateException("Post is already closed");
         }
@@ -516,8 +516,8 @@ public class PostService {
 
     /** Requester cancels. Frees claimedBy state in case it was claimed. */
     @Transactional
-    public PostDto cancel(Long taskId) {
-        Post t = mustExist(taskId);
+    public PostDto cancel(Long postId) {
+        Post t = mustExist(postId);
         if (t.getStatus() == PostStatus.DONE) {
             throw new IllegalStateException("Cannot cancel a completed task");
         }
@@ -527,8 +527,8 @@ public class PostService {
 
     /** Reopen a cancelled task — clears claimer state. */
     @Transactional
-    public PostDto reopen(Long taskId) {
-        Post t = mustExist(taskId);
+    public PostDto reopen(Long postId) {
+        Post t = mustExist(postId);
         if (t.getStatus() != PostStatus.CANCELLED) {
             throw new IllegalStateException("Only cancelled tasks can be reopened");
         }
@@ -545,8 +545,8 @@ public class PostService {
      * claimer*, claimedAt, completedAt) flow through dedicated methods.
      */
     @Transactional
-    public PostDto patch(Long taskId, Post patch) {
-        Post t = mustExist(taskId);
+    public PostDto patch(Long postId, Post patch) {
+        Post t = mustExist(postId);
         if (patch.getTitle() != null) t.setTitle(patch.getTitle());
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
@@ -565,8 +565,8 @@ public class PostService {
     }
 
     @Transactional
-    public void delete(Long taskId) {
-        Post t = taskRepo.findById(taskId).orElse(null);
+    public void delete(Long postId) {
+        Post t = taskRepo.findById(postId).orElse(null);
         if (t == null) return;
         String groupId = t.getGroupId();
         String zipBucket = t.getZipBucket();
@@ -575,7 +575,7 @@ public class PostService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 try {
-                    ws.sendTaskDeletion(groupId, zipBucket, id);
+                    ws.sendPostDeletion(groupId, zipBucket, id);
                 } catch (Exception e) {
                     log.error("WS task-delete broadcast failed for task {}", id, e);
                 }
@@ -599,7 +599,7 @@ public class PostService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 try {
-                    ws.sendTaskUpdate(dto);
+                    ws.sendPostUpdate(dto);
                 } catch (Exception e) {
                     log.error("WS task broadcast failed for task {}", dto.id(), e);
                 }

@@ -7,7 +7,7 @@ import java.time.Instant;
 /**
  * Wire shape for a comment on a {@link io.sitprep.sitprepapi.domain.Post}.
  * Mirrors {@link GroupPostCommentDto} (post-comments) field-for-field except for the
- * foreign key ({@code postId} → {@code taskId}) so the FE comment renderer
+ * foreign key ({@code postId} → {@code postId}) so the FE comment renderer
  * (forked from {@code PostComments.js}) can be a near-exact copy and the
  * eventual entity unification collapses both DTOs into one.
  *
@@ -20,7 +20,7 @@ import java.time.Instant;
 public class PostCommentDto {
     private Long id;
     private String tempId;                       // optimistic correlation
-    private Long taskId;
+    private Long postId;
 
     // Author
     private String author;                       // email

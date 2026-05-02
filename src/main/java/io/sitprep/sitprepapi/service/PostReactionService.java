@@ -57,13 +57,13 @@ public class PostReactionService {
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> add(Long taskId, String userEmail, String emoji) {
+    public Map<String, List<PostReactionDto>> add(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
-        Post task = loadTaskOr404(taskId);
+        Post task = loadPostOr404(postId);
 
         Optional<PostReaction> existing = reactionRepo
-                .findByTaskIdAndUserEmailIgnoreCaseAndEmoji(taskId, normalizedEmail, normalizedEmoji);
+                .findByPostIdAndUserEmailIgnoreCaseAndEmoji(postId, normalizedEmail, normalizedEmoji);
 
         Instant at;
         if (existing.isPresent()) {
@@ -72,37 +72,37 @@ public class PostReactionService {
             at = existing.get().getAddedAt();
         } else {
             PostReaction r = new PostReaction();
-            r.setTaskId(taskId);
+            r.setPostId(postId);
             r.setUserEmail(normalizedEmail);
             r.setEmoji(normalizedEmoji);
             reactionRepo.save(r);
             at = r.getAddedAt();
             broadcastAfterCommit(PostReactionFrame.add(
-                    taskId, task.getGroupId(), task.getZipBucket(),
+                    postId, task.getGroupId(), task.getZipBucket(),
                     normalizedEmoji, normalizedEmail, at));
         }
 
-        return loadByTaskId(taskId);
+        return loadByPostId(postId);
     }
 
     @Transactional
-    public Map<String, List<PostReactionDto>> remove(Long taskId, String userEmail, String emoji) {
+    public Map<String, List<PostReactionDto>> remove(Long postId, String userEmail, String emoji) {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
-        Post task = loadTaskOr404(taskId);
+        Post task = loadPostOr404(postId);
 
-        int deleted = reactionRepo.deleteByTaskUserEmoji(taskId, normalizedEmail, normalizedEmoji);
+        int deleted = reactionRepo.deleteByPostUserEmoji(postId, normalizedEmail, normalizedEmoji);
         if (deleted > 0) {
             broadcastAfterCommit(PostReactionFrame.remove(
-                    taskId, task.getGroupId(), task.getZipBucket(),
+                    postId, task.getGroupId(), task.getZipBucket(),
                     normalizedEmoji, normalizedEmail, Instant.now()));
         }
-        return loadByTaskId(taskId);
+        return loadByPostId(postId);
     }
 
     /** Single-task load used by the resource GET and by the per-task DTO build. */
-    public Map<String, List<PostReactionDto>> loadByTaskId(Long taskId) {
-        return groupByEmoji(reactionRepo.findByTaskId(taskId));
+    public Map<String, List<PostReactionDto>> loadByPostId(Long postId) {
+        return groupByEmoji(reactionRepo.findByPostId(postId));
     }
 
     /**
@@ -110,15 +110,15 @@ public class PostReactionService {
      * map keyed by task id; tasks without reactions are simply absent so
      * callers don't need null-checks for empty rosters.
      */
-    public Map<Long, Map<String, List<PostReactionDto>>> loadByTaskIds(Collection<Long> taskIds) {
-        if (taskIds == null || taskIds.isEmpty()) return Collections.emptyMap();
-        List<PostReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
+    public Map<Long, Map<String, List<PostReactionDto>>> loadByPostIds(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) return Collections.emptyMap();
+        List<PostReaction> rows = reactionRepo.findByPostIdIn(postIds);
         if (rows.isEmpty()) return Collections.emptyMap();
 
         Map<Long, List<PostReaction>> byTask = rows.stream()
-                .collect(Collectors.groupingBy(PostReaction::getTaskId));
+                .collect(Collectors.groupingBy(PostReaction::getPostId));
         Map<Long, Map<String, List<PostReactionDto>>> out = new HashMap<>(byTask.size());
-        byTask.forEach((taskId, list) -> out.put(taskId, groupByEmoji(list)));
+        byTask.forEach((postId, list) -> out.put(postId, groupByEmoji(list)));
         return out;
     }
 
@@ -131,35 +131,35 @@ public class PostReactionService {
      * <p>Returns a {@link ThankSummary} bundle so the listing path can
      * destructure once instead of running two batch queries.</p>
      */
-    public ThankSummary loadThankSummary(Collection<Long> taskIds, String viewerEmail) {
-        if (taskIds == null || taskIds.isEmpty()) {
+    public ThankSummary loadThankSummary(Collection<Long> postIds, String viewerEmail) {
+        if (postIds == null || postIds.isEmpty()) {
             return new ThankSummary(Map.of(), Set.of());
         }
-        List<PostReaction> rows = reactionRepo.findByTaskIdIn(taskIds);
+        List<PostReaction> rows = reactionRepo.findByPostIdIn(postIds);
         Map<Long, Integer> counts = new HashMap<>();
         for (PostReaction r : rows) {
             if (THANK_EMOJI.equals(r.getEmoji())) {
-                counts.merge(r.getTaskId(), 1, Integer::sum);
+                counts.merge(r.getPostId(), 1, Integer::sum);
             }
         }
         Set<Long> viewerThanked;
         if (viewerEmail == null || viewerEmail.isBlank()) {
             viewerThanked = Set.of();
         } else {
-            viewerThanked = new HashSet<>(reactionRepo.findTaskIdsWhereViewerReacted(
-                    taskIds, viewerEmail.trim().toLowerCase(Locale.ROOT), THANK_EMOJI));
+            viewerThanked = new HashSet<>(reactionRepo.findPostIdsWhereViewerReacted(
+                    postIds, viewerEmail.trim().toLowerCase(Locale.ROOT), THANK_EMOJI));
         }
         return new ThankSummary(counts, viewerThanked);
     }
 
     /** Bundle returned by {@link #loadThankSummary}. */
     public record ThankSummary(Map<Long, Integer> counts, Set<Long> viewerThanked) {
-        public int countFor(Long taskId) {
-            Integer c = counts.get(taskId);
+        public int countFor(Long postId) {
+            Integer c = counts.get(postId);
             return c == null ? 0 : c;
         }
-        public boolean viewerThankedTask(Long taskId) {
-            return viewerThanked.contains(taskId);
+        public boolean viewerThankedTask(Long postId) {
+            return viewerThanked.contains(postId);
         }
     }
 
@@ -176,8 +176,8 @@ public class PostReactionService {
         return out;
     }
 
-    private Post loadTaskOr404(Long taskId) {
-        return taskRepo.findById(taskId)
+    private Post loadPostOr404(Long postId) {
+        return taskRepo.findById(postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
     }
 
@@ -205,10 +205,10 @@ public class PostReactionService {
     private void broadcastAfterCommit(PostReactionFrame frame) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { ws.sendTaskReaction(frame); }
+                @Override public void afterCommit() { ws.sendPostReaction(frame); }
             });
         } else {
-            ws.sendTaskReaction(frame);
+            ws.sendPostReaction(frame);
         }
     }
 }

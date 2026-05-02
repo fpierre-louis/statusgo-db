@@ -152,10 +152,10 @@ public class GroupPostReactionService {
     private void broadcastAfterCommit(GroupPostReactionFrame frame) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { ws.sendPostReaction(frame.groupId(), frame); }
+                @Override public void afterCommit() { ws.sendGroupPostReaction(frame.groupId(), frame); }
             });
         } else {
-            ws.sendPostReaction(frame.groupId(), frame);
+            ws.sendGroupPostReaction(frame.groupId(), frame);
         }
     }
 }

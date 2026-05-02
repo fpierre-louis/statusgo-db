@@ -12,14 +12,14 @@ import org.springframework.stereotype.Controller;
 import java.time.Instant;
 
 @Controller
-public class CommentWebSocketController {
+public class GroupPostCommentWebSocketController {
 
-    private static final Logger log = LoggerFactory.getLogger(CommentWebSocketController.class);
+    private static final Logger log = LoggerFactory.getLogger(GroupPostCommentWebSocketController.class);
 
     private final GroupPostCommentService commentService;
     private final SimpMessagingTemplate messagingTemplate; // optional ACKs
 
-    public CommentWebSocketController(GroupPostCommentService commentService,
+    public GroupPostCommentWebSocketController(GroupPostCommentService commentService,
                                       SimpMessagingTemplate messagingTemplate) {
         this.commentService = commentService;
         this.messagingTemplate = messagingTemplate;
@@ -30,7 +30,7 @@ public class CommentWebSocketController {
      * Client sends: { postId, content, tempId, (optional) timestamp, (optional) author }
      * We derive author from header/payload (NOT trusted in MVP), then service persists & broadcasts.
      */
-    @MessageMapping("/comment")
+    @MessageMapping("/group-post-comment")
     public void handleNewComment(
             GroupPostCommentDto dto,
             @Header(name = "email", required = false) String emailHeader
@@ -62,7 +62,7 @@ public class CommentWebSocketController {
      * Client sends: { id, postId, content, tempId? }
      * Service updates & broadcasts.
      */
-    @MessageMapping("/comment/edit")
+    @MessageMapping("/group-post-comment/edit")
     public void handleEditComment(
             GroupPostCommentDto dto,
             @Header(name = "email", required = false) String emailHeader
@@ -81,7 +81,7 @@ public class CommentWebSocketController {
      * Client sends: { id, postId }
      * Service deletes & broadcasts /topic/comments/{postId}/delete.
      */
-    @MessageMapping("/comment/delete")
+    @MessageMapping("/group-post-comment/delete")
     public void handleDeleteComment(DeletePayload payload) {
         if (payload == null || payload.getId() == null || payload.getPostId() == null) {
             log.warn("Delete comment payload missing id/postId: {}", payload);

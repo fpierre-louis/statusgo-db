@@ -41,7 +41,7 @@ public class PostComment {
     private Long id;
 
     @Column(name = "task_id", nullable = false)
-    private Long taskId;
+    private Long postId;
 
     @Column(nullable = false)
     private String author;

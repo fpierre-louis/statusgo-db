@@ -17,23 +17,23 @@ import java.util.List;
 public interface PostCommentRepo extends JpaRepository<PostComment, Long> {
 
     /** All comments for one task, oldest → newest. */
-    List<PostComment> findByTaskIdOrderByTimestampAsc(Long taskId);
+    List<PostComment> findByPostIdOrderByTimestampAsc(Long postId);
 
     /** Delta by updatedAt (ascending) — used by backfill polling on the FE. */
-    List<PostComment> findByTaskIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long taskId, Instant since);
+    List<PostComment> findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(Long postId, Instant since);
 
     /** Batched roster for multiple tasks (oldest → newest within each task). */
-    List<PostComment> findAllByTaskIdInOrderByTaskIdAscTimestampAsc(Collection<Long> taskIds);
+    List<PostComment> findAllByPostIdInOrderByPostIdAscTimestampAsc(Collection<Long> postIds);
 
     /**
      * Per-task comment count for a list of tasks. Used by
      * {@code PostService.withEngagement} to fold {@code commentsCount}
      * onto every PostDto in one query rather than N. Returns
-     * {@code Object[]{taskId, count}} rows; service layer maps to
+     * {@code Object[]{postId, count}} rows; service layer maps to
      * {@code Map<Long, Long>}.
      */
-    @Query("SELECT c.taskId, COUNT(c) FROM PostComment c " +
-           "WHERE c.taskId IN :taskIds " +
-           "GROUP BY c.taskId")
-    List<Object[]> countByTaskIdIn(@Param("taskIds") Collection<Long> taskIds);
+    @Query("SELECT c.postId, COUNT(c) FROM PostComment c " +
+           "WHERE c.postId IN :postIds " +
+           "GROUP BY c.postId")
+    List<Object[]> countByPostIdIn(@Param("postIds") Collection<Long> postIds);
 }

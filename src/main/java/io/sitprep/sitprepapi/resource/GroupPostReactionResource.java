@@ -18,7 +18,7 @@ import java.util.Map;
  *   GET    /api/posts/{id}/reactions             -> roster lookup
  */
 @RestController
-@RequestMapping("/api/posts/{postId}/reactions")
+@RequestMapping("/api/group-posts/{postId}/reactions")
 public class GroupPostReactionResource {
 
     private final GroupPostReactionService service;

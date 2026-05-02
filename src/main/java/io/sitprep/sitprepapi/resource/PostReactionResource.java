@@ -28,7 +28,7 @@ import java.util.Map;
  * same render code regardless of source surface.</p>
  */
 @RestController
-@RequestMapping("/api/tasks/{taskId}/reactions")
+@RequestMapping("/api/posts/{postId}/reactions")
 public class PostReactionResource {
 
     private final PostReactionService service;
@@ -39,28 +39,28 @@ public class PostReactionResource {
 
     @PostMapping
     public ResponseEntity<Map<String, List<PostReactionDto>>> add(
-            @PathVariable Long taskId,
+            @PathVariable Long postId,
             @RequestBody AddReactionRequest body) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         Map<String, List<PostReactionDto>> reactions =
-                service.add(taskId, actor, body == null ? null : body.emoji());
+                service.add(postId, actor, body == null ? null : body.emoji());
         return ResponseEntity.ok(reactions);
     }
 
     @DeleteMapping("/{emoji}")
     public ResponseEntity<Map<String, List<PostReactionDto>>> remove(
-            @PathVariable Long taskId,
+            @PathVariable Long postId,
             @PathVariable String emoji) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         // Path emoji is decoded by Spring; clients should encodeURIComponent.
-        Map<String, List<PostReactionDto>> reactions = service.remove(taskId, actor, emoji);
+        Map<String, List<PostReactionDto>> reactions = service.remove(postId, actor, emoji);
         return ResponseEntity.ok(reactions);
     }
 
     @GetMapping
-    public ResponseEntity<Map<String, List<PostReactionDto>>> list(@PathVariable Long taskId) {
+    public ResponseEntity<Map<String, List<PostReactionDto>>> list(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.loadByTaskId(taskId));
+        return ResponseEntity.ok(service.loadByPostId(postId));
     }
 
     public record AddReactionRequest(String emoji) {}

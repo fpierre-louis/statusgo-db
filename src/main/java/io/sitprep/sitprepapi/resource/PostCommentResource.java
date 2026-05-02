@@ -17,14 +17,14 @@ import java.util.Optional;
  * exactly modulo the path prefix:
  *
  * <pre>
- *   POST   /api/tasks/{taskId}/comments              create
- *   GET    /api/tasks/{taskId}/comments              list (oldest -> newest)
- *   GET    /api/tasks/{taskId}/comments/since?sinceIso=...  delta backfill
+ *   POST   /api/tasks/{postId}/comments              create
+ *   GET    /api/tasks/{postId}/comments              list (oldest -> newest)
+ *   GET    /api/tasks/{postId}/comments/since?sinceIso=...  delta backfill
  *   PUT    /api/task-comments/{id}                   author-only edit
  *   DELETE /api/task-comments/{id}                   author-only delete
  * </pre>
  *
- * <p>The split between {@code /api/tasks/{taskId}/comments} (collection
+ * <p>The split between {@code /api/tasks/{postId}/comments} (collection
  * + create) and {@code /api/task-comments/{id}} (single-comment edit /
  * delete) matches how PostComments carved its surface — collection ops
  * are nested under their parent for clarity; single-row ops are flat so
@@ -48,37 +48,37 @@ public class PostCommentResource {
     // Collection ops (nested under parent task)
     // -----------------------------------------------------------------
 
-    @PostMapping("/api/tasks/{taskId}/comments")
+    @PostMapping("/api/posts/{postId}/comments")
     public ResponseEntity<PostCommentDto> createComment(
-            @PathVariable Long taskId,
+            @PathVariable Long postId,
             @RequestBody PostCommentDto dto) {
         String author = AuthUtils.requireAuthenticatedEmail();
         // Always trust the token over the body — body author is informational.
         dto.setAuthor(author);
-        dto.setTaskId(taskId);
+        dto.setPostId(postId);
         PostCommentDto saved = service.createCommentFromDto(dto);
         return ResponseEntity.ok(saved);
     }
 
-    @GetMapping("/api/tasks/{taskId}/comments")
-    public ResponseEntity<List<PostCommentDto>> getCommentsByTaskId(@PathVariable Long taskId) {
+    @GetMapping("/api/posts/{postId}/comments")
+    public ResponseEntity<List<PostCommentDto>> getCommentsByTaskId(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.getCommentsByTaskId(taskId));
+        return ResponseEntity.ok(service.getCommentsByTaskId(postId));
     }
 
-    @GetMapping("/api/tasks/{taskId}/comments/since")
+    @GetMapping("/api/posts/{postId}/comments/since")
     public List<PostCommentDto> getCommentsSince(
-            @PathVariable Long taskId,
+            @PathVariable Long postId,
             @RequestParam String sinceIso) {
         AuthUtils.requireAuthenticatedEmail();
-        return service.getCommentsSince(taskId, Instant.parse(sinceIso));
+        return service.getCommentsSince(postId, Instant.parse(sinceIso));
     }
 
     // -----------------------------------------------------------------
     // Single-comment ops (flat, mirrors /api/comments/{id})
     // -----------------------------------------------------------------
 
-    @PutMapping("/api/task-comments/{id}")
+    @PutMapping("/api/post-comments/{id}")
     public ResponseEntity<PostCommentDto> updateComment(
             @PathVariable Long id,
             @RequestBody PostCommentDto dto) {
@@ -88,7 +88,7 @@ public class PostCommentResource {
         return ResponseEntity.ok(updated);
     }
 
-    @DeleteMapping("/api/task-comments/{id}")
+    @DeleteMapping("/api/post-comments/{id}")
     public ResponseEntity<Void> deleteComment(@PathVariable Long id) {
         ensureAuthors(id);
         service.deleteCommentByIdAndBroadcast(id);

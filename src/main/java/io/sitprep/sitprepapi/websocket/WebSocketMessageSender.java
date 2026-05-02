@@ -25,8 +25,8 @@ import org.springframework.stereotype.Component;
  *  - GroupPost del:    /topic/posts/{groupId}/delete
  *  - Comments:    /topic/comments/{postId}
  *  - Cmt del:     /topic/comments/{postId}/delete
- *  - Post cmts:   /topic/task-comments/{taskId}
- *  - Post cmt del:/topic/task-comments/{taskId}/delete
+ *  - Post cmts:   /topic/task-comments/{postId}
+ *  - Post cmt del:/topic/task-comments/{postId}/delete
  *  - Activations: /topic/activations/{activationId}/acks
  *  - Chat:        /topic/chat/{groupId}
  *  - Chat del:    /topic/chat/{groupId}/delete
@@ -44,12 +44,12 @@ public class WebSocketMessageSender {
     }
 
     // --- Posts ---
-    public void sendNewPost(String groupId, GroupPostDto dto) {
-        messagingTemplate.convertAndSend("/topic/posts/" + groupId, dto);
+    public void sendNewGroupPost(String groupId, GroupPostDto dto) {
+        messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, dto);
     }
 
-    public void sendPostDeletion(String groupId, Long postId) {
-        messagingTemplate.convertAndSend("/topic/posts/" + groupId + "/delete", postId);
+    public void sendGroupPostDeletion(String groupId, Long postId) {
+        messagingTemplate.convertAndSend("/topic/group-posts/" + groupId + "/delete", postId);
     }
 
     /**
@@ -58,18 +58,18 @@ public class WebSocketMessageSender {
      * subscriber ignore it (it's not a full GroupPostDto) while the reactions
      * subscriber picks it up.
      */
-    public void sendPostReaction(String groupId, GroupPostReactionFrame frame) {
+    public void sendGroupPostReaction(String groupId, GroupPostReactionFrame frame) {
         if (groupId == null || groupId.isBlank() || frame == null) return;
-        messagingTemplate.convertAndSend("/topic/posts/" + groupId, frame);
+        messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, frame);
     }
 
     // --- Comments ---
-    public void sendNewComment(Long postId, GroupPostCommentDto dto) {
-        messagingTemplate.convertAndSend("/topic/comments/" + postId, dto);
+    public void sendNewGroupPostComment(Long postId, GroupPostCommentDto dto) {
+        messagingTemplate.convertAndSend("/topic/group-post-comments/" + postId, dto);
     }
 
-    public void sendCommentDeletion(Long postId, Long commentId) {
-        messagingTemplate.convertAndSend("/topic/comments/" + postId + "/delete", commentId);
+    public void sendGroupPostCommentDeletion(Long postId, Long commentId) {
+        messagingTemplate.convertAndSend("/topic/group-post-comments/" + postId + "/delete", commentId);
     }
 
     // --- Post comments ---
@@ -79,17 +79,17 @@ public class WebSocketMessageSender {
      * scoped under {@code /topic/task-comments/} so the FE can subscribe
      * cleanly without sniffing payload shape.
      *
-     * <p>Same convention as {@link #sendNewComment(Long, GroupPostCommentDto)}:
+     * <p>Same convention as {@link #sendNewGroupPostComment(Long, GroupPostCommentDto)}:
      * create + edit deltas ride the same topic; the FE upserts by id.</p>
      */
-    public void sendNewTaskComment(Long taskId, PostCommentDto dto) {
-        if (taskId == null || dto == null) return;
-        messagingTemplate.convertAndSend("/topic/task-comments/" + taskId, dto);
+    public void sendNewPostComment(Long postId, PostCommentDto dto) {
+        if (postId == null || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/post-comments/" + postId, dto);
     }
 
-    public void sendTaskCommentDeletion(Long taskId, Long commentId) {
-        if (taskId == null || commentId == null) return;
-        messagingTemplate.convertAndSend("/topic/task-comments/" + taskId + "/delete", commentId);
+    public void sendPostCommentDeletion(Long postId, Long commentId) {
+        if (postId == null || commentId == null) return;
+        messagingTemplate.convertAndSend("/topic/post-comments/" + postId + "/delete", commentId);
     }
 
     // --- Activations ---
@@ -106,16 +106,16 @@ public class WebSocketMessageSender {
      * Tasks claimed by a group ALSO broadcast on the claimer group's topic
      * so admin dashboards see them appear under "tasks we own".
      */
-    public void sendTaskUpdate(PostDto dto) {
+    public void sendPostUpdate(PostDto dto) {
         if (dto == null) return;
         if (dto.groupId() != null && !dto.groupId().isBlank()) {
-            messagingTemplate.convertAndSend("/topic/group/" + dto.groupId() + "/tasks", dto);
+            messagingTemplate.convertAndSend("/topic/group/" + dto.groupId() + "/posts", dto);
         } else if (dto.zipBucket() != null && !dto.zipBucket().isBlank()) {
-            messagingTemplate.convertAndSend("/topic/community/tasks/" + dto.zipBucket(), dto);
+            messagingTemplate.convertAndSend("/topic/community/posts/" + dto.zipBucket(), dto);
         }
         if (dto.claimedByGroupId() != null && !dto.claimedByGroupId().isBlank()
                 && !dto.claimedByGroupId().equals(dto.groupId())) {
-            messagingTemplate.convertAndSend("/topic/group/" + dto.claimedByGroupId() + "/tasks", dto);
+            messagingTemplate.convertAndSend("/topic/group/" + dto.claimedByGroupId() + "/posts", dto);
         }
     }
 
@@ -167,11 +167,11 @@ public class WebSocketMessageSender {
                 "/topic/households/" + householdId + "/manual-members/delete", manualMemberId);
     }
 
-    public void sendTaskDeletion(String groupId, String zipBucket, Long taskId) {
+    public void sendPostDeletion(String groupId, String zipBucket, Long postId) {
         if (groupId != null && !groupId.isBlank()) {
-            messagingTemplate.convertAndSend("/topic/group/" + groupId + "/tasks/delete", taskId);
+            messagingTemplate.convertAndSend("/topic/group/" + groupId + "/posts/delete", postId);
         } else if (zipBucket != null && !zipBucket.isBlank()) {
-            messagingTemplate.convertAndSend("/topic/community/tasks/" + zipBucket + "/delete", taskId);
+            messagingTemplate.convertAndSend("/topic/community/posts/" + zipBucket + "/delete", postId);
         }
     }
 
@@ -187,14 +187,14 @@ public class WebSocketMessageSender {
      * endpoints can carry reaction frames on the same channel because
      * the FE listens with a discriminator switch.</p>
      */
-    public void sendTaskReaction(PostReactionFrame frame) {
+    public void sendPostReaction(PostReactionFrame frame) {
         if (frame == null) return;
         if (frame.groupId() != null && !frame.groupId().isBlank()) {
             messagingTemplate.convertAndSend(
-                    "/topic/group/" + frame.groupId() + "/tasks", frame);
+                    "/topic/group/" + frame.groupId() + "/posts", frame);
         } else if (frame.zipBucket() != null && !frame.zipBucket().isBlank()) {
             messagingTemplate.convertAndSend(
-                    "/topic/community/tasks/" + frame.zipBucket(), frame);
+                    "/topic/community/posts/" + frame.zipBucket(), frame);
         }
     }
 

@@ -162,7 +162,7 @@ public class Post {
 
     /** For sub-task hierarchies (work-order breakdowns). Null for top-level tasks. */
     @Column(name = "parent_task_id")
-    private Long parentTaskId;
+    private Long parentPostId;
 
     // -----------------------------------------------------------------
     // Sponsored content fields — docs/SPONSORED_AND_ALERT_MODE.md

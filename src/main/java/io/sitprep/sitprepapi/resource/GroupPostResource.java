@@ -20,7 +20,7 @@ import java.util.Optional;
  * The old multipart {@code imageFile} parameter is gone.
  */
 @RestController
-@RequestMapping("/api/posts")
+@RequestMapping("/api/group-posts")
 public class GroupPostResource {
 
     @Autowired

@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
  * carve a dedicated endpoint instead of opening this one back up.</p>
  */
 @RestController
-@RequestMapping("/api/comments")
+@RequestMapping("/api/group-post-comments")
 public class GroupPostCommentResource {
     private final GroupPostCommentService commentService;
 

@@ -43,7 +43,7 @@ public class PostReaction {
     private Long id;
 
     @Column(name = "task_id", nullable = false)
-    private Long taskId;
+    private Long postId;
 
     @Column(name = "user_email", nullable = false)
     private String userEmail;

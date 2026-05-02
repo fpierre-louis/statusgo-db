@@ -11,7 +11,7 @@ import org.springframework.stereotype.Controller;
 import java.time.Instant;
 
 @Controller
-public class PostWebSocketController {
+public class GroupPostWebSocketController {
 
     @Autowired
     private GroupPostService postService;
@@ -19,7 +19,7 @@ public class PostWebSocketController {
     @Autowired
     private WebSocketMessageSender wsSender;
 
-    @MessageMapping("/post")
+    @MessageMapping("/group-post")
     public void handleNewPost(GroupPostDto postDto,
                               @Header(name = "email", required = false) String emailHeader) {
         try {
@@ -37,7 +37,7 @@ public class PostWebSocketController {
             saved.setTempId(postDto.getTempId());
 
             if (saved.getGroupId() != null) {
-                wsSender.sendNewPost(saved.getGroupId(), saved);
+                wsSender.sendNewGroupPost(saved.getGroupId(), saved);
             } else {
                 wsSender.sendGenericUpdate("posts", saved);
             }
@@ -47,20 +47,20 @@ public class PostWebSocketController {
         }
     }
 
-    @MessageMapping("/post/delete")
+    @MessageMapping("/group-post/delete")
     public void handleDeletePost(GroupPostDto postDto,
                                  @Header(name = "email", required = false) String emailHeader) {
         try {
             final String actor = firstNonBlank(emailHeader, "anonymous@sitprep");
             postService.deletePostAndBroadcast(postDto.getId(), actor);
-            // GroupPostService should call wsSender.sendPostDeletion(groupId, postId)
+            // GroupPostService should call wsSender.sendGroupPostDeletion(groupId, postId)
         } catch (Exception e) {
             System.err.println("❌ Error deleting post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    @MessageMapping("/post/edit")
+    @MessageMapping("/group-post/edit")
     public void handleEditPost(GroupPostDto postDto,
                                @Header(name = "email", required = false) String emailHeader) {
         try {

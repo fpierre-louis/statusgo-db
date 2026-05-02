@@ -54,7 +54,7 @@ public class PostResource {
     // Create
     // -----------------------------------------------------------------
 
-    @PostMapping("/api/tasks")
+    @PostMapping("/api/posts")
     public ResponseEntity<PostDto> create(@RequestBody Post incoming) {
         String requester = AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.status(HttpStatus.CREATED).body(tasks.create(incoming, requester));
@@ -64,7 +64,7 @@ public class PostResource {
     // Reads
     // -----------------------------------------------------------------
 
-    @GetMapping("/api/groups/{groupId}/tasks")
+    @GetMapping("/api/groups/{groupId}/posts")
     public List<PostDto> listByGroup(
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) PostStatus status
@@ -76,7 +76,7 @@ public class PostResource {
         return tasks.listByGroup(groupId, status, viewer);
     }
 
-    @GetMapping("/api/community/tasks")
+    @GetMapping("/api/community/posts")
     public List<PostDto> discoverCommunity(
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
@@ -93,7 +93,7 @@ public class PostResource {
         return tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer);
     }
 
-    @GetMapping("/api/me/tasks")
+    @GetMapping("/api/me/posts")
     public List<PostDto> listMine(
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role
     ) {
@@ -103,7 +103,7 @@ public class PostResource {
                 : tasks.listRequestedBy(me);
     }
 
-    @GetMapping("/api/tasks/{id}")
+    @GetMapping("/api/posts/{id}")
     public ResponseEntity<PostDto> get(@PathVariable Long id) {
         String viewer = AuthUtils.requireAuthenticatedEmail();
         return tasks.findDtoById(id, viewer)
@@ -115,13 +115,13 @@ public class PostResource {
     // Lifecycle (POST :action style)
     // -----------------------------------------------------------------
 
-    @PatchMapping("/api/tasks/{id}")
+    @PatchMapping("/api/posts/{id}")
     public ResponseEntity<PostDto> patch(@PathVariable Long id, @RequestBody Post patch) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.patch(id, patch));
     }
 
-    @DeleteMapping("/api/tasks/{id}")
+    @DeleteMapping("/api/posts/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         ensureRequester(id);
         tasks.delete(id);
@@ -132,7 +132,7 @@ public class PostResource {
      * Group leader claims a task. Body: {@code { "groupId": "...",
      * "claimerEmail": "..." (optional) }}. claimerEmail defaults to caller.
      */
-    @PostMapping("/api/tasks/{id}/claim")
+    @PostMapping("/api/posts/{id}/claim")
     public ResponseEntity<PostDto> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         if (req == null || req.groupId == null || req.groupId.isBlank()) {
@@ -157,25 +157,25 @@ public class PostResource {
         return ResponseEntity.ok(tasks.claim(id, req.groupId, claimerEmail));
     }
 
-    @PostMapping("/api/tasks/{id}/in-progress")
+    @PostMapping("/api/posts/{id}/in-progress")
     public ResponseEntity<PostDto> markInProgress(@PathVariable Long id) {
         ensureClaimer(id);
         return ResponseEntity.ok(tasks.markInProgress(id));
     }
 
-    @PostMapping("/api/tasks/{id}/complete")
+    @PostMapping("/api/posts/{id}/complete")
     public ResponseEntity<PostDto> complete(@PathVariable Long id) {
         ensureClaimer(id);
         return ResponseEntity.ok(tasks.complete(id));
     }
 
-    @PostMapping("/api/tasks/{id}/cancel")
+    @PostMapping("/api/posts/{id}/cancel")
     public ResponseEntity<PostDto> cancel(@PathVariable Long id) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.cancel(id));
     }
 
-    @PostMapping("/api/tasks/{id}/reopen")
+    @PostMapping("/api/posts/{id}/reopen")
     public ResponseEntity<PostDto> reopen(@PathVariable Long id) {
         ensureRequester(id);
         return ResponseEntity.ok(tasks.reopen(id));

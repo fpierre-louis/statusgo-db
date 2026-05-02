@@ -18,36 +18,36 @@ import java.util.Optional;
 @Repository
 public interface PostReactionRepo extends JpaRepository<PostReaction, Long> {
 
-    List<PostReaction> findByTaskId(Long taskId);
+    List<PostReaction> findByPostId(Long postId);
 
     /** Batched roster fetch for a list of tasks (community feed listing). */
-    List<PostReaction> findByTaskIdIn(Collection<Long> taskIds);
+    List<PostReaction> findByPostIdIn(Collection<Long> postIds);
 
     /** Used to detect "already reacted" so add-twice is a no-op. */
-    Optional<PostReaction> findByTaskIdAndUserEmailIgnoreCaseAndEmoji(
-            Long taskId, String userEmail, String emoji);
+    Optional<PostReaction> findByPostIdAndUserEmailIgnoreCaseAndEmoji(
+            Long postId, String userEmail, String emoji);
 
     /**
      * Did this viewer react with this emoji on any of the supplied tasks?
      * Used by the listing path to populate {@code viewerThanked} per row
      * in one query rather than N separate lookups.
      */
-    @Query("SELECT r.taskId FROM PostReaction r " +
-           "WHERE r.taskId IN :taskIds " +
+    @Query("SELECT r.postId FROM PostReaction r " +
+           "WHERE r.postId IN :postIds " +
            "AND lower(r.userEmail) = lower(:userEmail) " +
            "AND r.emoji = :emoji")
-    List<Long> findTaskIdsWhereViewerReacted(@Param("taskIds") Collection<Long> taskIds,
+    List<Long> findPostIdsWhereViewerReacted(@Param("postIds") Collection<Long> postIds,
                                              @Param("userEmail") String userEmail,
                                              @Param("emoji") String emoji);
 
     @Modifying
-    @Query("DELETE FROM PostReaction r WHERE r.taskId = :taskId " +
+    @Query("DELETE FROM PostReaction r WHERE r.postId = :postId " +
            "AND lower(r.userEmail) = lower(:userEmail) AND r.emoji = :emoji")
-    int deleteByTaskUserEmoji(@Param("taskId") Long taskId,
+    int deleteByPostUserEmoji(@Param("postId") Long postId,
                               @Param("userEmail") String userEmail,
                               @Param("emoji") String emoji);
 
     @Modifying
-    @Query("DELETE FROM PostReaction r WHERE r.taskId = :taskId")
-    void deleteAllByTaskId(@Param("taskId") Long taskId);
+    @Query("DELETE FROM PostReaction r WHERE r.postId = :postId")
+    void deleteAllByPostId(@Param("postId") Long postId);
 }

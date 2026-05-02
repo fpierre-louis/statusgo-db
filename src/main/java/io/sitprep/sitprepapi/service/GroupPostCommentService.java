@@ -85,7 +85,7 @@ public class GroupPostCommentService {
             @Override
             public void afterCommit() {
                 try {
-                    ws.sendNewComment(saved.getPostId(), out);
+                    ws.sendNewGroupPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for new comment id={}", saved.getId(), e);
                 }
@@ -137,7 +137,7 @@ public class GroupPostCommentService {
             public void afterCommit() {
                 try {
                     // Reuse same topic for create/edit deltas
-                    ws.sendNewComment(saved.getPostId(), out);
+                    ws.sendNewGroupPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for edit comment id={}", saved.getId(), e);
                 }
@@ -164,7 +164,7 @@ public class GroupPostCommentService {
             @Override
             public void afterCommit() {
                 try {
-                    ws.sendCommentDeletion(pid, commentId);
+                    ws.sendGroupPostCommentDeletion(pid, commentId);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for delete comment id={}", commentId, e);
                 }
@@ -189,7 +189,7 @@ public class GroupPostCommentService {
             @Override
             public void afterCommit() {
                 try {
-                    ws.sendCommentDeletion(postId, id);
+                    ws.sendGroupPostCommentDeletion(postId, id);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for delete comment id={}", id, e);
                 }
