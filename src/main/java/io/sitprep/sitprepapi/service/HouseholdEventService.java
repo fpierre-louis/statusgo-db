@@ -128,6 +128,18 @@ public class HouseholdEventService {
         recordSafely(householdId, "checkin-ended", actorEmail, Map.of());
     }
 
+    /**
+     * Record a system-fired check-in reminder. The reminder service
+     * (see {@code GroupCheckInReminderService}) dispatches up to 5
+     * reminders during the 48h check-in window. {@code slotIndex} is
+     * 0..4 corresponding to 30min / 4h / 12h / 24h / 36h. Stored
+     * with {@code actorEmail = null} since the system fired it.
+     */
+    public void recordCheckinReminder(String householdId, int slotIndex) {
+        recordSafely(householdId, "checkin-reminder", null,
+                Map.of("slotIndex", slotIndex));
+    }
+
     public void recordWithClaim(String householdId, String actorEmail, String subjectEmail) {
         Map<String, Object> payload = subjectEmail == null
                 ? Map.of() : Map.of("subjectEmail", subjectEmail);

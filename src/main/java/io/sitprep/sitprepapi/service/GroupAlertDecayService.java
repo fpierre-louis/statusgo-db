@@ -2,7 +2,10 @@ package io.sitprep.sitprepapi.service;
 
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,17 +67,29 @@ public class GroupAlertDecayService {
 
     private final GroupRepo groupRepo;
     private final HouseholdEventService householdEventService;
+    private final UserInfoRepo userInfoRepo;
+    private final NotificationService notificationService;
 
-    @Value("${app.groupAlert.decayHours:72}")
+    /**
+     * Threshold for the auto-decay sweep. Default is 48h, matching
+     * the user's "auto-reset after 48h if not ended" requirement
+     * (decided 2026-05-03; was 72h pre-redesign). Configurable via
+     * env var so a future tuning pass doesn't require a code change.
+     */
+    @Value("${app.groupAlert.decayHours:48}")
     private int decayHours;
 
     @Value("${app.groupAlert.sweepBatchSize:100}")
     private int sweepBatchSize;
 
     public GroupAlertDecayService(GroupRepo groupRepo,
-                                  HouseholdEventService householdEventService) {
+                                  HouseholdEventService householdEventService,
+                                  UserInfoRepo userInfoRepo,
+                                  NotificationService notificationService) {
         this.groupRepo = groupRepo;
         this.householdEventService = householdEventService;
+        this.userInfoRepo = userInfoRepo;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -115,6 +130,7 @@ public class GroupAlertDecayService {
             g.setAlert(null);
             g.setActiveHazardType(null);
             g.setAlertActivatedAt(null);
+            g.setCheckInRemindersFired(0);
             g.setUpdatedAt(now);
 
             if (HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) {
@@ -128,9 +144,59 @@ public class GroupAlertDecayService {
                             g.getGroupId(), inner.getMessage());
                 }
             }
+
+            // "Continue check-in?" notification (added 2026-05-03 per
+            // user). When the auto-decay fires, every member of the
+            // group gets a push asking whether they want to keep the
+            // check-in going. Tapping the deep link routes them to
+            // the group surface where an admin can re-flip alert to
+            // Active. Non-admins see the same prompt but their tap
+            // just opens the surface (no admin controls).
+            try {
+                notifyContinuePrompt(g);
+            } catch (Exception inner) {
+                log.warn("GroupAlertDecay: failed continue-prompt for group {}: {}",
+                        g.getGroupId(), inner.getMessage());
+            }
         }
 
         groupRepo.saveAll(stale);
         return stale.size();
+    }
+
+    /**
+     * Fan out the "Check-in ended after 48h — continue?" prompt to
+     * every member of an auto-decayed group. Mirrors the shape of
+     * {@link NotificationService#notifyGroupAlertChange}.
+     */
+    private void notifyContinuePrompt(Group group) {
+        List<String> memberEmails = group.getMemberEmails();
+        if (memberEmails == null || memberEmails.isEmpty()) return;
+
+        String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
+        String title = group.getGroupName();
+        String body = "Check-in auto-ended after 48 hours. Tap to continue if family still needs it.";
+        String type = "checkin_auto_ended";
+        String referenceId = group.getGroupId();
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+        for (UserInfo user : users) {
+            String token = user.getFcmtoken();
+            notificationService.deliverPresenceAware(
+                    user.getUserEmail(),
+                    title,
+                    body,
+                    owner,
+                    "/images/group-alert-icon.png",
+                    type,
+                    referenceId,
+                    targetUrl,
+                    null,
+                    token
+            );
+        }
+        log.info("GroupAlertDecay: continue-prompt fanned out to {} members of group {}",
+                users.size(), group.getGroupId());
     }
 }

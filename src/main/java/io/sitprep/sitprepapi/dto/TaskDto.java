@@ -13,9 +13,25 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Wire shape for tasks. Image keys are turned into delivery URLs server-side
- * so the frontend just renders. {@code distanceKm} is populated only on
- * community-discover responses; null elsewhere.
+ * Wire shape for the community feed item. Despite the legacy
+ * {@code TaskDto} name, this is the canonical generic-post DTO —
+ * {@code kind} (see {@link io.sitprep.sitprepapi.constant.PostKind})
+ * carries the discriminator that determines how the row is rendered
+ * on the FE: ask / offer / marketplace / tip / recommendation /
+ * lost-found / alert-update / blog-promo / post. Image keys are
+ * turned into delivery URLs server-side so the frontend just
+ * renders. {@code distanceKm} is populated only on community-discover
+ * responses; null elsewhere.
+ *
+ * <p><b>Why this is named "Task" but represents Posts:</b> the
+ * underlying entity is {@code Task} for historical reasons (the
+ * surface started as community asks, which were modeled as tasks
+ * with a requester). The data shape was generalized in the
+ * {@code MARKETPLACE_AND_FEED_CALM} pass — same row, just more
+ * kinds — but the table + DTO names stayed for migration safety.
+ * Future renames (entity → {@code Post}, table → {@code post}) can
+ * happen as a coordinated FE+BE pass; for now treat
+ * "Task entity == Post for storage purposes" as the mental model.</p>
  *
  * <p>Author profile fields ({@code requesterFirstName},
  * {@code requesterLastName}, {@code requesterProfileImageUrl}) are
@@ -42,6 +58,15 @@ public record TaskDto(
         Double latitude,
         Double longitude,
         String zipBucket,
+        /**
+         * Reverse-geocoded place label (neighborhood preferred, city as
+         * fallback). Populated server-side at create time so the FE can
+         * render a Nextdoor-style "{placeLabel} · {time}" subtitle on
+         * each feed card without per-row geocoding. Null when the post
+         * is geo-less or the lookup failed — the FE collapses to time-
+         * only in that case.
+         */
+        String placeLabel,
         Instant dueAt,
         Instant createdAt,
         Instant updatedAt,
@@ -89,7 +114,31 @@ public record TaskDto(
          * <p>False on every radius-match (geo-tagged or geo-less),
          * group-feed, by-me feed, etc.</p>
          */
-        boolean viaFollow
+        boolean viaFollow,
+        /**
+         * Number of heart "Thank" reactions on this task. Folded in by
+         * the listing path via a single batched query (see
+         * {@code TaskReactionService.loadThankSummary}) so the FE can
+         * render the heart count inline on every card without a
+         * per-card reaction roundtrip.
+         */
+        int thanksCount,
+        /**
+         * True when the requesting viewer has reacted with the heart
+         * "Thank" emoji on this task. Drives the filled-vs-outline
+         * heart icon in the feed card actions row. Always false for
+         * unauthenticated reads (none currently exist on this surface)
+         * or when {@code viewerEmail} can't be resolved.
+         */
+        boolean viewerThanked,
+        /**
+         * Number of {@code Comment} rows whose {@code postId == this.id}.
+         * Folded in by the listing path via one batched count query so
+         * the feed card can render "Reply · N" without fetching the
+         * comment list per card. Zero means no replies; the FE renders
+         * the icon without a count when this is zero.
+         */
+        int commentsCount
 ) {
 
     /**
@@ -119,6 +168,7 @@ public record TaskDto(
                 t.getLatitude(),
                 t.getLongitude(),
                 t.getZipBucket(),
+                t.getPlaceLabel(),
                 t.getDueAt(),
                 t.getCreatedAt(),
                 t.getUpdatedAt(),
@@ -137,7 +187,10 @@ public record TaskDto(
                 t.getPrice(),
                 t.isFree(),
                 parsePaymentMethods(t.getPaymentMethodsJson()),
-                /* viaFollow */ false
+                /* viaFollow */ false,
+                /* thanksCount */ 0,
+                /* viewerThanked */ false,
+                /* commentsCount */ 0
         );
     }
 
@@ -156,12 +209,13 @@ public record TaskDto(
                 id, groupId, requesterEmail,
                 requesterFirstName, requesterLastName, requesterProfileImageUrl,
                 claimedByGroupId, claimedByEmail, status, priority,
-                title, description, latitude, longitude, zipBucket,
+                title, description, latitude, longitude, zipBucket, placeLabel,
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentTaskId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
                 kind, price, isFree, paymentMethods,
-                /* viaFollow */ true
+                /* viaFollow */ true,
+                thanksCount, viewerThanked, commentsCount
         );
     }
 
@@ -191,6 +245,7 @@ public record TaskDto(
                 latitude,
                 longitude,
                 zipBucket,
+                placeLabel,
                 dueAt,
                 createdAt,
                 updatedAt,
@@ -209,7 +264,30 @@ public record TaskDto(
                 price,
                 isFree,
                 paymentMethods,
-                viaFollow
+                viaFollow,
+                thanksCount,
+                viewerThanked,
+                commentsCount
+        );
+    }
+
+    /**
+     * Returns a copy with thank counts + viewer-thanked + comments-count
+     * folded in. Used by the listing path so a feed page is one batched
+     * query for reaction summary + one for comment counts, rather than
+     * N round trips.
+     */
+    public TaskDto withEngagement(int thanksCount, boolean viewerThanked, int commentsCount) {
+        return new TaskDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentTaskId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount
         );
     }
 

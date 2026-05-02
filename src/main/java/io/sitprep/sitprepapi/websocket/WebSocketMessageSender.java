@@ -8,7 +8,9 @@ import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.dto.PostReactionFrame;
 import io.sitprep.sitprepapi.dto.CommentDto;
+import io.sitprep.sitprepapi.dto.TaskCommentDto;
 import io.sitprep.sitprepapi.dto.TaskDto;
+import io.sitprep.sitprepapi.dto.TaskReactionFrame;
 
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,8 @@ import org.springframework.stereotype.Component;
  *  - Post del:    /topic/posts/{groupId}/delete
  *  - Comments:    /topic/comments/{postId}
  *  - Cmt del:     /topic/comments/{postId}/delete
+ *  - Task cmts:   /topic/task-comments/{taskId}
+ *  - Task cmt del:/topic/task-comments/{taskId}/delete
  *  - Activations: /topic/activations/{activationId}/acks
  *  - Chat:        /topic/chat/{groupId}
  *  - Chat del:    /topic/chat/{groupId}/delete
@@ -66,6 +70,26 @@ public class WebSocketMessageSender {
 
     public void sendCommentDeletion(Long postId, Long commentId) {
         messagingTemplate.convertAndSend("/topic/comments/" + postId + "/delete", commentId);
+    }
+
+    // --- Task comments ---
+    /**
+     * New / edited comment on a community-feed task. Topic is parallel to
+     * the post-comments topic ({@code /topic/comments/{postId}}) but
+     * scoped under {@code /topic/task-comments/} so the FE can subscribe
+     * cleanly without sniffing payload shape.
+     *
+     * <p>Same convention as {@link #sendNewComment(Long, CommentDto)}:
+     * create + edit deltas ride the same topic; the FE upserts by id.</p>
+     */
+    public void sendNewTaskComment(Long taskId, TaskCommentDto dto) {
+        if (taskId == null || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/task-comments/" + taskId, dto);
+    }
+
+    public void sendTaskCommentDeletion(Long taskId, Long commentId) {
+        if (taskId == null || commentId == null) return;
+        messagingTemplate.convertAndSend("/topic/task-comments/" + taskId + "/delete", commentId);
     }
 
     // --- Activations ---
@@ -148,6 +172,29 @@ public class WebSocketMessageSender {
             messagingTemplate.convertAndSend("/topic/group/" + groupId + "/tasks/delete", taskId);
         } else if (zipBucket != null && !zipBucket.isBlank()) {
             messagingTemplate.convertAndSend("/topic/community/tasks/" + zipBucket + "/delete", taskId);
+        }
+    }
+
+    /**
+     * Broadcast an emoji reaction add/remove on the same task topic the
+     * task itself rides on. The frame's {@code type:"reaction"}
+     * discriminator lets the task-list subscriber ignore it (it's not
+     * a full TaskDto) while a reactions subscriber picks it up.
+     *
+     * <p>Routes to whichever topic the task lives on — group-scope
+     * tasks go to {@code /topic/group/{groupId}/tasks}, community-scope
+     * tasks go to {@code /topic/community/tasks/{zipBucket}}. Both
+     * endpoints can carry reaction frames on the same channel because
+     * the FE listens with a discriminator switch.</p>
+     */
+    public void sendTaskReaction(TaskReactionFrame frame) {
+        if (frame == null) return;
+        if (frame.groupId() != null && !frame.groupId().isBlank()) {
+            messagingTemplate.convertAndSend(
+                    "/topic/group/" + frame.groupId() + "/tasks", frame);
+        } else if (frame.zipBucket() != null && !frame.zipBucket().isBlank()) {
+            messagingTemplate.convertAndSend(
+                    "/topic/community/tasks/" + frame.zipBucket(), frame);
         }
     }
 

@@ -57,4 +57,24 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     )
     List<Group> findStaleActiveAlerts(@Param("cutoff") java.time.Instant cutoff,
                                       org.springframework.data.domain.Pageable page);
+
+    /**
+     * Groups with an active alert that may be due for one of their
+     * 5 in-window reminders. The reminder service receives this
+     * list and decides per-group which (if any) reminder slot to
+     * fire based on elapsed time vs. {@code checkInRemindersFired}.
+     *
+     * <p>We don't filter by elapsed-time here because the slots are
+     * compared in Java (cleaner than five OR clauses in JPQL).
+     * Only filter is "alert is active and we have a timestamp to
+     * measure from"; ordering pulls the oldest first so a backlog
+     * after downtime drains FIFO.</p>
+     */
+    @Query(
+        "SELECT g FROM Group g " +
+        "WHERE LOWER(g.alert) = 'active' " +
+        "AND g.alertActivatedAt IS NOT NULL " +
+        "ORDER BY g.alertActivatedAt ASC"
+    )
+    List<Group> findActiveAlertsForReminderSweep(org.springframework.data.domain.Pageable page);
 }

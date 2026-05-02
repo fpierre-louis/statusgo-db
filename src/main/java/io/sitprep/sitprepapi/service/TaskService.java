@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.Task;
 import io.sitprep.sitprepapi.domain.Task.TaskStatus;
@@ -45,19 +46,15 @@ public class TaskService {
     /**
      * Authorized post kinds — see Task.kind Javadoc + the spec
      * {@code docs/MARKETPLACE_AND_FEED_CALM.md} "Feed: post types
-     * beyond Asks". Lowercased. Adding a new kind is a one-line
-     * change here; no schema change since the column is free-form
-     * length 32.
+     * beyond Asks". Lowercased.
+     *
+     * <p>Pre-2026-05-03 this was a free-form set of strings. The
+     * canonical source of truth is now {@link PostKind} — adding a
+     * new kind means adding an enum value, and the validator below
+     * picks it up automatically. The set is kept here as a thin
+     * alias so call sites that already imported it don't churn.</p>
      */
-    private static final Set<String> AUTHORIZED_KINDS = Set.of(
-            // post = Nextdoor-style "what's on your mind" generic
-            // share. The default for the composer's free-form
-            // textarea path; kind-specific cards (Sell / Ask / Tip)
-            // route to ask / marketplace / tip.
-            "post",
-            "ask", "offer", "tip", "recommendation",
-            "lost-found", "alert-update", "blog-promo", "marketplace"
-    );
+    private static final Set<String> AUTHORIZED_KINDS = PostKind.ALLOWED_WIRE_VALUES;
 
     private final TaskRepo taskRepo;
     private final UserInfoRepo userInfoRepo;
@@ -66,13 +63,17 @@ public class TaskService {
     private final AlertModeService alertModeService;
     private final FollowRepo followRepo;
     private final BlockService blockService;
+    private final TaskReactionService reactionService;
+    private final TaskCommentService commentService;
 
     public TaskService(TaskRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
                        WebSocketMessageSender ws,
                        AlertModeService alertModeService,
                        FollowRepo followRepo,
-                       BlockService blockService) {
+                       BlockService blockService,
+                       TaskReactionService reactionService,
+                       TaskCommentService commentService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -80,6 +81,8 @@ public class TaskService {
         this.alertModeService = alertModeService;
         this.followRepo = followRepo;
         this.blockService = blockService;
+        this.reactionService = reactionService;
+        this.commentService = commentService;
     }
 
     /**
@@ -153,6 +156,43 @@ public class TaskService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Batch-fold engagement counts (heart "Thank" count, viewer-thanked
+     * flag, and — once Phase 2 ships — comment count) onto a list of
+     * TaskDtos. Single batched query for the reaction summary so a
+     * 50-row feed page is one extra DB round trip total, not 50.
+     *
+     * <p>{@code viewerEmail} null means an unauthenticated read (or a
+     * read where viewer identity isn't available); {@code viewerThanked}
+     * defaults to false everywhere. Counts always populate regardless.</p>
+     *
+     * <p>Phase 2 (2026-05-04) wires comment counts via {@code TaskCommentService.loadCountsByTaskIds}
+     * — one batched count query per page-load alongside the reaction summary.
+     * Tasks with no comments are absent from the count map; we default to 0
+     * for missing keys so the FE renders the comment icon without a count.</p>
+     */
+    private List<TaskDto> withEngagement(List<TaskDto> dtos, String viewerEmail) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> ids = dtos.stream()
+                .map(TaskDto::id)
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) return dtos;
+        TaskReactionService.ThankSummary summary =
+                reactionService.loadThankSummary(ids, viewerEmail);
+        Map<Long, Integer> commentCounts = commentService.loadCountsByTaskIds(ids);
+        return dtos.stream()
+                .map(d -> {
+                    if (d.id() == null) return d;
+                    return d.withEngagement(
+                            summary.countFor(d.id()),
+                            summary.viewerThankedTask(d.id()),
+                            commentCounts.getOrDefault(d.id(), 0)
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
     // ---------------------------------------------------------------------
     // Create
     // ---------------------------------------------------------------------
@@ -162,14 +202,12 @@ public class TaskService {
         if (requesterEmail == null || requesterEmail.isBlank()) {
             throw new IllegalArgumentException("requesterEmail required");
         }
-        if (incoming.getTitle() == null || incoming.getTitle().isBlank()) {
-            throw new IllegalArgumentException("title required");
-        }
 
         Task t = new Task();
         t.setRequesterEmail(requesterEmail.trim().toLowerCase());
         t.setGroupId(incoming.getGroupId()); // null = community/personal scope
-        t.setTitle(incoming.getTitle().trim());
+        // Title goes through per-kind validation below; description first
+        // so the validation can require one when title is absent.
         t.setDescription(incoming.getDescription());
         t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : TaskStatus.OPEN);
         t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Task.TaskPriority.MEDIUM);
@@ -193,6 +231,33 @@ public class TaskService {
                         "kind must be one of " + AUTHORIZED_KINDS + ", got " + kind);
             }
             t.setKind(k);
+        }
+
+        // Per-kind title rules. Title is required for kinds where the
+        // composer exposes a title field separate from the body
+        // ({@link PostKind#requiresTitle}); for body-only kinds (post,
+        // tip) the description is the post and title stays null. Pre-
+        // 2026-05-04 the FE composer synthesized a title from the
+        // description's first line for these kinds, which then rendered
+        // bolded above the same description in the feed card — the
+        // visible duplicate that prompted the cleanup.
+        PostKind kindEnum = PostKind.fromWire(t.getKind());
+        boolean titlePresent = incoming.getTitle() != null && !incoming.getTitle().isBlank();
+        if (kindEnum != null && kindEnum.requiresTitle()) {
+            if (!titlePresent) {
+                throw new IllegalArgumentException("title required for kind=" + t.getKind());
+            }
+            t.setTitle(incoming.getTitle().trim());
+        } else {
+            // post / tip: description is the body; ignore any title that
+            // a legacy client (or a stale cached composer build) might
+            // still send. Description must be present so the card has
+            // something to render.
+            if (incoming.getDescription() == null || incoming.getDescription().isBlank()) {
+                throw new IllegalArgumentException(
+                        "description required for kind=" + t.getKind());
+            }
+            t.setTitle(null);
         }
 
         // Marketplace fields. price + isFree are mutually exclusive
@@ -222,14 +287,19 @@ public class TaskService {
             }
         }
 
-        // Reverse-geocode to populate zipBucket so community-feed queries
-        // can use it as a pre-filter. Safe to skip on group-scope tasks.
+        // Reverse-geocode to populate zipBucket (community-feed pre-filter)
+        // and placeLabel (Nextdoor-style "{neighborhood} · {time}" subtitle
+        // on feed cards). Safe to skip on group-scope tasks since the
+        // group itself provides location context.
         if (t.getGroupId() == null && t.getLatitude() != null && t.getLongitude() != null) {
             try {
                 NominatimGeocodeService.Place p = geocode.reverse(t.getLatitude(), t.getLongitude());
-                if (p != null) t.setZipBucket(p.zipBucket());
+                if (p != null) {
+                    t.setZipBucket(p.zipBucket());
+                    t.setPlaceLabel(p.shortLabel());
+                }
             } catch (Exception e) {
-                log.debug("Task zipBucket lookup failed: {}", e.getMessage());
+                log.debug("Task geo enrichment failed: {}", e.getMessage());
             }
         }
 
@@ -244,26 +314,38 @@ public class TaskService {
     // ---------------------------------------------------------------------
 
     @Transactional(readOnly = true)
-    public List<TaskDto> listByGroup(String groupId, TaskStatus status) {
+    public List<TaskDto> listByGroup(String groupId, TaskStatus status, String viewerEmail) {
         if (groupId == null || groupId.isBlank()) return List.of();
         List<Task> rows = (status == null)
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
-        return withAuthors(rows.stream().map(TaskDto::fromEntity).collect(Collectors.toList()));
+        List<TaskDto> dtos = rows.stream().map(TaskDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withAuthors(dtos), viewerEmail);
+    }
+
+    /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
+    @Transactional(readOnly = true)
+    public List<TaskDto> listByGroup(String groupId, TaskStatus status) {
+        return listByGroup(groupId, status, null);
     }
 
     @Transactional(readOnly = true)
     public List<TaskDto> listRequestedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
-        return withAuthors(taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).collect(Collectors.toList()));
+        // Requester is the viewer for this surface — viewerThanked uses the
+        // same email so a user's own thanks render correctly on their list.
+        List<TaskDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(TaskDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withAuthors(dtos), email);
     }
 
     @Transactional(readOnly = true)
     public List<TaskDto> listClaimedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
-        return withAuthors(taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
-                .map(TaskDto::fromEntity).collect(Collectors.toList()));
+        // Claimer is the viewer for this surface (same reasoning as listRequestedBy).
+        List<TaskDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(TaskDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withAuthors(dtos), email);
     }
 
     /**
@@ -383,7 +465,7 @@ public class TaskService {
         List<TaskDto> filtered = applySponsoredSuppression(merged, cellMode);
 
         List<TaskDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
-        return withAuthors(capped);
+        return withEngagement(withAuthors(capped), viewerEmail);
     }
 
     // ---------------------------------------------------------------------
@@ -533,6 +615,23 @@ public class TaskService {
     @Transactional(readOnly = true)
     public Optional<Task> findById(Long id) {
         return id == null ? Optional.empty() : taskRepo.findById(id);
+    }
+
+    /**
+     * Single-task DTO read with author + engagement folded in. Used by
+     * {@code GET /api/tasks/{id}} so the detail page lands with heart
+     * count + viewerThanked already populated and doesn't have to fetch
+     * reactions separately.
+     */
+    @Transactional(readOnly = true)
+    public Optional<TaskDto> findDtoById(Long id, String viewerEmail) {
+        if (id == null) return Optional.empty();
+        return taskRepo.findById(id)
+                .map(TaskDto::fromEntity)
+                .map(d -> {
+                    List<TaskDto> folded = withEngagement(withAuthors(List.of(d)), viewerEmail);
+                    return folded.isEmpty() ? d : folded.get(0);
+                });
     }
 
     private Task mustExist(Long id) {

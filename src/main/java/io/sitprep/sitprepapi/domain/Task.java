@@ -98,7 +98,17 @@ public class Task {
             columnDefinition = "varchar(32) NOT NULL DEFAULT 'ask'")
     private String kind = "ask";
 
-    @Column(nullable = false, length = 200)
+    /**
+     * Human title. Required for kinds where the user actually enters a
+     * title separate from the body (ask, marketplace, recommendation,
+     * lost-found, alert-update). Null for kinds where the body IS the
+     * post (post / tip) — synthesizing a title from the first line of
+     * the description for these caused the bold-title-then-same-text-
+     * in-body visual duplicate that prompted the 2026-05-04 cleanup.
+     * Service-layer enforces the per-kind requirement; this column
+     * stays nullable to allow kinds with no title.
+     */
+    @Column(length = 200)
     private String title;
 
     @Column(length = 4096)
@@ -111,6 +121,18 @@ public class Task {
     /** First 3 chars of postcode — see class doc. */
     @Column(name = "zip_bucket", length = 8)
     private String zipBucket;
+
+    /**
+     * Reverse-geocoded place label (neighborhood when available, else
+     * city). Populated at create time from {@link
+     * io.sitprep.sitprepapi.service.NominatimGeocodeService} alongside
+     * {@link #zipBucket} so the FE can render a Nextdoor-style
+     * "{neighborhood} · {time}" subtitle without a per-row geocode
+     * round trip. Null when the post is geo-less or the lookup failed
+     * — the FE collapses gracefully to time-only.
+     */
+    @Column(name = "place_label", length = 128)
+    private String placeLabel;
 
     @Column(name = "due_at")
     private Instant dueAt;

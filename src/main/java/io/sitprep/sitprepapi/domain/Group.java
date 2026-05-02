@@ -50,6 +50,22 @@ public class Group {
     @Column(name = "alert_activated_at")
     private Instant alertActivatedAt;
 
+    /**
+     * Count of check-in reminders that have fired since the alert went
+     * Active. Used by {@code GroupCheckInReminderService} to dedupe
+     * its scheduled fires — the service computes "which reminder slot
+     * does the current elapsed time match?" and fires only when the
+     * counter is below that slot's index. Reset to 0 every time the
+     * alert flips to Active, and on the auto-decay flip to Inactive.
+     *
+     * <p>Slots (0-indexed): 30min / 4h / 12h / 24h / 36h. After the
+     * 5th reminder fires, the next service tick sees the alert
+     * approach the 48h decay threshold and {@code GroupAlertDecayService}
+     * takes over, sending the "Continue check-in?" notification.</p>
+     */
+    @Column(name = "checkin_reminders_fired")
+    private Integer checkInRemindersFired;
+
     private Instant createdAt;
     private String description;
     private String groupCode;

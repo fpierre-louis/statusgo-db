@@ -172,11 +172,16 @@ public class GroupService {
         // Track when the alert most recently went Active so the decay
         // sweep can find stale ones. Cleared on flip-back so a future
         // re-activation gets a fresh timestamp instead of inheriting the
-        // prior session's clock.
+        // prior session's clock. Reminder counter resets on both
+        // transitions so a re-activation gets the full 5-reminder
+        // cadence again, and a manual end stops any pending tick from
+        // sending a stale reminder.
         if (alertBecameActive) {
             group.setAlertActivatedAt(Instant.now());
+            group.setCheckInRemindersFired(0);
         } else if (alertBecameInactive) {
             group.setAlertActivatedAt(null);
+            group.setCheckInRemindersFired(0);
         }
 
         if (alertBecameActive) {

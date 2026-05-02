@@ -122,6 +122,7 @@ public class CommunityDiscoverService {
             NominatimGeocodeService.Place resolved = geocode.reverse(lat, lng);
             if (resolved == null) return null;
             return new Place(
+                    resolved.neighborhood(),
                     resolved.city(), resolved.region(), resolved.state(),
                     resolved.country(), resolved.zipBucket()
             );

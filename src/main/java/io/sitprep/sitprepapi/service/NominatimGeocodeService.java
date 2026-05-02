@@ -36,8 +36,30 @@ public class NominatimGeocodeService {
 
     private static final Logger log = LoggerFactory.getLogger(NominatimGeocodeService.class);
 
-    /** Reverse-geocode result. All fields nullable when Nominatim doesn't supply them. */
-    public record Place(String city, String region, String state, String country, String zipBucket) {}
+    /**
+     * Reverse-geocode result. All fields nullable when Nominatim doesn't supply them.
+     *
+     * <p>{@code neighborhood} is the most-local-resolvable label (suburb /
+     * neighbourhood / quarter from Nominatim's address breakdown) — used by
+     * post feed cards for the Nextdoor-style "{neighborhood} · {time}"
+     * subtitle. Falls back to {@code city} on the consumer side when null.</p>
+     */
+    public record Place(String neighborhood, String city, String region,
+                        String state, String country, String zipBucket) {
+
+        /**
+         * Best-available short label for "where this is", in the order:
+         * neighborhood → city → region → state. Null when nothing resolves.
+         * Used by services that want a single human-readable place string
+         * (post {@code placeLabel}) without re-implementing the fallback.
+         */
+        public String shortLabel() {
+            if (neighborhood != null && !neighborhood.isBlank()) return neighborhood;
+            if (city != null && !city.isBlank()) return city;
+            if (region != null && !region.isBlank()) return region;
+            return state;
+        }
+    }
 
     private static final String BASE = "https://nominatim.openstreetmap.org/reverse";
     private static final long TTL_OK_MS = Duration.ofHours(6).toMillis();
@@ -74,11 +96,16 @@ public class NominatimGeocodeService {
         long ttl = TTL_FAIL_MS;
 
         try {
+            // zoom=18 (building level) returns the full address breakdown
+            // including suburb / neighbourhood / quarter so the Place can
+            // carry a useful "neighborhood" field for feed-card subtitles.
+            // The 6h cache + ~1km bucket key keeps the request volume low
+            // even at higher zoom.
             URI uri = URI.create(BASE
                     + "?format=jsonv2"
                     + "&lat=" + String.format(Locale.US, "%.6f", lat)
                     + "&lon=" + String.format(Locale.US, "%.6f", lng)
-                    + "&zoom=10"
+                    + "&zoom=18"
                     + "&addressdetails=1"
             );
 
@@ -93,6 +120,12 @@ public class NominatimGeocodeService {
                 JsonNode root = objectMapper.readTree(res.getBody());
                 JsonNode addr = root.path("address");
 
+                // Neighborhood prefers the most-local OSM key Nominatim
+                // tends to fill in for residential addresses. Falling back
+                // through suburb/quarter/residential covers most cities;
+                // null is fine — the consumer falls back to city.
+                String neighborhood = pickFirst(addr,
+                        "neighbourhood", "suburb", "quarter", "city_district", "residential");
                 String city = pickFirst(addr, "city", "town", "village", "hamlet", "municipality", "county");
                 String region = pickFirst(addr, "state_district", "region", "province");
                 String state = pickFirst(addr, "state");
@@ -101,8 +134,9 @@ public class NominatimGeocodeService {
                 String zipBucket = postcode == null ? null
                         : postcode.length() >= 3 ? postcode.substring(0, 3) : postcode;
 
-                if (city != null || region != null || state != null) {
+                if (neighborhood != null || city != null || region != null || state != null) {
                     place = new Place(
+                            trimOrNull(neighborhood),
                             trimOrNull(city),
                             trimOrNull(region),
                             trimOrNull(state),

@@ -18,8 +18,17 @@ public record CommunityDiscoverDto(
         MetaDto meta
 ) {
 
-    /** Reverse-geocoded label for the viewer's coordinates. Null fields when Nominatim couldn't resolve. */
+    /**
+     * Reverse-geocoded label for the viewer's coordinates. Null fields when
+     * Nominatim couldn't resolve.
+     *
+     * <p>{@code neighborhood} (suburb / quarter / neighbourhood from OSM) is
+     * the most-local-resolvable label, useful for Nextdoor-style headers
+     * ("Murdock Trail" vs the broader city). FE consumers fall back through
+     * neighborhood → city → town → village → state.</p>
+     */
     public record Place(
+            String neighborhood,
             String city,
             String region,
             String state,

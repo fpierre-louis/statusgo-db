@@ -69,8 +69,11 @@ public class TaskResource {
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) TaskStatus status
     ) {
-        AuthUtils.requireAuthenticatedEmail();
-        return tasks.listByGroup(groupId, status);
+        // Pass the viewer through so the response carries viewerThanked
+        // per row — the feed UI's heart shows filled when the viewer has
+        // already thanked the post.
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return tasks.listByGroup(groupId, status, viewer);
     }
 
     @GetMapping("/api/community/tasks")
@@ -102,9 +105,9 @@ public class TaskResource {
 
     @GetMapping("/api/tasks/{id}")
     public ResponseEntity<TaskDto> get(@PathVariable Long id) {
-        AuthUtils.requireAuthenticatedEmail();
-        return tasks.findById(id)
-                .map(t -> ResponseEntity.ok(io.sitprep.sitprepapi.dto.TaskDto.fromEntity(t)))
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return tasks.findDtoById(id, viewer)
+                .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
