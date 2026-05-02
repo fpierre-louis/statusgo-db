@@ -62,16 +62,19 @@ public class PostCommentResource {
 
     @GetMapping("/api/posts/{postId}/comments")
     public ResponseEntity<List<PostCommentDto>> getCommentsByPostId(@PathVariable Long postId) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.getCommentsByPostId(postId));
+        // Pass viewer through so the response carries viewerThanked per row
+        // — the comment thread UI's heart shows filled when the viewer has
+        // already reacted on a given comment.
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.getCommentsByPostId(postId, viewer));
     }
 
     @GetMapping("/api/posts/{postId}/comments/since")
     public List<PostCommentDto> getCommentsSince(
             @PathVariable Long postId,
             @RequestParam String sinceIso) {
-        AuthUtils.requireAuthenticatedEmail();
-        return service.getCommentsSince(postId, Instant.parse(sinceIso));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return service.getCommentsSince(postId, Instant.parse(sinceIso), viewer);
     }
 
     // -----------------------------------------------------------------

@@ -3,6 +3,8 @@ package io.sitprep.sitprepapi.dto;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Wire shape for a comment on a {@link io.sitprep.sitprepapi.domain.Post}.
@@ -44,4 +46,32 @@ public class PostCommentDto {
     private Instant updatedAt;
 
     private boolean edited;                      // convenience flag
+
+    /**
+     * Per-emoji reaction roster for this comment, populated server-side
+     * by {@code PostCommentService} via batched
+     * {@code PostCommentReactionService.loadByPostCommentIds} so a thread
+     * page is one extra DB round trip total, not N. Shape:
+     * <pre>
+     *   { "❤️": [{ userEmail, addedAt }, ...], "👍": [...], ... }
+     * </pre>
+     * Empty map when the comment has no reactions.
+     */
+    private Map<String, List<EmojiReactionDto>> reactions;
+
+    /**
+     * Heart "Thank" reaction count on this comment. Folded in by the
+     * thread listing path via a single batched query (see
+     * {@code PostCommentReactionService.loadThankSummary}). Lets the FE
+     * render a heart count next to each bubble without a per-comment
+     * reactions roundtrip.
+     */
+    private int thanksCount;
+
+    /**
+     * True when the requesting viewer has reacted with the heart "Thank"
+     * emoji on this comment. Drives the filled-vs-outline heart icon on
+     * the comment bubble. Always false for unauthenticated reads.
+     */
+    private boolean viewerThanked;
 }

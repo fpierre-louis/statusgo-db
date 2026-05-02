@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.PostCommentDto;
 import io.sitprep.sitprepapi.repo.PostCommentRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
@@ -48,17 +49,20 @@ public class PostCommentService {
     private final UserInfoRepo userInfoRepo;
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
+    private final PostCommentReactionService reactionService;
 
     public PostCommentService(PostCommentRepo commentRepo,
                               PostRepo taskRepo,
                               UserInfoRepo userInfoRepo,
                               WebSocketMessageSender ws,
-                              NotificationService notificationService) {
+                              NotificationService notificationService,
+                              PostCommentReactionService reactionService) {
         this.commentRepo = commentRepo;
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.ws = ws;
         this.notificationService = notificationService;
+        this.reactionService = reactionService;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -184,7 +188,7 @@ public class PostCommentService {
     // Queries
     // --------------------------------------------------------------------------------------------
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsByPostId(Long postId) {
+    public List<PostCommentDto> getCommentsByPostId(Long postId, String viewerEmail) {
         if (postId == null) return List.of();
 
         List<PostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
@@ -195,11 +199,20 @@ public class PostCommentService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        List<PostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail))
+                .collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<PostCommentDto> getCommentsByPostId(Long postId) {
+        return getCommentsByPostId(postId, null);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsSince(Long postId, Instant since) {
+    public List<PostCommentDto> getCommentsSince(Long postId, Instant since, String viewerEmail) {
         if (postId == null || since == null) return List.of();
 
         List<PostComment> rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
@@ -210,7 +223,16 @@ public class PostCommentService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))
                 .stream().collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
-        return rows.stream().map(c -> toDto(c, userByEmail)).collect(Collectors.toList());
+        List<PostCommentDto> dtos = rows.stream()
+                .map(c -> toDto(c, userByEmail))
+                .collect(Collectors.toList());
+        return withReactions(dtos, viewerEmail);
+    }
+
+    /** Back-compat overload. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<PostCommentDto> getCommentsSince(Long postId, Instant since) {
+        return getCommentsSince(postId, since, null);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -219,8 +241,42 @@ public class PostCommentService {
         return commentRepo.findById(id).map(c -> {
             PostCommentDto d = toDto(c);
             enrichAuthor(d);
+            // Single-comment fold — small, no batching benefit. viewerThanked
+            // stays false here (caller is the resource's ownership-check
+            // path, not a render path).
+            d.setReactions(reactionService.loadByPostCommentId(d.getId()));
             return d;
         });
+    }
+
+    /**
+     * Batch-fold per-emoji roster + heart "Thank" count + viewer-thanked
+     * flag onto a list of PostCommentDtos. Single batched roster query
+     * + single batched thank-summary query for the whole thread, so a
+     * thread page is two extra DB round trips total, not 2N.
+     *
+     * <p>{@code viewerEmail} null means an unauthenticated read or a
+     * read where viewer identity isn't available; {@code viewerThanked}
+     * defaults to false everywhere. Counts + roster always populate.</p>
+     */
+    private List<PostCommentDto> withReactions(List<PostCommentDto> dtos, String viewerEmail) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> ids = dtos.stream()
+                .map(PostCommentDto::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (ids.isEmpty()) return dtos;
+        Map<Long, Map<String, List<EmojiReactionDto>>> rosterByComment =
+                reactionService.loadByPostCommentIds(ids);
+        PostCommentReactionService.ThankSummary summary =
+                reactionService.loadThankSummary(ids, viewerEmail);
+        for (PostCommentDto d : dtos) {
+            if (d.getId() == null) continue;
+            d.setReactions(rosterByComment.getOrDefault(d.getId(), Map.of()));
+            d.setThanksCount(summary.countFor(d.getId()));
+            d.setViewerThanked(summary.viewerThankedComment(d.getId()));
+        }
+        return dtos;
     }
 
     /**

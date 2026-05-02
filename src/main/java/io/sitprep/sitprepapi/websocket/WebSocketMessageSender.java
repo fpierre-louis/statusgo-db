@@ -9,6 +9,7 @@ import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostReactionFrame;
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.dto.PostCommentDto;
+import io.sitprep.sitprepapi.dto.PostCommentReactionFrame;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.dto.PostReactionFrame;
 
@@ -90,6 +91,20 @@ public class WebSocketMessageSender {
     public void sendPostCommentDeletion(Long postId, Long commentId) {
         if (postId == null || commentId == null) return;
         messagingTemplate.convertAndSend("/topic/post-comments/" + postId + "/delete", commentId);
+    }
+
+    /**
+     * Broadcast an emoji reaction add/remove on a community-feed comment.
+     * Rides the same per-post-thread topic that the parent comment was
+     * broadcast on ({@code /topic/post-comments/{postId}}); the frame's
+     * {@code type:"reaction"} discriminator lets the comment-list
+     * subscriber tell reaction frames apart from full PostCommentDto
+     * broadcasts.
+     */
+    public void sendPostCommentReaction(PostCommentReactionFrame frame) {
+        if (frame == null || frame.postId() == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/post-comments/" + frame.postId(), frame);
     }
 
     // --- Activations ---
