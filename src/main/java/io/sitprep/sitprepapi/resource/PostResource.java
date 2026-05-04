@@ -103,6 +103,19 @@ public class PostResource {
                 : tasks.listRequestedBy(me);
     }
 
+    /**
+     * Posts authored by a specific user — backs the per-business profile
+     * page (/business/{email}) so a verified publisher's listings can
+     * be browsed in one place. Public-equivalent: community posts are
+     * visible in the feed already; this surface just collects them by
+     * author. Auth still required (no anonymous reads).
+     */
+    @GetMapping("/api/posts/by-author/{email}")
+    public List<PostDto> listByAuthor(@PathVariable String email) {
+        AuthUtils.requireAuthenticatedEmail();
+        return tasks.listRequestedBy(email);
+    }
+
     @GetMapping("/api/posts/{id}")
     public ResponseEntity<PostDto> get(@PathVariable Long id) {
         String viewer = AuthUtils.requireAuthenticatedEmail();

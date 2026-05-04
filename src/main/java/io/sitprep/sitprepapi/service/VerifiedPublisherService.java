@@ -86,6 +86,22 @@ public class VerifiedPublisherService {
     }
 
     /**
+     * Single-publisher fetch by email. Returns the same DTO shape as
+     * {@link #discoverInRadius} (no distance — that's only set on radius
+     * responses). Returns empty when the email doesn't resolve to a
+     * UserInfo OR resolves to a non-verified user (we don't expose the
+     * verification flag publicly via this endpoint; non-verified users
+     * are simply "not found" from the public-facing surface).
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<VerifiedPublisherDto> findByEmail(String email) {
+        if (email == null || email.isBlank()) return java.util.Optional.empty();
+        return userInfoRepo.findByUserEmail(email.trim())
+                .filter(UserInfo::isVerifiedPublisher)
+                .map(u -> VerifiedPublisherDto.fromEntity(u, null));
+    }
+
+    /**
      * Flip the verified flag. {@code verified=true} requires a non-null
      * kind from {@link #AUTHORIZED_KINDS}; {@code verified=false} clears
      * the audit fields so re-verifying later starts fresh.

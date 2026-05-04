@@ -58,6 +58,20 @@ public class VerifiedPublisherResource {
         return ResponseEntity.ok(service.discoverInRadius(lat, lng, radiusKm));
     }
 
+    /**
+     * Single-publisher fetch by email — backs the per-business profile
+     * page. 404 when the email doesn't resolve to a verified publisher
+     * (non-verified users return 404 too — we don't expose verification
+     * status via this surface).
+     */
+    @GetMapping("/api/verified-publishers/{email}")
+    public ResponseEntity<VerifiedPublisherDto> getByEmail(@PathVariable String email) {
+        return service.findByEmail(email)
+                .map(ResponseEntity::ok)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Verified publisher not found"));
+    }
+
     @PatchMapping("/api/admin/users/{email}/verify-publisher")
     public ResponseEntity<VerifiedPublisherDto> setVerified(
             @PathVariable String email,
