@@ -58,12 +58,14 @@ public class SecurityConfig {
                 "http://localhost:3000",
                 "http://localhost:4200",
                 "https://statusgo-db-0889387bb209.herokuapp.com",
-                "https://statusnow.app",
-                "https://www.statusnow.app",
                 "https://www.sitprep.app",
                 "https://sitprep.app",
                 "https://rediscover-sports.netlify.app"
         ));
+        // Note: statusnow.app removed 2026-05-04 — it 301s to sitprep.app
+        // at the Netlify edge, so the browser follows the redirect and
+        // makes API calls from the sitprep.app origin. statusnow.app
+        // never appears as a CORS origin against this BE in practice.
 
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
