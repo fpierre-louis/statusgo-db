@@ -194,6 +194,33 @@ public class PostResource {
         return ResponseEntity.ok(tasks.reopen(id));
     }
 
+    /**
+     * Self-serve promote — author flags their own marketplace listing
+     * as sponsored for {@code days} (default 7, clamped to [1, 30]).
+     * Free for v1; future monetization can gate behind a payment flow.
+     *
+     * <p>Body: {@code { "days": 7 }} — both fields optional; defaults
+     * to 7 when omitted.</p>
+     */
+    @PostMapping("/api/posts/{id}/promote")
+    public ResponseEntity<PostDto> promote(
+            @PathVariable Long id,
+            @RequestBody(required = false) PromoteRequest body) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        ensureRequester(id);
+        int days = (body != null && body.days() != null) ? body.days() : 7;
+        return ResponseEntity.ok(tasks.promote(id, me, days));
+    }
+
+    @PostMapping("/api/posts/{id}/unpromote")
+    public ResponseEntity<PostDto> unpromote(@PathVariable Long id) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        ensureRequester(id);
+        return ResponseEntity.ok(tasks.unpromote(id, me));
+    }
+
+    public record PromoteRequest(Integer days) {}
+
     // -----------------------------------------------------------------
     // Authorization helpers
     // -----------------------------------------------------------------

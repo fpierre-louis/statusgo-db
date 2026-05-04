@@ -564,6 +564,74 @@ public class PostService {
         return saveAndBroadcast(t);
     }
 
+    /**
+     * Self-serve promote — author flags their own marketplace listing
+     * as sponsored for {@code days} (default 7). Free for v1: SitPrep
+     * doesn't process payments, so this is a "claim my own placement"
+     * toggle, not a billed action. Future: gate behind a payment flow
+     * + admin approval if/when monetization wants real revenue from it.
+     *
+     * <p>Constraints (service-layer enforced):</p>
+     * <ul>
+     *   <li>Caller must be the post's author (resource layer pre-checks
+     *       this, but the service double-checks for safety).</li>
+     *   <li>Post kind must be {@code marketplace} — promotion only makes
+     *       sense for marketplace listings; asks/tips don't compete for
+     *       a sponsored slot.</li>
+     *   <li>Post must currently be OPEN — promoting a sold/cancelled
+     *       listing wastes the slot.</li>
+     *   <li>{@code days} clamped to [1, 30] so a fat-finger doesn't
+     *       grant a year of free placement.</li>
+     * </ul>
+     *
+     * <p>{@code crisisRelevant} stays whatever the post had — promotion
+     * doesn't auto-flag a listing as crisis-relevant; that's an admin
+     * decision via the admin verify endpoint.</p>
+     */
+    @Transactional
+    public PostDto promote(Long postId, String actorEmail, int days) {
+        Post t = mustExist(postId);
+        if (t.getRequesterEmail() == null
+                || !t.getRequesterEmail().equalsIgnoreCase(actorEmail)) {
+            throw new SecurityException("Only the post author can promote it");
+        }
+        if (!"marketplace".equals(t.getKind())) {
+            throw new IllegalStateException(
+                    "Only marketplace listings can be promoted (kind=" + t.getKind() + ")");
+        }
+        if (t.getStatus() != Post.PostStatus.OPEN) {
+            throw new IllegalStateException(
+                    "Only open listings can be promoted (status=" + t.getStatus() + ")");
+        }
+        int clampedDays = Math.max(1, Math.min(30, days));
+        t.setSponsored(true);
+        t.setSponsoredUntil(Instant.now().plus(java.time.Duration.ofDays(clampedDays)));
+        // sponsoredBy = the author themselves for self-serve. Admin-flagged
+        // sponsorships use the admin's identifier; self-serve uses the
+        // author's email so we can audit who claimed which slot.
+        t.setSponsoredBy(actorEmail.trim().toLowerCase());
+        return saveAndBroadcast(t);
+    }
+
+    /**
+     * Author-only — clear sponsored flag early. Useful when a listing
+     * sells out before the sponsored window closes; reduces wasted slot
+     * usage in the feed for other listings.
+     */
+    @Transactional
+    public PostDto unpromote(Long postId, String actorEmail) {
+        Post t = mustExist(postId);
+        if (t.getRequesterEmail() == null
+                || !t.getRequesterEmail().equalsIgnoreCase(actorEmail)) {
+            throw new SecurityException("Only the post author can unpromote it");
+        }
+        t.setSponsored(false);
+        t.setSponsoredUntil(null);
+        // Keep sponsoredBy for audit (it's the historical fact that the
+        // listing WAS promoted at some point).
+        return saveAndBroadcast(t);
+    }
+
     @Transactional
     public void delete(Long postId) {
         Post t = taskRepo.findById(postId).orElse(null);
