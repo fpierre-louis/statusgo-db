@@ -60,7 +60,17 @@ public class SecurityConfig {
                 "https://statusgo-db-0889387bb209.herokuapp.com",
                 "https://www.sitprep.app",
                 "https://sitprep.app",
-                "https://rediscover-sports.netlify.app"
+                "https://rediscover-sports.netlify.app",
+                // Capacitor iOS — the WKWebView loads the FE bundle from
+                // `capacitor://localhost`; every fetch from the iOS app
+                // carries that as the Origin header. Without this entry,
+                // CORS preflights from the iOS app 403 silently and the
+                // app appears completely broken with no API connectivity.
+                "capacitor://localhost",
+                // Capacitor Android — when androidScheme=https (set in
+                // capacitor.config.ts), the WebView loads from
+                // https://localhost. Same CORS implications.
+                "https://localhost"
         ));
         // Note: statusnow.app removed 2026-05-04 — it 301s to sitprep.app
         // at the Netlify edge, so the browser follows the redirect and
