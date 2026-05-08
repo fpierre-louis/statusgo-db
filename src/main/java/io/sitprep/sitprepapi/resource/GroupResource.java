@@ -107,6 +107,25 @@ public class GroupResource {
         return groupService.getGroupByPublicId(groupId);
     }
 
+    /**
+     * Public-safe preview of a group for the join-confirmation page.
+     * Returns identity, purpose, scale, owner name, alert state, and
+     * the viewer's relationship to the group (owner / admin / member /
+     * pending / none) without exposing member or admin emails.
+     *
+     * <p>Use this anywhere a non-member is shown a group: the discover
+     * page's "view before joining" flow, the {@code /joingroup} invite-
+     * link confirmation page. The full {@link Group} endpoint above
+     * leaks the roster and should only be used by members.</p>
+     */
+    @GetMapping("/{groupId}/preview")
+    public ResponseEntity<io.sitprep.sitprepapi.dto.GroupPreviewDto> getGroupPreview(
+            @PathVariable String groupId
+    ) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(groupService.getGroupPreview(groupId, viewer));
+    }
+
     // ---------- Membership / role ops (admin or owner) ----------
 
     @PostMapping("/{groupId}/members/approve")

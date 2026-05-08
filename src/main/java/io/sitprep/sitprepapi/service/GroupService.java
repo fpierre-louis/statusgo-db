@@ -122,6 +122,83 @@ public class GroupService {
                 .orElseThrow(() -> new RuntimeException("Group not found for groupId: " + groupId));
     }
 
+    /**
+     * Sanitized public preview of a group for non-members. Powers the
+     * join-confirmation page (FE: {@code JoinPrivateGroup}) and the
+     * discover-surface "view this circle before joining" flow.
+     *
+     * <p>Does NOT include any email lists. The previous pattern of
+     * returning the full {@link Group} entity from
+     * {@code GET /api/groups/{groupId}} leaked the entire roster + admin
+     * + pending-request emails to any authenticated user with the
+     * group id — this method is the safe alternative.</p>
+     *
+     * @param groupId     the group's public id
+     * @param viewerEmail the calling user's email (lowercased), used
+     *                    to compute {@code viewerStatus} so the FE can
+     *                    pick the right CTA without a second round trip
+     * @return preview DTO ready to send to the wire
+     */
+    public io.sitprep.sitprepapi.dto.GroupPreviewDto getGroupPreview(String groupId, String viewerEmail) {
+        Group group = getGroupByPublicId(groupId);
+
+        String viewer = viewerEmail == null ? "" : viewerEmail.trim().toLowerCase();
+
+        // Compute viewerStatus in priority order — owner > admin > member
+        // > pending > none. A user can be all of those simultaneously
+        // (an owner is also typically an admin and a member); the FE
+        // only needs the most-privileged label to pick its CTA.
+        String status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_NONE;
+        if (group.getOwnerEmail() != null
+                && group.getOwnerEmail().equalsIgnoreCase(viewer)) {
+            status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_OWNER;
+        } else if (containsIgnoreCase(group.getAdminEmails(), viewer)) {
+            status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_ADMIN;
+        } else if (containsIgnoreCase(group.getMemberEmails(), viewer)) {
+            status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_MEMBER;
+        } else if (containsIgnoreCase(group.getPendingMemberEmails(), viewer)) {
+            status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING;
+        }
+
+        Double lat = parseCoord(group.getLatitude());
+        Double lng = parseCoord(group.getLongitude());
+        int adminCount = group.getAdminEmails() == null ? 0 : group.getAdminEmails().size();
+        int memberCount = group.getMemberCount() != null
+                ? group.getMemberCount()
+                : (group.getMemberEmails() == null ? 0 : group.getMemberEmails().size());
+        boolean alertActive = "Active".equalsIgnoreCase(group.getAlert());
+
+        return new io.sitprep.sitprepapi.dto.GroupPreviewDto(
+                group.getGroupId(),
+                group.getGroupName(),
+                group.getGroupType(),
+                group.getDescription(),
+                group.getPrivacy(),
+                group.getOwnerName(),
+                adminCount,
+                memberCount,
+                group.getAddress(),
+                lat,
+                lng,
+                group.getCreatedAt(),
+                alertActive,
+                status
+        );
+    }
+
+    private static boolean containsIgnoreCase(java.util.Collection<String> coll, String needle) {
+        if (coll == null || needle == null || needle.isEmpty()) return false;
+        for (String s : coll) {
+            if (s != null && s.equalsIgnoreCase(needle)) return true;
+        }
+        return false;
+    }
+
+    private static Double parseCoord(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try { return Double.parseDouble(raw.trim()); } catch (NumberFormatException e) { return null; }
+    }
+
     public Group updateGroupByPublicId(String groupId, Group groupDetails) {
         Group group = getGroupByPublicId(groupId);
         updateGroupFields(group, groupDetails);
