@@ -153,10 +153,18 @@ public class UserInfoService {
         // paginates the visible cards.
         int postCount = (int) tasks.stream().filter(t -> t.getGroupId() == null).count();
 
+        // Follow counts — surfaced as the Following/Followers tappable
+        // pair on the FE profile header, both routing into
+        // /profile/connections (filtered to the matching tab).
+        long followingCount = followService.followingCount(u.getUserEmail());
+        long followerCount = followService.followerCount(u.getUserEmail());
+
         return Optional.of(PublicProfileDto.of(
                 u,
                 groupSummaries.size(),
                 postCount,
+                followingCount,
+                followerCount,
                 groupSummaries,
                 postSummaries,
                 viewerRelationship

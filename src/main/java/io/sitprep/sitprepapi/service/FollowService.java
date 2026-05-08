@@ -158,6 +158,29 @@ public class FollowService {
                 .toList();
     }
 
+    /**
+     * How many users this person is following. Folded onto
+     * {@link io.sitprep.sitprepapi.dto.PublicProfileDto} for the
+     * Following/Followers counter row on the public profile.
+     */
+    @Transactional(readOnly = true)
+    public long followingCount(String viewerEmail) {
+        String v = normalize(viewerEmail);
+        if (v == null) return 0L;
+        return followRepo.countByFollowerEmail(v);
+    }
+
+    /**
+     * How many users follow this person. Same DTO surfacing as
+     * {@link #followingCount(String)}.
+     */
+    @Transactional(readOnly = true)
+    public long followerCount(String viewerEmail) {
+        String v = normalize(viewerEmail);
+        if (v == null) return 0L;
+        return followRepo.countByFollowedEmail(v);
+    }
+
     private static String normalize(String email) {
         if (email == null) return null;
         String t = email.trim();

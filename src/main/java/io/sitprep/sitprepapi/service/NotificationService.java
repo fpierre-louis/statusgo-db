@@ -326,6 +326,10 @@ public class NotificationService {
             apsBuilder.putCustomData("body", safe(body));
             apsBuilder.putCustomData("channelId", safe(channelId));
             apsBuilder.putCustomData("category", safe(category));
+            // iOS 15+ lock-screen affordances: interruption-level
+            // (Focus-mode break-through), relevance-score (stack
+            // ranking), thread-id (group related items).
+            applyIosLockScreenAffordances(apsBuilder, notificationType, referenceId);
             apnsBuilder.setAps(apsBuilder.build());
 
             Message msg = Message.builder()
@@ -440,6 +444,8 @@ public class NotificationService {
                 apsBuilder.putCustomData("body", safe(body));
                 apsBuilder.putCustomData("channelId", safe(channelId));
                 apsBuilder.putCustomData("category", safe(category));
+                // iOS 15+ lock-screen affordances — see helper docstring.
+                applyIosLockScreenAffordances(apsBuilder, notificationType, referenceId);
                 apnsBuilder.setAps(apsBuilder.build());
 
                 Message msg = Message.builder()
@@ -596,6 +602,67 @@ public class NotificationService {
                 return "MEMBERSHIP";
             default:
                 return "SYSTEM";
+        }
+    }
+
+    /**
+     * Whether this notification type warrants iOS
+     * {@code interruption-level: "time-sensitive"} (iOS 15+). Time-sensitive
+     * notifications break through Focus modes (Sleep, Work, etc.) without
+     * needing the critical-alerts entitlement — appropriate for life-safety
+     * categories where the user explicitly wants to be reachable.
+     *
+     * <p>Routine categories (comments, new members, task assignments) get
+     * the default {@code "active"} level so a 2am comment doesn't punch
+     * through Sleep Focus.</p>
+     *
+     * <p>Mirrors the policy in {@code docs/PUSH_NOTIFICATION_POLICY.md}'s
+     * critical-bypass list, but loosened — time-sensitive ≠ critical;
+     * critical alerts (DND bypass) require a separate Apple entitlement
+     * we deliberately don't request for v1.</p>
+     */
+    private boolean isTimeSensitiveType(String type) {
+        if (type == null) return false;
+        switch (type) {
+            case "alert":
+            case "group_status":
+            case "PLAN_ACTIVATION":
+            case "plan_activation":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Apply the three iOS-native lock-screen affordances missing from the
+     * pre-2026-05-08 payload:
+     *
+     * <ul>
+     *   <li><b>{@code interruption-level}</b> — {@code "time-sensitive"} for
+     *       alert categories so they break through Focus modes;
+     *       {@code "active"} (default) for routine categories.</li>
+     *   <li><b>{@code relevance-score}</b> — 0.0–1.0 hint to iOS notification
+     *       stack ranking. Alerts score 1.0 so they outrank routine items
+     *       when the lock screen is full.</li>
+     *   <li><b>{@code thread-id}</b> — groups related notifications under
+     *       one expandable lock-screen stack. We thread by {@code referenceId}
+     *       so all alerts for one household, all acks for one activation, all
+     *       comments on one post collapse into a single threaded summary.</li>
+     * </ul>
+     *
+     * <p>Apple ignores unknown keys, so this is a forward-only payload tweak
+     * — older iOS versions silently fall back to the prior behavior. None of
+     * these keys require an entitlement; they're plain APNs payload fields.</p>
+     */
+    private void applyIosLockScreenAffordances(Aps.Builder apsBuilder,
+                                                String notificationType,
+                                                String referenceId) {
+        boolean timeSensitive = isTimeSensitiveType(notificationType);
+        apsBuilder.putCustomData("interruption-level", timeSensitive ? "time-sensitive" : "active");
+        apsBuilder.putCustomData("relevance-score", timeSensitive ? 1.0 : 0.5);
+        if (referenceId != null && !referenceId.isEmpty()) {
+            apsBuilder.setThreadId(referenceId);
         }
     }
 }

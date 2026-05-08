@@ -41,6 +41,13 @@ public record PublicProfileDto(
         // Earned metrics for the trust row.
         int circleCount,
         int postCount,
+        // Follow counts surfaced on the FE as Following / Followers
+        // tappables next to the avatar. Both link into
+        // /profile/connections (filtered to the matching tab).
+        // Computed via FollowRepo.countByFollowerEmail /
+        // countByFollowedEmail at DTO build time.
+        long followingCount,
+        long followerCount,
         // Last seen — drives a quiet "Active recently" pill when within 7d.
         Instant lastActiveAt,
         // Public groups they're a member of (Household-type excluded —
@@ -106,6 +113,8 @@ public record PublicProfileDto(
             UserInfo u,
             int circleCount,
             int postCount,
+            long followingCount,
+            long followerCount,
             List<PublicGroupSummary> groups,
             List<PublicPostSummary> posts,
             String viewerRelationship
@@ -123,6 +132,8 @@ public record PublicProfileDto(
                 u.getProfileVisibility(),
                 circleCount,
                 postCount,
+                followingCount,
+                followerCount,
                 u.getLastActiveAt(),
                 groups,
                 posts,
@@ -156,6 +167,8 @@ public record PublicProfileDto(
                 u.getProfileVisibility(),
                 /* circleCount */ 0,
                 /* postCount */ 0,
+                /* followingCount */ 0L,
+                /* followerCount */ 0L,
                 /* lastActiveAt */ null,
                 /* groups */ List.of(),
                 /* posts */ List.of(),
