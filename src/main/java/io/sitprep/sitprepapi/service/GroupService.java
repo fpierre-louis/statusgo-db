@@ -252,7 +252,12 @@ public class GroupService {
                         "pending_member",
                         group.getGroupId(),
                         targetUrl,
-                        null,
+                        // additionalData carries the pending requester's email so
+                        // the iOS PENDING_MEMBER notification action buttons (Approve /
+                        // Decline) can call approveMember(groupId, email) /
+                        // removeMember(groupId, email) directly. See
+                        // src/shared/notifications/NotificationActionDispatcher.jsx.
+                        pending.getUserEmail(),
                         admin.getUserEmail()
                 );
             }
