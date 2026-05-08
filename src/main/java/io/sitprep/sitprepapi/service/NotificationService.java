@@ -584,22 +584,60 @@ public class NotificationService {
     }
 
     /**
-     * Map notification types into high-level categories (used as hints by frontends).
+     * Map notification types into iOS UNNotificationCategory identifiers.
+     *
+     * <p>These strings MUST match the identifiers registered in the iOS
+     * native shell (see {@code ios/App/App/AppDelegate.swift}
+     * {@code registerNotificationCategories()}). When iOS receives an
+     * APNs payload with {@code aps.category = "GROUP_ALERT"}, it looks
+     * up the matching registered category and renders its action buttons
+     * on the lock screen / banner / Notification Center.</p>
+     *
+     * <p>String name carries iOS semantics now (it's a category id), not
+     * a generic "hint" — the category name is load-bearing for the
+     * action-button UX. Don't rename without updating AppDelegate.swift
+     * AND the dispatcher in
+     * {@code src/shared/notifications/NotificationActionDispatcher.jsx}.</p>
+     *
+     * <p>Currently registered categories with action buttons (v1):</p>
+     * <ul>
+     *   <li><b>GROUP_ALERT</b> — household / group alert flip; actions: SAFE / HELP / INJURED</li>
+     * </ul>
+     *
+     * <p>Other categories return a sensible identifier so the payload
+     * carries the meta info, but iOS won't render action buttons until
+     * the category is also registered native-side. Adding more:
+     * (1) declare the category + actions in AppDelegate.swift,
+     * (2) add the dispatch case in NotificationActionDispatcher.jsx,
+     * (3) return the matching id here.</p>
      */
     private String categoryForType(String type) {
         if (type == null) return "SYSTEM";
         switch (type) {
+            // Group / household alert flip. Actions: SAFE / HELP / INJURED.
+            // Registered in AppDelegate.swift.
             case "alert":
-                return "ALERT_CHECKIN";
             case "group_status":
+                return "GROUP_ALERT";
+            // Plan activation received. Actions registration TODO —
+            // returns canonical id now so the payload carries it for
+            // future native registration.
             case "PLAN_ACTIVATION":
-                return "ALERT_GROUP";
+            case "plan_activation":
+                return "PLAN_ACTIVATION";
+            case "activation_ack":
+                return "ACTIVATION_ACK";
+            case "task_assigned":
+                return "TASK_ASSIGNED";
+            case "pending_member":
+                return "PENDING_MEMBER";
+            case "new_member":
+                return "NEW_MEMBER";
             case "comment_on_post":
             case "comment_thread_reply":
-                return "COMMENT";
-            case "new_member":
-            case "pending_member":
-                return "MEMBERSHIP";
+                return "COMMENT_REPLY";
+            case "post_mention":
+                return "MENTION";
             default:
                 return "SYSTEM";
         }
