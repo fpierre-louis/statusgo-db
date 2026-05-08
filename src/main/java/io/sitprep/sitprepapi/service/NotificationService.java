@@ -260,7 +260,12 @@ public class NotificationService {
                         notificationType,
                         targetUrl,
                         referenceId,
-                        Instant.now()
+                        Instant.now(),
+                        // Lane is included on the STOMP frame so the FE
+                        // can skip the optimistic unread-count bump on
+                        // Lane C events (they don't earn an inbox row,
+                        // so bumping then reconciling produces a flicker).
+                        lane != null ? lane.name() : null
                 ));
                 if (lane != Lane.C) {
                     logSocketDelivery(recipientEmail, notificationType, title, body,
