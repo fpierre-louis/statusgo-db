@@ -1,9 +1,12 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.GroupInvite;
+import io.sitprep.sitprepapi.service.GroupInviteService;
 import io.sitprep.sitprepapi.service.GroupService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -72,6 +75,7 @@ public class ShareResource {
     );
 
     private final GroupService groupService;
+    private final GroupInviteService inviteService;
 
     /**
      * Public origin used when building absolute URLs in the OG
@@ -86,8 +90,67 @@ public class ShareResource {
     @Value("${app.frontend-base-url:https://sitprep.app}")
     private String frontendBaseUrl;
 
-    public ShareResource(GroupService groupService) {
+    public ShareResource(GroupService groupService, GroupInviteService inviteService) {
         this.groupService = groupService;
+        this.inviteService = inviteService;
+    }
+
+    /**
+     * Tokenized invite preview. The canonical share URL is
+     * {@code /share/i/{inviteId}} — admins mint these via
+     * {@link GroupInviteResource} and the FE share sheet builds
+     * URLs from the returned id. Bots get OG tags scoped to the
+     * invite's group; humans 302 into the SPA's invite handler.
+     *
+     * <p>Failure states surface as branded HTML (bots) or a 410-style
+     * SPA route (humans):</p>
+     * <ul>
+     *   <li>NOT_FOUND — token doesn't exist (mistyped or never minted)</li>
+     *   <li>EXPIRED  — past expiresAt</li>
+     *   <li>REVOKED  — admin killed it</li>
+     *   <li>EXHAUSTED — single-use already redeemed</li>
+     * </ul>
+     */
+    @GetMapping("/share/i/{inviteId}")
+    public ResponseEntity<?> shareByInvite(
+            @PathVariable String inviteId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent
+    ) {
+        boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
+        String baseOrigin = trimTrailingSlash(frontendBaseUrl);
+
+        var result = inviteService.validate(inviteId);
+        if (!result.isOk()) {
+            // For humans: 302 to a friendly invite-error SPA route so
+            // the user sees branded copy, not a generic 410.
+            if (!isBot) {
+                HttpHeaders h = new HttpHeaders();
+                h.setLocation(URI.create(baseOrigin
+                        + "/joingroup?inviteError=" + result.state().name().toLowerCase()));
+                h.setCacheControl("no-store");
+                return ResponseEntity.status(302).headers(h).build();
+            }
+            // For bots: serve a generic preview so link unfurls don't
+            // explode loudly in chat threads — keep the user agnostic
+            // about whether the link was wrong vs revoked.
+            String html = renderOgHtml(
+                    "Join a circle on SitPrep",
+                    "This invite is no longer valid. Ask whoever sent it to share a fresh one.",
+                    baseOrigin + "/images/sitprep-share-default.png",
+                    baseOrigin + "/share/i/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8),
+                    baseOrigin + "/joingroup"
+            );
+            HttpHeaders h = new HttpHeaders();
+            h.setContentType(MediaType.TEXT_HTML);
+            h.setCacheControl("public, max-age=60");
+            h.add(HttpHeaders.VARY, "User-Agent");
+            return ResponseEntity.status(HttpStatus.GONE).headers(h).body(html);
+        }
+
+        // Resolve token → group, then run the same UA-branched OG/302
+        // path the legacy /share/group/{groupId} endpoint uses.
+        GroupInvite invite = result.invite();
+        return renderShare(invite.getGroupId(), inviteId, isBot, baseOrigin);
     }
 
     @GetMapping("/share/group/{groupId}")
@@ -97,12 +160,33 @@ public class ShareResource {
     ) {
         boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
         String baseOrigin = trimTrailingSlash(frontendBaseUrl);
-        String safeId = URLEncoder.encode(groupId, StandardCharsets.UTF_8);
-        String spaUrl = baseOrigin + "/joingroup?groupId=" + safeId;
-        String shareUrl = baseOrigin + "/share/group/" + safeId;
+        return renderShare(groupId, /* inviteId */ null, isBot, baseOrigin);
+    }
+
+    /**
+     * Common rendering pipeline for both share entry points
+     * ({@code /share/group/{id}} and {@code /share/i/{token}}).
+     * Looks up the group, then either:
+     *   - 302s humans to the SPA's {@code /joingroup?groupId=...} handler
+     *   - emits OG-tagged HTML for bots
+     *
+     * <p>If {@code inviteId} is non-null, the {@code shareUrl} embedded
+     * in the OG canonical / og:url tags points at the tokenized URL
+     * — so when Facebook re-scrapes a previously cached preview, it
+     * comes back to the same canonical URL and doesn't trash its cache.</p>
+     */
+    private ResponseEntity<?> renderShare(String groupId,
+                                           String inviteId,
+                                           boolean isBot,
+                                           String baseOrigin) {
+        String safeGroupId = URLEncoder.encode(groupId == null ? "" : groupId, StandardCharsets.UTF_8);
+        String spaUrl = baseOrigin + "/joingroup?groupId=" + safeGroupId;
+        String shareUrl = inviteId != null
+                ? baseOrigin + "/share/i/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8)
+                : baseOrigin + "/share/group/" + safeGroupId;
 
         // Try to load the group. If the id is bad / missing, send
-        // humans to the SPA (which renders a friendly "invalid invite"
+        // humans to the SPA (renders a friendly "invalid invite"
         // message) and bots a generic preview (no group name).
         Group group = null;
         try {
@@ -112,14 +196,12 @@ public class ShareResource {
         }
 
         if (!isBot) {
-            // Human path — clean 302 to the SPA. No HTML body.
             HttpHeaders h = new HttpHeaders();
             h.setLocation(URI.create(spaUrl));
             h.setCacheControl("no-store");
             return ResponseEntity.status(302).headers(h).build();
         }
 
-        // Bot path — emit OG HTML.
         String title = group != null
                 ? group.getGroupName() + " on SitPrep"
                 : "Join a circle on SitPrep";
@@ -129,8 +211,6 @@ public class ShareResource {
 
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.TEXT_HTML);
-        // 5-minute CDN-friendly cache. Vary on UA so bots and humans
-        // get different cached responses.
         h.setCacheControl("public, max-age=300");
         h.add(HttpHeaders.VARY, "User-Agent");
         return ResponseEntity.ok().headers(h).body(html);

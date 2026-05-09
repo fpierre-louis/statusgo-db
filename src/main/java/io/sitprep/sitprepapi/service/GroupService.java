@@ -407,6 +407,89 @@ public class GroupService {
 
     // ---------------- NEW: Role-aware membership/admin operations ----------------
 
+    /**
+     * Self-service join — caller adds themselves to the group.
+     *
+     * <p>Branches on group privacy:</p>
+     * <ul>
+     *   <li><b>Public</b> → appended to {@code memberEmails}; the user
+     *       also gets the group id in their {@code joinedGroupIDs}
+     *       cache so MeContext refresh sees them as a member.</li>
+     *   <li><b>Private</b> → appended to {@code pendingMemberEmails};
+     *       the existing {@code pending_member} notification fan-out
+     *       fires admins' lock-screen Approve / Decline buttons.</li>
+     * </ul>
+     *
+     * <p>Idempotent — calling twice is a no-op (already a member /
+     * already pending). Already-admin users short-circuit with no
+     * change since they're already members by virtue of being admins.</p>
+     *
+     * <p>Replaces the previous pattern of FE calling {@code PUT
+     * /groups/{id}} with a hand-edited memberEmails array. That path
+     * is admin-gated and 403'd for normal users — the join flow has
+     * been broken at the auth layer.</p>
+     */
+    @Transactional
+    public Group selfJoin(String groupId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        Group g = getGroupByPublicId(groupId);
+        boolean isPrivate = "Private".equalsIgnoreCase(g.getPrivacy());
+
+        // Already a member or admin? No-op.
+        if (containsCaseInsensitive(g.getMemberEmails(), email)
+                || containsCaseInsensitive(g.getAdminEmails(), email)) {
+            return g;
+        }
+
+        if (isPrivate) {
+            // Already pending? No-op.
+            if (containsCaseInsensitive(g.getPendingMemberEmails(), email)) {
+                return g;
+            }
+            // Snapshot the old pending set BEFORE mutation so the diff
+            // logic in notifyAdminsOfPendingMembers correctly identifies
+            // this caller as "newly pending."
+            Set<String> oldPending = g.getPendingMemberEmails() == null
+                    ? new HashSet<>()
+                    : new HashSet<>(g.getPendingMemberEmails());
+            List<String> pending = safeList(g.getPendingMemberEmails());
+            pending.add(email);
+            g.setPendingMemberEmails(pending);
+            g.setUpdatedAt(Instant.now());
+            Group saved = groupRepo.save(g);
+            // Fire the same notification path admin-triggered edits use
+            // so the FCM fan-out (incl. iOS lock-screen Approve/Decline
+            // action buttons) goes out to admins identically.
+            notifyAdminsOfPendingMembers(saved, oldPending);
+            return saved;
+        }
+
+        // Public: instant-join.
+        List<String> members = safeList(g.getMemberEmails());
+        members.add(email);
+        g.setMemberEmails(members);
+        g.setMemberCount(members.size());
+        g.setUpdatedAt(Instant.now());
+
+        userInfoRepo.findByUserEmail(email).ifPresent(u -> {
+            Set<String> updated = addToSet(u.getJoinedGroupIDs(), groupId);
+            u.setJoinedGroupIDs(updated);
+            userInfoRepo.save(u);
+        });
+
+        return groupRepo.save(g);
+    }
+
+    private static boolean containsCaseInsensitive(java.util.Collection<String> coll, String needle) {
+        if (coll == null || needle == null || needle.isEmpty()) return false;
+        for (String s : coll) {
+            if (s != null && s.equalsIgnoreCase(needle)) return true;
+        }
+        return false;
+    }
+
     @Transactional
     public Group approveMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);

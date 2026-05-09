@@ -128,6 +128,31 @@ public class GroupResource {
 
     // ---------- Membership / role ops (admin or owner) ----------
 
+    /**
+     * Self-service join. Any authenticated user can call this:
+     * <ul>
+     *   <li><b>Public group</b> → caller appended to {@code memberEmails}
+     *       (instant join).</li>
+     *   <li><b>Private group</b> → caller appended to
+     *       {@code pendingMemberEmails} (request to join). The existing
+     *       {@code pending_member} notification path fires admins'
+     *       lock-screen Approve / Decline action buttons.</li>
+     * </ul>
+     *
+     * <p>Idempotent: a second call when already a member / pending is a
+     * no-op (returns the current group state).</p>
+     *
+     * <p>Replaces the previous pattern of having the FE call
+     * {@code PUT /groups/{id}} with a hand-edited memberEmails array.
+     * That path is admin-gated and 403'd for normal users — the join
+     * flow has been broken at the auth layer.</p>
+     */
+    @PostMapping("/{groupId}/members/join")
+    public ResponseEntity<Group> selfJoin(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(groupService.selfJoin(groupId, caller));
+    }
+
     @PostMapping("/{groupId}/members/approve")
     public ResponseEntity<Group> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
         requireAdminOf(groupId);
