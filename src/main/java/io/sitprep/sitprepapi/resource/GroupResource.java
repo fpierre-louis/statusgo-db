@@ -150,7 +150,20 @@ public class GroupResource {
     @PostMapping("/{groupId}/members/join")
     public ResponseEntity<Group> selfJoin(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(groupService.selfJoin(groupId, caller));
+        try {
+            return ResponseEntity.ok(groupService.selfJoin(groupId, caller));
+        } catch (RuntimeException e) {
+            // GroupService.getGroupByPublicId throws RuntimeException on
+            // missing-group; convert to a clean 404 so the FE can surface
+            // "this circle isn't available" rather than a generic 500.
+            // Stale joingroupId cache values (e.g. an old test id like
+            // "100") were producing 500s pre-2026-05-09.
+            String msg = e.getMessage();
+            if (msg != null && msg.toLowerCase().contains("group not found")) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+            }
+            throw e;
+        }
     }
 
     @PostMapping("/{groupId}/members/approve")
