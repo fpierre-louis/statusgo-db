@@ -501,7 +501,16 @@ public class PostService {
         }
         List<PostDto> filtered = applySponsoredSuppression(merged, cellMode);
 
-        List<PostDto> capped = filtered.size() > 50 ? filtered.subList(0, 50) : filtered;
+        // Kind balance (locked 2026-05-10) — no single post kind takes
+        // more than 4 of the top-10 visible slots. Without this a busy
+        // marketplace day could push every ask off the first screen,
+        // and a quiet news day could make the feed feel like a
+        // bulletin of alerts. Items demoted from the top window keep
+        // their relative score order in the tail, so users still see
+        // them — just past position 9.
+        List<PostDto> balanced = applyKindBalance(filtered);
+
+        List<PostDto> capped = balanced.size() > 50 ? balanced.subList(0, 50) : balanced;
         return withEngagement(withAuthors(capped), viewerEmail);
     }
 
@@ -781,6 +790,56 @@ public class PostService {
      *  popular old post can't dominate fresh nearby posts; just enough to
      *  break ties within the same proximity band. */
     private static final double SCORE_ENGAGEMENT_WEIGHT = 3.0;
+
+    /** Top-of-feed window for the kind-balance constraint. */
+    private static final int KIND_BALANCE_WINDOW = 10;
+    /** Max occurrences of any single kind within the top window. */
+    private static final int KIND_BALANCE_MAX_PER_KIND = 4;
+
+    /**
+     * Kind-balance pass — caps any single {@code kind} at {@link
+     * #KIND_BALANCE_MAX_PER_KIND} occurrences within the first {@link
+     * #KIND_BALANCE_WINDOW} positions. Items that would exceed the cap
+     * get pushed to a deferred queue and re-appended past the window,
+     * preserving their relative score order. Past the window everything
+     * flows in raw rank order — diversity matters most for the first
+     * screen the user sees, after that the feed reads as long-tail.
+     *
+     * <p>Walks once, O(n). The pin set by {@link #discoverCommunity}
+     * survives because alert-update is just one kind among many; even
+     * if the user has 5 active alerts, only the first 4 land in the
+     * top window and the fifth slides to position 10.</p>
+     */
+    private static List<PostDto> applyKindBalance(List<PostDto> ranked) {
+        if (ranked == null || ranked.size() <= KIND_BALANCE_MAX_PER_KIND) {
+            return ranked;
+        }
+        Map<String, Integer> windowCounts = new HashMap<>();
+        List<PostDto> accepted = new ArrayList<>(ranked.size());
+        Deque<PostDto> deferred = new ArrayDeque<>();
+        for (PostDto d : ranked) {
+            if (accepted.size() >= KIND_BALANCE_WINDOW) {
+                // Past the window — drain deferred FIRST (so demoted
+                // items land just after the window in score order),
+                // then accept remaining items as-is.
+                while (!deferred.isEmpty()) accepted.add(deferred.poll());
+                accepted.add(d);
+                continue;
+            }
+            String k = d.kind() == null ? "post" : d.kind();
+            int n = windowCounts.getOrDefault(k, 0);
+            if (n >= KIND_BALANCE_MAX_PER_KIND) {
+                deferred.offer(d);
+                continue;
+            }
+            accepted.add(d);
+            windowCounts.put(k, n + 1);
+        }
+        // Anything still deferred (e.g. small list never reached the
+        // window-end branch) goes at the tail.
+        while (!deferred.isEmpty()) accepted.add(deferred.poll());
+        return accepted;
+    }
 
     /**
      * Composite community-feed score. Used to sort within-radius rows so
