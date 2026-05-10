@@ -179,16 +179,27 @@ public class PostService {
                 .filter(Objects::nonNull)
                 .toList();
         if (ids.isEmpty()) return dtos;
-        PostReactionService.ThankSummary summary =
+        // Two batched fetches against the reaction table — one for the
+        // legacy thank-only summary (drives the heart-fill state),
+        // another for the per-emoji summary that powers the new
+        // multi-emoji cluster display under each card. Both reuse the
+        // same `findByPostIdIn` query path internally so this is one
+        // DB hit per fetch, not per post.
+        PostReactionService.ThankSummary thankSummary =
                 reactionService.loadThankSummary(ids, viewerEmail);
+        PostReactionService.ReactionSummary reactionSummary =
+                reactionService.loadReactionSummary(ids, viewerEmail);
         Map<Long, Integer> commentCounts = commentService.loadCountsByPostIds(ids);
         return dtos.stream()
                 .map(d -> {
                     if (d.id() == null) return d;
                     return d.withEngagement(
-                            summary.countFor(d.id()),
-                            summary.viewerThankedTask(d.id()),
+                            thankSummary.countFor(d.id()),
+                            thankSummary.viewerThankedTask(d.id()),
                             commentCounts.getOrDefault(d.id(), 0)
+                    ).withReactions(
+                            reactionSummary.countsFor(d.id()),
+                            reactionSummary.viewerEmojisFor(d.id())
                     );
                 })
                 .collect(Collectors.toList());

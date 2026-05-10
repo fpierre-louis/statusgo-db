@@ -163,6 +163,69 @@ public class PostReactionService {
         }
     }
 
+    /**
+     * Per-emoji breakdown for a batch of posts (used by the feed list
+     * path so the FE can render `❤ 12 · 🙏 4 · 👍 2` clusters under
+     * each post). Returns:
+     * <ul>
+     *   <li>{@code countsByPost} — Map&lt;postId, Map&lt;emoji,
+     *       count&gt;&gt;</li>
+     *   <li>{@code viewerEmojisByPost} — Map&lt;postId,
+     *       Set&lt;emoji&gt;&gt; — the emojis this viewer recorded on
+     *       each post; lets the FE highlight the viewer's chosen
+     *       emoji in the picker.</li>
+     * </ul>
+     *
+     * <p>Reuses the same {@code findByPostIdIn} batch query so this
+     * costs one extra hash-bucket pass over rows already in memory
+     * — no additional DB hit beyond what {@link #loadThankSummary}
+     * was already doing. In fact callers can pick one OR the other;
+     * the legacy thank-only path stays for code that hasn't migrated
+     * to the per-emoji DTO yet.</p>
+     */
+    public ReactionSummary loadReactionSummary(Collection<Long> postIds, String viewerEmail) {
+        if (postIds == null || postIds.isEmpty()) {
+            return new ReactionSummary(Map.of(), Map.of());
+        }
+        List<PostReaction> rows = reactionRepo.findByPostIdIn(postIds);
+        if (rows.isEmpty()) {
+            return new ReactionSummary(Map.of(), Map.of());
+        }
+        String viewerNormalized = (viewerEmail == null || viewerEmail.isBlank())
+                ? null
+                : viewerEmail.trim().toLowerCase(Locale.ROOT);
+
+        Map<Long, Map<String, Integer>> countsByPost = new HashMap<>();
+        Map<Long, Set<String>> viewerEmojisByPost = new HashMap<>();
+        for (PostReaction r : rows) {
+            countsByPost
+                    .computeIfAbsent(r.getPostId(), k -> new LinkedHashMap<>())
+                    .merge(r.getEmoji(), 1, Integer::sum);
+            if (viewerNormalized != null
+                    && viewerNormalized.equalsIgnoreCase(r.getUserEmail())) {
+                viewerEmojisByPost
+                        .computeIfAbsent(r.getPostId(), k -> new HashSet<>())
+                        .add(r.getEmoji());
+            }
+        }
+        return new ReactionSummary(countsByPost, viewerEmojisByPost);
+    }
+
+    /** Bundle returned by {@link #loadReactionSummary}. */
+    public record ReactionSummary(
+            Map<Long, Map<String, Integer>> countsByPost,
+            Map<Long, Set<String>> viewerEmojisByPost
+    ) {
+        public Map<String, Integer> countsFor(Long postId) {
+            Map<String, Integer> c = countsByPost.get(postId);
+            return c == null ? Map.of() : c;
+        }
+        public Set<String> viewerEmojisFor(Long postId) {
+            Set<String> s = viewerEmojisByPost.get(postId);
+            return s == null ? Set.of() : s;
+        }
+    }
+
     // ------------------------------------------------------------------
 
     private Map<String, List<EmojiReactionDto>> groupByEmoji(List<PostReaction> rows) {

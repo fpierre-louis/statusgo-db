@@ -139,7 +139,25 @@ public record PostDto(
          * comment list per card. Zero means no replies; the FE renders
          * the icon without a count when this is zero.
          */
-        int commentsCount
+        int commentsCount,
+        /**
+         * Per-emoji reaction counts ({@code {"❤":12,"🙏":4,"👍":2}}).
+         * Folded in by the listing path via {@code PostReactionService.loadReactionSummary}
+         * so the FE can render multi-emoji clusters under each post
+         * without a per-card reactions fetch. Empty / null when the
+         * post has no reactions; the FE renders nothing in that case.
+         * The legacy {@code thanksCount} above is kept in sync with
+         * {@code reactionsByEmoji.get("❤")} for back-compat with FE
+         * code that hasn't migrated.
+         */
+        Map<String, Integer> reactionsByEmoji,
+        /**
+         * Set of emojis the requesting viewer has recorded on this
+         * post. Lets the FE highlight the viewer's chosen emoji in
+         * the picker + the cluster row. Empty for unauthenticated
+         * reads or when the viewer hasn't reacted.
+         */
+        Set<String> viewerEmojis
 ) {
 
     /**
@@ -191,7 +209,9 @@ public record PostDto(
                 /* viaFollow */ false,
                 /* thanksCount */ 0,
                 /* viewerThanked */ false,
-                /* commentsCount */ 0
+                /* commentsCount */ 0,
+                /* reactionsByEmoji */ Map.of(),
+                /* viewerEmojis */ Set.of()
         );
     }
 
@@ -216,7 +236,8 @@ public record PostDto(
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
                 kind, price, isFree, paymentMethods,
                 /* viaFollow */ true,
-                thanksCount, viewerThanked, commentsCount
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis
         );
     }
 
@@ -268,7 +289,9 @@ public record PostDto(
                 viaFollow,
                 thanksCount,
                 viewerThanked,
-                commentsCount
+                commentsCount,
+                reactionsByEmoji,
+                viewerEmojis
         );
     }
 
@@ -288,7 +311,32 @@ public record PostDto(
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
                 kind, price, isFree, paymentMethods, viaFollow,
-                thanksCount, viewerThanked, commentsCount
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis
+        );
+    }
+
+    /**
+     * Returns a copy with the per-emoji reaction summary folded in.
+     * Chained after {@link #withEngagement} in {@code PostService.withEngagement}
+     * so the listing path can populate both the legacy thanksCount /
+     * viewerThanked AND the new multi-emoji breakdown in one row pass.
+     * Null inputs default to empty so the FE always gets stable shapes.
+     */
+    public PostDto withReactions(Map<String, Integer> reactionsByEmoji, Set<String> viewerEmojis) {
+        Map<String, Integer> safeMap = reactionsByEmoji == null ? Map.of() : reactionsByEmoji;
+        Set<String> safeSet = viewerEmojis == null ? Set.of() : viewerEmojis;
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                safeMap, safeSet
         );
     }
 
