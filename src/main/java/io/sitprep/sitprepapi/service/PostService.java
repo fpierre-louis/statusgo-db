@@ -465,6 +465,25 @@ public class PostService {
         merged.addAll(within);
         merged.addAll(followTail);
 
+        // Alert pin (locked 2026-05-10) — when there's a fresh
+        // alert-update post in the merged set (within radius OR a
+        // follow-source), pin the most recent one to position 0 so
+        // active emergencies surface above relevance-ranked organic
+        // content. Capped at 1 to avoid stacking multiple alerts that
+        // would push organic content too far down. Stale alerts (>24h
+        // without an update) don't qualify — we trust the post author
+        // to repost or update if the situation is still active.
+        Instant pinCutoff = Instant.now().minusSeconds(24L * 60 * 60);
+        Optional<PostDto> pinned = merged.stream()
+                .filter(d -> "alert-update".equals(d.kind()))
+                .filter(d -> d.createdAt() != null && d.createdAt().isAfter(pinCutoff))
+                .max(Comparator.comparing(PostDto::createdAt));
+        if (pinned.isPresent()) {
+            PostDto p = pinned.get();
+            merged.removeIf(d -> Objects.equals(d.id(), p.id()));
+            merged.add(0, p);
+        }
+
         // Apply mode-aware sponsored suppression BEFORE the cap-50 trim
         // so a hidden sponsored row doesn't take a slot a real organic
         // ask could occupy. Mode lookup is cheap (single indexed
