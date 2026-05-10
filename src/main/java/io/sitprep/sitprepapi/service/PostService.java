@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
@@ -427,10 +428,27 @@ public class PostService {
                 followTail.add(PostDto.fromEntity(t, roundKm(d)).asFollowSource());
             }
         }
-        // null distance sorts last (after all geo-tagged within-radius tasks),
-        // which matches the FE proximity-score expectation: nearby first,
-        // then community-wide.
-        within.sort(Comparator.comparingDouble(d -> d.distanceKm() == null ? Double.MAX_VALUE : d.distanceKm()));
+        // Hybrid relevance sort (locked 2026-05-09): proximity is still
+        // the primary signal, but engagement + recency also count so a
+        // fresh urgent post 1.5mi away outranks a quiet 0.4mi post from
+        // last week. Pure distance-sort buried fresh posts behind stale
+        // popular ones; this scoring keeps proximity dominant while
+        // letting age/engagement break ties within the same broad radius
+        // band.
+        //
+        // Score (higher = better):
+        //   -DISTANCE_WEIGHT * km
+        //   + RECENCY_WEIGHT * exp(-ageHours / HALF_LIFE_HOURS)
+        //   + ENGAGEMENT_WEIGHT * log10(thanks + comments + 1)
+        //
+        // Tunable constants kept as final fields rather than @ConfigurationProperties
+        // so they're discoverable inline next to the algorithm. Promote to
+        // application.properties when we actually want runtime tuning.
+        //
+        // null distance still sorts last (community-wide rows belong after
+        // all geo-tagged ones) — Double.MAX_VALUE as the distance penalty
+        // makes the score so negative they fall to the end naturally.
+        within.sort((a, b) -> Double.compare(communityScore(b), communityScore(a)));
 
         // Follow-source tail by recency — most-recent follow post first.
         // Null createdAt sorts last so legacy rows don't dominate.
@@ -719,5 +737,52 @@ public class PostService {
 
     private static double roundKm(double km) {
         return Math.round(km * 10.0) / 10.0;
+    }
+
+    // ---------------------------------------------------------------------
+    // Community feed relevance score
+    // ---------------------------------------------------------------------
+
+    /** Hard ceiling for "no distance available" — keeps null-distance rows
+     *  at the bottom of the score range without going to MAX_VALUE which
+     *  would dwarf the recency/engagement boosts on real rows. */
+    private static final double SCORE_NULL_DISTANCE_KM = 50.0;
+    /** Hard ceiling for "no createdAt" — anything older than 30 days
+     *  effectively gets zero recency boost. */
+    private static final double SCORE_NULL_AGE_HOURS = 720.0;
+    /** Per-km penalty. Same units as distanceKm. */
+    private static final double SCORE_DISTANCE_WEIGHT = 1.0;
+    /** Recency boost ceiling at age=0; decays via exp(-age/HALF_LIFE). */
+    private static final double SCORE_RECENCY_WEIGHT = 8.0;
+    /** Half-life of the recency boost in hours. 36h ≈ 1.5 days, which
+     *  matches the FE expectation that "today + yesterday" stay fresh,
+     *  "this week" is meaningful, and anything older falls off. */
+    private static final double SCORE_HALF_LIFE_HOURS = 36.0;
+    /** Engagement multiplier on log10(thanks + comments + 1). Small so a
+     *  popular old post can't dominate fresh nearby posts; just enough to
+     *  break ties within the same proximity band. */
+    private static final double SCORE_ENGAGEMENT_WEIGHT = 3.0;
+
+    /**
+     * Composite community-feed score. Used to sort within-radius rows so
+     * the user sees the most relevant content first instead of strict
+     * proximity. Higher score = better. See the constants above for the
+     * tunable weights.
+     *
+     * <p>The {@code viaFollow} boost is intentionally NOT applied here
+     * because follow-source rows live in a separate {@code followTail}
+     * list that's appended after within-radius rows; they have their own
+     * recency-only sort.</p>
+     */
+    private static double communityScore(PostDto d) {
+        double dist = d.distanceKm() == null ? SCORE_NULL_DISTANCE_KM : d.distanceKm();
+        double ageHours = d.createdAt() == null
+                ? SCORE_NULL_AGE_HOURS
+                : Duration.between(d.createdAt(), Instant.now()).toMinutes() / 60.0;
+        if (ageHours < 0) ageHours = 0; // clock skew safety
+        long engagement = d.thanksCount() + d.commentsCount();
+        return -SCORE_DISTANCE_WEIGHT * dist
+                + SCORE_RECENCY_WEIGHT * Math.exp(-ageHours / SCORE_HALF_LIFE_HOURS)
+                + SCORE_ENGAGEMENT_WEIGHT * Math.log10(engagement + 1);
     }
 }
