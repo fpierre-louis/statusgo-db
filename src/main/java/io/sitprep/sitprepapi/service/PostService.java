@@ -66,6 +66,7 @@ public class PostService {
     private final BlockService blockService;
     private final PostReactionService reactionService;
     private final PostCommentService commentService;
+    private final StorageService storage;
 
     public PostService(PostRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
@@ -74,7 +75,8 @@ public class PostService {
                        FollowRepo followRepo,
                        BlockService blockService,
                        PostReactionService reactionService,
-                       PostCommentService commentService) {
+                       PostCommentService commentService,
+                       StorageService storage) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -84,6 +86,7 @@ public class PostService {
         this.blockService = blockService;
         this.reactionService = reactionService;
         this.commentService = commentService;
+        this.storage = storage;
     }
 
     /**
@@ -631,13 +634,36 @@ public class PostService {
             t.getTags().clear();
             t.getTags().addAll(patch.getTags());
         }
+        // Image-key diff: free R2 objects whose keys the editor removed.
+        // Done BEFORE the entity rewrite so we capture the going-away
+        // keys; the actual storage call rides afterCommit (below) so a
+        // rolled-back patch never destroys the user's photos. Best-
+        // effort per-key — one bad key won't strand the rest.
+        List<String> removedKeys = List.of();
         if (patch.getImageKeys() != null) {
+            Set<String> incoming = new HashSet<>(patch.getImageKeys());
+            List<String> existing = t.getImageKeys() == null ? List.of() : t.getImageKeys();
+            removedKeys = existing.stream()
+                    .filter(k -> k != null && !k.isBlank() && !incoming.contains(k))
+                    .collect(Collectors.toList());
             t.getImageKeys().clear();
             t.getImageKeys().addAll(patch.getImageKeys());
         }
         if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
         if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
-        return saveAndBroadcast(t);
+        Post saved = taskRepo.save(t);
+        PostDto dto = PostDto.fromEntity(saved);
+        broadcastAfterCommit(dto);
+        if (!removedKeys.isEmpty()) {
+            final List<String> toFree = removedKeys;
+            final Long id = saved.getId();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    deleteR2ObjectsBestEffort(toFree, "post-patch " + id);
+                }
+            });
+        }
+        return dto;
     }
 
     /**
@@ -715,6 +741,14 @@ public class PostService {
         String groupId = t.getGroupId();
         String zipBucket = t.getZipBucket();
         Long id = t.getId();
+        // Snapshot image keys BEFORE the row vanishes so we can free
+        // their R2 objects afterCommit (orphaning bytes in Cloudflare
+        // when a post is deleted was a recurring storage leak before
+        // 2026-05-11 — every deleted ask/marketplace listing left its
+        // photos behind paying for storage forever).
+        List<String> imageKeys = t.getImageKeys() == null
+                ? List.of()
+                : new ArrayList<>(t.getImageKeys());
         taskRepo.delete(t);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
@@ -723,8 +757,27 @@ public class PostService {
                 } catch (Exception e) {
                     log.error("WS task-delete broadcast failed for task {}", id, e);
                 }
+                deleteR2ObjectsBestEffort(imageKeys, "post " + id);
             }
         });
+    }
+
+    /**
+     * Best-effort R2 cleanup. Each key is deleted independently with
+     * its own try/catch so a single bad key (rotated bucket, missing
+     * object, transient network) doesn't strand the rest. Always runs
+     * afterCommit so a failed DB transaction never deletes user photos.
+     */
+    private void deleteR2ObjectsBestEffort(Collection<String> keys, String context) {
+        if (keys == null || keys.isEmpty()) return;
+        for (String k : keys) {
+            if (k == null || k.isBlank()) continue;
+            try {
+                storage.delete(k);
+            } catch (Exception e) {
+                log.warn("R2 cleanup failed for {} key={}: {}", context, k, e.getMessage());
+            }
+        }
     }
 
     // ---------------------------------------------------------------------
