@@ -18,6 +18,7 @@ public record CommentPreviewDto(
         Long commentId,
         String authorEmail,
         String authorFirstName,
+        String authorProfileImageUrl,
         String snippet,
         Instant timestamp
 ) {}

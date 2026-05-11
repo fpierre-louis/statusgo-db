@@ -390,6 +390,7 @@ public class PostCommentService {
             UserInfo u = email == null ? null : profilesByEmail.get(email);
             String first = u != null ? u.getUserFirstName()
                     : (email != null ? email.split("@")[0] : "Neighbor");
+            String avatarUrl = u != null ? u.getProfileImageURL() : null;
 
             // Strip the "> Replying to ...:" quote prefix so the preview
             // shows the actual reply text, not the quoted header. Then
@@ -403,6 +404,7 @@ public class PostCommentService {
                     c.getId(),
                     email,
                     first,
+                    avatarUrl,
                     body,
                     c.getTimestamp()
             ));
