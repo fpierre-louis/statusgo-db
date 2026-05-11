@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.CommentPreviewDto;
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.PostCommentDto;
 import io.sitprep.sitprepapi.repo.PostCommentRepo;
@@ -347,6 +348,64 @@ public class PostCommentService {
             if (postId != null && count != null) {
                 out.put(postId, count.intValue());
             }
+        }
+        return out;
+    }
+
+    /**
+     * Most-recent comment per post, batched. Used by
+     * {@code PostService.withEngagement} to fold the IG/FB-style "latest
+     * reply teased below the post" preview onto every PostDto in one
+     * extra query (plus one batched author-profile lookup) rather than N.
+     *
+     * <p>Snippet is the comment body trimmed to ~80 chars with "…" if
+     * truncated. The reply quote-prefix ({@code "> Replying to ..."}) is
+     * stripped so the preview shows the actual reply text, not the
+     * boilerplate quote header. Author first-name falls back to the
+     * email-prefix when the profile can't be resolved.</p>
+     */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public Map<Long, CommentPreviewDto> loadLatestPreviewsByPostIds(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) return Map.of();
+        List<PostComment> latest = commentRepo.findLatestByPostIdIn(postIds);
+        if (latest.isEmpty()) return Map.of();
+
+        // Batch-load author profiles in one round trip.
+        List<String> emails = latest.stream()
+                .map(PostComment::getAuthor)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, UserInfo> profilesByEmail = emails.isEmpty()
+                ? Map.of()
+                : userInfoRepo.findByUserEmailIn(emails).stream()
+                    .collect(Collectors.toMap(
+                            UserInfo::getUserEmail,
+                            Function.identity(),
+                            (a, b) -> a));
+
+        Map<Long, CommentPreviewDto> out = new HashMap<>(latest.size());
+        for (PostComment c : latest) {
+            String email = c.getAuthor();
+            UserInfo u = email == null ? null : profilesByEmail.get(email);
+            String first = u != null ? u.getUserFirstName()
+                    : (email != null ? email.split("@")[0] : "Neighbor");
+
+            // Strip the "> Replying to ...:" quote prefix so the preview
+            // shows the actual reply text, not the quoted header. Then
+            // collapse whitespace + truncate at ~80 chars.
+            String body = c.getContent() == null ? "" : c.getContent();
+            body = body.replaceFirst("(?s)^>.*?\\n\\n", "").trim();
+            body = body.replaceAll("\\s+", " ");
+            if (body.length() > 80) body = body.substring(0, 80).trim() + "…";
+
+            out.put(c.getPostId(), new CommentPreviewDto(
+                    c.getId(),
+                    email,
+                    first,
+                    body,
+                    c.getTimestamp()
+            ));
         }
         return out;
     }

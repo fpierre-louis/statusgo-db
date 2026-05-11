@@ -190,6 +190,12 @@ public class PostService {
         PostReactionService.ReactionSummary reactionSummary =
                 reactionService.loadReactionSummary(ids, viewerEmail);
         Map<Long, Integer> commentCounts = commentService.loadCountsByPostIds(ids);
+        // Latest-comment preview per post (IG/FB-style "teased reply" on
+        // the feed card). One batched query + one batched author-profile
+        // lookup, so a 50-post page costs +2 round trips total — same
+        // amortization model as reactions/counts above.
+        Map<Long, io.sitprep.sitprepapi.dto.CommentPreviewDto> latestPreviews =
+                commentService.loadLatestPreviewsByPostIds(ids);
         return dtos.stream()
                 .map(d -> {
                     if (d.id() == null) return d;
@@ -200,6 +206,8 @@ public class PostService {
                     ).withReactions(
                             reactionSummary.countsFor(d.id()),
                             reactionSummary.viewerEmojisFor(d.id())
+                    ).withLatestComment(
+                            latestPreviews.get(d.id())
                     );
                 })
                 .collect(Collectors.toList());

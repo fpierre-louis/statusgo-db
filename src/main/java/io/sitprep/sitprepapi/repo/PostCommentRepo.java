@@ -59,4 +59,21 @@ public interface PostCommentRepo extends JpaRepository<PostComment, Long> {
            "WHERE c.postId IN :postIds " +
            "GROUP BY c.postId")
     List<Object[]> countByPostIdIn(@Param("postIds") Collection<Long> postIds);
+
+    /**
+     * Most-recent comment per post for a list of posts. Used by
+     * {@code PostService.withEngagement} to fold a single comment
+     * preview onto every {@link io.sitprep.sitprepapi.dto.PostDto} in
+     * one batched query — the IG/FB feed-card "latest reply teased
+     * below the post" surface. Returns at most one row per post (the
+     * one with the largest id, i.e. the most recent).
+     */
+    @Query("SELECT c FROM PostComment c " +
+           "WHERE c.postId IN :postIds " +
+           "AND c.id IN (" +
+           "  SELECT MAX(c2.id) FROM PostComment c2 " +
+           "  WHERE c2.postId IN :postIds " +
+           "  GROUP BY c2.postId" +
+           ")")
+    List<PostComment> findLatestByPostIdIn(@Param("postIds") Collection<Long> postIds);
 }

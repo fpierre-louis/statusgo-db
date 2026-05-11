@@ -157,7 +157,15 @@ public record PostDto(
          * the picker + the cluster row. Empty for unauthenticated
          * reads or when the viewer hasn't reacted.
          */
-        Set<String> viewerEmojis
+        Set<String> viewerEmojis,
+        /**
+         * Most recent comment on this post as a compact preview, or
+         * {@code null} when the post has no comments. Folded in by the
+         * listing path via one batched query. Drives the IG/FB-style
+         * "preview the latest reply under the post card" surface on the
+         * community feed.
+         */
+        CommentPreviewDto latestCommentPreview
 ) {
 
     /**
@@ -211,7 +219,8 @@ public record PostDto(
                 /* viewerThanked */ false,
                 /* commentsCount */ 0,
                 /* reactionsByEmoji */ Map.of(),
-                /* viewerEmojis */ Set.of()
+                /* viewerEmojis */ Set.of(),
+                /* latestCommentPreview */ null
         );
     }
 
@@ -237,7 +246,8 @@ public record PostDto(
                 kind, price, isFree, paymentMethods,
                 /* viaFollow */ true,
                 thanksCount, viewerThanked, commentsCount,
-                reactionsByEmoji, viewerEmojis
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview
         );
     }
 
@@ -291,7 +301,8 @@ public record PostDto(
                 viewerThanked,
                 commentsCount,
                 reactionsByEmoji,
-                viewerEmojis
+                viewerEmojis,
+                latestCommentPreview
         );
     }
 
@@ -312,7 +323,8 @@ public record PostDto(
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
-                reactionsByEmoji, viewerEmojis
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview
         );
     }
 
@@ -336,7 +348,30 @@ public record PostDto(
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
-                safeMap, safeSet
+                safeMap, safeSet,
+                latestCommentPreview
+        );
+    }
+
+    /**
+     * Returns a copy with the most-recent comment preview folded in.
+     * Chained after {@link #withReactions} in {@code PostService.withEngagement}
+     * so the listing path can populate the IG/FB-style preview in the
+     * same single row pass. Null preview is valid (no comments).
+     */
+    public PostDto withLatestComment(CommentPreviewDto preview) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                preview
         );
     }
 
