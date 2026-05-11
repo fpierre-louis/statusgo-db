@@ -236,7 +236,18 @@ public class PostService {
         t.setDueAt(incoming.getDueAt());
         t.setParentPostId(incoming.getParentPostId());
         if (incoming.getTags() != null) t.getTags().addAll(incoming.getTags());
-        if (incoming.getImageKeys() != null) t.getImageKeys().addAll(incoming.getImageKeys());
+        if (incoming.getImageKeys() != null) {
+            // BE-side cap to match the composer's MAX_IMAGES (currently
+            // 5, bumped from 3 on 2026-05-11). A bypassed FE could
+            // otherwise post arbitrarily many keys and bloat the row
+            // (image_key column rows are @ElementCollection => one DB
+            // row per key). Clean 400 rather than letting a giant
+            // payload through.
+            if (incoming.getImageKeys().size() > 5) {
+                throw new IllegalArgumentException("A post can have at most 5 images.");
+            }
+            t.getImageKeys().addAll(incoming.getImageKeys());
+        }
 
         // Kind validation — defaults to "ask" so legacy callers (the
         // existing CommunityTaskComposer) work unchanged. Non-default
