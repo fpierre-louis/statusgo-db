@@ -117,12 +117,19 @@ public class GroupResource {
      * page's "view before joining" flow, the {@code /joingroup} invite-
      * link confirmation page. The full {@link Group} endpoint above
      * leaks the roster and should only be used by members.</p>
+     *
+     * <p>Deliberately NOT auth-gated: an invite-link recipient lands
+     * here BEFORE signing in, so requiring a token would 401 the very
+     * flow this endpoint exists to serve. The DTO is already sanitized
+     * (no member/admin emails). A verified token, when present, lets
+     * the service compute {@code viewerStatus}; anonymous callers get
+     * {@code viewerStatus = NONE}.</p>
      */
     @GetMapping("/{groupId}/preview")
     public ResponseEntity<io.sitprep.sitprepapi.dto.GroupPreviewDto> getGroupPreview(
             @PathVariable String groupId
     ) {
-        String viewer = AuthUtils.requireAuthenticatedEmail();
+        String viewer = AuthUtils.getCurrentUserEmail();
         return ResponseEntity.ok(groupService.getGroupPreview(groupId, viewer));
     }
 
