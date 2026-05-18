@@ -29,8 +29,9 @@ import java.util.Set;
  *   PATCH  /api/tasks/{id}                         author-only partial update
  *   DELETE /api/tasks/{id}                         author-only
  *   POST   /api/tasks/{id}/claim                   group leader claims
- *   POST   /api/tasks/{id}/in-progress             claimer marks active
- *   POST   /api/tasks/{id}/complete                claimer marks done
+ *   POST   /api/tasks/{id}/assign                  group admin assigns to a member
+ *   POST   /api/tasks/{id}/in-progress             claimer/assignee marks active
+ *   POST   /api/tasks/{id}/complete                claimer/assignee marks done
  *   POST   /api/tasks/{id}/cancel                  requester cancels
  *   POST   /api/tasks/{id}/reopen                  requester reopens cancelled
  * </pre>
@@ -186,13 +187,13 @@ public class PostResource {
 
     @PostMapping("/api/posts/{id}/in-progress")
     public ResponseEntity<PostDto> markInProgress(@PathVariable Long id) {
-        ensureClaimer(id);
+        ensureCanProgressTask(id);
         return ResponseEntity.ok(tasks.markInProgress(id));
     }
 
     @PostMapping("/api/posts/{id}/complete")
     public ResponseEntity<PostDto> complete(@PathVariable Long id) {
-        ensureClaimer(id);
+        ensureCanProgressTask(id);
         return ResponseEntity.ok(tasks.complete(id));
     }
 
@@ -249,16 +250,42 @@ public class PostResource {
         }
     }
 
-    private void ensureClaimer(Long id) {
+    /**
+     * Caller must be entitled to drive a task's work lifecycle
+     * (in-progress / complete). Three entitled roles:
+     * <ul>
+     *   <li>the claimer — community pull flow ({@code claimedByEmail});</li>
+     *   <li>the assignee — group push flow ({@code assigneeEmail}), so a
+     *       member an admin assigned a work-order to can progress and
+     *       close it without first "claiming" it;</li>
+     *   <li>an admin/owner of the task's group — so a group manager can
+     *       close out work on their group's tasks.</li>
+     * </ul>
+     * Throws 401 / 403 / 404.
+     */
+    private void ensureCanProgressTask(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         Optional<Post> existing = tasks.findById(id);
         if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Post t = existing.get();
-        if (t.getClaimedByEmail() == null
-                || !caller.equalsIgnoreCase(t.getClaimedByEmail())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Only the task claimer can perform this action");
+        if (caller.equalsIgnoreCase(t.getClaimedByEmail())
+                || caller.equalsIgnoreCase(t.getAssigneeEmail())) {
+            return;
         }
+        String groupId = t.getGroupId();
+        if (groupId != null && !groupId.isBlank()) {
+            try {
+                Group g = groupService.getGroupByPublicId(groupId);
+                boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+                boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+                if (isOwner || isAdmin) return;
+            } catch (RuntimeException ignored) {
+                // group lookup failed — fall through to 403
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only the task claimer, assignee, or a group admin can update it");
     }
 
     /**

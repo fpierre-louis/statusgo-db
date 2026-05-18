@@ -664,18 +664,23 @@ public class PostService {
         return saveAndBroadcast(t);
     }
 
-    /** Mark in-progress (claimer is actively working). */
+    /**
+     * Mark in-progress — the claimer (community pull flow) or the
+     * assignee (group push flow) has started work. An assigned task is
+     * worked straight from OPEN; a claimed task moves from CLAIMED.
+     */
     @Transactional
     public PostDto markInProgress(Long postId) {
         Post t = mustExist(postId);
-        if (t.getStatus() != PostStatus.CLAIMED) {
-            throw new IllegalStateException("Post must be claimed before marking in-progress");
+        if (t.getStatus() != PostStatus.OPEN && t.getStatus() != PostStatus.CLAIMED) {
+            throw new IllegalStateException(
+                    "Post must be open or claimed before marking in-progress");
         }
         t.setStatus(PostStatus.IN_PROGRESS);
         return saveAndBroadcast(t);
     }
 
-    /** Claimer marks complete. */
+    /** Claimer or assignee marks complete. */
     @Transactional
     public PostDto complete(Long postId) {
         Post t = mustExist(postId);
