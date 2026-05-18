@@ -34,4 +34,21 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
      * layer.
      */
     List<UserInfo> findByVerifiedPublisherTrue();
+
+    /**
+     * Every user who can receive a push (a non-empty FCM token) AND has
+     * a known current location. {@code AlertDispatchService}'s severe-
+     * alert fan-out loads this once per dispatch tick and refines it
+     * with a Haversine radius filter in Java — the same load-candidates-
+     * then-filter-in-service pattern as {@link #findByVerifiedPublisherTrue()}.
+     *
+     * <p>Bounded by design: only located, push-enabled users qualify.
+     * A bounding-box pre-filter on (lastKnownLat, lastKnownLng) is the
+     * natural next optimization once the user base outgrows a single
+     * in-memory scan.</p>
+     */
+    @Query("SELECT u FROM UserInfo u " +
+           "WHERE u.fcmtoken IS NOT NULL AND u.fcmtoken <> '' " +
+           "AND u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL")
+    List<UserInfo> findPushablesWithLocation();
 }

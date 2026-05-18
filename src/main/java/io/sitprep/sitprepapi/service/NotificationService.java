@@ -4,11 +4,14 @@ import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.ApnsConfig;
 import com.google.firebase.messaging.Aps;
+import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
+import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.Notification;
+import com.google.firebase.messaging.SendResponse;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -24,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -694,6 +698,148 @@ public class NotificationService {
                 lane, category);
     }
 
+    /**
+     * Batched hazard-alert fan-out — the {@code AlertDispatchService}
+     * severe-weather path. One {@link MulticastMessage} (identical
+     * payload) is delivered to up to 500 device tokens in a single
+     * {@link FirebaseMessaging#sendEachForMulticast} call — the
+     * multicast form of {@code sendEach} — instead of N sequential
+     * {@code .send()} round-trips.
+     *
+     * <p>Online recipients still get a STOMP frame only (no duplicate
+     * FCM toast); offline recipients with a live token go in the
+     * multicast batch. Every recipient gets a {@code NotificationLog}
+     * row. Stale tokens surfaced by the {@link BatchResponse} are
+     * nulled via {@link #handleFcmDeliveryError}, same as the single-
+     * send path.</p>
+     *
+     * <p>Policy note: {@code hazard_alert} is intentionally un-mapped
+     * in {@link #mapTypeToCategory} — life-safety weather warnings are
+     * never quiet-hours-suppressed. The APNs payload carries
+     * {@code interruption-level: time-sensitive} so it still breaks
+     * through Focus modes (see {@link #applyIosLockScreenAffordances}).</p>
+     */
+    public void sendHazardAlertBatch(List<UserInfo> recipients,
+                                     String title,
+                                     String body,
+                                     String referenceId,
+                                     String targetUrl) {
+        if (recipients == null || recipients.isEmpty()) return;
+
+        final String type = "hazard_alert";
+        List<String> batchTokens = new ArrayList<>();
+        List<UserInfo> batchUsers = new ArrayList<>();
+
+        for (UserInfo u : recipients) {
+            String email = u != null ? u.getUserEmail() : null;
+            if (email == null) continue;
+
+            // Online → in-app STOMP frame only (avoids a duplicate FCM toast).
+            if (presenceService.isUserOnline(email)) {
+                try {
+                    webSocketMessageSender.sendInAppNotification(new NotificationPayload(
+                            email, title, body, null, type, targetUrl, referenceId,
+                            Instant.now(), null));
+                } catch (Exception e) {
+                    logger.warn("Hazard-alert socket frame failed for {}: {}", email, e.getMessage());
+                }
+                logSocketDelivery(email, type, title, body, referenceId, targetUrl, null, null);
+                continue;
+            }
+
+            String token = u.getFcmtoken();
+            if (token == null || token.isEmpty()) {
+                saveLogRow(email, type, null, title, body, referenceId, targetUrl,
+                        false, "No token (offline)", null, null);
+                continue;
+            }
+            batchTokens.add(token);
+            batchUsers.add(u);
+        }
+
+        if (batchTokens.isEmpty()) return;
+
+        MulticastMessage multicast = MulticastMessage.builder()
+                .addAllTokens(batchTokens)
+                .setNotification(Notification.builder()
+                        .setTitle(title)
+                        .setBody(body)
+                        .build())
+                .putData("notificationType", type)
+                .putData("referenceId", safe(referenceId))
+                .putData("targetUrl", safe(targetUrl))
+                .putData("title", safe(title))
+                .putData("body", safe(body))
+                .putData("channelId", channelForType(type))
+                .putData("category", categoryForType(type))
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .setNotification(AndroidNotification.builder()
+                                .setSound("default")
+                                .build())
+                        .build())
+                .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl))
+                .build();
+
+        try {
+            BatchResponse resp = FirebaseMessaging.getInstance().sendEachForMulticast(multicast);
+            List<SendResponse> responses = resp.getResponses();
+            for (int i = 0; i < responses.size() && i < batchUsers.size(); i++) {
+                SendResponse r = responses.get(i);
+                UserInfo u = batchUsers.get(i);
+                String token = batchTokens.get(i);
+                if (r.isSuccessful()) {
+                    saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                            true, null, null, null);
+                } else {
+                    FirebaseMessagingException ex = r.getException();
+                    String err = ex != null ? ex.getMessage() : "Unknown FCM error";
+                    saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                            false, err, null, null);
+                    handleFcmDeliveryError(ex, u.getUserEmail(), token);
+                }
+            }
+            logger.info("📣 Hazard-alert multicast '{}': {} delivered, {} failed",
+                    referenceId, resp.getSuccessCount(), resp.getFailureCount());
+        } catch (Exception e) {
+            logger.error("❌ Hazard-alert multicast send failed for {}: {}", referenceId, e.getMessage(), e);
+            // Whole-batch failure — log a failed row per recipient so the
+            // inbox still reflects the intent.
+            for (int i = 0; i < batchUsers.size(); i++) {
+                saveLogRow(batchUsers.get(i).getUserEmail(), type, batchTokens.get(i),
+                        title, body, referenceId, targetUrl, false, e.getMessage(), null, null);
+            }
+        }
+    }
+
+    /**
+     * APNs block for a {@code hazard_alert} multicast. Mirrors the APNs
+     * config built inline in {@link #deliverPresenceAware} — priority 10,
+     * mutable content, default sound, custom metadata, and the iOS 15+
+     * lock-screen affordances (time-sensitive interruption level).
+     */
+    private ApnsConfig buildHazardApns(String type,
+                                       String referenceId,
+                                       String title,
+                                       String body,
+                                       String targetUrl) {
+        ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
+                .putHeader("apns-priority", "10");
+        Aps.Builder apsBuilder = Aps.builder()
+                .setMutableContent(true)
+                .setSound("default");
+        apsBuilder.putCustomData("notificationType", safe(type));
+        apsBuilder.putCustomData("referenceId", safe(referenceId));
+        apsBuilder.putCustomData("targetUrl", safe(targetUrl));
+        apsBuilder.putCustomData("title", safe(title));
+        apsBuilder.putCustomData("body", safe(body));
+        apsBuilder.putCustomData("channelId", safe(channelForType(type)));
+        apsBuilder.putCustomData("category", safe(categoryForType(type)));
+        applyIosLockScreenAffordances(apsBuilder, type, referenceId);
+        apnsBuilder.setAps(apsBuilder.build());
+        return apnsBuilder.build();
+    }
+
     // ---------------------- helpers ----------------------
 
     private static String safe(String s) {
@@ -709,6 +855,7 @@ public class NotificationService {
         switch (type) {
             case "alert":
             case "group_status":
+            case "hazard_alert":
             case "PLAN_ACTIVATION":
                 return "alerts";
             case "comment_on_post":
@@ -803,6 +950,10 @@ public class NotificationService {
         switch (type) {
             case "alert":
             case "group_status":
+            // hazard_alert = NWS Severe/Extreme weather warning fan-out
+            // from AlertDispatchService. Life-safety: it should break
+            // through Focus modes like the household alert flip does.
+            case "hazard_alert":
             case "PLAN_ACTIVATION":
             case "plan_activation":
                 return true;

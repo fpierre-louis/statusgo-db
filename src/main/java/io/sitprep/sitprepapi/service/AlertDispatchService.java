@@ -68,11 +68,28 @@ public class AlertDispatchService {
     /** Reserved system author for SitPrep auto-posts. */
     static final String SYSTEM_EMAIL = "system@sitprep.app";
 
+    /**
+     * Radius (km) around an alert's representative coordinate within
+     * which located, push-enabled users get an FCM push for a life-
+     * threatening NWS warning. ~80 km ≈ 50 mi, matching the FE's
+     * {@code radiusMi.alerts} local-hazard window. v1 centers on the
+     * alert's first-vertex coord; a point-in-polygon-per-user test is
+     * the future refinement.
+     */
+    private static final double SEVERE_PUSH_RADIUS_KM = 80.0;
+
+    /** Safety cap on a single alert's push fan-out. */
+    private static final int MAX_PUSH_RECIPIENTS = 500;
+
+    /** Great-circle earth radius — matches the other geo services. */
+    private static final double EARTH_RADIUS_KM = 6371.0088;
+
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
     private final PostService taskService;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
+    private final NotificationService notificationService;
     private final ObjectMapper json = new ObjectMapper();
 
     private List<DispatchTemplate> templates = List.of();
@@ -81,12 +98,14 @@ public class AlertDispatchService {
                                 AlertPostRepo alertPostRepo,
                                 PostService taskService,
                                 UserInfoRepo userInfoRepo,
-                                NominatimGeocodeService geocode) {
+                                NominatimGeocodeService geocode,
+                                NotificationService notificationService) {
         this.ingest = ingest;
         this.alertPostRepo = alertPostRepo;
         this.taskService = taskService;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
+        this.notificationService = notificationService;
     }
 
     @PostConstruct
@@ -189,6 +208,9 @@ public class AlertDispatchService {
         if (snap == null || snap.alerts() == null || snap.alerts().isEmpty()) return 0;
 
         int created = 0;
+        // Severe-alert push recipient pool — loaded lazily on the first
+        // push-worthy alert so a quiet tick does zero extra DB work.
+        List<UserInfo> pushCandidates = null;
         for (NormalizedAlert a : snap.alerts()) {
             try {
                 if (a.id() == null || a.id().isBlank()) continue;
@@ -227,6 +249,19 @@ public class AlertDispatchService {
                 ap.setPostId(dto.id());
                 ap.setExpiresAt(parseInstantOrNull(a.endsAt()));
                 alertPostRepo.save(ap);
+
+                // Life-threatening NWS warnings (Severe/Extreme) also
+                // earn an FCM push to nearby located users — the feed
+                // post alone only reaches users with the app open.
+                // Fires exactly once per alert, all-time: the
+                // (alertId, geocellId) dedup above means this branch is
+                // reached only when a NEW AlertPost is created.
+                if (isLifeThreatening(a)) {
+                    if (pushCandidates == null) {
+                        pushCandidates = userInfoRepo.findPushablesWithLocation();
+                    }
+                    pushSevereAlert(a, tpl, coord, pushCandidates);
+                }
 
                 created++;
             } catch (Exception e) {
@@ -414,6 +449,104 @@ public class AlertDispatchService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Severe-alert push fan-out
+    // ---------------------------------------------------------------
+
+    /**
+     * Whether an alert warrants an FCM push, not just a feed post.
+     * v1: NWS warnings at Severe or Extreme severity — the "take cover
+     * now" tier (Tornado / Flash Flood / Hurricane / etc. Warnings).
+     * USGS quakes are excluded: the shaking has already happened, so
+     * the feed post is sufficient and a push would be after-the-fact
+     * noise. A per-template {@code push} flag is the natural way to
+     * make this configurable later.
+     */
+    private static boolean isLifeThreatening(NormalizedAlert a) {
+        if (a == null || a.source() == null || a.severity() == null) return false;
+        if (!"NWS".equalsIgnoreCase(a.source())) return false;
+        return "Severe".equalsIgnoreCase(a.severity())
+                || "Extreme".equalsIgnoreCase(a.severity());
+    }
+
+    /**
+     * Fan a life-threatening alert out to every located, push-enabled
+     * user within {@link #SEVERE_PUSH_RADIUS_KM} of the alert's
+     * representative coordinate, via one batched
+     * {@link NotificationService#sendHazardAlertBatch} call — online
+     * users get a STOMP frame, offline users an iOS time-sensitive
+     * APNs push ({@code hazard_alert} breaks through Focus modes), and
+     * everyone gets an inbox log row.
+     *
+     * <p>Fan-out is capped at {@link #MAX_PUSH_RECIPIENTS} as a guard
+     * against a bad coordinate matching the whole table. The batch send
+     * runs inside the dispatch transaction — acceptable at the 5-min
+     * cron cadence and bounded by the 500-token multicast limit.</p>
+     */
+    private void pushSevereAlert(NormalizedAlert a,
+                                 DispatchTemplate tpl,
+                                 double[] coord,
+                                 List<UserInfo> candidates) {
+        if (candidates == null || candidates.isEmpty()) return;
+
+        double alertLat = coord[1];
+        double alertLng = coord[0];
+
+        // Radius-filter the pool down to users near this alert, capped
+        // so a bad coordinate can't fan out to the whole table.
+        List<UserInfo> nearby = new ArrayList<>();
+        for (UserInfo u : candidates) {
+            if (nearby.size() >= MAX_PUSH_RECIPIENTS) {
+                log.warn("AlertDispatch: severe-alert push hit the {}-recipient cap for {}-{}",
+                        MAX_PUSH_RECIPIENTS, a.source(), a.id());
+                break;
+            }
+            if (u.getLastKnownLat() == null || u.getLastKnownLng() == null) continue;
+            double distKm = haversineKm(alertLat, alertLng,
+                    u.getLastKnownLat(), u.getLastKnownLng());
+            if (distKm <= SEVERE_PUSH_RADIUS_KM) nearby.add(u);
+        }
+        if (nearby.isEmpty()) return;
+
+        String title = (tpl != null && tpl.headline != null && !tpl.headline.isBlank())
+                ? tpl.headline
+                : "Severe weather alert nearby";
+        String body = truncate(buildPushBody(a, tpl), 160);
+        String referenceId = a.source() + "-" + a.id();
+
+        // One batched MulticastMessage instead of N sequential sends.
+        notificationService.sendHazardAlertBatch(nearby, title, body, referenceId, "/Fema");
+        log.info("AlertDispatch: severe-alert push for {} dispatched to {} nearby user(s)",
+                referenceId, nearby.size());
+    }
+
+    /**
+     * Push body — prefer the curated template body (concise safety
+     * guidance), fall back to the raw NWS headline.
+     */
+    private static String buildPushBody(NormalizedAlert a, DispatchTemplate tpl) {
+        if (tpl != null && tpl.body != null && !tpl.body.isBlank()) {
+            return fillBody(tpl.body, a);
+        }
+        return a.headline() != null ? a.headline() : "Tap for safety steps.";
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        String t = s.trim();
+        return t.length() <= max ? t : t.substring(0, Math.max(0, max - 1)).trim() + "…";
+    }
+
+    /** Great-circle distance in km. Same EARTH_RADIUS as the other geo services. */
+    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double s = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return EARTH_RADIUS_KM * 2 * Math.asin(Math.min(1.0, Math.sqrt(s)));
     }
 
     private String lookupZipBucket(double lat, double lng) {

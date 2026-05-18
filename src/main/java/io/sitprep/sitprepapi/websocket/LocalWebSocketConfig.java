@@ -13,8 +13,14 @@ public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Now relies on the global SecurityConfig to provide AllowCredentials: true.
         // We only specify the allowed origins for the /ws endpoint here.
+        // capacitor://localhost (iOS) + https://localhost (Android) are
+        // the native-app shell origins — included so a BE running under
+        // a non-prod profile (default/dev/local/test) still accepts the
+        // native apps' SockJS handshake instead of 403-ing it.
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("http://localhost:3000","http://127.0.0.1:3000")
+                .setAllowedOriginPatterns(
+                        "http://localhost:3000", "http://127.0.0.1:3000",
+                        "capacitor://localhost", "https://localhost")
                 .withSockJS();
     }
     @Override
