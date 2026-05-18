@@ -165,7 +165,30 @@ public record PostDto(
          * "preview the latest reply under the post card" surface on the
          * community feed.
          */
-        CommentPreviewDto latestCommentPreview
+        CommentPreviewDto latestCommentPreview,
+        /**
+         * When non-null, this post is attributed to a group rather than
+         * to the individual requester. The FE swaps the author header
+         * (avatar + name) for the group's emblem + name.
+         *
+         * <p>The {@code authoredAsGroupName} and {@code authoredAsGroupType}
+         * fields are denormalized from the matching {@link
+         * io.sitprep.sitprepapi.domain.Group} row so the FE has the
+         * identity it needs in a single response — no batch
+         * group-profiles round-trip per feed page.</p>
+         *
+         * <p>Stays null on every legacy row (default) + on every post
+         * authored by an individual (the common case).</p>
+         */
+        String authoredAsGroupId,
+        String authoredAsGroupName,
+        String authoredAsGroupType,
+        /**
+         * Email of the member this group task is assigned to (push
+         * assignment by a group admin), or null when unassigned. See
+         * {@link io.sitprep.sitprepapi.domain.Post#assigneeEmail}.
+         */
+        String assigneeEmail
 ) {
 
     /**
@@ -220,7 +243,11 @@ public record PostDto(
                 /* commentsCount */ 0,
                 /* reactionsByEmoji */ Map.of(),
                 /* viewerEmojis */ Set.of(),
-                /* latestCommentPreview */ null
+                /* latestCommentPreview */ null,
+                t.getAuthoredAsGroupId(),
+                /* authoredAsGroupName */ null,
+                /* authoredAsGroupType */ null,
+                t.getAssigneeEmail()
         );
     }
 
@@ -247,7 +274,9 @@ public record PostDto(
                 /* viaFollow */ true,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
-                latestCommentPreview
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail
         );
     }
 
@@ -302,7 +331,11 @@ public record PostDto(
                 commentsCount,
                 reactionsByEmoji,
                 viewerEmojis,
-                latestCommentPreview
+                latestCommentPreview,
+                authoredAsGroupId,
+                authoredAsGroupName,
+                authoredAsGroupType,
+                assigneeEmail
         );
     }
 
@@ -324,7 +357,9 @@ public record PostDto(
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
-                latestCommentPreview
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail
         );
     }
 
@@ -349,7 +384,9 @@ public record PostDto(
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 safeMap, safeSet,
-                latestCommentPreview
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail
         );
     }
 
@@ -371,7 +408,42 @@ public record PostDto(
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
-                preview
+                preview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail
+        );
+    }
+
+    /**
+     * Returns a copy with the authored-as-group identity (name + type)
+     * folded in. Called by {@code PostService} after looking up the
+     * {@link io.sitprep.sitprepapi.domain.Group} row matching
+     * {@link #authoredAsGroupId} so the FE can render the group's
+     * emblem + name as the author header without a separate group-
+     * profile round-trip.
+     *
+     * <p>No-op when {@code authoredAsGroupId} is null (the post is
+     * authored by an individual — common case). When the group lookup
+     * fails (group deleted, etc.), {@code name} + {@code type} stay
+     * null and the FE falls back to the individual {@code requester*}
+     * fields.</p>
+     */
+    public PostDto withAuthoredAsGroup(String name, String type) {
+        if (authoredAsGroupId == null || authoredAsGroupId.isBlank()) return this;
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, name, type,
+                assigneeEmail
         );
     }
 

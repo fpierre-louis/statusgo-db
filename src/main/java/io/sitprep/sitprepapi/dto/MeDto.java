@@ -124,12 +124,47 @@ public record MeDto(
 
     public record ReadinessDto(
             int percentComplete,
-            List<ReadinessStep> steps
+            List<ReadinessStep> steps,
+            /**
+             * Per-pillar personal-task rollup. Phase 1 of BUSINESS_MODEL.md —
+             * drives the My Readiness card on /home. Populated by
+             * MeService from the user's Post rows where kind="task" and
+             * groupId=null, grouped by their "pillar:X" tag.
+             *
+             * <p>The FE computes the displayed percent using
+             * {@code completed / max(added, recommendedMin)} so a user
+             * who's added one task and completed it doesn't read as
+             * "100% Supplies." Denominator math lives FE-side where
+             * the template catalog also lives — BE just counts.</p>
+             *
+             * <p>Stays null on the legacy MeDto shape so old FE builds
+             * don't break.</p>
+             */
+            PillarRollup pillars
     ) {}
 
     public record ReadinessStep(
             String key,
             boolean done
+    ) {}
+
+    /**
+     * Counts of added + completed personal preparedness tasks per
+     * pillar. Each pillar's counts are independent — a user can have
+     * 0 in supplies and 5 in family. Null pillar entries mean "no
+     * tasks tagged with that pillar yet" — the FE treats null as
+     * {added: 0, completed: 0}.
+     */
+    public record PillarRollup(
+            PillarCounts supplies,
+            PillarCounts plan,
+            PillarCounts practice,
+            PillarCounts family
+    ) {}
+
+    public record PillarCounts(
+            int added,
+            int completed
     ) {}
 
     public record MetaDto(

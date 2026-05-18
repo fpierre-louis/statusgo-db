@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.GroupPost;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -26,4 +27,46 @@ public interface GroupPostRepo extends JpaRepository<GroupPost, Long> {
              )
            """)
     List<GroupPost> findLatestPostsByGroupIds(@Param("groupIds") List<String> groupIds);
+
+    /**
+     * All pinned posts for a group, newest-pin first. Used by the
+     * paginated listing path so pinned content always appears on every
+     * page-1 fetch regardless of how far back the user has scrolled
+     * through unpinned history. Cardinality is bounded — admins
+     * typically pin 0-3 posts per group, so this stays small.
+     */
+    @Query("""
+           SELECT p FROM GroupPost p
+           WHERE p.groupId = :groupId
+             AND p.pinnedAt IS NOT NULL
+           ORDER BY p.pinnedAt DESC
+           """)
+    List<GroupPost> findPinnedByGroupId(@Param("groupId") String groupId);
+
+    /**
+     * Cursor-paginated page of UNPINNED posts ordered by id DESC (id
+     * is monotonic so it doubles as a stable created-at cursor).
+     *
+     * <p>When {@code before} is null, returns the latest page; when
+     * {@code before} is a non-null id, returns the next page of
+     * unpinned posts older than that id. The pinned set is fetched
+     * separately via {@link #findPinnedByGroupId(String)} so paginated
+     * scroll never accidentally hides a pin that lives in older
+     * history.</p>
+     *
+     * <p>The COALESCE pattern lets the same query handle both the
+     * first-page (no cursor) and subsequent-page (with cursor) cases
+     * without two methods. {@code Long.MAX_VALUE} on null is the
+     * "include everything older than infinity" defensive default.</p>
+     */
+    @Query("""
+           SELECT p FROM GroupPost p
+           WHERE p.groupId = :groupId
+             AND p.pinnedAt IS NULL
+             AND p.id < COALESCE(:before, 9223372036854775807L)
+           ORDER BY p.id DESC
+           """)
+    List<GroupPost> findUnpinnedByGroupIdPage(@Param("groupId") String groupId,
+                                              @Param("before") Long before,
+                                              Pageable pageable);
 }

@@ -48,7 +48,19 @@ public enum PostKind {
     BLOG_PROMO("blog-promo"),
 
     /** Buy/sell listing. Carries price badge + "FREE" pill for gifts. */
-    MARKETPLACE("marketplace");
+    MARKETPLACE("marketplace"),
+
+    /**
+     * Personal preparedness task. Phase 1 Week 2 of the
+     * {@code BUSINESS_MODEL.md} roadmap — the consolidated personal
+     * task list at {@code /me/tasks}. Always {@code groupId=null}
+     * and {@code requesterEmail=author}. Tagged with
+     * {@code pillar:supplies|plan|practice|family} so completion
+     * rolls up into the My Readiness card. Never surfaces in the
+     * community feed (BE listing filters out personal tasks when the
+     * caller isn't the requester).
+     */
+    TASK("task");
 
     private final String wire;
 
@@ -111,6 +123,10 @@ public enum PostKind {
             case POST:
             case TIP:
                 return false;
+            case TASK:
+                // Personal tasks always have a title (e.g. "Refill water"
+                // or "Update go-bag") — the title IS the task.
+                return true;
             default:
                 return true;
         }

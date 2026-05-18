@@ -53,6 +53,28 @@ public class Post {
     @Column(name = "requester_email", nullable = false)
     private String requesterEmail;
 
+    /**
+     * When set, this post is attributed to a group rather than to the
+     * individual {@link #requesterEmail}. Used when an admin of an org
+     * group (school, business, neighborhood, church) wants to speak on
+     * behalf of the group in the community feed — the FE renders the
+     * group's emblem + name as the author header instead of the
+     * individual admin's identity.
+     *
+     * <p>Distinct from {@link #claimedByGroupId} — that's "a group
+     * took on this task," whereas this field is "this post IS the
+     * group speaking." Both can be set independently.</p>
+     *
+     * <p>Validation: when set on create, the service layer requires
+     * {@link #requesterEmail} to be in the target group's
+     * {@code adminEmails} or to be the owner. Otherwise the request is
+     * rejected with 400 — we don't silently strip the attribution
+     * because that would let a non-admin appear to author as a group
+     * by accident on a misconfigured client.</p>
+     */
+    @Column(name = "authored_as_group_id", length = 64)
+    private String authoredAsGroupId;
+
     /** The group that claimed this task (community → claimed). Null while open. */
     @Column(name = "claimed_by_group_id")
     private String claimedByGroupId;
@@ -60,6 +82,24 @@ public class Post {
     /** The specific user inside the claimer group who took it on. Null while open. */
     @Column(name = "claimed_by_email")
     private String claimedByEmail;
+
+    /**
+     * Email of the member this task is assigned to — push assignment by
+     * a group admin. Distinct from {@link #claimedByEmail}: claim is
+     * pull (a member takes an open task), assignment is push (an admin
+     * gives a specific member a task). Null when unassigned. Phase 3 of
+     * docs/BUSINESS_MODEL.md — "tasks become operational".
+     */
+    @Column(name = "assignee_email")
+    private String assigneeEmail;
+
+    /** Group admin who made the current assignment; null when unassigned. */
+    @Column(name = "assigned_by_email")
+    private String assignedByEmail;
+
+    /** When the current assignment was made; null when unassigned. */
+    @Column(name = "assigned_at")
+    private Instant assignedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -136,6 +176,22 @@ public class Post {
 
     @Column(name = "due_at")
     private Instant dueAt;
+
+    /**
+     * When a due-date reminder was sent for this row. Used by
+     * {@code PersonalTaskReminderService} to fire a reminder exactly
+     * once per task — the daily sweep filters out rows where this is
+     * already set. Null until the reminder fires (the common state);
+     * null on every non-task row.
+     *
+     * <p>Phase 1 of BUSINESS_MODEL.md — supply reminders. A personal
+     * task created from a template with a refresh cadence (water every
+     * 6 months, batteries every 12) carries a future {@code dueAt};
+     * when that date passes, the sweep notifies the owner and stamps
+     * this field so the reminder doesn't repeat daily.</p>
+     */
+    @Column(name = "reminder_sent_at")
+    private Instant reminderSentAt;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

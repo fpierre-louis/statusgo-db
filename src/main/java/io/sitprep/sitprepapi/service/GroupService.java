@@ -123,6 +123,54 @@ public class GroupService {
     }
 
     /**
+     * Send a non-emergency "please check in" ping to a group's members
+     * without flipping the group's alert state. Phase 1 of
+     * {@code docs/BUSINESS_MODEL.md} — the family check-in primitive.
+     *
+     * <p>Authorization: the caller must be a member of the group. For
+     * <b>household</b> groups any member can ping (it's the family —
+     * "hey everyone check in" is benign). For non-household groups
+     * (school / business / neighborhood) it's restricted to
+     * admins/owners so a single member can't blast a 500-person org.</p>
+     *
+     * <p>Throws {@link SecurityException} on an authorization failure —
+     * the resource layer maps that to HTTP 403.</p>
+     */
+    public void requestCheckIn(String groupId, String callerEmail) {
+        if (callerEmail == null || callerEmail.isBlank()) {
+            throw new SecurityException("Sign in to request a check-in");
+        }
+        Group group = getGroupByPublicId(groupId);
+        String me = callerEmail.trim().toLowerCase();
+
+        boolean isMember = group.getMemberEmails() != null && group.getMemberEmails().stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+        if (!isMember) {
+            throw new SecurityException("Only members can request a check-in");
+        }
+
+        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE
+                .equalsIgnoreCase(group.getGroupType());
+        if (!isHousehold) {
+            boolean isAdmin = group.getAdminEmails() != null && group.getAdminEmails().stream()
+                    .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+            boolean isOwner = group.getOwnerEmail() != null
+                    && group.getOwnerEmail().equalsIgnoreCase(me);
+            if (!isAdmin && !isOwner) {
+                throw new SecurityException(
+                        "Only admins can request a check-in for this group");
+            }
+        }
+
+        String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
+                .map(UserInfo::getUserFirstName)
+                .filter(n -> n != null && !n.isBlank())
+                .orElse(null);
+
+        notificationService.notifyCheckInRequest(group, callerEmail, callerName);
+    }
+
+    /**
      * Sanitized public preview of a group for non-members. Powers the
      * join-confirmation page (FE: {@code JoinPrivateGroup}) and the
      * discover-surface "view this circle before joining" flow.

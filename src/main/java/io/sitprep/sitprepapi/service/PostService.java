@@ -2,11 +2,13 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.Follow;
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.repo.FollowRepo;
+import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -67,6 +69,7 @@ public class PostService {
     private final PostReactionService reactionService;
     private final PostCommentService commentService;
     private final StorageService storage;
+    private final GroupRepo groupRepo;
 
     public PostService(PostRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
@@ -76,7 +79,8 @@ public class PostService {
                        BlockService blockService,
                        PostReactionService reactionService,
                        PostCommentService commentService,
-                       StorageService storage) {
+                       StorageService storage,
+                       GroupRepo groupRepo) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -87,6 +91,7 @@ public class PostService {
         this.reactionService = reactionService;
         this.commentService = commentService;
         this.storage = storage;
+        this.groupRepo = groupRepo;
     }
 
     /**
@@ -161,6 +166,40 @@ public class PostService {
     }
 
     /**
+     * Batch-fold the authored-as-group identity (groupName + groupType)
+     * into a list of PostDto. Mirrors {@link #withAuthors} — one DB
+     * call total via {@code groupRepo.findAllById}, then map-lookup
+     * per row. Posts with null authoredAsGroupId flow through
+     * unchanged (the common case).
+     *
+     * <p>When the matching group can't be resolved (deleted, etc.),
+     * the row keeps its authoredAsGroupId but name/type stay null;
+     * the FE falls back to the individual requester fields.</p>
+     */
+    private List<PostDto> withAuthoredAsGroups(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<String> ids = dtos.stream()
+                .map(PostDto::authoredAsGroupId)
+                .filter(Objects::nonNull)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) return dtos;
+        Map<String, Group> byId = new HashMap<>();
+        for (Group g : groupRepo.findAllById(ids)) {
+            if (g != null && g.getGroupId() != null) byId.put(g.getGroupId(), g);
+        }
+        return dtos.stream()
+                .map(d -> {
+                    if (d.authoredAsGroupId() == null) return d;
+                    Group g = byId.get(d.authoredAsGroupId());
+                    if (g == null) return d;
+                    return d.withAuthoredAsGroup(g.getGroupName(), g.getGroupType());
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Batch-fold engagement counts (heart "Thank" count, viewer-thanked
      * flag, and — once Phase 2 ships — comment count) onto a list of
      * TaskDtos. Single batched query for the reaction summary so a
@@ -229,6 +268,28 @@ public class PostService {
         Post t = new Post();
         t.setRequesterEmail(requesterEmail.trim().toLowerCase());
         t.setGroupId(incoming.getGroupId()); // null = community/personal scope
+
+        // authoredAsGroup attribution — when set, the requester must be
+        // an admin (or owner) of the target group. Misconfigured clients
+        // that send a groupId the user can't speak for get a 400 rather
+        // than a silently-stripped attribution, since silent strip would
+        // make a non-admin appear to author as the group from their own
+        // client and confuse the audit trail.
+        String aagId = incoming.getAuthoredAsGroupId();
+        if (aagId != null && !aagId.isBlank()) {
+            Group g = groupRepo.findByGroupId(aagId.trim())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "authoredAsGroupId references an unknown group"));
+            String me = requesterEmail.trim().toLowerCase();
+            boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                    .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+            boolean isOwner = g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(me);
+            if (!isAdmin && !isOwner) {
+                throw new IllegalArgumentException(
+                        "Only admins can post on behalf of a group");
+            }
+            t.setAuthoredAsGroupId(g.getGroupId());
+        }
         // Title goes through per-kind validation below; description first
         // so the validation can require one when title is absent.
         t.setDescription(incoming.getDescription());
@@ -339,6 +400,11 @@ public class PostService {
 
         Post saved = taskRepo.save(t);
         PostDto dto = PostDto.fromEntity(saved);
+        // Fold in authored-as-group identity (name + type) so the
+        // newly-created post returns with the group emblem already
+        // populated — no second round-trip needed on the FE to render
+        // the post card with the right author header.
+        dto = withAuthoredAsGroups(List.of(dto)).get(0);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -354,7 +420,7 @@ public class PostService {
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
         List<PostDto> dtos = rows.stream().map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthors(dtos), viewerEmail);
+        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), viewerEmail);
     }
 
     /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
@@ -370,7 +436,7 @@ public class PostService {
         // same email so a user's own thanks render correctly on their list.
         List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthors(dtos), email);
+        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), email);
     }
 
     @Transactional(readOnly = true)
@@ -379,7 +445,7 @@ public class PostService {
         // Claimer is the viewer for this surface (same reasoning as listRequestedBy).
         List<PostDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthors(dtos), email);
+        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), email);
     }
 
     /**
@@ -544,7 +610,7 @@ public class PostService {
         List<PostDto> balanced = applyKindBalance(filtered);
 
         List<PostDto> capped = balanced.size() > 50 ? balanced.subList(0, 50) : balanced;
-        return withEngagement(withAuthors(capped), viewerEmail);
+        return withEngagement(withAuthoredAsGroups(withAuthors(capped)), viewerEmail);
     }
 
     // ---------------------------------------------------------------------
@@ -567,6 +633,34 @@ public class PostService {
         t.setClaimedByEmail(claimerEmail == null ? null : claimerEmail.trim().toLowerCase());
         t.setStatus(PostStatus.CLAIMED);
         t.setClaimedAt(Instant.now());
+        return saveAndBroadcast(t);
+    }
+
+    /**
+     * Group admin assigns the task to a member (push assignment). Pass a
+     * null/blank {@code assigneeEmail} to clear the assignment. Caller
+     * authorization (admin/owner of the task's group) is checked at the
+     * resource layer. Assignment is orthogonal to the claim/status
+     * lifecycle — an OPEN task can be assigned, and the assignee then
+     * works it through the normal in-progress / complete flow.
+     */
+    @Transactional
+    public PostDto assign(Long postId, String assigneeEmail, String assignedByEmail) {
+        Post t = mustExist(postId);
+        if (t.getStatus() == PostStatus.DONE || t.getStatus() == PostStatus.CANCELLED) {
+            throw new IllegalStateException("Cannot assign a closed task");
+        }
+        String assignee = (assigneeEmail == null || assigneeEmail.isBlank())
+                ? null : assigneeEmail.trim().toLowerCase();
+        t.setAssigneeEmail(assignee);
+        if (assignee == null) {
+            t.setAssignedByEmail(null);
+            t.setAssignedAt(null);
+        } else {
+            t.setAssignedByEmail(assignedByEmail == null
+                    ? null : assignedByEmail.trim().toLowerCase());
+            t.setAssignedAt(Instant.now());
+        }
         return saveAndBroadcast(t);
     }
 
@@ -826,7 +920,7 @@ public class PostService {
         return taskRepo.findById(id)
                 .map(PostDto::fromEntity)
                 .map(d -> {
-                    List<PostDto> folded = withEngagement(withAuthors(List.of(d)), viewerEmail);
+                    List<PostDto> folded = withEngagement(withAuthoredAsGroups(withAuthors(List.of(d))), viewerEmail);
                     return folded.isEmpty() ? d : folded.get(0);
                 });
     }

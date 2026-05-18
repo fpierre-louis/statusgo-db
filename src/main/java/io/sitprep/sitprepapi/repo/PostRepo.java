@@ -2,10 +2,12 @@ package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
@@ -13,6 +15,34 @@ public interface PostRepo extends JpaRepository<Post, Long> {
 
     /** Group-scope feed — tasks bound to a single group, newest first. */
     List<Post> findByGroupIdOrderByCreatedAtDesc(String groupId);
+
+    /**
+     * Personal preparedness tasks whose due date has passed and which
+     * haven't had a reminder sent yet. Drives the daily supply-reminder
+     * sweep ({@code PersonalTaskReminderService}).
+     *
+     * <p>Filter: {@code kind="task"} + {@code groupId IS NULL} (personal
+     * scope) + an OPEN status + a {@code dueAt} in the past + a null
+     * {@code reminderSentAt}. The reminder-sent check is what makes the
+     * reminder fire exactly once — after the sweep stamps the field, the
+     * row drops out of this query forever.</p>
+     *
+     * <p>Ordered oldest-due-first so a backlog (sweep was down) drains
+     * the most-overdue tasks first.</p>
+     */
+    @Query("""
+           SELECT p FROM Post p
+           WHERE p.kind = 'task'
+             AND p.groupId IS NULL
+             AND p.status = :status
+             AND p.dueAt IS NOT NULL
+             AND p.dueAt <= :now
+             AND p.reminderSentAt IS NULL
+           ORDER BY p.dueAt ASC
+           """)
+    List<Post> findPersonalTasksDueForReminder(@Param("status") PostStatus status,
+                                               @Param("now") Instant now,
+                                               Pageable page);
 
     /** Group-scope feed filtered by status. */
     List<Post> findByGroupIdAndStatusOrderByCreatedAtDesc(String groupId, PostStatus status);

@@ -170,6 +170,20 @@ public class PostResource {
         return ResponseEntity.ok(tasks.claim(id, req.groupId, claimerEmail));
     }
 
+    /**
+     * Group admin/owner assigns the task to a member (push assignment).
+     * Body: {@code { "assigneeEmail": "..." }} — a blank/omitted email
+     * clears the assignment. Caller must be admin/owner of the task's
+     * own group.
+     */
+    @PostMapping("/api/posts/{id}/assign")
+    public ResponseEntity<PostDto> assign(@PathVariable Long id,
+                                          @RequestBody(required = false) AssignRequest req) {
+        String caller = ensureGroupManagerOf(id);
+        String assignee = (req == null) ? null : req.assigneeEmail();
+        return ResponseEntity.ok(tasks.assign(id, assignee, caller));
+    }
+
     @PostMapping("/api/posts/{id}/in-progress")
     public ResponseEntity<PostDto> markInProgress(@PathVariable Long id) {
         ensureClaimer(id);
@@ -247,6 +261,36 @@ public class PostResource {
         }
     }
 
+    /**
+     * Caller must be admin or owner of the task's own group — the
+     * authorization for group-admin actions like assignment. Returns
+     * the verified caller email. Throws 401 / 403 / 404.
+     */
+    private String ensureGroupManagerOf(Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        String groupId = existing.get().getGroupId();
+        if (groupId == null || groupId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Assignment is only available on group tasks");
+        }
+        Group g;
+        try {
+            g = groupService.getGroupByPublicId(groupId);
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+        boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+        if (!isOwner && !isAdmin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only a group admin or owner can assign tasks");
+        }
+        return caller;
+    }
+
     // -----------------------------------------------------------------
     // Exception mapping
     // -----------------------------------------------------------------
@@ -262,4 +306,6 @@ public class PostResource {
     }
 
     public record ClaimRequest(String groupId, String claimerEmail) {}
+
+    public record AssignRequest(String assigneeEmail) {}
 }

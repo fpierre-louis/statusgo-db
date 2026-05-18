@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
+import io.sitprep.sitprepapi.dto.GroupPostPageDto;
 import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.service.GroupPostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -54,6 +55,41 @@ public class GroupPostResource {
     public List<GroupPostDto> getPostsByGroupId(@PathVariable String groupId) {
         AuthUtils.requireAuthenticatedEmail();
         return postService.getPostsByGroupIdDto(groupId);
+    }
+
+    /**
+     * Cursor-paginated chat-feed listing. Canonical surface for the
+     * chat-style feed scroll on OrgGroupPage / HouseholdFamily chat.
+     * Replaces the un-paginated {@link #getPostsByGroupId} when groups
+     * accumulate enough posts that loading the whole history at once
+     * becomes a phone-memory / network drag.
+     *
+     * <p>Query params:</p>
+     * <ul>
+     *   <li>{@code before} (optional Long) — cursor; returns posts older
+     *       than this id. Omit for the first / latest page.</li>
+     *   <li>{@code limit} (optional Integer) — page size, clamped to
+     *       [1, 200]. Defaults to 50 (mirrors PostCommentService).</li>
+     * </ul>
+     *
+     * <p>Response shape (see {@link GroupPostPageDto}):</p>
+     * <pre>
+     * {
+     *   "pinned":     [GroupPostDto],   // all pinned posts, always
+     *   "items":      [GroupPostDto],   // page of unpinned posts
+     *   "nextBefore": 1234,             // cursor for next page (null if exhausted)
+     *   "hasMore":    true              // "Load earlier" affordance flag
+     * }
+     * </pre>
+     */
+    @GetMapping("/group/{groupId}/page")
+    public GroupPostPageDto getPostsByGroupIdPage(
+            @PathVariable String groupId,
+            @RequestParam(value = "before", required = false) Long before,
+            @RequestParam(value = "limit", required = false) Integer limit
+    ) {
+        AuthUtils.requireAuthenticatedEmail();
+        return postService.getPostsByGroupIdPage(groupId, before, limit);
     }
 
     @GetMapping("/since")
@@ -127,5 +163,42 @@ public class GroupPostResource {
         String actor = AuthUtils.requireAuthenticatedEmail();
         postService.deletePostAndBroadcast(postId, actor);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Pin a group post to the top of its group's feed. Admin/owner-only —
+     * the service layer rejects non-admin callers with 403. Returns the
+     * updated DTO (with {@code pinnedAt} + {@code pinnedBy} populated)
+     * so the FE can patch its local cache without re-fetching the feed.
+     * Broadcasts via the same {@code /topic/group-posts/{groupId}} WS
+     * channel as a fresh post so every member's open feed shows the
+     * pin instantly.
+     */
+    @PostMapping("/{postId}/pin")
+    public ResponseEntity<GroupPostDto> pinPost(@PathVariable Long postId) {
+        String actor = AuthUtils.requireAuthenticatedEmail();
+        try {
+            return ResponseEntity.ok(postService.pinPost(postId, actor));
+        } catch (SecurityException se) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, se.getMessage());
+        }
+    }
+
+    /**
+     * Unpin a previously-pinned post. Same admin gate as
+     * {@link #pinPost(Long)}. Idempotent — unpinning a not-pinned post
+     * is a no-op (no error). Returns the updated DTO so the FE drops
+     * the pin chip on the next render.
+     */
+    @DeleteMapping("/{postId}/pin")
+    public ResponseEntity<GroupPostDto> unpinPost(@PathVariable Long postId) {
+        String actor = AuthUtils.requireAuthenticatedEmail();
+        try {
+            return ResponseEntity.ok(postService.unpinPost(postId, actor));
+        } catch (SecurityException se) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, se.getMessage());
+        }
     }
 }

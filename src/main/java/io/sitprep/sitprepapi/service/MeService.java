@@ -44,6 +44,7 @@ public class MeService {
     private final OriginLocationRepo originLocationRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final PlanActivationRepo planActivationRepo;
+    private final io.sitprep.sitprepapi.repo.PostRepo postRepo;
 
     public MeService(
             UserInfoRepo userInfoRepo,
@@ -54,7 +55,8 @@ public class MeService {
             MeetingPlaceRepo meetingPlaceRepo,
             OriginLocationRepo originLocationRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
-            PlanActivationRepo planActivationRepo
+            PlanActivationRepo planActivationRepo,
+            io.sitprep.sitprepapi.repo.PostRepo postRepo
     ) {
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -65,6 +67,7 @@ public class MeService {
         this.originLocationRepo = originLocationRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.planActivationRepo = planActivationRepo;
+        this.postRepo = postRepo;
     }
 
     @Transactional(readOnly = true)
@@ -162,7 +165,7 @@ public class MeService {
                 : toHouseholdDto(household, demographic);
 
         ReadinessDto readiness = computeReadiness(
-                user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts
+                user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
         );
 
         // Most recent non-expired activation owned by this user, if any.
@@ -347,7 +350,8 @@ public class MeService {
             boolean demographicsDone,
             boolean mealPlanDone,
             boolean evacDone,
-            boolean contactsDone
+            boolean contactsDone,
+            String email
     ) {
         boolean profileDone =
                 u.getUserFirstName() != null && !u.getUserFirstName().isBlank()
@@ -365,6 +369,77 @@ public class MeService {
 
         long done = steps.stream().filter(ReadinessStep::done).count();
         int percent = (int) Math.round((done * 100.0) / steps.size());
-        return new ReadinessDto(percent, steps);
+
+        // Personal-task pillar rollup — Phase 1 of BUSINESS_MODEL.md.
+        // Drives the My Readiness card on /home. We count user's
+        // personal Post rows (kind="task", groupId=null) grouped by
+        // their "pillar:X" tag. FE computes displayed percent using
+        // template-catalog denominators (added vs recommendedMin).
+        //
+        // Defense in depth: any failure here (corrupt rows, missing
+        // tag column, etc.) degrades to a null rollup so the rest of
+        // the /me payload still ships. The FE falls back to the
+        // soft-default percentages when the rollup is null.
+        PillarRollup pillars = email.isBlank() ? null : safeGet(
+                "pillarRollup", "email=" + email,
+                () -> computePillarRollup(email),
+                null);
+
+        return new ReadinessDto(percent, steps, pillars);
+    }
+
+    /**
+     * Single fetch of the user's personal tasks, grouped by pillar
+     * tag, counted by status. The query is bounded (a user's personal
+     * tasks max out at ~50 rows even for a maximally engaged user) so
+     * we do the grouping in Java rather than a SQL GROUP BY — easier
+     * to maintain and the row volume doesn't justify the complexity.
+     *
+     * <p>Tasks without a {@code pillar:X} tag are silently dropped
+     * (legacy / hand-created tasks). Unknown pillar tags are also
+     * dropped — we only count the four canonical pillars.</p>
+     */
+    private PillarRollup computePillarRollup(String email) {
+        var rows = postRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email);
+        int sAdd = 0, sDone = 0;
+        int pAdd = 0, pDone = 0;
+        int prAdd = 0, prDone = 0;
+        int fAdd = 0, fDone = 0;
+        for (var p : rows) {
+            if (!"task".equals(p.getKind())) continue;
+            if (p.getGroupId() != null) continue; // org tasks don't count
+            String pillar = extractPillar(p.getTags());
+            if (pillar == null) continue;
+            boolean isDone = p.getStatus() == io.sitprep.sitprepapi.domain.Post.PostStatus.DONE;
+            switch (pillar) {
+                case "supplies": sAdd++; if (isDone) sDone++; break;
+                case "plan":     pAdd++; if (isDone) pDone++; break;
+                case "practice": prAdd++; if (isDone) prDone++; break;
+                case "family":   fAdd++; if (isDone) fDone++; break;
+                default: /* unknown pillar — ignore */ break;
+            }
+        }
+        return new PillarRollup(
+                new PillarCounts(sAdd, sDone),
+                new PillarCounts(pAdd, pDone),
+                new PillarCounts(prAdd, prDone),
+                new PillarCounts(fAdd, fDone)
+        );
+    }
+
+    /**
+     * Find the first {@code pillar:X} tag on a task and return the
+     * value. Tasks can have multiple tags in theory; pillar is the
+     * only one MeService cares about, and we treat the first match
+     * as authoritative.
+     */
+    private static String extractPillar(java.util.Set<String> tags) {
+        if (tags == null) return null;
+        for (String tag : tags) {
+            if (tag != null && tag.startsWith("pillar:")) {
+                return tag.substring("pillar:".length()).toLowerCase();
+            }
+        }
+        return null;
     }
 }

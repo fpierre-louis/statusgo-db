@@ -51,4 +51,27 @@ public class GroupPostDto {
     private String authorFirstName;
     private String authorLastName;
     private String authorProfileImageURL;
+
+    /**
+     * When non-null, this post is pinned to the top of its group's feed.
+     * Posts with {@code pinnedAt != null} render above timestamp-ordered
+     * rows on the FE. Admins toggle it via the pin/unpin endpoints.
+     */
+    private Instant pinnedAt;
+
+    /**
+     * Email of the admin who pinned the post. Drives the FE's
+     * "📌 Pinned by {firstname}" chip. Cleared on unpin.
+     */
+    private String pinnedBy;
+
+    /**
+     * Denormalized first name of the pinner so the FE renders
+     * "📌 Pinned by Alice" without a second profile lookup per
+     * pinned post. Populated server-side in
+     * {@code GroupPostService.toDto} when {@link #pinnedBy} resolves.
+     * Null when the pinner profile can't be resolved (deleted account,
+     * legacy row) — the FE falls back to "📌 Pinned".
+     */
+    private String pinnedByFirstName;
 }

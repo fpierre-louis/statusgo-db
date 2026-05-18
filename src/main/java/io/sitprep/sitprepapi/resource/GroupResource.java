@@ -166,6 +166,32 @@ public class GroupResource {
         }
     }
 
+    /**
+     * Send a non-emergency "please check in" ping to a group's members.
+     * Phase 1 of docs/BUSINESS_MODEL.md — the family check-in primitive.
+     * Does NOT flip the group's alert state (that's {@code PUT /api/groups}
+     * with {@code alert: "Active"}). Authorization lives in
+     * {@code GroupService.requestCheckIn} — any member for households,
+     * admin/owner only for larger org groups. Returns 204 on success,
+     * 403 when the caller isn't allowed, 404 when the group is missing.
+     */
+    @PostMapping("/{groupId}/check-in-request")
+    public ResponseEntity<Void> requestCheckIn(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        try {
+            groupService.requestCheckIn(groupId, caller);
+            return ResponseEntity.noContent().build();
+        } catch (SecurityException se) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, se.getMessage());
+        } catch (RuntimeException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.toLowerCase().contains("group not found")) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+            }
+            throw e;
+        }
+    }
+
     @PostMapping("/{groupId}/members/approve")
     public ResponseEntity<Group> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
         requireAdminOf(groupId);

@@ -191,11 +191,12 @@ public class PushPolicyService {
 
     private static Lane defaultLaneFor(Category c) {
         return switch (c) {
-            // Lane A — interruptive, eight bounded categories per policy doc
+            // Lane A — interruptive, bounded categories per policy doc
             case NWS_SEVERE_EXTREME, USGS_QUAKE_MAJOR, WILDFIRE_NEAR,
                  GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG,
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
-                 TASK_ASSIGNED, PENDING_MEMBER_REQUEST -> Lane.A;
+                 TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
+                 CHECK_IN_REQUEST -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -212,6 +213,10 @@ public class PushPolicyService {
             case USGS_QUAKE_MAJOR, USGS_QUAKE_MINOR -> p.isEarthquakes();
             case WILDFIRE_NEAR -> p.isWildfires();
             case GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG -> p.isGroupAlerts();
+            // A check-in request rides the same user preference as group
+            // alerts — if a user muted group alerts, they've opted out of
+            // group-initiated pings generally, check-in requests included.
+            case CHECK_IN_REQUEST -> p.isGroupAlerts();
             case PLAN_ACTIVATION_RECEIVED -> p.isPlanActivations();
             case ACTIVATION_ACK -> p.isActivationAcks();
             case TASK_ASSIGNED -> p.isTaskAssignments();
@@ -292,6 +297,16 @@ public class PushPolicyService {
         ACTIVATION_ACK,
         TASK_ASSIGNED,
         PENDING_MEMBER_REQUEST,
+        /**
+         * A "please check in" ping from a household / group member —
+         * NOT an emergency alert. Distinct from GROUP_ALERT_* because
+         * it does NOT flip the group's alert state and does NOT carry
+         * critical-bypass: a non-emergency check-in request must
+         * respect the recipient's quiet hours (no 3am "everyone check
+         * in" for a routine ping). Lane A so it still reaches people —
+         * the whole point is to prompt a status update.
+         */
+        CHECK_IN_REQUEST,
 
         // Lane B — silent inbox
         NWS_MINOR,

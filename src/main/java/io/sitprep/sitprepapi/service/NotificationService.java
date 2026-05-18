@@ -83,6 +83,7 @@ public class NotificationService {
             case "task_assigned" -> Category.TASK_ASSIGNED;
             case "plan_activation" -> Category.PLAN_ACTIVATION_RECEIVED;
             case "activation_ack" -> Category.ACTIVATION_ACK;
+            case "check_in_request" -> Category.CHECK_IN_REQUEST;
             default -> null;
         };
     }
@@ -228,16 +229,44 @@ public class NotificationService {
                                      String targetUrl,
                                      String additionalData,
                                      String recipientFcmTokenOrNull) {
+        deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, /* categoryOverride */ null);
+    }
+
+    /**
+     * Category-aware overload. Callers that know the policy category
+     * up-front (e.g. household alert fan-out, which needs
+     * {@code GROUP_ALERT_HOUSEHOLD} rather than the legacy
+     * {@code GROUP_ALERT_ORG} default from
+     * {@link #mapTypeToCategory(String)}) pass it explicitly so quiet-
+     * hours critical-bypass works correctly. Legacy callers pass null
+     * and get the same string-based mapping as before.
+     */
+    public void deliverPresenceAware(String recipientEmail,
+                                     String title,
+                                     String body,
+                                     String senderName,
+                                     String iconUrl,
+                                     String notificationType,
+                                     String referenceId,
+                                     String targetUrl,
+                                     String additionalData,
+                                     String recipientFcmTokenOrNull,
+                                     Category categoryOverride) {
 
         boolean online = presenceService.isUserOnline(recipientEmail);
         String channelId = channelForType(notificationType);
         String category = categoryForType(notificationType);
 
-        // Apply policy: map legacy notificationType → structured Category,
-        // evaluate against UserAlertPreference + quiet hours, get a Lane.
-        // Unmapped types skip policy entirely (lane = null) so legacy
-        // behavior is preserved — the inbox FE treats null lane as B.
-        Category catEnum = mapTypeToCategory(notificationType);
+        // Apply policy: prefer the explicit categoryOverride when the
+        // caller knows it (e.g. household vs org alert), fall back to
+        // the legacy string mapping. Unmapped types still skip policy
+        // entirely (lane = null) so back-compat is preserved — the
+        // inbox FE treats null lane as B.
+        Category catEnum = categoryOverride != null
+                ? categoryOverride
+                : mapTypeToCategory(notificationType);
         Lane lane = (catEnum != null)
                 ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
                 : null;
@@ -493,11 +522,34 @@ public class NotificationService {
     }
 
     /**
-     * Presence-aware fan-out of a group alert to all members except the initiator.
+     * Presence-aware fan-out of a group alert (the Activate Check-in
+     * trigger) to every member except the initiator.
+     *
+     * <p>Each recipient passes through {@link #deliverPresenceAware}
+     * which applies the three-lane push policy — users who muted the
+     * matching category get {@code Lane.DROP} and never see a banner /
+     * FCM / inbox row. Online users get a STOMP frame only; offline
+     * users with a live FCM token get an iOS time-sensitive APNs push.
+     * Users with no token and no socket get a logged inbox row so they
+     * find the alert on next app open.</p>
+     *
+     * <p>Household vs org routing: the policy category is computed from
+     * {@code group.getGroupType()}. Household alerts route through
+     * {@link Category#GROUP_ALERT_HOUSEHOLD} which is on the critical-
+     * bypass list (a real household emergency at 3am needs to break
+     * through Focus / quiet hours); org alerts route through
+     * {@link Category#GROUP_ALERT_ORG} which respects quiet hours.
+     * Before this split, every alert routed through ORG and household
+     * alerts during quiet hours were quietly downgraded — a real bug
+     * for the household use case.</p>
      */
     public void notifyGroupAlertChange(Group group, String newAlertStatus, String initiatedByEmail) {
         List<String> memberEmails = group.getMemberEmails();
-        if (memberEmails == null || memberEmails.isEmpty()) return;
+        if (memberEmails == null || memberEmails.isEmpty()) {
+            logger.info("📢 No member emails on group '{}', skipping alert fan-out.",
+                    group != null ? group.getGroupName() : "(null)");
+            return;
+        }
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String title = group.getGroupName();
@@ -506,10 +558,25 @@ public class NotificationService {
         String referenceId = group.getGroupId();
         String targetUrl = "/status-now";
 
+        // Household groups carry critical-bypass eligibility per
+        // PushPolicyService.isCriticalBypass(...). Org / school /
+        // neighborhood groups don't. Compute once outside the loop
+        // since the group type is the same for every recipient.
+        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE
+                .equalsIgnoreCase(group.getGroupType());
+        Category alertCategory = isHousehold
+                ? Category.GROUP_ALERT_HOUSEHOLD
+                : Category.GROUP_ALERT_ORG;
+
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
 
+        int delivered = 0;
         for (UserInfo user : users) {
-            if (user.getUserEmail().equalsIgnoreCase(initiatedByEmail)) continue;
+            if (user.getUserEmail() == null) continue;
+            if (initiatedByEmail != null
+                    && user.getUserEmail().equalsIgnoreCase(initiatedByEmail)) {
+                continue;
+            }
 
             deliverPresenceAware(
                     user.getUserEmail(),
@@ -521,12 +588,79 @@ public class NotificationService {
                     referenceId,
                     targetUrl,
                     null,
-                    user.getFcmtoken()
+                    user.getFcmtoken(),
+                    alertCategory
             );
+            delivered++;
         }
 
-        logger.info("📢 Presence-aware alert fan-out completed for group '{}' to {} members.",
-                group.getGroupName(), users.size());
+        logger.info("📢 Presence-aware alert fan-out completed for group '{}' (type={}, category={}): "
+                        + "{} of {} members notified (initiator excluded).",
+                group.getGroupName(), group.getGroupType(), alertCategory.name(),
+                delivered, users.size());
+    }
+
+    /**
+     * Fan out a non-emergency "please check in" ping to a group's
+     * members. Phase 1 of {@code docs/BUSINESS_MODEL.md} — the family
+     * check-in primitive.
+     *
+     * <p>Distinct from {@link #notifyGroupAlertChange}: this does NOT
+     * flip the group's alert state and routes through the
+     * {@code CHECK_IN_REQUEST} category — Lane A so it still reaches
+     * people, but NOT on the critical-bypass list, so it respects each
+     * recipient's quiet hours. A routine "everyone check in" should not
+     * punch through a sleeping family at 3am.</p>
+     *
+     * <p>The initiator is excluded from the fan-out (they're the one
+     * asking). {@code initiatorName} is used in the body copy so the
+     * ping reads as personal ("Dana asked everyone to check in") rather
+     * than system-generated.</p>
+     */
+    public void notifyCheckInRequest(Group group, String initiatedByEmail, String initiatorName) {
+        if (group == null) return;
+        List<String> memberEmails = group.getMemberEmails();
+        if (memberEmails == null || memberEmails.isEmpty()) {
+            logger.info("👋 No member emails on group '{}', skipping check-in-request fan-out.",
+                    group.getGroupName());
+            return;
+        }
+
+        String who = (initiatorName != null && !initiatorName.isBlank())
+                ? initiatorName.trim()
+                : "Someone in your household";
+        String title = group.getGroupName() != null ? group.getGroupName() : "Check in";
+        String body = who + " asked everyone to check in. Tap to share your status.";
+        String referenceId = group.getGroupId();
+        String targetUrl = "/status-now";
+
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+
+        int delivered = 0;
+        for (UserInfo user : users) {
+            if (user.getUserEmail() == null) continue;
+            if (initiatedByEmail != null
+                    && user.getUserEmail().equalsIgnoreCase(initiatedByEmail)) {
+                continue;
+            }
+            deliverPresenceAware(
+                    user.getUserEmail(),
+                    title,
+                    body,
+                    who,
+                    "/images/group-alert-icon.png",
+                    "check_in_request",
+                    referenceId,
+                    targetUrl,
+                    null,
+                    user.getFcmtoken(),
+                    Category.CHECK_IN_REQUEST
+            );
+            delivered++;
+        }
+
+        logger.info("👋 Check-in-request fan-out for group '{}': {} of {} members notified.",
+                group.getGroupName(), delivered, users.size());
     }
 
     /** Log a socket-only delivery so we can backfill even if FCM was not used. */
