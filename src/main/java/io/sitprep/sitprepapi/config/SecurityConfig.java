@@ -71,7 +71,10 @@ public class SecurityConfig {
                 // capacitor.config.ts), the WebView loads from
                 // https://localhost. Same CORS implications.
                 "https://localhost",
-                "http://localhost:8080/"
+                // Local dev (Vite dev server / API tooling). No trailing
+                // slash — Spring matches the Origin header scheme+host+port
+                // exactly, so "http://localhost:8080/" would never match.
+                "http://localhost:8080"
         ));
         // Note: statusnow.app removed 2026-05-04 — it 301s to sitprep.app
         // at the Netlify edge, so the browser follows the redirect and
