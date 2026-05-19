@@ -118,6 +118,19 @@
 			<artifactId>sentry-spring-boot-starter-jakarta</artifactId>
 			<version>7.18.0</version>
 		</dependency>
+		<!--
+			Stripe — subscription billing for org plans (Phase 4 of
+			docs/BUSINESS_MODEL.md). Hosted Checkout + Customer Portal +
+			webhooks. Keys are runtime config (stripe.* in env /
+			application-local.yml); when unset, BillingService stays
+			dormant and the /api/billing endpoints return 503 rather
+			than failing startup.
+		-->
+		<dependency>
+			<groupId>com.stripe</groupId>
+			<artifactId>stripe-java</artifactId>
+			<version>32.1.0</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>

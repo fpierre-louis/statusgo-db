@@ -128,4 +128,23 @@ public class Group {
     @Column(name = "logo_image_url", length = 1024)
     private String logoImageUrl;
 
+    /**
+     * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
+     * {@code stripeCustomerId} is the group's Stripe Customer (the
+     * billing account); {@code stripeSubscriptionId} the active org-
+     * plan subscription; {@code subscriptionStatus} mirrors Stripe's
+     * subscription status (active / trialing / past_due / canceled).
+     * All null until the owner subscribes via Stripe Checkout — the
+     * billing webhook keeps {@code planTier} in sync with the
+     * subscription lifecycle.
+     */
+    @Column(name = "stripe_customer_id")
+    private String stripeCustomerId;
+
+    @Column(name = "stripe_subscription_id")
+    private String stripeSubscriptionId;
+
+    @Column(name = "subscription_status")
+    private String subscriptionStatus;
+
 }
