@@ -70,7 +70,8 @@ public class SecurityConfig {
                 // Capacitor Android — when androidScheme=https (set in
                 // capacitor.config.ts), the WebView loads from
                 // https://localhost. Same CORS implications.
-                "https://localhost"
+                "https://localhost",
+                "http://localhost:8080/"
         ));
         // Note: statusnow.app removed 2026-05-04 — it 301s to sitprep.app
         // at the Netlify edge, so the browser follows the redirect and

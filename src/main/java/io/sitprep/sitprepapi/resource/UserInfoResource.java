@@ -9,6 +9,7 @@ import io.sitprep.sitprepapi.service.BlockService;
 import io.sitprep.sitprepapi.service.FollowService;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -40,15 +41,60 @@ public class UserInfoResource {
     private final AccountDeletionService accountDeletionService;
     private final FollowService followService;
     private final BlockService blockService;
+    private final String adminToken;
 
     public UserInfoResource(UserInfoService userInfoService,
                             AccountDeletionService accountDeletionService,
                             FollowService followService,
-                            BlockService blockService) {
+                            BlockService blockService,
+                            @Value("${app.admin.token:}") String adminToken) {
         this.userInfoService = userInfoService;
         this.accountDeletionService = accountDeletionService;
         this.followService = followService;
         this.blockService = blockService;
+        this.adminToken = adminToken == null ? "" : adminToken.trim();
+    }
+
+    /**
+     * Admin-only — dump every {@link UserInfo} row. This is PII-heavy
+     * (emails, phones, addresses, last-known locations), so it is gated
+     * by the shared admin secret, NOT an ordinary signed-in token —
+     * every beta tester holds one of those.
+     *
+     * <p>Postman: add a header {@code X-Sitprep-Admin-Token: <value>}
+     * matching the server's {@code APP_ADMIN_TOKEN} env var. When that
+     * var is unset the endpoint fails closed (503) rather than open.</p>
+     */
+    @GetMapping
+    public ResponseEntity<List<UserInfo>> getAllUsers(
+            @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
+    ) {
+        requireAdmin(token);
+        return ResponseEntity.ok(userInfoService.getAllUsers());
+    }
+
+    private void requireAdmin(String token) {
+        if (adminToken.isEmpty()) {
+            // No admin token configured → endpoint is disabled. Fail
+            // closed rather than open a gap.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Admin endpoints disabled (APP_ADMIN_TOKEN not set)");
+        }
+        if (token == null || !constantTimeEquals(token, adminToken)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "Admin token required");
+        }
+    }
+
+    /** Constant-time string compare to avoid timing oracles on token check. */
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) return false;
+        if (a.length() != b.length()) return false;
+        int diff = 0;
+        for (int i = 0; i < a.length(); i++) {
+            diff |= a.charAt(i) ^ b.charAt(i);
+        }
+        return diff == 0;
     }
 
     @GetMapping("/{id}")
