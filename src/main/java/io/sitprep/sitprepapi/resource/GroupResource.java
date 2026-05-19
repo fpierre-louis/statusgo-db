@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.GroupPermission;
+import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.EmailRequest;
 import io.sitprep.sitprepapi.service.GroupService;
@@ -238,28 +240,54 @@ public class GroupResource {
     /**
      * Set the group's organization plan tier — Phase 4 of
      * docs/BUSINESS_MODEL.md. Self-serve and unpaid for now (Stripe
-     * billing lands later); admin or owner only. Body:
-     * {@code {"planTier": "GROUP"}}. An unknown / missing value
-     * normalizes to {@code FREE} in {@code GroupService.setPlanTier}.
+     * billing lands later). <b>Owner only</b> ({@code MANAGE_PLAN}) —
+     * the plan is a billing commitment, so it sits above the admin
+     * role. Body: {@code {"planTier": "GROUP"}}. An unknown / missing
+     * value normalizes to {@code FREE} in {@code GroupService.setPlanTier}.
      */
     @PatchMapping("/{groupId}/plan")
     public ResponseEntity<Group> setPlan(@PathVariable String groupId,
                                          @RequestBody Map<String, String> body) {
-        requireAdminOf(groupId);
+        requirePermission(groupId, GroupPermission.MANAGE_PLAN);
         String tier = body == null ? null : body.get("planTier");
         return ResponseEntity.ok(groupService.setPlanTier(groupId, tier));
     }
 
+    /**
+     * Set or clear the group's custom logo — Phase 4 of
+     * docs/BUSINESS_MODEL.md ("co-branded page"). Admin or owner only.
+     * Body: {@code {"logoImageUrl": "https://…"}}; a null / blank value
+     * reverts the group to its default type emblem. The image itself is
+     * uploaded separately via {@code POST /api/images}.
+     */
+    @PatchMapping("/{groupId}/logo")
+    public ResponseEntity<Group> setLogo(@PathVariable String groupId,
+                                         @RequestBody Map<String, String> body) {
+        requireAdminOf(groupId);
+        String url = body == null ? null : body.get("logoImageUrl");
+        return ResponseEntity.ok(groupService.setLogo(groupId, url));
+    }
+
     // ---------- Authorization helpers ----------
+    //
+    // All three resolve the caller's GroupRole once (constant/GroupRole)
+    // and check against the formalized Owner/Admin/Member permission
+    // matrix — the single source of truth shared with the FE mirror in
+    // src/groups/shared/groupRoles.js.
+
+    /** Caller must hold {@code permission} in the group. Throws 401/403/404. */
+    private void requirePermission(String groupId, GroupPermission permission) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        if (!GroupRole.fromGroup(lookup(groupId), caller).has(permission)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You don't have permission to do that in this group");
+        }
+    }
 
     /** Caller must be admin or owner of the group. Throws 401/403/404. */
     private void requireAdminOf(String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Group g = lookup(groupId);
-        boolean isOwner = g.getOwnerEmail() != null
-                && g.getOwnerEmail().equalsIgnoreCase(caller);
-        boolean isAdmin = containsCaseInsensitive(g.getAdminEmails(), caller);
-        if (!isOwner && !isAdmin) {
+        if (!GroupRole.fromGroup(lookup(groupId), caller).isAtLeastAdmin()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Group admin or owner role required");
         }
@@ -268,8 +296,7 @@ public class GroupResource {
     /** Caller must be the group's owner. Throws 401/403/404. */
     private void requireOwnerOf(String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Group g = lookup(groupId);
-        if (g.getOwnerEmail() == null || !g.getOwnerEmail().equalsIgnoreCase(caller)) {
+        if (GroupRole.fromGroup(lookup(groupId), caller) != GroupRole.OWNER) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Group owner role required");
         }

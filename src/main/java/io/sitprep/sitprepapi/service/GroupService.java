@@ -665,6 +665,22 @@ public class GroupService {
         return groupRepo.save(g);
     }
 
+    /**
+     * Set (or clear) the group's custom logo URL — Phase 4 of
+     * docs/BUSINESS_MODEL.md ("co-branded page"). A null / blank value
+     * reverts the group to its default type emblem. Caller
+     * authorization (admin/owner) is enforced at the resource layer.
+     */
+    @Transactional
+    public Group setLogo(String groupId, String logoImageUrl) {
+        Group g = getGroupByPublicId(groupId);
+        String url = (logoImageUrl == null || logoImageUrl.isBlank())
+                ? null : logoImageUrl.trim();
+        g.setLogoImageUrl(url);
+        g.setUpdatedAt(Instant.now());
+        return groupRepo.save(g);
+    }
+
     @Transactional
     public Group removeAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);

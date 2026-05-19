@@ -118,4 +118,14 @@ public class Group {
     @Column(name = "plan_tier")
     private String planTier;
 
+    /**
+     * Custom organization logo — a public image URL (Cloudflare R2).
+     * Phase 4 of docs/BUSINESS_MODEL.md, the "co-branded page"
+     * capability. When set, the group page renders this in place of
+     * the default group-type emblem; null falls back to the emblem.
+     * Uploaded via {@code POST /api/images}, then PATCHed here.
+     */
+    @Column(name = "logo_image_url", length = 1024)
+    private String logoImageUrl;
+
 }
