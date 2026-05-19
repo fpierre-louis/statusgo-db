@@ -112,7 +112,8 @@ public class GroupViewService {
                 g.getOwnerName(),
                 g.getOwnerEmail(),
                 g.getAdminEmails() == null ? List.of() : List.copyOf(g.getAdminEmails()),
-                g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs())
+                g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs()),
+                g.getPlanTier()
         );
     }
 

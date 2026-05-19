@@ -40,7 +40,9 @@ public record GroupMemberViewDto(
             String ownerName,
             String ownerEmail,
             List<String> adminEmails,
-            List<String> subGroupIds
+            List<String> subGroupIds,
+            /** Org plan tier enum name (PlanTier); null reads as FREE. */
+            String planTier
     ) {}
 
     public record MemberSummary(

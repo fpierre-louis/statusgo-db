@@ -104,4 +104,18 @@ public class Group {
     private String ownerName;
     private String ownerEmail;
 
+    /**
+     * Organization plan tier — the enum name of
+     * {@link io.sitprep.sitprepapi.constant.PlanTier}
+     * ({@code FREE} / {@code GROUP} / {@code BUSINESS} / {@code AGENCY}
+     * / {@code PREMIUM_AGENCY}). Phase 4 of docs/BUSINESS_MODEL.md.
+     *
+     * <p>Null on legacy rows — always read it through
+     * {@code PlanTier.fromWire(...)}, which maps null/blank/unknown to
+     * {@code FREE}. Drives soft capability gating; see
+     * {@link io.sitprep.sitprepapi.constant.PlanCapability}.</p>
+     */
+    @Column(name = "plan_tier")
+    private String planTier;
+
 }

@@ -235,6 +235,21 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.transferOwner(groupId, req.email()));
     }
 
+    /**
+     * Set the group's organization plan tier — Phase 4 of
+     * docs/BUSINESS_MODEL.md. Self-serve and unpaid for now (Stripe
+     * billing lands later); admin or owner only. Body:
+     * {@code {"planTier": "GROUP"}}. An unknown / missing value
+     * normalizes to {@code FREE} in {@code GroupService.setPlanTier}.
+     */
+    @PatchMapping("/{groupId}/plan")
+    public ResponseEntity<Group> setPlan(@PathVariable String groupId,
+                                         @RequestBody Map<String, String> body) {
+        requireAdminOf(groupId);
+        String tier = body == null ? null : body.get("planTier");
+        return ResponseEntity.ok(groupService.setPlanTier(groupId, tier));
+    }
+
     // ---------- Authorization helpers ----------
 
     /** Caller must be admin or owner of the group. Throws 401/403/404. */

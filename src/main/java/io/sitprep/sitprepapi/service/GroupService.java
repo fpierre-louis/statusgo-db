@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.PlanTier;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -644,6 +645,23 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
+        return groupRepo.save(g);
+    }
+
+    /**
+     * Set the organization plan tier (Phase 4 of docs/BUSINESS_MODEL.md).
+     * Self-serve and unpaid for now — Stripe billing lands later; this
+     * just records the chosen tier. Caller authorization (admin/owner)
+     * is enforced at the resource layer.
+     *
+     * @param tier a {@link PlanTier} enum name; invalid / null input
+     *             normalizes to {@code FREE} via {@link PlanTier#fromWire}.
+     */
+    @Transactional
+    public Group setPlanTier(String groupId, String tier) {
+        Group g = getGroupByPublicId(groupId);
+        g.setPlanTier(PlanTier.fromWire(tier).name());
+        g.setUpdatedAt(Instant.now());
         return groupRepo.save(g);
     }
 
