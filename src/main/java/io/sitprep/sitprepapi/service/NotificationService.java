@@ -372,6 +372,12 @@ public class NotificationService {
             // (Focus-mode break-through), relevance-score (stack
             // ranking), thread-id (group related items).
             applyIosLockScreenAffordances(apsBuilder, notificationType, referenceId);
+            // App-icon badge — recipient's unread inbox count + 1 for
+            // this notification. Cleared to 0 by AppDelegate when the
+            // app is opened. Null on a lookup failure → badge omitted
+            // so iOS leaves the existing number untouched.
+            Integer badge = unreadBadgeFor(recipientEmail);
+            if (badge != null) apsBuilder.setBadge(badge);
             apnsBuilder.setAps(apsBuilder.build());
 
             Message msg = Message.builder()
@@ -459,6 +465,9 @@ public class NotificationService {
 
         String channelId = channelForType(notificationType);
         String category = categoryForType(notificationType);
+        // App-icon badge for the recipient — identical for every device
+        // token, so resolve it once outside the per-token loop.
+        Integer badge = unreadBadgeFor(recipientEmail);
 
         for (String token : tokens) {
             boolean success = false;
@@ -488,6 +497,7 @@ public class NotificationService {
                 apsBuilder.putCustomData("category", safe(category));
                 // iOS 15+ lock-screen affordances — see helper docstring.
                 applyIosLockScreenAffordances(apsBuilder, notificationType, referenceId);
+                if (badge != null) apsBuilder.setBadge(badge);
                 apnsBuilder.setAps(apsBuilder.build());
 
                 Message msg = Message.builder()
@@ -836,6 +846,10 @@ public class NotificationService {
         Aps.Builder apsBuilder = Aps.builder()
                 .setMutableContent(true)
                 .setSound("default");
+        // No aps.badge here: a hazard alert ships as one MulticastMessage
+        // with a single shared payload, so a per-recipient unread count
+        // can't be expressed. The badge corrects on the recipient's next
+        // single-send push (deliverPresenceAware) or when they open the app.
         apsBuilder.putCustomData("notificationType", safe(type));
         apsBuilder.putCustomData("referenceId", safe(referenceId));
         apsBuilder.putCustomData("targetUrl", safe(targetUrl));
@@ -852,6 +866,31 @@ public class NotificationService {
 
     private static String safe(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * App-icon badge number for an outgoing APNs push: the recipient's
+     * current unread inbox count plus one for the notification being
+     * delivered (its {@code NotificationLog} row is written by
+     * {@code saveLogRow} after the send, so {@code countUnreadForUser}
+     * doesn't see it yet).
+     *
+     * <p>Returns null when the count can't be resolved — null/blank
+     * recipient or a DB hiccup. The caller then omits {@code aps.badge}
+     * so iOS leaves the existing badge untouched rather than stamping a
+     * wrong number. The icon badge is cleared to 0 in
+     * {@code AppDelegate.applicationDidBecomeActive} when the user opens
+     * the app; the next push re-stamps an accurate count.</p>
+     */
+    private Integer unreadBadgeFor(String recipientEmail) {
+        if (recipientEmail == null || recipientEmail.isBlank()) return null;
+        try {
+            long badge = notificationLogRepo.countUnreadForUser(recipientEmail) + 1;
+            return (int) Math.min(badge, Integer.MAX_VALUE);
+        } catch (Exception e) {
+            logger.warn("Badge count lookup failed for {}: {}", recipientEmail, e.getMessage());
+            return null;
+        }
     }
 
     /**
