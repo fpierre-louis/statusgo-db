@@ -280,10 +280,20 @@ public class NotificationService {
             return;
         }
 
+        // Foregrounded client → push a STOMP in-app banner frame so the
+        // user sees a toast immediately without waiting on FCM.
+        //
+        // As of 2026-05-18 this is a best-effort *addition*, not a
+        // replacement: FCM still fires below for Lane A regardless of
+        // presence. Presence is tracked from WebSocket connect/disconnect
+        // events in an in-memory map with stale-pruning disabled and no
+        // heartbeat (WebSocketPresenceService) — a mobile app suspended /
+        // killed / network-dropped frequently never emits a clean
+        // SessionDisconnectEvent, so it stays "online" forever and a
+        // presence-gated FCM would be silently swallowed. The device push
+        // must not depend on a signal we can't trust. The FE de-dupes the
+        // socket banner against the FCM foreground frame.
         if (online) {
-            // Lane C is in-session-only ephemeral — no log row. Lanes A
-            // and B and "no-policy" all still log + socket since the
-            // user is currently looking at the app.
             try {
                 webSocketMessageSender.sendInAppNotification(new NotificationPayload(
                         recipientEmail,
@@ -300,24 +310,17 @@ public class NotificationService {
                         // so bumping then reconciling produces a flicker).
                         lane != null ? lane.name() : null
                 ));
-                if (lane != Lane.C) {
-                    logSocketDelivery(recipientEmail, notificationType, title, body,
-                            referenceId, targetUrl, lane, catEnum);
-                }
-                logger.info("🟢 Socket notification sent to online user {}", recipientEmail);
+                logger.info("🟢 Socket banner sent to online user {}", recipientEmail);
             } catch (Exception e) {
                 logger.warn("Socket notification failed for {}: {}", recipientEmail, e.getMessage());
             }
-            // Online users get socket only to avoid duplicate toasts.
-            return;
         }
 
-        // Offline. Lane C requires the user be present, so it's a
-        // no-op when offline.
+        // Lane C is in-session-only ephemeral — no log row, never FCM.
         if (lane == Lane.C) return;
 
-        // Offline + Lane B: skip FCM, just log so the inbox surface
-        // gets the row when the user opens the app.
+        // Lane B is the silent inbox: never FCM (online or offline), just
+        // the log row so the inbox surface picks it up on next app open.
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
                     title, body, referenceId, targetUrl,
@@ -327,12 +330,13 @@ public class NotificationService {
             return;
         }
 
-        // Offline + Lane A (or no-policy fallback) → FCM if token available.
+        // Lane A (or no-policy fallback) → FCM whenever a token exists,
+        // whether or not the user currently holds a WebSocket session.
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
-            logger.info("No FCM token for offline user {}, logging only.", recipientEmail);
+            logger.info("No FCM token for user {}, logging only.", recipientEmail);
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl,
-                    false, "No token (offline)", lane, catEnum);
+                    false, "No token", lane, catEnum);
             return;
         }
 
@@ -706,12 +710,14 @@ public class NotificationService {
      * multicast form of {@code sendEach} — instead of N sequential
      * {@code .send()} round-trips.
      *
-     * <p>Online recipients still get a STOMP frame only (no duplicate
-     * FCM toast); offline recipients with a live token go in the
-     * multicast batch. Every recipient gets a {@code NotificationLog}
-     * row. Stale tokens surfaced by the {@link BatchResponse} are
-     * nulled via {@link #handleFcmDeliveryError}, same as the single-
-     * send path.</p>
+     * <p>Online recipients get a best-effort in-app STOMP banner AND
+     * still go into the FCM multicast batch — a hazard alert is
+     * life-safety, so a stale WebSocket session must not suppress the
+     * device push (see the 2026-05-18 presence-gating fix). Offline
+     * recipients with a live token go in the batch the same way. Every
+     * recipient gets a {@code NotificationLog} row. Stale tokens
+     * surfaced by the {@link BatchResponse} are nulled via
+     * {@link #handleFcmDeliveryError}, same as the single-send path.</p>
      *
      * <p>Policy note: {@code hazard_alert} is intentionally un-mapped
      * in {@link #mapTypeToCategory} — life-safety weather warnings are
@@ -734,7 +740,11 @@ public class NotificationService {
             String email = u != null ? u.getUserEmail() : null;
             if (email == null) continue;
 
-            // Online → in-app STOMP frame only (avoids a duplicate FCM toast).
+            // Foregrounded client → best-effort in-app STOMP banner.
+            // Unlike before, this does NOT skip FCM: the recipient still
+            // goes into the multicast batch below so a stale/phantom
+            // WebSocket session can't swallow a life-safety weather
+            // alert. The FE de-dupes the socket banner vs the FCM frame.
             if (presenceService.isUserOnline(email)) {
                 try {
                     webSocketMessageSender.sendInAppNotification(new NotificationPayload(
@@ -743,14 +753,12 @@ public class NotificationService {
                 } catch (Exception e) {
                     logger.warn("Hazard-alert socket frame failed for {}: {}", email, e.getMessage());
                 }
-                logSocketDelivery(email, type, title, body, referenceId, targetUrl, null, null);
-                continue;
             }
 
             String token = u.getFcmtoken();
             if (token == null || token.isEmpty()) {
                 saveLogRow(email, type, null, title, body, referenceId, targetUrl,
-                        false, "No token (offline)", null, null);
+                        false, "No token", null, null);
                 continue;
             }
             batchTokens.add(token);

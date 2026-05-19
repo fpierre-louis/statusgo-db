@@ -229,8 +229,31 @@ public class WebSocketMessageSender {
     }
 
     // --- Notifications ---
+    /**
+     * Per-user in-app banner frame for a foregrounded client.
+     *
+     * <p>Topic: {@code /topic/notifications/{lowercased-email}/banner}.
+     * The {@code /banner} suffix keeps this distinct from the inbox-event
+     * topic {@code /topic/notifications/{email}} that {@link #sendInboxEvent}
+     * publishes kind-tagged rows on — a banner frame ({@link NotificationPayload})
+     * and an inbox event ({@code {kind,...}}) have different shapes and
+     * different consumers, so they must not share a destination.</p>
+     *
+     * <p>Before 2026-05-18 this fanned out to a single global
+     * {@code /topic/notifications}: every connected client received
+     * every user's notification payload (title / body / recipientEmail)
+     * and was expected to filter client-side — a data leak. Scoping per
+     * recipient closes it. A null/blank recipient is a silent no-op:
+     * without an email the frame cannot be scoped, and falling back to a
+     * global broadcast is exactly the leak being removed.</p>
+     */
     public void sendInAppNotification(NotificationPayload payload) {
-        messagingTemplate.convertAndSend("/topic/notifications", payload);
+        if (payload == null) return;
+        String email = payload.getRecipientEmail();
+        if (email == null || email.isBlank()) return;
+        String key = email.trim().toLowerCase();
+        messagingTemplate.convertAndSend(
+                "/topic/notifications/" + key + "/banner", payload);
     }
 
     /**
