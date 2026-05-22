@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Entity
@@ -17,6 +19,10 @@ public class MealPlanData {
 
     @Column(nullable = false, unique = true)
     private String ownerEmail;
+
+    // Owning household (Group.groupId, groupType="Household"). Nullable
+    // during the ownerEmail->household migration; backfilled on boot.
+    private String householdId;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "mealPlanData", fetch = FetchType.EAGER)
     @JsonManagedReference
@@ -31,12 +37,20 @@ public class MealPlanData {
 
     private int numberOfMenuOptions;
 
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "selected_items_json", columnDefinition = "TEXT")
+    private String selectedItemsJson;
+
     public void setId(Long id) {
         this.id = id;
     }
 
     public void setOwnerEmail(String ownerEmail) {
         this.ownerEmail = ownerEmail;
+    }
+
+    public void setHouseholdId(String householdId) {
+        this.householdId = householdId;
     }
 
     public void setMealPlan(List<MealPlan> mealPlan) {
@@ -66,6 +80,10 @@ public class MealPlanData {
 
     public void setNumberOfMenuOptions(int numberOfMenuOptions) {
         this.numberOfMenuOptions = numberOfMenuOptions;
+    }
+
+    public void setSelectedItemsJson(String selectedItemsJson) {
+        this.selectedItemsJson = selectedItemsJson;
     }
 
     @Override

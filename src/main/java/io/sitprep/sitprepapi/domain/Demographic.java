@@ -17,6 +17,10 @@ public class Demographic {
 
     private String ownerEmail;
 
+    // Owning household (Group.groupId, groupType="Household"). Nullable
+    // during the ownerEmail->household migration; backfilled on boot.
+    private String householdId;
+
     @ElementCollection(fetch = FetchType.EAGER)
     private List<String> adminEmails;
 
@@ -42,6 +46,14 @@ public class Demographic {
 
     public void setOwnerEmail(String ownerEmail) {
         this.ownerEmail = ownerEmail;
+    }
+
+    public String getHouseholdId() {
+        return householdId;
+    }
+
+    public void setHouseholdId(String householdId) {
+        this.householdId = householdId;
     }
 
     public List<String> getAdminEmails() {

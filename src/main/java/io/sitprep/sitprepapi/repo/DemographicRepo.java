@@ -40,6 +40,9 @@ public interface DemographicRepo extends JpaRepository<Demographic, String> {
      */
     Optional<Demographic> findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(String ownerEmail);
 
+    /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
+    List<Demographic> findByHouseholdIdIsNull();
+
     // ✅ Admin Email – MEMBER OF collection field
     @Query("SELECT d FROM Demographic d WHERE :adminEmail MEMBER OF d.adminEmails")
     List<Demographic> findByAdminEmail(String adminEmail);

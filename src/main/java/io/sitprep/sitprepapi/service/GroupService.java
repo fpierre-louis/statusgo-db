@@ -95,7 +95,22 @@ public class GroupService {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
             throw new RuntimeException("Missing groupId. Ensure UUID is generated on frontend.");
         }
-        return groupRepo.save(group);
+        Group saved = groupRepo.save(group);
+        // Creating a household seeds the creator's base household if they
+        // don't have one yet — so a brand-new user's first household becomes
+        // their base immediately, without waiting for the boot-time backfill.
+        if ("Household".equalsIgnoreCase(saved.getGroupType())) {
+            String owner = saved.getOwnerEmail();
+            if (owner != null && !owner.isBlank()) {
+                userInfoRepo.findByUserEmailIgnoreCase(owner).ifPresent(u -> {
+                    if (u.getBaseHouseholdId() == null || u.getBaseHouseholdId().isBlank()) {
+                        u.setBaseHouseholdId(saved.getGroupId());
+                        userInfoRepo.save(u);
+                    }
+                });
+            }
+        }
+        return saved;
     }
 
     /**

@@ -23,6 +23,9 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
 
     List<UserInfo> findByUserEmailIn(List<String> emails);
 
+    /** Users with no base household yet — assigned by HouseholdBackfillRunner. */
+    List<UserInfo> findByBaseHouseholdIdIsNull();
+
     @Query("SELECT u.userEmail FROM UserInfo u JOIN u.joinedGroupIDs g WHERE g = :groupId")
     List<String> findEmailsByGroupId(@Param("groupId") String groupId);
 

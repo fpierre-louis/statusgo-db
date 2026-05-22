@@ -11,6 +11,11 @@ public class EvacuationPlan {
     private Long id;
 
     private String ownerEmail;
+
+    // Owning household (Group.groupId, groupType="Household"). Nullable
+    // during the ownerEmail->household migration; backfilled on boot.
+    private String householdId;
+
     private String name;
     private String origin;
     private String destination;
@@ -46,6 +51,14 @@ public class EvacuationPlan {
 
     public void setOwnerEmail(String ownerEmail) {
         this.ownerEmail = ownerEmail;
+    }
+
+    public String getHouseholdId() {
+        return householdId;
+    }
+
+    public void setHouseholdId(String householdId) {
+        this.householdId = householdId;
     }
 
     public String getName() {

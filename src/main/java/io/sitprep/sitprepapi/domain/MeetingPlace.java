@@ -12,6 +12,12 @@ public class MeetingPlace {
 
     private String ownerEmail;
 
+    // Owning household (Group.groupId where groupType="Household").
+    // Nullable during the ownerEmail->household migration; backfilled on
+    // boot by HouseholdBackfillRunner. Plan resolution flips to this in
+    // Phase 2 (see docs/WIP_HOUSEHOLD_PLANS.md).
+    private String householdId;
+
     private String name;
     private String location;
     private String address;
@@ -52,6 +58,14 @@ public class MeetingPlace {
 
     public void setOwnerEmail(String ownerEmail) {
         this.ownerEmail = ownerEmail;
+    }
+
+    public String getHouseholdId() {
+        return householdId;
+    }
+
+    public void setHouseholdId(String householdId) {
+        this.householdId = householdId;
     }
 
     public String getName() {

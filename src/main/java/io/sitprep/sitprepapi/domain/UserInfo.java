@@ -5,7 +5,9 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -79,6 +81,17 @@ public class UserInfo {
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;
 
+    /**
+     * The user's single base / main household — the Group.groupId
+     * (groupType="Household") that anchors HomeDashboard. A user may
+     * belong to multiple households; exactly one is base. Nullable until
+     * assigned by HouseholdBackfillRunner on boot, by GroupService when
+     * the user creates their first household, or via a future setter.
+     * See docs/WIP_HOUSEHOLD_PLANS.md.
+     */
+    @Column(name = "base_household_id")
+    private String baseHouseholdId;
+
     // Boxed Integer — not primitive int — so legacy rows with NULL in
     // active_group_alert_count don't blow up entity load. The column was
     // added via ddl-auto=update on a populated table; Postgres added it
@@ -121,6 +134,17 @@ public class UserInfo {
      */
     @Column(name = "last_assessment_at")
     private Instant lastAssessmentAt;
+
+    /**
+     * Latest structured Readiness Assessment result payload. Stored as JSON
+     * text so the frontend can evolve the recommendation model without a
+     * schema migration for every new gap/action field. Updated by
+     * {@code POST /api/userinfo/me/assessment} when a signed-in user finishes
+     * the check; surfaced on {@code MeDto.profile.assessmentSummary}.
+     */
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    @Column(name = "assessment_summary_json", columnDefinition = "TEXT")
+    private String assessmentSummaryJson;
 
     /**
      * Last *current* location reported by the user's device — distinct from

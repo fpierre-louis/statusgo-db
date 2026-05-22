@@ -17,6 +17,10 @@ public class OriginLocation {
     @Column(name = "user_email", nullable = false)
     private String ownerEmail;
 
+    // Owning household (Group.groupId, groupType="Household"). Nullable
+    // during the ownerEmail->household migration; backfilled on boot.
+    private String householdId;
+
     public OriginLocation() {}
 
     public OriginLocation(String name, String address, Double lat, Double lng, String ownerEmail) {
@@ -44,4 +48,7 @@ public class OriginLocation {
 
     public String getOwnerEmail() { return ownerEmail; }
     public void setOwnerEmail(String ownerEmail) { this.ownerEmail = ownerEmail; }
+
+    public String getHouseholdId() { return householdId; }
+    public void setHouseholdId(String householdId) { this.householdId = householdId; }
 }

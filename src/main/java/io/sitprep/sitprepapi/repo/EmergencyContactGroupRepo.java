@@ -15,6 +15,9 @@ public interface EmergencyContactGroupRepo extends JpaRepository<EmergencyContac
     List<EmergencyContactGroup> findByOwnerEmail(String ownerEmail);
     List<EmergencyContactGroup> findByOwnerEmailIgnoreCase(String ownerEmail);
 
+    /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
+    List<EmergencyContactGroup> findByHouseholdIdIsNull();
+
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 

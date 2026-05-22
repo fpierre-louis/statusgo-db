@@ -13,6 +13,9 @@ public interface EvacuationPlanRepo extends JpaRepository<EvacuationPlan, Long> 
     List<EvacuationPlan> findByOwnerEmail(String ownerEmail);
     void deleteByOwnerEmail(String ownerEmail); // Delete all plans for a user
 
+    /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
+    List<EvacuationPlan> findByHouseholdIdIsNull();
+
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 

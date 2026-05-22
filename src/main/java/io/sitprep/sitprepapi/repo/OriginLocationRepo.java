@@ -7,5 +7,6 @@ import java.util.List;
 public interface OriginLocationRepo extends JpaRepository<OriginLocation, Long> {
     List<OriginLocation> findByOwnerEmailIgnoreCase(String ownerEmail);
 
-
+    /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
+    List<OriginLocation> findByHouseholdIdIsNull();
 }

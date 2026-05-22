@@ -22,6 +22,10 @@ public class EmergencyContactGroup {
     @Column(nullable = false)
     private String ownerEmail;
 
+    // Owning household (Group.groupId, groupType="Household"). Nullable
+    // during the ownerEmail->household migration; backfilled on boot.
+    private String householdId;
+
     @Column(nullable = false)
     private String name;
 

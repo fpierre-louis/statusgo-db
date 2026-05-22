@@ -59,6 +59,51 @@ public class HouseholdAccessService {
         }
     }
 
+    /**
+     * True iff {@code caller} is a member of the given household group.
+     * The household-id-keyed counterpart to {@link #canReadPlanDataFor}
+     * — used once plan resolution flips from ownerEmail to householdId
+     * (Phase 2). Members can read; see {@link #canWriteHousehold}.
+     */
+    @Transactional(readOnly = true)
+    public boolean canReadHousehold(String caller, String householdId) {
+        Group g = household(householdId);
+        return g != null && containsIgnoreCase(g.getMemberEmails(), caller);
+    }
+
+    /**
+     * True iff {@code caller} is an admin or the owner of the given
+     * household group. Only admins co-edit a household's shared plan.
+     */
+    @Transactional(readOnly = true)
+    public boolean canWriteHousehold(String caller, String householdId) {
+        Group g = household(householdId);
+        if (g == null || caller == null) return false;
+        String c = caller.trim().toLowerCase(Locale.ROOT);
+        if (c.isEmpty()) return false;
+        if (g.getOwnerEmail() != null
+                && c.equals(g.getOwnerEmail().trim().toLowerCase(Locale.ROOT))) return true;
+        return containsIgnoreCase(g.getAdminEmails(), caller);
+    }
+
+    /** Loads a group by id, returning null unless it's a Household. */
+    private Group household(String householdId) {
+        if (householdId == null || householdId.isBlank()) return null;
+        return groupRepo.findByGroupId(householdId)
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .orElse(null);
+    }
+
+    private static boolean containsIgnoreCase(List<String> emails, String target) {
+        if (emails == null || target == null) return false;
+        String t = target.trim().toLowerCase(Locale.ROOT);
+        if (t.isEmpty()) return false;
+        for (String e : emails) {
+            if (e != null && e.trim().toLowerCase(Locale.ROOT).equals(t)) return true;
+        }
+        return false;
+    }
+
     private boolean sharesHousehold(String a, String b) {
         // Find every household A is in; check whether any contains B.
         // findByMemberEmail uses LOWER() so A's case doesn't matter; we

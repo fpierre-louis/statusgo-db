@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MeDto.*;
@@ -33,7 +35,9 @@ import java.util.function.Supplier;
 public class MeService {
 
     private static final Logger log = LoggerFactory.getLogger(MeService.class);
-    private static final int DTO_VERSION = 2;
+    private static final int DTO_VERSION = 3;
+    private static final TypeReference<Map<String, Object>> ASSESSMENT_SUMMARY_TYPE =
+            new TypeReference<>() {};
 
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
@@ -45,6 +49,7 @@ public class MeService {
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final PlanActivationRepo planActivationRepo;
     private final io.sitprep.sitprepapi.repo.PostRepo postRepo;
+    private final ObjectMapper objectMapper;
 
     public MeService(
             UserInfoRepo userInfoRepo,
@@ -56,7 +61,8 @@ public class MeService {
             OriginLocationRepo originLocationRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
             PlanActivationRepo planActivationRepo,
-            io.sitprep.sitprepapi.repo.PostRepo postRepo
+            io.sitprep.sitprepapi.repo.PostRepo postRepo,
+            ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -68,6 +74,7 @@ public class MeService {
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.planActivationRepo = planActivationRepo;
         this.postRepo = postRepo;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -144,16 +151,30 @@ public class MeService {
             if (g != null && g.getGroupId() != null) adminGroupIds.add(g.getGroupId());
         }
 
-        Group household = groupsById.values().stream()
+        // All households the user belongs to — a user may have several.
+        List<Group> householdGroups = groupsById.values().stream()
                 .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .toList();
+        Set<String> householdIds = new HashSet<>();
+        for (Group g : householdGroups) {
+            if (g.getGroupId() != null) householdIds.add(g.getGroupId());
+        }
+
+        // Base/main household: the one the user pinned (UserInfo.baseHouseholdId),
+        // else fall back to the first household so the dashboard still anchors to
+        // something before the backfill assigns a base.
+        String baseId = user.getBaseHouseholdId();
+        Group baseHousehold = householdGroups.stream()
+                .filter(g -> g.getGroupId() != null && g.getGroupId().equals(baseId))
                 .findFirst()
-                .orElse(null);
+                .orElse(householdGroups.isEmpty() ? null : householdGroups.get(0));
 
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         for (Group g : groupsById.values()) {
-            if (household != null && g.getGroupId() != null
-                    && g.getGroupId().equals(household.getGroupId())) continue;
+            // Households live in their own "Your households" section, never in
+            // the circles lists.
+            if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
             GroupSummary summary = toGroupSummary(g, email);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
@@ -161,8 +182,16 @@ public class MeService {
             else joined.add(summary);
         }
 
-        HouseholdDto householdDto = household == null ? null
-                : toHouseholdDto(household, demographic);
+        // Per-household summaries for the "Your households" section.
+        List<HouseholdSummary> households = new ArrayList<>();
+        for (Group g : householdGroups) {
+            boolean isBase = baseHousehold != null
+                    && Objects.equals(g.getGroupId(), baseHousehold.getGroupId());
+            households.add(toHouseholdSummary(g, email, isBase));
+        }
+
+        HouseholdDto householdDto = baseHousehold == null ? null
+                : toHouseholdDto(baseHousehold, demographic);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
@@ -183,6 +212,7 @@ public class MeService {
         return new MeDto(
                 toProfile(user),
                 householdDto,
+                households,
                 new GroupsDto(managed, joined),
                 readiness,
                 activeActivationId,
@@ -255,8 +285,22 @@ public class MeService {
                 u.getLastAssessmentAt(),
                 u.getBio(),
                 u.getCoverImageUrl(),
-                u.getProfileVisibility()
+                u.getProfileVisibility(),
+                parseAssessmentSummary(u)
         );
+    }
+
+    private Map<String, Object> parseAssessmentSummary(UserInfo u) {
+        String json = u.getAssessmentSummaryJson();
+        if (json == null || json.isBlank()) return null;
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(json, ASSESSMENT_SUMMARY_TYPE);
+            return parsed == null || parsed.isEmpty() ? null : parsed;
+        } catch (Exception e) {
+            log.warn("MeService: bad assessment summary json userId={} cause={}",
+                    u.getId(), e.getMessage());
+            return null;
+        }
     }
 
     private HouseholdDto toHouseholdDto(Group g, Demographic d) {
@@ -277,6 +321,22 @@ public class MeService {
                 adminCount,
                 demoDto,
                 null,
+                g.getAlert(),
+                g.getActiveHazardType()
+        );
+    }
+
+    private HouseholdSummary toHouseholdSummary(Group g, String userEmail, boolean isBase) {
+        int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
+        int adminCount = g.getAdminEmails() == null ? 0 : g.getAdminEmails().size();
+        return new HouseholdSummary(
+                g.getGroupId(),
+                g.getGroupName(),
+                memberCount,
+                adminCount,
+                resolveRole(g, userEmail),
+                isBase,
+                null, // per-household readiness — computed in Phase 3
                 g.getAlert(),
                 g.getActiveHazardType()
         );

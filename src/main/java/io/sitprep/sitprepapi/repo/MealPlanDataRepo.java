@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -16,6 +17,9 @@ public interface MealPlanDataRepo extends JpaRepository<MealPlanData, String> {
      * Each owner should only have one active MealPlanData entry.
      */
     Optional<MealPlanData> findFirstByOwnerEmailIgnoreCase(String ownerEmail);
+
+    /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
+    List<MealPlanData> findByHouseholdIdIsNull();
 
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);

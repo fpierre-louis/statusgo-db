@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.dto;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Core /me payload — profile, household, groups, readiness, meta.
@@ -17,6 +18,14 @@ import java.util.List;
 public record MeDto(
         ProfileDto profile,
         HouseholdDto household,
+        /**
+         * Every household the user belongs to (base + additional), each
+         * tagged with the viewer's role + an isBase flag. Powers the
+         * HomeDashboard "Your households" section + multi-household nav.
+         * The base household is ALSO surfaced in full as {@link #household()}
+         * so existing single-household consumers keep working unchanged.
+         */
+        List<HouseholdSummary> households,
         GroupsDto groups,
         ReadinessDto readiness,
         /**
@@ -63,7 +72,13 @@ public record MeDto(
             /** Free-form URL to the user's cover image. Null when not set. */
             String coverImageUrl,
             /** Who can see this profile. v1 vocab: public | circles | followers | private. Default "circles". */
-            String profileVisibility
+            String profileVisibility,
+            /**
+             * Latest structured Readiness Assessment summary, parsed from
+             * UserInfo.assessmentSummaryJson. Null when the user has not
+             * completed the check on a client that sends the payload.
+             */
+            Map<String, Object> assessmentSummary
     ) {}
 
     public record SelfStatusDto(
@@ -86,6 +101,28 @@ public record MeDto(
             /** "Active" when household alert mode is on, else null/idle. */
             String alert,
             /** Hazard type captured by the admin when activating, or null. */
+            String activeHazardType
+    ) {}
+
+    /**
+     * Lightweight per-household row for the "Your households" list. The
+     * base household is rendered rich (full {@link HouseholdDto}); the
+     * others render from this summary. {@code role} lets the FE show an
+     * Admin/Member chip and gate edit affordances; {@code isBase} marks
+     * the one that anchors the dashboard.
+     */
+    public record HouseholdSummary(
+            String groupId,
+            String name,
+            int memberCount,
+            int adminCount,
+            /** "owner" | "admin" | "member" — the viewer's role here. */
+            String role,
+            /** True for the user's single base / main household. */
+            boolean isBase,
+            /** Per-household readiness; null in Phase 1 (computed later). */
+            Integer readinessPercent,
+            String alert,
             String activeHazardType
     ) {}
 
