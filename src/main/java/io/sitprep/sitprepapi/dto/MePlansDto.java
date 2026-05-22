@@ -48,6 +48,7 @@ public record MePlansDto(
             String location,
             String address,
             String phoneNumber,
+            String tierKey,
             Double lat,
             Double lng,
             boolean deploy

@@ -324,7 +324,7 @@ public class MeService {
     private MePlansDto.MeetingPlaceSummary toMeetingPlaceSummary(MeetingPlace m) {
         return new MePlansDto.MeetingPlaceSummary(
                 m.getId(), m.getName(), m.getLocation(), m.getAddress(),
-                m.getPhoneNumber(), m.getLat(), m.getLng(), m.isDeploy()
+                m.getPhoneNumber(), m.getTierKey(), m.getLat(), m.getLng(), m.isDeploy()
         );
     }
 

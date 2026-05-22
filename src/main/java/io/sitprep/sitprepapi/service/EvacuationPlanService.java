@@ -36,4 +36,13 @@ public class EvacuationPlanService {
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
         return evacuationPlanRepo.findByOwnerEmail(ownerEmail);
     }
+
+    /**
+     * Create a single evacuation plan WITHOUT deleting the owner's
+     * existing ones (unlike the bulk save). Used by the activation
+     * surface's "add another shelter".
+     */
+    public EvacuationPlan addEvacuationPlan(EvacuationPlan plan) {
+        return evacuationPlanRepo.save(plan);
+    }
 }

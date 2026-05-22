@@ -17,6 +17,12 @@ public class MeetingPlace {
     private String address;
     private String phoneNumber;
 
+    // Meeting-range identity (near_home / neighborhood / in_town /
+    // out_of_area). Persisted so the 4-range model survives a new device
+    // or cleared cache instead of being inferred from row order.
+    @Column(nullable = true)
+    private String tierKey;
+
     // Replace @Lob with a standard String
     @Column(length = 2048) // Optional: Set max length to a reasonable value
     private String additionalInfo;
@@ -78,6 +84,14 @@ public class MeetingPlace {
 
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
+    }
+
+    public String getTierKey() {
+        return tierKey;
+    }
+
+    public void setTierKey(String tierKey) {
+        this.tierKey = tierKey;
     }
 
     public String getAdditionalInfo() {

@@ -123,16 +123,19 @@ public class GeocodeService {
         Suggestion s = null;
         long ttl = TTL_FAIL_MS;
         try {
-            URI uri = URI.create(REVERSE
-                    + "?format=jsonv2&addressdetails=1&zoom=18"
-                    + "&lat=" + String.format(Locale.US, "%.6f", lat)
-                    + "&lon=" + String.format(Locale.US, "%.6f", lng));
-            JsonNode root = getJson(uri);
-            if (root != null) {
-                String label = text(root, "display_name");
-                if (label != null) {
-                    s = new Suggestion(label, lat, lng);
-                    ttl = TTL_OK_MS;
+            for (int zoom : new int[] { 18, 17, 16 }) {
+                URI uri = URI.create(REVERSE
+                        + "?format=jsonv2&addressdetails=1&zoom=" + zoom
+                        + "&lat=" + String.format(Locale.US, "%.6f", lat)
+                        + "&lon=" + String.format(Locale.US, "%.6f", lng));
+                JsonNode root = getJson(uri);
+                if (root != null) {
+                    String label = text(root, "display_name");
+                    if (label != null) {
+                        s = new Suggestion(label, lat, lng);
+                        ttl = TTL_OK_MS;
+                        break;
+                    }
                 }
             }
         } catch (Exception e) {

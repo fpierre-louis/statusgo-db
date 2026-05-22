@@ -41,6 +41,7 @@ public class MeetingPlaceResource {
             place.setLocation((String) data.get("location"));
             place.setAddress((String) data.get("address"));
             place.setPhoneNumber((String) data.get("phoneNumber"));
+            place.setTierKey((String) data.get("tierKey"));
             place.setAdditionalInfo((String) data.get("additionalInfo"));
             place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
@@ -50,6 +51,28 @@ public class MeetingPlaceResource {
 
         List<MeetingPlace> savedPlaces = meetingPlaceService.saveAllMeetingPlaces(ownerEmail, meetingPlaces);
         return ResponseEntity.ok(savedPlaces);
+    }
+
+    /**
+     * Create a SINGLE meeting place without replacing the owner's others
+     * (the bulk endpoint deletes-and-replaces). Used by the activation
+     * surface's "add another spot".
+     */
+    @PostMapping("/one")
+    public ResponseEntity<MeetingPlace> addOneMeetingPlace(@RequestBody Map<String, Object> data) {
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
+        MeetingPlace place = new MeetingPlace();
+        place.setOwnerEmail(ownerEmail);
+        place.setName((String) data.get("name"));
+        place.setLocation((String) data.get("location"));
+        place.setAddress((String) data.get("address"));
+        place.setPhoneNumber((String) data.get("phoneNumber"));
+        place.setAdditionalInfo((String) data.get("additionalInfo"));
+        place.setTierKey((String) data.get("tierKey"));
+        place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
+        place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+        place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
+        return ResponseEntity.ok(meetingPlaceService.addMeetingPlace(place));
     }
 
     /**

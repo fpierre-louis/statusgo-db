@@ -68,4 +68,13 @@ public class MeetingPlaceService {
         return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
 
+    /**
+     * Create a single meeting place WITHOUT deleting the owner's existing
+     * ones (unlike the bulk save). Used by the activation surface's
+     * "add another spot" so adding one doesn't clobber the rest.
+     */
+    public MeetingPlace addMeetingPlace(MeetingPlace place) {
+        return meetingPlaceRepository.save(place);
+    }
+
 }

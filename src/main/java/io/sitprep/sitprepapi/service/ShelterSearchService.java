@@ -81,6 +81,11 @@ public class ShelterSearchService {
     private static final String OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
     private static final int DEFAULT_LIMIT = 10;
+    // We cache a broader ranked candidate set (unfiltered) so the optional
+    // pet/ADA filters can be applied per-request over the WHOLE radius —
+    // not just whichever of the nearest 10 happen to be tagged. One cache
+    // entry then serves every filter combination.
+    private static final int CANDIDATE_LIMIT = 40;
     private static final double MAX_RADIUS_MI = 100.0;
     private static final double DEFAULT_RADIUS_MI = 40.0;
 
@@ -114,11 +119,15 @@ public class ShelterSearchService {
     /**
      * Search shelters near a coordinate, or near a free-text city / zip.
      * Pass either ({@code lat}, {@code lng}) OR a non-blank {@code query}.
+     * Optional {@code petFriendly} / {@code adaAccessible} restrict the
+     * results to OSM-tagged matches across the whole radius (applied
+     * before the top-N cut, not just within the nearest 10).
      *
-     * @return up to {@code DEFAULT_LIMIT} shelters sorted nearest-first;
-     *         empty list when nothing resolves or upstream fails.
+     * @return up to {@code DEFAULT_LIMIT} shelters sorted nearest-first
+     *         (dedicated shelters first); empty when nothing resolves.
      */
-    public List<Shelter> search(Double lat, Double lng, String query, Double radiusMi) {
+    public List<Shelter> search(Double lat, Double lng, String query, Double radiusMi,
+                                boolean petFriendly, boolean adaAccessible) {
         double radius = clampRadius(radiusMi);
 
         Double anchorLat = lat;
@@ -130,15 +139,29 @@ public class ShelterSearchService {
             anchorLng = geo[1];
         }
 
+        // Cache the broad, UNFILTERED ranked candidate list; filter per-request.
         String key = String.format(Locale.US, "%.2f|%.2f|%.0f",
                 Math.round(anchorLat / Q) * Q, Math.round(anchorLng / Q) * Q, radius);
+        List<Shelter> candidates;
         CacheEntry cached = cache.get(key);
-        if (cached != null && !cached.isExpired()) return cached.shelters;
+        if (cached != null && !cached.isExpired()) {
+            candidates = cached.shelters;
+        } else {
+            candidates = queryOverpass(anchorLat, anchorLng, radius);
+            long ttl = candidates.isEmpty() ? TTL_FAIL_MS : TTL_OK_MS;
+            cache.put(key, new CacheEntry(candidates, System.currentTimeMillis() + ttl));
+        }
 
-        List<Shelter> shelters = queryOverpass(anchorLat, anchorLng, radius);
-        long ttl = shelters.isEmpty() ? TTL_FAIL_MS : TTL_OK_MS;
-        cache.put(key, new CacheEntry(shelters, System.currentTimeMillis() + ttl));
-        return shelters;
+        // Apply optional filters (already ranked dedicated-first, nearest),
+        // then take the top N.
+        List<Shelter> result = new ArrayList<>();
+        for (Shelter s : candidates) {
+            if (petFriendly && !s.petFriendly()) continue;
+            if (adaAccessible && !s.adaAccessible()) continue;
+            result.add(s);
+            if (result.size() >= DEFAULT_LIMIT) break;
+        }
+        return result;
     }
 
     // ── Forward geocode (Nominatim /search) ─────────────────────────
@@ -207,7 +230,7 @@ public class ShelterSearchService {
                 if (a.dedicated() != b.dedicated()) return a.dedicated() ? -1 : 1;
                 return Double.compare(a.distanceMi(), b.distanceMi());
             });
-            return out.size() > DEFAULT_LIMIT ? out.subList(0, DEFAULT_LIMIT) : out;
+            return out.size() > CANDIDATE_LIMIT ? out.subList(0, CANDIDATE_LIMIT) : out;
         } catch (Exception e) {
             log.debug("Overpass shelter query failed at {},{}: {}", lat, lng, e.getMessage());
             return List.of();

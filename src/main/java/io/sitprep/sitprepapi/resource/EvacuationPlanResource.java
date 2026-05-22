@@ -65,6 +65,30 @@ public class EvacuationPlanResource {
     }
 
     /**
+     * Create a SINGLE evacuation plan without replacing the owner's
+     * others (the bulk endpoint deletes-and-replaces). Used by the
+     * activation surface's "add another shelter".
+     */
+    @PostMapping("/one")
+    public ResponseEntity<EvacuationPlan> addOneEvacuationPlan(@RequestBody Map<String, Object> data) {
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
+        EvacuationPlan plan = new EvacuationPlan();
+        plan.setOwnerEmail(ownerEmail);
+        plan.setName((String) data.get("name"));
+        plan.setOrigin((String) data.get("origin"));
+        plan.setDestination((String) data.get("destination"));
+        plan.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
+        plan.setShelterName((String) data.get("shelterName"));
+        plan.setShelterAddress((String) data.get("shelterAddress"));
+        plan.setShelterPhoneNumber((String) data.get("shelterPhoneNumber"));
+        plan.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
+        plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+        plan.setTravelMode((String) data.get("travelMode"));
+        plan.setShelterInfo((String) data.get("shelterInfo"));
+        return ResponseEntity.ok(evacuationPlanService.addEvacuationPlan(plan));
+    }
+
+    /**
      * Fetch plans for a user. Household plan-sharing has members reading
      * the head's plans, so {@code ownerEmail} can target another user —
      * but only when the caller shares a household with them. Otherwise 403.

@@ -38,6 +38,8 @@ public class PlanActivationService {
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final WebSocketMessageSender ws;
+    private final GroupRepo groupRepo;
+    private final NotificationService notificationService;
 
     public PlanActivationService(
             PlanActivationRepo activationRepo,
@@ -46,7 +48,9 @@ public class PlanActivationService {
             MeetingPlaceRepo meetingPlaceRepo,
             EvacuationPlanRepo evacuationPlanRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
-            WebSocketMessageSender ws
+            WebSocketMessageSender ws,
+            GroupRepo groupRepo,
+            NotificationService notificationService
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
@@ -55,6 +59,8 @@ public class PlanActivationService {
         this.evacuationPlanRepo = evacuationPlanRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.ws = ws;
+        this.groupRepo = groupRepo;
+        this.notificationService = notificationService;
     }
 
     // ---------------------------------------------------------------------
@@ -107,7 +113,63 @@ public class PlanActivationService {
         log.info("Activation created id={} owner={} expiresAt={}",
                 saved.getId(), ownerEmail, saved.getExpiresAt());
 
+        // Push the owner's authenticated household members so they can open
+        // the plan + check in. Fires AFTER commit so the row is durable
+        // before we notify; failures are logged, never block the create.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    notifyHouseholdOfActivation(ownerEmail, saved.getId());
+                } catch (Exception e) {
+                    log.error("Plan activation push fan-out failed owner={} activation={}",
+                            ownerEmail, saved.getId(), e);
+                }
+            }
+        });
+
         return new ActivationCreatedDto(saved.getId(), saved.getExpiresAt());
+    }
+
+    /**
+     * Fan-out an activation push to the owner's household members (decision
+     * 2026-05-22: activation does BOTH a push to authed members AND the
+     * owner's share sheet). Resolves the household group from the owner,
+     * batch-loads members + FCM tokens, and delivers a presence-aware push
+     * per member via {@link NotificationService#deliverPresenceAware} with
+     * the {@code PLAN_ACTIVATION_RECEIVED} category (Lane A, quiet-hours
+     * bypass). Self-excludes the owner. Tokenless members are skipped
+     * gracefully by the notification layer.
+     */
+    private void notifyHouseholdOfActivation(String ownerEmail, String activationId) {
+        Group household = groupRepo.findByMemberEmail(ownerEmail).stream()
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .findFirst()
+                .orElse(null);
+        if (household == null || household.getMemberEmails() == null || household.getMemberEmails().isEmpty()) {
+            return;
+        }
+
+        String ownerName = userInfoRepo.findByUserEmailIgnoreCase(ownerEmail)
+                .map(u -> joinName(u.getUserFirstName(), u.getUserLastName()))
+                .filter(s -> s != null && !s.isBlank())
+                .orElse("Your household");
+
+        String title = "🚨 Emergency plan activated";
+        String body = ownerName + " activated the family plan. Open it and check in when you're safe.";
+        String targetUrl = "/deployedplan?activationId=" + activationId;
+
+        List<UserInfo> members = userInfoRepo.findByUserEmailIn(household.getMemberEmails());
+        for (UserInfo m : members) {
+            if (m.getUserEmail() == null) continue;
+            if (m.getUserEmail().equalsIgnoreCase(ownerEmail)) continue; // don't notify the activator
+            notificationService.deliverPresenceAware(
+                    m.getUserEmail(), title, body, ownerName,
+                    "/images/plan-icon.png", "plan_activation", activationId,
+                    targetUrl, null, m.getFcmtoken(),
+                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED
+            );
+        }
+        log.info("Plan activation {} pushed to {} household member(s)", activationId, members.size());
     }
 
     // ---------------------------------------------------------------------

@@ -40,8 +40,10 @@ public class ShelterSearchResource {
             @RequestParam(value = "lat", required = false) Double lat,
             @RequestParam(value = "lng", required = false) Double lng,
             @RequestParam(value = "q", required = false) String q,
-            @RequestParam(value = "radiusMi", required = false) Double radiusMi
+            @RequestParam(value = "radiusMi", required = false) Double radiusMi,
+            @RequestParam(value = "petFriendly", required = false, defaultValue = "false") boolean petFriendly,
+            @RequestParam(value = "adaAccessible", required = false, defaultValue = "false") boolean adaAccessible
     ) {
-        return ResponseEntity.ok(shelterSearch.search(lat, lng, q, radiusMi));
+        return ResponseEntity.ok(shelterSearch.search(lat, lng, q, radiusMi, petFriendly, adaAccessible));
     }
 }
