@@ -55,7 +55,11 @@ public class ShelterSearchService {
 
     private static final Logger log = LoggerFactory.getLogger(ShelterSearchService.class);
 
-    /** One shelter result. Jackson serializes the record directly to JSON. */
+    /** One shelter result. Jackson serializes the record directly to JSON.
+     *  {@code dedicated} = an explicit shelter tag (vs. a "possible site"
+     *  like a school / place of worship / library / community centre that
+     *  is commonly designated but not a confirmed shelter). {@code typeLabel}
+     *  is the human site type for possible sites (null for dedicated). */
     public record Shelter(
             String id,
             String name,
@@ -67,6 +71,8 @@ public class ShelterSearchService {
             String phone,
             boolean petFriendly,
             boolean adaAccessible,
+            boolean dedicated,
+            String typeLabel,
             String source,
             double distanceMi
     ) {}
@@ -158,14 +164,23 @@ public class ShelterSearchService {
     // ── Overpass shelter query ──────────────────────────────────────
     private List<Shelter> queryOverpass(double lat, double lng, double radiusMi) {
         int radiusM = (int) Math.round(radiusMi * 1609.34);
-        String around = "(around:" + radiusM + "," + fmt(lat) + "," + fmt(lng) + ")";
+        // Dedicated shelters can be worth a longer drive (full radius).
+        // "Possible sites" (community centre / school / place of worship /
+        // library) are only useful nearby and far more numerous, so cap
+        // them to a tighter radius to stay relevant + keep the payload sane.
+        int nearM = (int) Math.round(Math.min(radiusMi, 15.0) * 1609.34);
+        String far = "(around:" + radiusM + "," + fmt(lat) + "," + fmt(lng) + ")";
+        String near = "(around:" + nearM + "," + fmt(lat) + "," + fmt(lng) + ")";
         String ql = "[out:json][timeout:25];("
-                + "nwr[\"social_facility\"=\"shelter\"]" + around + ";"
-                + "nwr[\"amenity\"=\"shelter\"]" + around + ";"
-                + "nwr[\"emergency\"=\"assembly_point\"]" + around + ";"
-                + "nwr[\"emergency\"=\"shelter\"]" + around + ";"
-                + "nwr[\"amenity\"=\"community_centre\"]" + around + ";"
-                + ");out center 120;";
+                + "nwr[\"social_facility\"=\"shelter\"]" + far + ";"
+                + "nwr[\"amenity\"=\"shelter\"]" + far + ";"
+                + "nwr[\"emergency\"=\"assembly_point\"]" + far + ";"
+                + "nwr[\"emergency\"=\"shelter\"]" + far + ";"
+                + "nwr[\"amenity\"=\"community_centre\"]" + near + ";"
+                + "nwr[\"amenity\"=\"school\"]" + near + ";"
+                + "nwr[\"amenity\"=\"place_of_worship\"]" + near + ";"
+                + "nwr[\"amenity\"=\"library\"]" + near + ";"
+                + ");out center 200;";
 
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -185,7 +200,13 @@ public class ShelterSearchService {
                 Shelter s = toShelter(el, lat, lng);
                 if (s != null && s.distanceMi() <= radiusMi) out.add(s);
             }
-            out.sort((a, b) -> Double.compare(a.distanceMi(), b.distanceMi()));
+            // Dedicated shelters always rank above "possible sites"; within
+            // each tier, nearest first. Keeps real shelters from being
+            // buried by the far-more-numerous schools / churches.
+            out.sort((a, b) -> {
+                if (a.dedicated() != b.dedicated()) return a.dedicated() ? -1 : 1;
+                return Double.compare(a.distanceMi(), b.distanceMi());
+            });
             return out.size() > DEFAULT_LIMIT ? out.subList(0, DEFAULT_LIMIT) : out;
         } catch (Exception e) {
             log.debug("Overpass shelter query failed at {},{}: {}", lat, lng, e.getMessage());
@@ -226,12 +247,35 @@ public class ShelterSearchService {
         boolean pets = "yes".equalsIgnoreCase(text(tags, "dog"))
                 || "yes".equalsIgnoreCase(text(tags, "pets"));
 
+        // Classify: dedicated shelter (explicit tag) vs. "possible site"
+        // (commonly designated but not confirmed — labeled so the user
+        // knows the difference). Unknown matches are skipped.
+        String social = text(tags, "social_facility");
+        String emergency = text(tags, "emergency");
+        boolean dedicated;
+        String typeLabel = null;
+        if ("shelter".equals(social) || "shelter".equals(amenity)
+                || "assembly_point".equals(emergency) || "shelter".equals(emergency)) {
+            dedicated = true;
+        } else if ("community_centre".equals(amenity)) {
+            dedicated = false; typeLabel = "Community center";
+        } else if ("school".equals(amenity)) {
+            dedicated = false; typeLabel = "School";
+        } else if ("place_of_worship".equals(amenity)) {
+            dedicated = false; typeLabel = "Place of worship";
+        } else if ("library".equals(amenity)) {
+            dedicated = false; typeLabel = "Library";
+        } else {
+            return null; // not a category we surface
+        }
+
         String type = el.path("type").asText("node");
         long oid = el.path("id").asLong();
         String id = "osm-" + type + "-" + oid;
 
         double dist = haversineMi(originLat, originLng, la, lo);
-        return new Shelter(id, name, address, city, state, la, lo, phone, pets, ada, "OpenStreetMap", dist);
+        return new Shelter(id, name, address, city, state, la, lo, phone, pets, ada,
+                dedicated, typeLabel, "OpenStreetMap", dist);
     }
 
     private static String buildAddress(JsonNode tags, String city, String state) {
