@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.*;
+import io.sitprep.sitprepapi.dto.HouseholdPlanDto;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MeDto.*;
 import io.sitprep.sitprepapi.dto.MePlansDto;
@@ -252,17 +253,20 @@ public class MeService {
     }
 
     /**
-     * Combined plan payload for a whole household, keyed by householdId —
-     * the shared, multi-admin view (Phase 2). Mirrors {@link #assemblePlans}
-     * but resolves each plan type by the owning household instead of a single
-     * ownerEmail, reusing the same summary mappers so the wire shape matches
-     * GET /api/me/{uid}/plans. (Per-household demographic is not in MePlansDto;
-     * add to the payload in Phase 3 if the combined view needs it.)
+     * Full household plan document, keyed by householdId — the shared,
+     * multi-admin view + printable (Phase 3). Returns the FULL entities the
+     * view needs (contacts with phone/medical, meal menu, meeting-place notes,
+     * shelter details) plus the household's identity + demographics, rather
+     * than the lossy summaries in MePlansDto. Member-gated at the resource.
      */
     @Transactional(readOnly = true)
-    public MePlansDto buildHouseholdPlans(String householdId) {
-        String logCtx = "household=" + householdId + " plans";
+    public HouseholdPlanDto buildHouseholdPlanDocument(String householdId) {
+        String logCtx = "household=" + householdId + " plan-doc";
 
+        Group g = safeGet("hh.group", logCtx,
+                () -> groupRepo.findByGroupId(householdId).orElse(null), null);
+        Demographic demographic = safeGet("hh.demographic", logCtx,
+                () -> demographicRepo.findFirstByHouseholdIdOrderByIdDesc(householdId).orElse(null), null);
         MealPlanData mealPlan = safeGet("hh.mealPlan", logCtx,
                 () -> mealPlanDataRepo.findFirstByHouseholdId(householdId).orElse(null), null);
         List<EvacuationPlan> evacPlans = safeGet("hh.evacPlans", logCtx,
@@ -271,16 +275,22 @@ public class MeService {
                 () -> meetingPlaceRepo.findByHouseholdId(householdId), List.of());
         List<OriginLocation> originLocations = safeGet("hh.originLocations", logCtx,
                 () -> originLocationRepo.findByHouseholdId(householdId), List.of());
-        List<EmergencyContactGroup> emergencyGroups = safeGet("hh.emergencyContactGroups", logCtx,
+        List<EmergencyContactGroup> contactGroups = safeGet("hh.contactGroups", logCtx,
                 () -> emergencyContactGroupRepo.findByHouseholdId(householdId), List.of());
 
-        return new MePlansDto(
-                mealPlan == null ? null : toMealPlanSummary(mealPlan),
-                evacPlans.stream().map(this::toEvacSummary).toList(),
-                meetingPlaces.stream().map(this::toMeetingPlaceSummary).toList(),
-                originLocations.stream().map(this::toOriginLocationSummary).toList(),
-                emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList(),
-                new MePlansDto.MetaDto(Instant.now(), DTO_VERSION)
+        return new HouseholdPlanDto(
+                householdId,
+                g == null ? null : g.getGroupName(),
+                g == null ? null : g.getAddress(),
+                g == null ? null : g.getLatitude(),
+                g == null ? null : g.getLongitude(),
+                g == null ? null : g.getZipCode(),
+                demographic,
+                meetingPlaces,
+                evacPlans,
+                originLocations,
+                mealPlan,
+                contactGroups
         );
     }
 
