@@ -24,6 +24,26 @@ public class DemographicService {
         String currentUserEmail = AuthUtils.getCurrentUserEmail();
         demographic.setOwnerEmail(currentUserEmail);
 
+        // Cross-household edit: when an admin edits a NON-base household's plan
+        // the FE sends X-Household-Id. Upsert THAT household's single
+        // demographic (gated by canWriteHousehold). No header → null → the
+        // unchanged base path below runs.
+        String targetHh = householdResolver.writableTargetHousehold(currentUserEmail);
+        if (targetHh != null) {
+            Demographic row = demographicRepository
+                    .findFirstByHouseholdIdOrderByIdDesc(targetHh)
+                    .orElseGet(Demographic::new);
+            row.setInfants(demographic.getInfants());
+            row.setAdults(demographic.getAdults());
+            row.setKids(demographic.getKids());
+            row.setDogs(demographic.getDogs());
+            row.setCats(demographic.getCats());
+            row.setPets(demographic.getPets());
+            row.setHouseholdId(targetHh);
+            if (row.getOwnerEmail() == null) row.setOwnerEmail(currentUserEmail);
+            return demographicRepository.save(row);
+        }
+
         Optional<Demographic> existing = demographicRepository.findByOwnerEmailIgnoreCase(currentUserEmail);
 
         if (existing.isPresent() && demographic.getId() == null) {
