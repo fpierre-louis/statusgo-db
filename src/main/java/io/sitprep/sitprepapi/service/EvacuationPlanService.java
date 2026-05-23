@@ -11,9 +11,12 @@ import java.util.List;
 public class EvacuationPlanService {
 
     private final EvacuationPlanRepo evacuationPlanRepo;
+    private final HouseholdResolver householdResolver;
 
-    public EvacuationPlanService(EvacuationPlanRepo evacuationPlanRepo) {
+    public EvacuationPlanService(EvacuationPlanRepo evacuationPlanRepo,
+                                 HouseholdResolver householdResolver) {
         this.evacuationPlanRepo = evacuationPlanRepo;
+        this.householdResolver = householdResolver;
     }
 
     @Transactional
@@ -21,8 +24,12 @@ public class EvacuationPlanService {
         // Delete all existing plans for the user to prevent duplicates
         evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
 
-        // Ensure each plan is assigned to the correct owner
-        evacuationPlans.forEach(plan -> plan.setOwnerEmail(ownerEmail));
+        // Ensure each plan is assigned to the correct owner + household
+        String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        evacuationPlans.forEach(plan -> {
+            plan.setOwnerEmail(ownerEmail);
+            if (plan.getHouseholdId() == null) plan.setHouseholdId(householdId);
+        });
 
         // Save the new list of plans
         return evacuationPlanRepo.saveAll(evacuationPlans);
@@ -43,6 +50,9 @@ public class EvacuationPlanService {
      * surface's "add another shelter".
      */
     public EvacuationPlan addEvacuationPlan(EvacuationPlan plan) {
+        if (plan.getHouseholdId() == null) {
+            plan.setHouseholdId(householdResolver.baseHouseholdIdFor(plan.getOwnerEmail()));
+        }
         return evacuationPlanRepo.save(plan);
     }
 }

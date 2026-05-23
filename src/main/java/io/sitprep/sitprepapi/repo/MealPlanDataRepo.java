@@ -21,6 +21,9 @@ public interface MealPlanDataRepo extends JpaRepository<MealPlanData, String> {
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<MealPlanData> findByHouseholdIdIsNull();
 
+    /** The household's meal plan (Phase 2 household-scoped read). */
+    Optional<MealPlanData> findFirstByHouseholdId(String householdId);
+
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 

@@ -12,9 +12,12 @@ import java.util.Optional;
 public class DemographicService {
 
     private final DemographicRepo demographicRepository;
+    private final HouseholdResolver householdResolver;
 
-    public DemographicService(DemographicRepo demographicRepository) {
+    public DemographicService(DemographicRepo demographicRepository,
+                              HouseholdResolver householdResolver) {
         this.demographicRepository = demographicRepository;
+        this.householdResolver = householdResolver;
     }
 
     public Demographic saveDemographic(Demographic demographic) {
@@ -32,9 +35,15 @@ public class DemographicService {
             updated.setCats(demographic.getCats());
             updated.setPets(demographic.getPets());
             updated.setAdminEmails(demographic.getAdminEmails());
+            if (updated.getHouseholdId() == null) {
+                updated.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
+            }
             return demographicRepository.save(updated);
         }
 
+        if (demographic.getHouseholdId() == null) {
+            demographic.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
+        }
         return demographicRepository.save(demographic);
     }
 

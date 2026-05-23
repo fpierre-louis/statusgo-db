@@ -18,6 +18,9 @@ public interface EmergencyContactGroupRepo extends JpaRepository<EmergencyContac
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<EmergencyContactGroup> findByHouseholdIdIsNull();
 
+    /** All contact groups owned by a household (Phase 2 household-scoped read). */
+    List<EmergencyContactGroup> findByHouseholdId(String householdId);
+
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 

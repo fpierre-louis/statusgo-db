@@ -251,6 +251,39 @@ public class MeService {
         );
     }
 
+    /**
+     * Combined plan payload for a whole household, keyed by householdId —
+     * the shared, multi-admin view (Phase 2). Mirrors {@link #assemblePlans}
+     * but resolves each plan type by the owning household instead of a single
+     * ownerEmail, reusing the same summary mappers so the wire shape matches
+     * GET /api/me/{uid}/plans. (Per-household demographic is not in MePlansDto;
+     * add to the payload in Phase 3 if the combined view needs it.)
+     */
+    @Transactional(readOnly = true)
+    public MePlansDto buildHouseholdPlans(String householdId) {
+        String logCtx = "household=" + householdId + " plans";
+
+        MealPlanData mealPlan = safeGet("hh.mealPlan", logCtx,
+                () -> mealPlanDataRepo.findFirstByHouseholdId(householdId).orElse(null), null);
+        List<EvacuationPlan> evacPlans = safeGet("hh.evacPlans", logCtx,
+                () -> evacuationPlanRepo.findByHouseholdId(householdId), List.of());
+        List<MeetingPlace> meetingPlaces = safeGet("hh.meetingPlaces", logCtx,
+                () -> meetingPlaceRepo.findByHouseholdId(householdId), List.of());
+        List<OriginLocation> originLocations = safeGet("hh.originLocations", logCtx,
+                () -> originLocationRepo.findByHouseholdId(householdId), List.of());
+        List<EmergencyContactGroup> emergencyGroups = safeGet("hh.emergencyContactGroups", logCtx,
+                () -> emergencyContactGroupRepo.findByHouseholdId(householdId), List.of());
+
+        return new MePlansDto(
+                mealPlan == null ? null : toMealPlanSummary(mealPlan),
+                evacPlans.stream().map(this::toEvacSummary).toList(),
+                meetingPlaces.stream().map(this::toMeetingPlaceSummary).toList(),
+                originLocations.stream().map(this::toOriginLocationSummary).toList(),
+                emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList(),
+                new MePlansDto.MetaDto(Instant.now(), DTO_VERSION)
+        );
+    }
+
     /** Run a repo call; on any exception, log and return {@code fallback}. */
     private <T> T safeGet(String step, String logCtx, Supplier<T> op, T fallback) {
         try {

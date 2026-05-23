@@ -16,6 +16,9 @@ public interface EvacuationPlanRepo extends JpaRepository<EvacuationPlan, Long> 
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<EvacuationPlan> findByHouseholdIdIsNull();
 
+    /** All evacuation plans owned by a household (Phase 2 household-scoped read). */
+    List<EvacuationPlan> findByHouseholdId(String householdId);
+
     /** Cheap existence check for readiness aggregation. */
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 

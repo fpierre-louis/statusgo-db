@@ -13,9 +13,12 @@ import java.util.Optional;
 public class EmergencyContactGroupService {
 
     private final EmergencyContactGroupRepo groupRepo;
+    private final HouseholdResolver householdResolver;
 
-    public EmergencyContactGroupService(EmergencyContactGroupRepo groupRepo) {
+    public EmergencyContactGroupService(EmergencyContactGroupRepo groupRepo,
+                                        HouseholdResolver householdResolver) {
         this.groupRepo = groupRepo;
+        this.householdResolver = householdResolver;
     }
 
     public List<EmergencyContactGroup> getAllGroups() {
@@ -39,6 +42,9 @@ public class EmergencyContactGroupService {
             throw new IllegalArgumentException("ownerEmail is required");
         }
         group.setOwnerEmail(email);
+        if (group.getHouseholdId() == null) {
+            group.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
+        }
 
         // Ensure list non-null
         if (group.getContacts() == null) group.setContacts(new ArrayList<>());
@@ -59,6 +65,9 @@ public class EmergencyContactGroupService {
 
         // Update basic fields
         existing.setName(updatedGroup.getName());
+        if (existing.getHouseholdId() == null) {
+            existing.setHouseholdId(householdResolver.baseHouseholdIdFor(existing.getOwnerEmail()));
+        }
 
         // Replace contacts with cascade + orphanRemoval
         existing.getContacts().clear();

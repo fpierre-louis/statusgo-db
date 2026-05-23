@@ -43,6 +43,9 @@ public interface DemographicRepo extends JpaRepository<Demographic, String> {
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<Demographic> findByHouseholdIdIsNull();
 
+    /** The household's demographic (Phase 2 household-scoped read). */
+    Optional<Demographic> findFirstByHouseholdIdOrderByIdDesc(String householdId);
+
     // ✅ Admin Email – MEMBER OF collection field
     @Query("SELECT d FROM Demographic d WHERE :adminEmail MEMBER OF d.adminEmails")
     List<Demographic> findByAdminEmail(String adminEmail);

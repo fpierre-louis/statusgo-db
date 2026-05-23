@@ -16,9 +16,11 @@ public class MealPlanDataService {
     private static final Logger logger = LoggerFactory.getLogger(MealPlanDataService.class);
 
     private final MealPlanDataRepo repository;
+    private final HouseholdResolver householdResolver;
 
-    public MealPlanDataService(MealPlanDataRepo repository) {
+    public MealPlanDataService(MealPlanDataRepo repository, HouseholdResolver householdResolver) {
         this.repository = repository;
+        this.householdResolver = householdResolver;
     }
 
     public java.util.List<MealPlanData> getAllMealPlans() {
@@ -44,6 +46,10 @@ public class MealPlanDataService {
             MealPlanData existing = existingOpt.get();
             existing.setPlanDuration(incoming.getPlanDuration());
             existing.setNumberOfMenuOptions(incoming.getNumberOfMenuOptions());
+            existing.setSelectedItemsJson(incoming.getSelectedItemsJson());
+            if (existing.getHouseholdId() == null) {
+                existing.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
+            }
 
             // Replace child collection safely (requires orphanRemoval=true, cascade=ALL on entity)
             existing.getMealPlan().clear();
@@ -58,6 +64,9 @@ public class MealPlanDataService {
         } else {
             // New record
             incoming.setOwnerEmail(email);
+            if (incoming.getHouseholdId() == null) {
+                incoming.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
+            }
             if (incoming.getMealPlan() != null) {
                 for (MealPlan mp : incoming.getMealPlan()) {
                     mp.setId(null);
@@ -77,6 +86,10 @@ public class MealPlanDataService {
 
         existing.setPlanDuration(payload.getPlanDuration());
         existing.setNumberOfMenuOptions(payload.getNumberOfMenuOptions());
+        existing.setSelectedItemsJson(payload.getSelectedItemsJson());
+        if (existing.getHouseholdId() == null) {
+            existing.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
+        }
 
         existing.getMealPlan().clear();
         if (payload.getMealPlan() != null) {

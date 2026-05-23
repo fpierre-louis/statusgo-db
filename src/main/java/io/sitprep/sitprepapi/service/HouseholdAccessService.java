@@ -71,6 +71,14 @@ public class HouseholdAccessService {
         return g != null && containsIgnoreCase(g.getMemberEmails(), caller);
     }
 
+    /** Asserts the caller can read the household's plan. Throws 403 otherwise. */
+    public void requireCanReadHousehold(String caller, String householdId) {
+        if (!canReadHousehold(caller, householdId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This household's plan is not shared with you");
+        }
+    }
+
     /**
      * True iff {@code caller} is an admin or the owner of the given
      * household group. Only admins co-edit a household's shared plan.

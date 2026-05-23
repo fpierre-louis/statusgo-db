@@ -9,4 +9,7 @@ public interface OriginLocationRepo extends JpaRepository<OriginLocation, Long> 
 
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<OriginLocation> findByHouseholdIdIsNull();
+
+    /** All origin locations owned by a household (Phase 2 household-scoped read). */
+    List<OriginLocation> findByHouseholdId(String householdId);
 }

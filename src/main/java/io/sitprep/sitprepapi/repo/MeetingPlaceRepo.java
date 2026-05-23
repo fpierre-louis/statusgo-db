@@ -12,6 +12,9 @@ public interface MeetingPlaceRepo extends JpaRepository<MeetingPlace, Long> {
     /** Rows not yet assigned a household — drained by HouseholdBackfillRunner. */
     List<MeetingPlace> findByHouseholdIdIsNull();
 
+    /** All meeting places owned by a household (Phase 2 household-scoped read). */
+    List<MeetingPlace> findByHouseholdId(String householdId);
+
     @Transactional
     void deleteByOwnerEmail(String ownerEmail); // Ensure this exists!
 }

@@ -12,9 +12,12 @@ import java.util.List;
 public class MeetingPlaceService {
 
     private final MeetingPlaceRepo meetingPlaceRepository;
+    private final HouseholdResolver householdResolver;
 
-    public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepository) {
+    public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepository,
+                               HouseholdResolver householdResolver) {
         this.meetingPlaceRepository = meetingPlaceRepository;
+        this.householdResolver = householdResolver;
     }
 
     @Transactional
@@ -24,8 +27,12 @@ public class MeetingPlaceService {
         // Delete existing meeting places for the user
         meetingPlaceRepository.deleteByOwnerEmail(ownerEmail);
 
-        // Set authenticated owner email and save
-        meetingPlaces.forEach(place -> place.setOwnerEmail(ownerEmail));
+        // Set authenticated owner email + owning household, then save.
+        String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        meetingPlaces.forEach(place -> {
+            place.setOwnerEmail(ownerEmail);
+            if (place.getHouseholdId() == null) place.setHouseholdId(householdId);
+        });
 
         return meetingPlaceRepository.saveAll(meetingPlaces);
     }
@@ -52,6 +59,10 @@ public class MeetingPlaceService {
                     existingPlace.setLat(updatedPlace.getLat());
                     existingPlace.setLng(updatedPlace.getLng());
                     existingPlace.setDeploy(updatedPlace.isDeploy());
+                    if (existingPlace.getHouseholdId() == null) {
+                        existingPlace.setHouseholdId(
+                                householdResolver.baseHouseholdIdFor(existingPlace.getOwnerEmail()));
+                    }
 
                     return meetingPlaceRepository.save(existingPlace);
                 })
@@ -60,7 +71,11 @@ public class MeetingPlaceService {
 
     public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> places) {
         meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByOwnerEmail(ownerEmail));
-        places.forEach(place -> place.setOwnerEmail(ownerEmail));
+        String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        places.forEach(place -> {
+            place.setOwnerEmail(ownerEmail);
+            if (place.getHouseholdId() == null) place.setHouseholdId(householdId);
+        });
         return meetingPlaceRepository.saveAll(places);
     }
 
@@ -74,6 +89,9 @@ public class MeetingPlaceService {
      * "add another spot" so adding one doesn't clobber the rest.
      */
     public MeetingPlace addMeetingPlace(MeetingPlace place) {
+        if (place.getHouseholdId() == null) {
+            place.setHouseholdId(householdResolver.baseHouseholdIdFor(place.getOwnerEmail()));
+        }
         return meetingPlaceRepository.save(place);
     }
 
