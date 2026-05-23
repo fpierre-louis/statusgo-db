@@ -32,7 +32,14 @@ public class MealPlanDataService {
         return repository.findFirstByOwnerEmailIgnoreCase(norm(ownerEmail));
     }
 
-    /** Create or update (idempotent) by ownerEmail present in the payload. */
+    /**
+     * Create or update the meal plan for a household (one per household).
+     * Cross-household edit (X-Household-Id, admin of that household) targets
+     * that household; else the author's base. Resolves the existing row by
+     * householdId — falling back to the legacy by-owner row when householdId
+     * isn't set yet — so the base path stays unambiguous now that ownerEmail
+     * is no longer unique.
+     */
     @Transactional
     public MealPlanData upsert(MealPlanData incoming) {
         final String email = norm(incoming.getOwnerEmail());
@@ -40,18 +47,21 @@ public class MealPlanDataService {
             throw new IllegalArgumentException("ownerEmail is required");
         }
 
-        Optional<MealPlanData> existingOpt = repository.findFirstByOwnerEmailIgnoreCase(email);
-        if (existingOpt.isPresent()) {
-            // Update existing (keep id)
-            MealPlanData existing = existingOpt.get();
+        String targetHh = householdResolver.writableTargetHousehold(email);
+        String hh = targetHh != null ? targetHh : householdResolver.baseHouseholdIdFor(email);
+
+        MealPlanData existing = null;
+        if (hh != null) existing = repository.findFirstByHouseholdId(hh).orElse(null);
+        if (existing == null) existing = repository.findFirstByOwnerEmailIgnoreCase(email).orElse(null);
+
+        if (existing != null) {
+            // Update existing (keep id + original author).
             existing.setPlanDuration(incoming.getPlanDuration());
             existing.setNumberOfMenuOptions(incoming.getNumberOfMenuOptions());
             existing.setSelectedItemsJson(incoming.getSelectedItemsJson());
-            if (existing.getHouseholdId() == null) {
-                existing.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
-            }
+            if (hh != null) existing.setHouseholdId(hh);
 
-            // Replace child collection safely (requires orphanRemoval=true, cascade=ALL on entity)
+            // Replace child collection safely (orphanRemoval=true, cascade=ALL).
             existing.getMealPlan().clear();
             if (incoming.getMealPlan() != null) {
                 for (MealPlan mp : incoming.getMealPlan()) {
@@ -61,20 +71,18 @@ public class MealPlanDataService {
                 }
             }
             return repository.save(existing);
-        } else {
-            // New record
-            incoming.setOwnerEmail(email);
-            if (incoming.getHouseholdId() == null) {
-                incoming.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
-            }
-            if (incoming.getMealPlan() != null) {
-                for (MealPlan mp : incoming.getMealPlan()) {
-                    mp.setId(null);
-                    mp.setMealPlanData(incoming);
-                }
-            }
-            return repository.save(incoming);
         }
+
+        // New record
+        incoming.setOwnerEmail(email);
+        incoming.setHouseholdId(hh);
+        if (incoming.getMealPlan() != null) {
+            for (MealPlan mp : incoming.getMealPlan()) {
+                mp.setId(null);
+                mp.setMealPlanData(incoming);
+            }
+        }
+        return repository.save(incoming);
     }
 
     /** Update by route ownerEmail; throw to signal 404 to controller */

@@ -17,7 +17,10 @@ public class MealPlanData {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    // No longer UNIQUE: meal plans are household-keyed, so one author may own
+    // several (their base + any household they cross-household-edit). The DB
+    // constraint is dropped at boot by MealPlanOwnerUniqueDropRunner.
+    @Column(nullable = false)
     private String ownerEmail;
 
     // Owning household (Group.groupId, groupType="Household"). Nullable
