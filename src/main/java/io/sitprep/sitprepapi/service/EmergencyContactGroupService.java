@@ -43,7 +43,11 @@ public class EmergencyContactGroupService {
         }
         group.setOwnerEmail(email);
         if (group.getHouseholdId() == null) {
-            group.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
+            // Cross-household edit (X-Household-Id, admin of that household) →
+            // stamp that household; else the author's base. updateGroup /
+            // deleteGroup are by id, so they preserve the household already.
+            String target = householdResolver.writableTargetHousehold(email);
+            group.setHouseholdId(target != null ? target : householdResolver.baseHouseholdIdFor(email));
         }
 
         // Ensure list non-null

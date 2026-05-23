@@ -70,6 +70,17 @@ public class MeetingPlaceService {
     }
 
     public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> places) {
+        // Cross-household edit (X-Household-Id, admin of that household):
+        // replace THAT household's meeting places + stamp it. Else unchanged.
+        String target = householdResolver.writableTargetHousehold(ownerEmail);
+        if (target != null) {
+            meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByHouseholdId(target));
+            places.forEach(place -> {
+                place.setOwnerEmail(ownerEmail);
+                place.setHouseholdId(target);
+            });
+            return meetingPlaceRepository.saveAll(places);
+        }
         meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByOwnerEmail(ownerEmail));
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
         places.forEach(place -> {
@@ -90,7 +101,10 @@ public class MeetingPlaceService {
      */
     public MeetingPlace addMeetingPlace(MeetingPlace place) {
         if (place.getHouseholdId() == null) {
-            place.setHouseholdId(householdResolver.baseHouseholdIdFor(place.getOwnerEmail()));
+            String target = householdResolver.writableTargetHousehold(place.getOwnerEmail());
+            place.setHouseholdId(target != null
+                    ? target
+                    : householdResolver.baseHouseholdIdFor(place.getOwnerEmail()));
         }
         return meetingPlaceRepository.save(place);
     }

@@ -21,6 +21,18 @@ public class EvacuationPlanService {
 
     @Transactional
     public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
+        // Cross-household edit (X-Household-Id, admin of that household):
+        // replace THAT household's evacuation plans + stamp it. Else unchanged.
+        String target = householdResolver.writableTargetHousehold(ownerEmail);
+        if (target != null) {
+            evacuationPlanRepo.deleteAll(evacuationPlanRepo.findByHouseholdId(target));
+            evacuationPlans.forEach(plan -> {
+                plan.setOwnerEmail(ownerEmail);
+                plan.setHouseholdId(target);
+            });
+            return evacuationPlanRepo.saveAll(evacuationPlans);
+        }
+
         // Delete all existing plans for the user to prevent duplicates
         evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
 
@@ -51,7 +63,10 @@ public class EvacuationPlanService {
      */
     public EvacuationPlan addEvacuationPlan(EvacuationPlan plan) {
         if (plan.getHouseholdId() == null) {
-            plan.setHouseholdId(householdResolver.baseHouseholdIdFor(plan.getOwnerEmail()));
+            String target = householdResolver.writableTargetHousehold(plan.getOwnerEmail());
+            plan.setHouseholdId(target != null
+                    ? target
+                    : householdResolver.baseHouseholdIdFor(plan.getOwnerEmail()));
         }
         return evacuationPlanRepo.save(plan);
     }

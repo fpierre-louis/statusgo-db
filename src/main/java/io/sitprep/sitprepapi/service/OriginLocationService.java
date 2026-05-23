@@ -65,6 +65,17 @@ public class OriginLocationService {
 
     // Save all origins for a given user (replaces all)
     public List<OriginLocation> saveAll(String ownerEmail, List<OriginLocation> origins) {
+        // Cross-household edit (X-Household-Id, admin of that household):
+        // replace THAT household's origins + stamp it. Else unchanged.
+        String target = householdResolver.writableTargetHousehold(ownerEmail);
+        if (target != null) {
+            repo.deleteAll(repo.findByHouseholdId(target));
+            origins.forEach(origin -> {
+                origin.setOwnerEmail(ownerEmail);
+                origin.setHouseholdId(target);
+            });
+            return repo.saveAll(origins);
+        }
         repo.deleteAll(repo.findByOwnerEmailIgnoreCase(ownerEmail));
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
         origins.forEach(origin -> {
