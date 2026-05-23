@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.EmergencyContact;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,7 @@ public class EmergencyContactGroupService {
         return groupRepo.findById(id);
     }
 
+    @Transactional
     public EmergencyContactGroup createGroup(EmergencyContactGroup group) {
         // MVP: require ownerEmail in body (since no JWT)
         String email = group.getOwnerEmail() == null ? null : group.getOwnerEmail().trim().toLowerCase();
@@ -63,6 +65,11 @@ public class EmergencyContactGroupService {
         return groupRepo.save(group);
     }
 
+    // @Transactional so `existing` stays MANAGED across the contacts
+    // clear()/add() — orphanRemoval + cascade only fire on a managed entity,
+    // and the new contacts flush on commit. Without it the merge 200s but the
+    // child rows silently never persist (contacts vanish on reload).
+    @Transactional
     public EmergencyContactGroup updateGroup(Long id, EmergencyContactGroup updatedGroup) {
         EmergencyContactGroup existing = groupRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Group not found"));
