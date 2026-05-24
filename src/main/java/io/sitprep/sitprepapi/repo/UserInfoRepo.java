@@ -1,10 +1,12 @@
 package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,4 +56,35 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
            "WHERE u.fcmtoken IS NOT NULL AND u.fcmtoken <> '' " +
            "AND u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL")
     List<UserInfo> findPushablesWithLocation();
+
+    /**
+     * Guest accounts that have entered the expiry warning window and
+     * have not yet received the one-time reminder push.
+     */
+    @Query("SELECT u FROM UserInfo u " +
+           "WHERE u.guestAccount = true " +
+           "AND u.guestCreatedAt IS NOT NULL " +
+           "AND u.guestExpiryReminderSentAt IS NULL " +
+           "AND u.fcmtoken IS NOT NULL AND u.fcmtoken <> '' " +
+           "AND u.guestCreatedAt <= :reminderCutoff " +
+           "AND u.guestCreatedAt > :expiredCutoff")
+    List<UserInfo> findGuestAccountsNeedingExpiryReminder(
+            @Param("reminderCutoff") Instant reminderCutoff,
+            @Param("expiredCutoff") Instant expiredCutoff,
+            Pageable pageable);
+
+    /**
+     * Guest accounts whose 30-day TTL has fully elapsed. Drives
+     * GuestAccountPurgeService — Firebase auto-deletes only the anonymous
+     * auth user at 30 days, so without this the backend UserInfo + plan
+     * data orphans forever. Converted users are excluded automatically
+     * (conversion clears {@code guestAccount}).
+     */
+    @Query("SELECT u FROM UserInfo u " +
+           "WHERE u.guestAccount = true " +
+           "AND u.guestCreatedAt IS NOT NULL " +
+           "AND u.guestCreatedAt <= :expiredCutoff")
+    List<UserInfo> findExpiredGuestAccounts(
+            @Param("expiredCutoff") Instant expiredCutoff,
+            Pageable pageable);
 }

@@ -270,18 +270,46 @@ public class UserInfoResource {
     public record UpdateLocationRequest(Double lat, Double lng) {}
 
     /**
+     * Set the caller's "home base" (main) household — the one the dashboard
+     * anchors to. Only a household the caller belongs to can be chosen
+     * (households are private; non-members get a 400). The FE refreshes /me
+     * after a 204 so the dashboard re-points. (docs/HOUSEHOLD_ECOSYSTEM.md)
+     */
+    @PatchMapping("/me/base-household")
+    public ResponseEntity<Void> setMyBaseHousehold(@RequestBody SetBaseHouseholdRequest body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        if (body == null || body.groupId() == null || body.groupId().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            userInfoService.setBaseHouseholdByEmail(email, body.groupId());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    public record SetBaseHouseholdRequest(String groupId) {}
+
+    /**
      * Mark the Readiness Assessment quiz as just-completed. Sets
      * {@code UserInfo.lastAssessmentAt} to "now" on the verified caller's
      * record. The frontend posts this when the quiz at /sitprep-quiz
      * finishes; the value drives the quarterly nudge banner on /home
-     * (per docs/ECOSYSTEM_INTEGRATION.md step 6). No body, no parameters
-     * — the verified token is the only input. Idempotent: posting twice
-     * just refreshes the timestamp to the latest call.
+     * (per docs/ECOSYSTEM_INTEGRATION.md step 6). Newer clients may include
+     * the structured summary payload in the request body; older clients can
+     * still post with no body and only refresh the timestamp.
      */
     @PostMapping("/me/assessment")
-    public ResponseEntity<Void> markAssessmentComplete() {
+    public ResponseEntity<Void> markAssessmentComplete(
+            @RequestBody(required = false) Map<String, Object> summary
+    ) {
         String email = AuthUtils.requireAuthenticatedEmail();
-        userInfoService.markAssessmentCompleteByEmail(email);
+        try {
+            userInfoService.markAssessmentCompleteByEmail(email, summary);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
         return ResponseEntity.noContent().build();
     }
 

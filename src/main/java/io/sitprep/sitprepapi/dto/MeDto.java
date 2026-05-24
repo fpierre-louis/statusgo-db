@@ -64,6 +64,14 @@ public record MeDto(
              * banner on /home.
              */
             Instant lastAssessmentAt,
+            /** First-run onboarding completed timestamp. Null until finished. */
+            Instant onboardingCompletedAt,
+            /** Terms/privacy accepted during onboarding. Null until accepted. */
+            Instant onboardingTermsAcceptedAt,
+            /** Location step completed during onboarding. Null until enabled. */
+            Instant onboardingLocationEnabledAt,
+            /** Notification step completed during onboarding. Null until enabled. */
+            Instant onboardingNotificationsEnabledAt,
             // Public-profile fields — surfaced on MeDto so the editor at
             // /profile/edit can pre-populate without a second round trip.
             // Per docs/PROFILE_AND_FOLLOW.md build-order step 2.

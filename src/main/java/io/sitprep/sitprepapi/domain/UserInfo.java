@@ -71,6 +71,20 @@ public class UserInfo {
     @Column(name = "fcm_token")
     private String fcmtoken;
 
+    /**
+     * Anonymous Firebase users are allowed to build a guest plan for a
+     * 30-day trial window. The frontend stamps Firebase metadata here
+     * so scheduled backend reminders can warn before auto-cleanup.
+     */
+    @Column(name = "guest_account", columnDefinition = "boolean default false")
+    private Boolean guestAccount;
+
+    @Column(name = "guest_created_at")
+    private Instant guestCreatedAt;
+
+    @Column(name = "guest_expiry_reminder_sent_at")
+    private Instant guestExpiryReminderSentAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "managed_group_id")
@@ -134,6 +148,23 @@ public class UserInfo {
      */
     @Column(name = "last_assessment_at")
     private Instant lastAssessmentAt;
+
+    /**
+     * First-run onboarding checkpoints. These are intentionally granular
+     * instead of a single boolean so the frontend can skip only the steps a
+     * returning user already completed across devices.
+     */
+    @Column(name = "onboarding_completed_at")
+    private Instant onboardingCompletedAt;
+
+    @Column(name = "onboarding_terms_accepted_at")
+    private Instant onboardingTermsAcceptedAt;
+
+    @Column(name = "onboarding_location_enabled_at")
+    private Instant onboardingLocationEnabledAt;
+
+    @Column(name = "onboarding_notifications_enabled_at")
+    private Instant onboardingNotificationsEnabledAt;
 
     /**
      * Latest structured Readiness Assessment result payload. Stored as JSON

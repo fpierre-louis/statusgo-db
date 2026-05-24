@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -22,12 +24,15 @@ import java.util.stream.Collectors;
 @Service
 public class UserInfoService {
 
+    private static final int MAX_ASSESSMENT_SUMMARY_JSON_BYTES = 50_000;
+
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
     private final GroupRepo groupRepo;
     private final PostRepo taskRepo;
     private final FollowService followService;
     private final BlockService blockService;
+    private final ObjectMapper objectMapper;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
@@ -35,13 +40,15 @@ public class UserInfoService {
                            GroupRepo groupRepo,
                            PostRepo taskRepo,
                            FollowService followService,
-                           BlockService blockService) {
+                           BlockService blockService,
+                           ObjectMapper objectMapper) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
         this.taskRepo = taskRepo;
         this.followService = followService;
         this.blockService = blockService;
+        this.objectMapper = objectMapper;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -361,6 +368,44 @@ public class UserInfoService {
     }
 
     /**
+     * Set the caller's "home base" (main) household — the one the dashboard
+     * anchors to. Only a household the user actually belongs to (member,
+     * admin, or owner) can be made base; non-member ids + non-household
+     * groups are rejected (households are private by default). Backs
+     * PATCH /api/userinfo/me/base-household; the FE refreshes /me afterward
+     * so the whole dashboard re-points (households[].isBase, roster, plans).
+     * See docs/HOUSEHOLD_ECOSYSTEM.md.
+     */
+    @Transactional
+    public void setBaseHouseholdByEmail(String email, String groupId) {
+        if (email == null || email.isBlank() || groupId == null || groupId.isBlank()) {
+            throw new IllegalArgumentException("email and groupId are required");
+        }
+        final String e = email.trim().toLowerCase();
+        Group g = groupRepo.findByGroupId(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("Household not found"));
+        if (!"Household".equalsIgnoreCase(g.getGroupType())) {
+            throw new IllegalArgumentException("That group is not a household");
+        }
+        boolean belongs =
+                emailInList(g.getMemberEmails(), e) ||
+                emailInList(g.getAdminEmails(), e) ||
+                (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(e));
+        if (!belongs) {
+            throw new IllegalArgumentException("You're not a member of that household");
+        }
+        UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(e)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        u.setBaseHouseholdId(groupId);
+        userInfoRepo.save(u);
+    }
+
+    private static boolean emailInList(java.util.List<String> list, String email) {
+        return list != null && list.stream()
+                .anyMatch(x -> x != null && x.trim().equalsIgnoreCase(email));
+    }
+
+    /**
      * Stamp {@code lastAssessmentAt = now()} on the user record. Backs
      * {@code POST /api/userinfo/me/assessment} which the frontend calls
      * when the Readiness Assessment quiz at /sitprep-quiz finishes.
@@ -368,11 +413,39 @@ public class UserInfoService {
      */
     @Transactional
     public void markAssessmentCompleteByEmail(String email) {
+        markAssessmentCompleteByEmail(email, null);
+    }
+
+    /**
+     * Stamp the assessment completion time and, when present, persist the
+     * latest structured recommendation payload. The summary intentionally
+     * stays schemaless JSON text: the frontend owns the recommendation model
+     * and may add fields faster than we want to migrate database columns.
+     */
+    @Transactional
+    public void markAssessmentCompleteByEmail(String email, Map<String, Object> summary) {
         if (email == null || email.isBlank()) return;
+        String summaryJson = serializeAssessmentSummary(summary);
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
             u.setLastAssessmentAt(Instant.now());
+            if (summaryJson != null) {
+                u.setAssessmentSummaryJson(summaryJson);
+            }
             userInfoRepo.save(u);
         });
+    }
+
+    private String serializeAssessmentSummary(Map<String, Object> summary) {
+        if (summary == null || summary.isEmpty()) return null;
+        try {
+            String json = objectMapper.writeValueAsString(summary);
+            if (json.length() > MAX_ASSESSMENT_SUMMARY_JSON_BYTES) {
+                throw new IllegalArgumentException("Assessment summary is too large");
+            }
+            return json;
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Assessment summary is not valid JSON", e);
+        }
     }
 
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
@@ -394,8 +467,9 @@ public class UserInfoService {
                 if (field != null) {
                     field.setAccessible(true);
                     Object oldValue = ReflectionUtils.getField(field, userInfo);
-                    if (!Objects.equals(oldValue, value)) {
-                        ReflectionUtils.setField(field, userInfo, value);
+                    Object nextValue = coercePatchValue(field, value);
+                    if (!Objects.equals(oldValue, nextValue)) {
+                        ReflectionUtils.setField(field, userInfo, nextValue);
                         if ("activeGroupAlertCounts".equals(key)) {
                             userInfo.setGroupAlertLastUpdated(Instant.now());
                         }
@@ -415,6 +489,14 @@ public class UserInfoService {
         }
 
         return saved;
+    }
+
+    private Object coercePatchValue(Field field, Object value) {
+        if (field.getType().equals(Instant.class) && value instanceof String s) {
+            if (s.isBlank()) return null;
+            return Instant.parse(s);
+        }
+        return value;
     }
 
     /** Existing: idempotent upsert by email */
@@ -463,7 +545,9 @@ public class UserInfoService {
 
         // If patch email exists, normalize it (helps with initial creation)
         String normEmail = Optional.ofNullable(patch.getUserEmail())
-                .map(String::trim).map(String::toLowerCase)
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .map(String::toLowerCase)
                 .orElse(null);
 
         // 1) Prefer UID record
@@ -495,12 +579,17 @@ public class UserInfoService {
         // 3) Create new
         UserInfo created = new UserInfo();
         created.setFirebaseUid(normUid);
-        created.setUserEmail(normEmail != null ? normEmail : "unknown@email.invalid"); // you can enforce required email if you want
+        created.setUserEmail(normEmail != null ? normEmail : fallbackGuestEmailForUid(normUid));
         created.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
         created.setUserLastName(Optional.ofNullable(patch.getUserLastName()).orElse(""));
         applyPatch(created, patch);
         applyInitialSystemDefaults(created, patch);
         return userInfoRepo.save(created);
+    }
+
+    private String fallbackGuestEmailForUid(String uid) {
+        String safeUid = uid == null ? "unknown" : uid.replaceAll("[^A-Za-z0-9._-]", "_");
+        return "guest-" + safeUid.toLowerCase(Locale.ROOT) + "@guest.sitprep.local";
     }
 
     /**
@@ -529,6 +618,14 @@ public class UserInfoService {
         if (patch.getBio()           != null) entity.setBio(patch.getBio());
         if (patch.getCoverImageUrl() != null) entity.setCoverImageUrl(patch.getCoverImageUrl());
         if (patch.getProfileVisibility() != null) entity.setProfileVisibility(patch.getProfileVisibility());
+        if (patch.getGuestCreatedAt() != null) entity.setGuestCreatedAt(patch.getGuestCreatedAt());
+        if (patch.getGuestAccount() != null) {
+            entity.setGuestAccount(patch.getGuestAccount());
+            if (Boolean.FALSE.equals(patch.getGuestAccount())) {
+                entity.setGuestCreatedAt(null);
+                entity.setGuestExpiryReminderSentAt(null);
+            }
+        }
 
         // email handled by caller (uid upsert may need special rules)
     }
@@ -550,6 +647,9 @@ public class UserInfoService {
                 ? patch.getSubscriptionPackage() : "Monthly");
         if (patch != null && patch.getDateSubscribed() != null) {
             entity.setDateSubscribed(patch.getDateSubscribed());
+        }
+        if (entity.getGuestAccount() == null) {
+            entity.setGuestAccount(false);
         }
         // fcmtoken intentionally unset — registered via dedicated FCM update.
         // managedGroupIDs / joinedGroupIDs intentionally unset — user joins
