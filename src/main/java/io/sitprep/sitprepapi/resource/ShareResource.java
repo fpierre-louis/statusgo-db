@@ -221,8 +221,8 @@ public class ShareResource {
             return "SitPrep helps you stay connected with your circle when something happens.";
         }
         StringBuilder sb = new StringBuilder();
-        Integer memberCount = group.getMemberCount();
-        if (memberCount != null && memberCount > 0) {
+        int memberCount = group.getMemberEmails() == null ? 0 : group.getMemberEmails().size();
+        if (memberCount > 0) {
             sb.append(memberCount)
                     .append(memberCount == 1 ? " member" : " members");
         }

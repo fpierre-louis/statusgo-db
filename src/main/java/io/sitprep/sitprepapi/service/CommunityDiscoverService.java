@@ -133,8 +133,9 @@ public class CommunityDiscoverService {
     }
 
     private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember) {
-        int memberCount = g.getMemberCount() != null ? g.getMemberCount()
-                : (g.getMemberEmails() == null ? 0 : g.getMemberEmails().size());
+        // Accurate count from the member list (the denormalized
+        // Group.memberCount drifts and isn't kept in sync on join/leave).
+        int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
         return new NearbyGroup(
                 g.getGroupId(),
                 g.getGroupName(),

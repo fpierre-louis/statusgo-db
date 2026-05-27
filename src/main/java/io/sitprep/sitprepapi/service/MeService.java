@@ -170,13 +170,31 @@ public class MeService {
                 .findFirst()
                 .orElse(householdGroups.isEmpty() ? null : householdGroups.get(0));
 
+        // Member-avatar preview — ONE batched profile lookup for the
+        // circle-card + Home-base member stacks (up to 4 emails per circle).
+        // Keyed by lowercased email so previewFor() matches case-insensitively.
+        java.util.Set<String> previewEmails = new java.util.LinkedHashSet<>();
+        for (Group g : groupsById.values()) {
+            if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
+            if (g.getMemberEmails() != null)
+                g.getMemberEmails().stream().filter(Objects::nonNull).limit(4).forEach(previewEmails::add);
+        }
+        if (baseHousehold != null && baseHousehold.getMemberEmails() != null)
+            baseHousehold.getMemberEmails().stream().filter(Objects::nonNull).limit(4).forEach(previewEmails::add);
+        java.util.Map<String, UserInfo> profileMap = new java.util.HashMap<>();
+        if (!previewEmails.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(previewEmails))) {
+                if (u.getUserEmail() != null) profileMap.putIfAbsent(u.getUserEmail().toLowerCase(), u);
+            }
+        }
+
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         for (Group g : groupsById.values()) {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email);
+            GroupSummary summary = toGroupSummary(g, email, profileMap);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -192,7 +210,7 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic);
+                : toHouseholdDto(baseHousehold, demographic, profileMap);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
@@ -350,7 +368,7 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d) {
+    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -369,7 +387,8 @@ public class MeService {
                 demoDto,
                 null,
                 g.getAlert(),
-                g.getActiveHazardType()
+                g.getActiveHazardType(),
+                previewFor(g, profiles)
         );
     }
 
@@ -389,10 +408,15 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles) {
         String role = resolveRole(g, userEmail);
-        int memberCount = g.getMemberCount() != null ? g.getMemberCount()
-                : (g.getMemberEmails() == null ? 0 : g.getMemberEmails().size());
+        // Always derive from the member-email list — the denormalized
+        // Group.memberCount drifts (set to 1 at creation, not kept in
+        // sync on every join/leave), which surfaced as stale "1 member"
+        // counts on group cards. memberEmails is EAGER-loaded, so .size()
+        // is the cheap, accurate source of truth (matches the household
+        // builders above).
+        int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
         int pendingCount = g.getPendingMemberEmails() == null ? 0 : g.getPendingMemberEmails().size();
         return new GroupSummary(
                 g.getGroupId(),
@@ -403,8 +427,26 @@ public class MeService {
                 role,
                 g.getAlert(),
                 g.getActiveHazardType(),
-                g.getUpdatedAt()
+                g.getUpdatedAt(),
+                previewFor(g, profiles)
         );
+    }
+
+    /**
+     * Up to 4 member avatars for a circle card's member stack. Reads the
+     * pre-batched profile map (keyed by lowercased email) — O(1) per
+     * member, no per-circle DB hit.
+     */
+    private java.util.List<MemberAvatar> previewFor(Group g, java.util.Map<String, UserInfo> profiles) {
+        if (g.getMemberEmails() == null || profiles.isEmpty()) return java.util.List.of();
+        java.util.List<MemberAvatar> out = new java.util.ArrayList<>();
+        for (String e : g.getMemberEmails()) {
+            if (e == null) continue;
+            UserInfo u = profiles.get(e.toLowerCase());
+            if (u != null) out.add(new MemberAvatar(u.getUserFirstName(), u.getProfileImageURL()));
+            if (out.size() >= 4) break;
+        }
+        return out;
     }
 
     private String resolveRole(Group g, String userEmail) {

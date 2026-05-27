@@ -125,7 +125,7 @@ public class UserInfoService {
                         g.getGroupId(),
                         g.getGroupName(),
                         g.getGroupType(),
-                        g.getMemberCount()
+                        g.getMemberEmails() == null ? 0 : g.getMemberEmails().size()
                 ))
                 .collect(Collectors.toList());
 

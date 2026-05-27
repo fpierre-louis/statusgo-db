@@ -227,9 +227,9 @@ public class GroupService {
         Double lat = parseCoord(group.getLatitude());
         Double lng = parseCoord(group.getLongitude());
         int adminCount = group.getAdminEmails() == null ? 0 : group.getAdminEmails().size();
-        int memberCount = group.getMemberCount() != null
-                ? group.getMemberCount()
-                : (group.getMemberEmails() == null ? 0 : group.getMemberEmails().size());
+        // Accurate count from the member list (the denormalized
+        // Group.memberCount drifts and isn't kept in sync on join/leave).
+        int memberCount = group.getMemberEmails() == null ? 0 : group.getMemberEmails().size();
         boolean alertActive = "Active".equalsIgnoreCase(group.getAlert());
 
         return new io.sitprep.sitprepapi.dto.GroupPreviewDto(

@@ -109,7 +109,9 @@ public record MeDto(
             /** "Active" when household alert mode is on, else null/idle. */
             String alert,
             /** Hazard type captured by the admin when activating, or null. */
-            String activeHazardType
+            String activeHazardType,
+            /** Up to 4 member avatars for the Home-base card stack. */
+            List<MemberAvatar> memberPreview
     ) {}
 
     /**
@@ -164,8 +166,13 @@ public record MeDto(
              * keyword-matching the alert headline.
              */
             String activeHazardType,
-            Instant updatedAt
+            Instant updatedAt,
+            /** Up to 4 member avatars for the circle-card stack (Direction 1). */
+            List<MemberAvatar> memberPreview
     ) {}
+
+    /** A single member's avatar for the circle-card member stack. */
+    public record MemberAvatar(String firstName, String profileImageUrl) {}
 
     public record ReadinessDto(
             int percentComplete,
