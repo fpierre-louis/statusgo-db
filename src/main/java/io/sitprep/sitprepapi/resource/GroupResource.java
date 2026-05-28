@@ -40,6 +40,9 @@ public class GroupResource {
     @Autowired
     private GroupService groupService;
 
+    @Autowired
+    private io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
+
     @GetMapping("/admin")
     public List<Group> getGroupsByAdminEmail() {
         AuthUtils.requireAuthenticatedEmail();
@@ -251,6 +254,30 @@ public class GroupResource {
         requirePermission(groupId, GroupPermission.MANAGE_PLAN);
         String tier = body == null ? null : body.get("planTier");
         return ResponseEntity.ok(groupService.setPlanTier(groupId, tier));
+    }
+
+    /**
+     * Mark this circle "read" for the authenticated viewer — used by the
+     * Circles list page to clear the unread badge when the user opens
+     * the circle. Upserts a {@code GroupReadState} (one row per
+     * user+group) with {@code lastReadAt=now}; the
+     * {@code MeDto.GroupSummary.unreadCount} surfaces the delta between
+     * this timestamp and incoming {@code GroupPost.timestamp}.
+     */
+    @PostMapping("/{groupId}/read")
+    public ResponseEntity<Void> markGroupRead(@PathVariable String groupId) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        io.sitprep.sitprepapi.domain.GroupReadState s = groupReadStateRepo
+                .findByUserEmailIgnoreCaseAndGroupId(email, groupId)
+                .orElseGet(() -> {
+                    var ns = new io.sitprep.sitprepapi.domain.GroupReadState();
+                    ns.setUserEmail(email);
+                    ns.setGroupId(groupId);
+                    return ns;
+                });
+        s.setLastReadAt(java.time.Instant.now());
+        groupReadStateRepo.save(s);
+        return ResponseEntity.noContent().build();
     }
 
     /**

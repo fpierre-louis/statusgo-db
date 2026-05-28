@@ -69,4 +69,12 @@ public interface GroupPostRepo extends JpaRepository<GroupPost, Long> {
     List<GroupPost> findUnpinnedByGroupIdPage(@Param("groupId") String groupId,
                                               @Param("before") Long before,
                                               Pageable pageable);
+
+    /**
+     * Per-group unread count for the Circles list page. Counts posts in
+     * the group newer than the viewer's {@code GroupReadState.lastReadAt}.
+     * Spring Data derives the query from the method name; the existing
+     * indexes on {@code (group_id, timestamp)} keep it fast.
+     */
+    int countByGroupIdAndTimestampAfter(String groupId, Instant timestamp);
 }

@@ -111,7 +111,9 @@ public record MeDto(
             /** Hazard type captured by the admin when activating, or null. */
             String activeHazardType,
             /** Up to 4 member avatars for the Home-base card stack. */
-            List<MemberAvatar> memberPreview
+            List<MemberAvatar> memberPreview,
+            /** Unread post count for the Home-base card (see GroupSummary). */
+            int unreadCount
     ) {}
 
     /**
@@ -168,7 +170,14 @@ public record MeDto(
             String activeHazardType,
             Instant updatedAt,
             /** Up to 4 member avatars for the circle-card stack (Direction 1). */
-            List<MemberAvatar> memberPreview
+            List<MemberAvatar> memberPreview,
+            /**
+             * Posts in this group whose timestamp is newer than the viewer's
+             * GroupReadState.lastReadAt. Zero when the viewer has no read
+             * pointer yet — deliberate "start clean on rollout" choice so
+             * existing users don't see a wall of stale unreads on day one.
+             */
+            int unreadCount
     ) {}
 
     /** A single member's avatar for the circle-card member stack. */

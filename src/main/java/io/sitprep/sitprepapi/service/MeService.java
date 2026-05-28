@@ -50,6 +50,8 @@ public class MeService {
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final PlanActivationRepo planActivationRepo;
     private final io.sitprep.sitprepapi.repo.PostRepo postRepo;
+    private final io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
+    private final io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -63,6 +65,8 @@ public class MeService {
             EmergencyContactGroupRepo emergencyContactGroupRepo,
             PlanActivationRepo planActivationRepo,
             io.sitprep.sitprepapi.repo.PostRepo postRepo,
+            io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo,
+            io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -75,6 +79,8 @@ public class MeService {
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.planActivationRepo = planActivationRepo;
         this.postRepo = postRepo;
+        this.groupReadStateRepo = groupReadStateRepo;
+        this.groupPostRepo = groupPostRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -188,13 +194,25 @@ public class MeService {
             }
         }
 
+        // Per-(user,group) last-read pointers for the unread badge / Unread
+        // filter. ONE query; per-group lookup is in-memory. Empty map → all
+        // groups read=0 (deliberate "start clean on rollout").
+        java.util.Map<String, java.time.Instant> readMap = new java.util.HashMap<>();
+        if (email != null && !email.isBlank()) {
+            for (var s : groupReadStateRepo.findByUserEmailIgnoreCase(email)) {
+                if (s.getGroupId() != null && s.getLastReadAt() != null) {
+                    readMap.put(s.getGroupId(), s.getLastReadAt());
+                }
+            }
+        }
+
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         for (Group g : groupsById.values()) {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -210,7 +228,7 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic, profileMap);
+                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
@@ -368,7 +386,7 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles) {
+    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -388,7 +406,8 @@ public class MeService {
                 null,
                 g.getAlert(),
                 g.getActiveHazardType(),
-                previewFor(g, profiles)
+                previewFor(g, profiles),
+                unreadCountFor(g, readMap)
         );
     }
 
@@ -408,7 +427,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -428,8 +447,21 @@ public class MeService {
                 g.getAlert(),
                 g.getActiveHazardType(),
                 g.getUpdatedAt(),
-                previewFor(g, profiles)
+                previewFor(g, profiles),
+                unreadCountFor(g, readMap)
         );
+    }
+
+    /**
+     * Posts in {@code g} newer than the viewer's last-read pointer.
+     * Returns 0 when no pointer exists for this group — the unread badge
+     * stays empty until the user explicitly marks the circle read.
+     */
+    private int unreadCountFor(Group g, java.util.Map<String, java.time.Instant> readMap) {
+        if (g.getGroupId() == null) return 0;
+        java.time.Instant since = readMap.get(g.getGroupId());
+        if (since == null) return 0;
+        return groupPostRepo.countByGroupIdAndTimestampAfter(g.getGroupId(), since);
     }
 
     /**
