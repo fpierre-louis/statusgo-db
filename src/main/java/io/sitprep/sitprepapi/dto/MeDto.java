@@ -113,7 +113,16 @@ public record MeDto(
             /** Up to 4 member avatars for the Home-base card stack. */
             List<MemberAvatar> memberPreview,
             /** Unread post count for the Home-base card (see GroupSummary). */
-            int unreadCount
+            int unreadCount,
+            /**
+             * Timestamp of the most recent chat post in this household,
+             * or {@code Group.updatedAt} when the household has no posts
+             * yet. Drives the freshness meta ("Active 12m ago" /
+             * "Quiet · 4d") on the Home-base card so it tracks real
+             * conversation activity instead of the audit timestamp.
+             * Never null — falls back to the group's createdAt at worst.
+             */
+            Instant lastActivityAt
     ) {}
 
     /**
@@ -168,6 +177,13 @@ public record MeDto(
              * keyword-matching the alert headline.
              */
             String activeHazardType,
+            /**
+             * Group record's audit timestamp — bumped on group-field
+             * edits (name, alert toggled, etc.). Retained for legacy
+             * sort consumers; prefer {@link #lastActivityAt} for any
+             * "freshness" semantics, which tracks chat activity, not
+             * group metadata.
+             */
             Instant updatedAt,
             /** Up to 4 member avatars for the circle-card stack (Direction 1). */
             List<MemberAvatar> memberPreview,
@@ -177,7 +193,16 @@ public record MeDto(
              * pointer yet — deliberate "start clean on rollout" choice so
              * existing users don't see a wall of stale unreads on day one.
              */
-            int unreadCount
+            int unreadCount,
+            /**
+             * Timestamp of the most recent chat post in this circle, or
+             * {@code Group.updatedAt} when the circle has no posts yet.
+             * This is the "real" activity signal — drives the circle
+             * card's "Active 12m ago" / "Quiet · 4d" meta line and the
+             * Quiet filter chip. Falls back to createdAt at worst, so
+             * never null on the wire.
+             */
+            Instant lastActivityAt
     ) {}
 
     /** A single member's avatar for the circle-card member stack. */

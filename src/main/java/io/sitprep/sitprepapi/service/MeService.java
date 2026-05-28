@@ -206,13 +206,39 @@ public class MeService {
             }
         }
 
+        // Per-group most-recent-post timestamp for the "Active vs Quiet"
+        // freshness meta. ONE batched query across every group the user
+        // belongs to; groups with no posts yet stay out of the map and
+        // fall back to Group.updatedAt in lastActivityFor(). The
+        // existing findLatestPostsByGroupIds already correlates MAX(ts)
+        // per groupId, so we just keep the timestamp.
+        java.util.Map<String, java.time.Instant> latestPostMap = new java.util.HashMap<>();
+        if (!groupsById.isEmpty()) {
+            java.util.List<String> allIds = new java.util.ArrayList<>(groupsById.keySet());
+            try {
+                for (var p : groupPostRepo.findLatestPostsByGroupIds(allIds)) {
+                    if (p.getGroupId() == null || p.getTimestamp() == null) continue;
+                    java.time.Instant cur = latestPostMap.get(p.getGroupId());
+                    // The query can return >1 row per group when multiple
+                    // posts share the exact MAX(timestamp) — keep the
+                    // larger / first non-null.
+                    if (cur == null || p.getTimestamp().isAfter(cur)) {
+                        latestPostMap.put(p.getGroupId(), p.getTimestamp());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("MeService: latestPostMap fetch failed ({}). Falling back to updatedAt. cause={}",
+                        logCtx, e.getMessage());
+            }
+        }
+
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         for (Group g : groupsById.values()) {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -228,7 +254,7 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap);
+                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
@@ -386,7 +412,7 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap) {
+    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -407,7 +433,8 @@ public class MeService {
                 g.getAlert(),
                 g.getActiveHazardType(),
                 previewFor(g, profiles),
-                unreadCountFor(g, readMap)
+                unreadCountFor(g, readMap),
+                lastActivityFor(g, latestPostMap)
         );
     }
 
@@ -427,7 +454,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -448,8 +475,24 @@ public class MeService {
                 g.getActiveHazardType(),
                 g.getUpdatedAt(),
                 previewFor(g, profiles),
-                unreadCountFor(g, readMap)
+                unreadCountFor(g, readMap),
+                lastActivityFor(g, latestPostMap)
         );
+    }
+
+    /**
+     * Most-recent activity instant for {@code g}. Returns the latest
+     * GroupPost timestamp when one exists; falls back to
+     * {@code Group.updatedAt}, then {@code Group.createdAt}, then
+     * {@code Instant.now()} as a last resort so the FE never has to
+     * defend against null on the wire.
+     */
+    private java.time.Instant lastActivityFor(Group g, java.util.Map<String, java.time.Instant> latestPostMap) {
+        java.time.Instant post = g.getGroupId() == null ? null : latestPostMap.get(g.getGroupId());
+        if (post != null) return post;
+        if (g.getUpdatedAt() != null) return g.getUpdatedAt();
+        if (g.getCreatedAt() != null) return g.getCreatedAt();
+        return java.time.Instant.now();
     }
 
     /**
