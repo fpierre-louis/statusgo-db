@@ -275,7 +275,7 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap);
+                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
@@ -433,13 +433,15 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap) {
+    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
         );
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
         int adminCount = g.getAdminEmails() == null ? 0 : g.getAdminEmails().size();
+        io.sitprep.sitprepapi.domain.GroupMutePref pref =
+                g.getGroupId() == null ? null : prefMap.get(g.getGroupId());
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -455,7 +457,11 @@ public class MeService {
                 g.getActiveHazardType(),
                 previewFor(g, profiles),
                 unreadCountFor(g, readMap),
-                lastActivityFor(g, latestPostMap)
+                lastActivityFor(g, latestPostMap),
+                g.getGroupId() == null ? null : muteMap.get(g.getGroupId()),
+                pref == null ? null : pref.getQuietStart(),
+                pref == null ? null : pref.getQuietEnd(),
+                pref == null ? null : pref.getQuietTimezone()
         );
     }
 

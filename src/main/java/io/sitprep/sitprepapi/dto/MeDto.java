@@ -122,7 +122,21 @@ public record MeDto(
              * conversation activity instead of the audit timestamp.
              * Never null — falls back to the group's createdAt at worst.
              */
-            Instant lastActivityAt
+            Instant lastActivityAt,
+            /**
+             * Viewer's mute deadline for this household — same
+             * semantics as {@link GroupSummary#mutedUntil()}. The
+             * household card on the Circles list uses this to render
+             * the muted-bell pill + read state in the long-press
+             * kebab. Null when not muted.
+             */
+            Instant mutedUntil,
+            /** Quiet-hours window start. See {@link GroupSummary#quietStart()}. */
+            Integer quietStart,
+            /** Quiet-hours window end. See {@link GroupSummary#quietEnd()}. */
+            Integer quietEnd,
+            /** Quiet-hours IANA timezone. See {@link GroupSummary#quietTimezone()}. */
+            String quietTimezone
     ) {}
 
     /**
