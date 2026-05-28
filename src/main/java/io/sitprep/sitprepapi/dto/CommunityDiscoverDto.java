@@ -78,6 +78,17 @@ public record CommunityDiscoverDto(
              */
             int mutuals,
             /**
+             * Top {@value #MUTUAL_PREVIEW_LIMIT} mutual members for the
+             * explorer's bottom sheet — same identities counted by
+             * {@link #mutuals}, materialized to firstName +
+             * profileImageUrl so the FE can render a face stack
+             * instead of just a number. Empty list when none — never
+             * null on the wire. Excludes the viewer themselves; order
+             * is the natural memberEmails order (i.e. how the group
+             * stores them; not sorted by recency).
+             */
+            List<MemberAvatar> mutualMembers,
+            /**
              * Timestamp of the most recent chat post in this group, or
              * Group.updatedAt when the group has no posts yet — mirrors
              * the lastActivityAt semantics on MeDto.GroupSummary. The FE
@@ -85,7 +96,19 @@ public record CommunityDiscoverDto(
              * activity dot on Discover cards.
              */
             Instant lastActivityAt
-    ) {}
+    ) {
+        /** How many mutual avatars we materialize per group. */
+        public static final int MUTUAL_PREVIEW_LIMIT = 4;
+    }
+
+    /**
+     * Lightweight identity for the mutual face stack. Same shape as
+     * {@code MeDto.MemberAvatar}; kept independent here so the two
+     * DTOs stay decoupled (NearbyGroup may add fields the Me-side
+     * stack doesn't care about, like
+     * {@code lastActiveAt}, without dragging the other surface).
+     */
+    public record MemberAvatar(String firstName, String profileImageUrl) {}
 
     public record MetaDto(
             Instant generatedAt,

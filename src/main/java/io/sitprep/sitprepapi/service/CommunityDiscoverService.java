@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
+import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.MemberAvatar;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.NearbyGroup;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.Place;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
@@ -114,6 +115,14 @@ public class CommunityDiscoverService {
         // lastActivityFor() helper on MeService.
         Map<String, Instant> latestPostMap = batchLatestPostMap(withinRadiusGroups);
 
+        // Per-group mutual emails (capped at the preview limit each)
+        // and a single batched profile lookup over the union. Lets
+        // every Discover card / pin preview render real faces instead
+        // of just a count — without an N+1 per-group profile fetch.
+        Map<String, List<String>> mutualEmailsByGroup =
+                collectMutualEmailsByGroup(withinRadiusGroups, mutualSet);
+        Map<String, UserInfo> mutualProfiles = batchProfileLookup(mutualEmailsByGroup);
+
         List<NearbyGroup> withinRadius = new ArrayList<>(withinRadiusGroups.size());
         for (Group g : withinRadiusGroups) {
             double d = distanceByGroupId.getOrDefault(g.getGroupId(), 0.0);
@@ -123,8 +132,11 @@ public class CommunityDiscoverService {
             boolean verified = owner != null && owner.isVerifiedPublisher();
             String verifiedKind = verified ? owner.getVerifiedPublisherKind() : null;
             int mutuals = countMutuals(g, mutualSet);
+            List<MemberAvatar> mutualAvatars = buildMutualAvatars(
+                    mutualEmailsByGroup.get(g.getGroupId()), mutualProfiles);
             Instant activity = lastActivityFor(g, latestPostMap);
-            withinRadius.add(toNearbyGroup(g, d, viewerIsMember, verified, verifiedKind, mutuals, activity));
+            withinRadius.add(toNearbyGroup(g, d, viewerIsMember,
+                    verified, verifiedKind, mutuals, mutualAvatars, activity));
         }
 
         withinRadius.sort(Comparator.comparingDouble(NearbyGroup::distanceKm));
@@ -177,7 +189,8 @@ public class CommunityDiscoverService {
 
     private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember,
                                       boolean verified, String verifiedKind,
-                                      int mutuals, Instant lastActivityAt) {
+                                      int mutuals, List<MemberAvatar> mutualMembers,
+                                      Instant lastActivityAt) {
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
@@ -198,8 +211,80 @@ public class CommunityDiscoverService {
                 verified,
                 verifiedKind,
                 mutuals,
+                mutualMembers == null ? List.of() : mutualMembers,
                 lastActivityAt
         );
+    }
+
+    /**
+     * For each candidate group, the first {@link NearbyGroup#MUTUAL_PREVIEW_LIMIT}
+     * mutual emails — i.e. members of the group who also share at
+     * least one group with the viewer. Pure in-memory intersection
+     * (no DB hit); used so {@link #batchProfileLookup} only queries
+     * the emails we'll actually surface.
+     */
+    private static Map<String, List<String>> collectMutualEmailsByGroup(List<Group> groups,
+                                                                       Set<String> mutualSet) {
+        if (groups == null || groups.isEmpty() || mutualSet.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, List<String>> out = new HashMap<>();
+        for (Group g : groups) {
+            if (g.getGroupId() == null || g.getMemberEmails() == null) continue;
+            List<String> picked = new ArrayList<>(NearbyGroup.MUTUAL_PREVIEW_LIMIT);
+            for (String e : g.getMemberEmails()) {
+                if (e == null) continue;
+                String norm = e.toLowerCase();
+                if (!mutualSet.contains(norm)) continue;
+                picked.add(norm);
+                if (picked.size() >= NearbyGroup.MUTUAL_PREVIEW_LIMIT) break;
+            }
+            if (!picked.isEmpty()) out.put(g.getGroupId(), picked);
+        }
+        return out;
+    }
+
+    /**
+     * One batched UserInfo lookup over the union of every group's
+     * mutual-preview emails — keyed by lowercased email. Returns an
+     * empty map (not null) on failure so callers can keep going.
+     */
+    private Map<String, UserInfo> batchProfileLookup(Map<String, List<String>> mutualEmailsByGroup) {
+        if (mutualEmailsByGroup == null || mutualEmailsByGroup.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Set<String> union = new LinkedHashSet<>();
+        for (List<String> emails : mutualEmailsByGroup.values()) {
+            if (emails != null) union.addAll(emails);
+        }
+        if (union.isEmpty()) return Collections.emptyMap();
+        Map<String, UserInfo> out = new HashMap<>();
+        try {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(union))) {
+                if (u.getUserEmail() != null) out.put(u.getUserEmail().toLowerCase(), u);
+            }
+        } catch (Exception e) {
+            log.warn("batchProfileLookup (mutuals) failed: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * Materialize a group's mutual emails into {@link MemberAvatar}s
+     * via the pre-batched profile map. Emails with no UserInfo
+     * record (rare — orphaned membership) are silently dropped so
+     * the FE never has to defend against partial rows.
+     */
+    private static List<MemberAvatar> buildMutualAvatars(List<String> emails,
+                                                         Map<String, UserInfo> profiles) {
+        if (emails == null || emails.isEmpty() || profiles.isEmpty()) return List.of();
+        List<MemberAvatar> out = new ArrayList<>(emails.size());
+        for (String e : emails) {
+            UserInfo u = profiles.get(e);
+            if (u == null) continue;
+            out.add(new MemberAvatar(u.getUserFirstName(), u.getProfileImageURL()));
+        }
+        return out;
     }
 
     /**
