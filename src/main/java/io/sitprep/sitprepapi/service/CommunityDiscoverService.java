@@ -1,10 +1,13 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.NearbyGroup;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.Place;
+import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,10 +40,17 @@ public class CommunityDiscoverService {
     private static final int VERSION = 1;
 
     private final GroupRepo groupRepo;
+    private final UserInfoRepo userInfoRepo;
+    private final GroupPostRepo groupPostRepo;
     private final NominatimGeocodeService geocode;
 
-    public CommunityDiscoverService(GroupRepo groupRepo, NominatimGeocodeService geocode) {
+    public CommunityDiscoverService(GroupRepo groupRepo,
+                                    UserInfoRepo userInfoRepo,
+                                    GroupPostRepo groupPostRepo,
+                                    NominatimGeocodeService geocode) {
         this.groupRepo = groupRepo;
+        this.userInfoRepo = userInfoRepo;
+        this.groupPostRepo = groupPostRepo;
         this.geocode = geocode;
     }
 
@@ -71,17 +81,50 @@ public class CommunityDiscoverService {
                 .filter(g -> isParseable(g.getLatitude()) && isParseable(g.getLongitude()))
                 .toList();
 
-        List<NearbyGroup> withinRadius = new ArrayList<>();
+        // Pre-compute the radius hits before doing any owner / activity
+        // lookups — keeps the batched queries scoped to just the groups
+        // the viewer actually sees, not every public group on the
+        // planet.
+        List<Group> withinRadiusGroups = new ArrayList<>();
+        Map<String, Double> distanceByGroupId = new HashMap<>();
         for (Group g : publicGroups) {
             double gLat = parseOrNaN(g.getLatitude());
             double gLng = parseOrNaN(g.getLongitude());
             double d = haversineKm(lat, lng, gLat, gLng);
             if (d > radiusKm) continue;
-
             boolean viewerIsMember = isViewerInGroup(g, normalizedViewer);
-            if (viewerIsMember && !includeMine) continue; // skip "groups you're already in"
+            if (viewerIsMember && !includeMine) continue;
+            withinRadiusGroups.add(g);
+            if (g.getGroupId() != null) distanceByGroupId.put(g.getGroupId(), d);
+        }
 
-            withinRadius.add(toNearbyGroup(g, d, viewerIsMember));
+        // The viewer's mutual-contact set — every email that shares at
+        // least one group with the viewer (excluding the viewer). One
+        // membership query, one in-memory union. Used to compute the
+        // "N mutual" social signal on every Discover card.
+        Set<String> mutualSet = buildMutualSet(normalizedViewer);
+
+        // Verified-publisher status follows the OWNER's UserInfo, not
+        // the group itself — one batched lookup over the unique owners
+        // of the radius hits.
+        Map<String, UserInfo> ownersByEmail = batchOwnerLookup(withinRadiusGroups);
+
+        // Per-group most-recent-post timestamp — one batched query for
+        // the freshness meta on Discover cards. Mirrors the
+        // lastActivityFor() helper on MeService.
+        Map<String, Instant> latestPostMap = batchLatestPostMap(withinRadiusGroups);
+
+        List<NearbyGroup> withinRadius = new ArrayList<>(withinRadiusGroups.size());
+        for (Group g : withinRadiusGroups) {
+            double d = distanceByGroupId.getOrDefault(g.getGroupId(), 0.0);
+            boolean viewerIsMember = isViewerInGroup(g, normalizedViewer);
+            UserInfo owner = g.getOwnerEmail() == null ? null
+                    : ownersByEmail.get(g.getOwnerEmail().toLowerCase());
+            boolean verified = owner != null && owner.isVerifiedPublisher();
+            String verifiedKind = verified ? owner.getVerifiedPublisherKind() : null;
+            int mutuals = countMutuals(g, mutualSet);
+            Instant activity = lastActivityFor(g, latestPostMap);
+            withinRadius.add(toNearbyGroup(g, d, viewerIsMember, verified, verifiedKind, mutuals, activity));
         }
 
         withinRadius.sort(Comparator.comparingDouble(NearbyGroup::distanceKm));
@@ -132,7 +175,9 @@ public class CommunityDiscoverService {
         }
     }
 
-    private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember) {
+    private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember,
+                                      boolean verified, String verifiedKind,
+                                      int mutuals, Instant lastActivityAt) {
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
@@ -149,8 +194,118 @@ public class CommunityDiscoverService {
                 g.getZipCode(),
                 g.getAlert(),
                 g.getPrivacy(),
-                viewerIsMember
+                viewerIsMember,
+                verified,
+                verifiedKind,
+                mutuals,
+                lastActivityAt
         );
+    }
+
+    /**
+     * Every email that shares at least one group with {@code viewer}
+     * (viewer's own email excluded). Single pass over the viewer's
+     * memberships — each Group's memberEmails is EAGER-loaded so this
+     * is one DB call + one in-memory union.
+     */
+    private Set<String> buildMutualSet(String viewer) {
+        if (viewer == null) return Collections.emptySet();
+        List<Group> viewersGroups;
+        try {
+            viewersGroups = groupRepo.findByMemberEmail(viewer);
+        } catch (Exception e) {
+            log.warn("buildMutualSet failed for {}: {}", viewer, e.getMessage());
+            return Collections.emptySet();
+        }
+        if (viewersGroups == null || viewersGroups.isEmpty()) return Collections.emptySet();
+        Set<String> out = new HashSet<>();
+        for (Group g : viewersGroups) {
+            if (g.getMemberEmails() == null) continue;
+            for (String e : g.getMemberEmails()) {
+                if (e == null) continue;
+                String norm = e.toLowerCase();
+                if (norm.equals(viewer)) continue;
+                out.add(norm);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Batched owner lookup over the unique owner emails of the radius
+     * hits. Result map is keyed by lowercased email. Returns an empty
+     * map (not null) on any failure so callers can keep going.
+     */
+    private Map<String, UserInfo> batchOwnerLookup(List<Group> groups) {
+        if (groups == null || groups.isEmpty()) return Collections.emptyMap();
+        Set<String> emails = new LinkedHashSet<>();
+        for (Group g : groups) {
+            if (g.getOwnerEmail() != null && !g.getOwnerEmail().isBlank()) {
+                emails.add(g.getOwnerEmail().toLowerCase());
+            }
+        }
+        if (emails.isEmpty()) return Collections.emptyMap();
+        Map<String, UserInfo> out = new HashMap<>();
+        try {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))) {
+                if (u.getUserEmail() != null) out.put(u.getUserEmail().toLowerCase(), u);
+            }
+        } catch (Exception e) {
+            log.warn("batchOwnerLookup failed: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * One batched MAX(timestamp) query across every radius hit. Groups
+     * with no posts simply don't show up in the map and fall back to
+     * Group.updatedAt in {@link #lastActivityFor}.
+     */
+    private Map<String, Instant> batchLatestPostMap(List<Group> groups) {
+        if (groups == null || groups.isEmpty()) return Collections.emptyMap();
+        List<String> ids = new ArrayList<>();
+        for (Group g : groups) if (g.getGroupId() != null) ids.add(g.getGroupId());
+        if (ids.isEmpty()) return Collections.emptyMap();
+        Map<String, Instant> out = new HashMap<>();
+        try {
+            for (var p : groupPostRepo.findLatestPostsByGroupIds(ids)) {
+                if (p.getGroupId() == null || p.getTimestamp() == null) continue;
+                Instant cur = out.get(p.getGroupId());
+                if (cur == null || p.getTimestamp().isAfter(cur)) {
+                    out.put(p.getGroupId(), p.getTimestamp());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("batchLatestPostMap failed: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * How many of {@code g}'s members are in the viewer's mutual set.
+     * Set lookups are O(1), so even a 200-member group is a 200-step
+     * loop with no DB hits.
+     */
+    private static int countMutuals(Group g, Set<String> mutualSet) {
+        if (mutualSet.isEmpty() || g.getMemberEmails() == null) return 0;
+        int n = 0;
+        for (String e : g.getMemberEmails()) {
+            if (e != null && mutualSet.contains(e.toLowerCase())) n++;
+        }
+        return n;
+    }
+
+    /**
+     * Most-recent activity instant: latest post → updatedAt →
+     * createdAt → now. Mirrors MeService.lastActivityFor() so the
+     * Discover and My-circles surfaces speak the same dialect.
+     */
+    private static Instant lastActivityFor(Group g, Map<String, Instant> latestPostMap) {
+        Instant post = g.getGroupId() == null ? null : latestPostMap.get(g.getGroupId());
+        if (post != null) return post;
+        if (g.getUpdatedAt() != null) return g.getUpdatedAt();
+        if (g.getCreatedAt() != null) return g.getCreatedAt();
+        return Instant.now();
     }
 
     /** Haversine — units in km. lat/lng in decimal degrees. */
