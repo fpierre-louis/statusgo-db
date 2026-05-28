@@ -202,7 +202,18 @@ public record MeDto(
              * Quiet filter chip. Falls back to createdAt at worst, so
              * never null on the wire.
              */
-            Instant lastActivityAt
+            Instant lastActivityAt,
+            /**
+             * Viewer's current notification-mute deadline for this
+             * circle, or null when not muted. A far-future sentinel
+             * (year 9999) means "muted indefinitely until I turn it
+             * back on" — the FE renders that as "Muted" without a
+             * deadline rather than "Muted until 9999-12-31".
+             * Populated from {@code GroupMutePref}; absent rows read
+             * as null. Past timestamps also surface as null (already
+             * expired); enforcement uses the same check at dispatch.
+             */
+            Instant mutedUntil
     ) {}
 
     /** A single member's avatar for the circle-card member stack. */

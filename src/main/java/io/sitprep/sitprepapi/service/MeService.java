@@ -52,6 +52,7 @@ public class MeService {
     private final io.sitprep.sitprepapi.repo.PostRepo postRepo;
     private final io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
     private final io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo;
+    private final io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -67,6 +68,7 @@ public class MeService {
             io.sitprep.sitprepapi.repo.PostRepo postRepo,
             io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo,
             io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo,
+            io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -81,6 +83,7 @@ public class MeService {
         this.postRepo = postRepo;
         this.groupReadStateRepo = groupReadStateRepo;
         this.groupPostRepo = groupPostRepo;
+        this.groupMutePrefRepo = groupMutePrefRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -206,6 +209,20 @@ public class MeService {
             }
         }
 
+        // Per-(user,group) mute deadline. Same one-query-then-in-memory
+        // pattern. Past deadlines are filtered out at populate time so
+        // the wire shape only carries deadlines the FE should treat as
+        // active mutes.
+        java.util.Map<String, java.time.Instant> muteMap = new java.util.HashMap<>();
+        if (email != null && !email.isBlank()) {
+            java.time.Instant now = java.time.Instant.now();
+            for (var m : groupMutePrefRepo.findByUserEmailIgnoreCase(email)) {
+                if (m.getGroupId() == null || m.getMutedUntil() == null) continue;
+                if (m.getMutedUntil().isBefore(now)) continue;
+                muteMap.put(m.getGroupId(), m.getMutedUntil());
+            }
+        }
+
         // Per-group most-recent-post timestamp for the "Active vs Quiet"
         // freshness meta. ONE batched query across every group the user
         // belongs to; groups with no posts yet stay out of the map and
@@ -238,7 +255,7 @@ public class MeService {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -454,7 +471,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -476,7 +493,8 @@ public class MeService {
                 g.getUpdatedAt(),
                 previewFor(g, profiles),
                 unreadCountFor(g, readMap),
-                lastActivityFor(g, latestPostMap)
+                lastActivityFor(g, latestPostMap),
+                g.getGroupId() == null ? null : muteMap.get(g.getGroupId())
         );
     }
 

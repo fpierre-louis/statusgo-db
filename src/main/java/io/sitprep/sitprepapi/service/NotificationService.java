@@ -48,17 +48,20 @@ public class NotificationService {
     private final NotificationLogRepo notificationLogRepo;
     private final WebSocketPresenceService presenceService;
     private final PushPolicyService pushPolicyService;
+    private final GroupMuteService groupMuteService;
 
     public NotificationService(WebSocketMessageSender webSocketMessageSender,
                                UserInfoRepo userInfoRepo,
                                NotificationLogRepo notificationLogRepo,
                                WebSocketPresenceService presenceService,
-                               PushPolicyService pushPolicyService) {
+                               PushPolicyService pushPolicyService,
+                               GroupMuteService groupMuteService) {
         this.webSocketMessageSender = webSocketMessageSender;
         this.userInfoRepo = userInfoRepo;
         this.notificationLogRepo = notificationLogRepo;
         this.presenceService = presenceService;
         this.pushPolicyService = pushPolicyService;
+        this.groupMuteService = groupMuteService;
     }
 
     /**
@@ -233,6 +236,57 @@ public class NotificationService {
                                      String targetUrl,
                                      String additionalData,
                                      String recipientFcmTokenOrNull) {
+        deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, /* categoryOverride */ null);
+    }
+
+    /**
+     * Group-scoped variant. Identical to {@link #deliverPresenceAware}
+     * but consults {@link GroupMuteService#isMuted} against
+     * {@code groupIdForMuteCheck} first — if the viewer has muted
+     * the group, FCM + the STOMP banner are skipped and we write a
+     * Lane-B-style "silent inbox" log row instead so the missed
+     * message is recoverable on unmute. Mute is the user's signal
+     * "stop pushing me", not "make this disappear."
+     *
+     * <p>Callers should be the ones that own a real {@code groupId}
+     * (group post fan-out, group alert flip, group check-in). Other
+     * notification types should keep using the legacy
+     * {@link #deliverPresenceAware} method — the mute check would
+     * mis-fire if {@code referenceId} carries something other than
+     * a group id (e.g. activation id, comment id).</p>
+     */
+    public void deliverPresenceAwareForGroup(String recipientEmail,
+                                             String title,
+                                             String body,
+                                             String senderName,
+                                             String iconUrl,
+                                             String notificationType,
+                                             String referenceId,
+                                             String targetUrl,
+                                             String additionalData,
+                                             String recipientFcmTokenOrNull,
+                                             String groupIdForMuteCheck) {
+        if (groupIdForMuteCheck != null
+                && !groupIdForMuteCheck.isBlank()
+                && groupMuteService.isMuted(recipientEmail, groupIdForMuteCheck)) {
+            // Inbox row stays so the user can review what they missed
+            // when they unmute + open the bell. Errors are swallowed —
+            // a logging hiccup mustn't block the dispatch loop for
+            // other recipients.
+            try {
+                saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
+                        title, body, referenceId, targetUrl,
+                        /* success */ false,
+                        /* error */ "Muted by recipient (group=" + groupIdForMuteCheck + ")",
+                        Lane.B, mapTypeToCategory(notificationType));
+            } catch (Exception e) {
+                logger.warn("Mute-path log write failed for {} group={}: {}",
+                        recipientEmail, groupIdForMuteCheck, e.getMessage());
+            }
+            return;
+        }
         deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,
                 recipientFcmTokenOrNull, /* categoryOverride */ null);

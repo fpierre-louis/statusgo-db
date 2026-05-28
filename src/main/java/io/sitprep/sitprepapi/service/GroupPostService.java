@@ -387,10 +387,15 @@ public class GroupPostService {
 
             List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
             for (UserInfo user : users) {
-                notificationService.deliverPresenceAware(
+                // Mute-aware variant: when the recipient has muted
+                // this circle, FCM + STOMP banner are skipped (an
+                // inbox row is still written so missed messages are
+                // visible after unmute).
+                notificationService.deliverPresenceAwareForGroup(
                         user.getUserEmail(), title, body, authorFirst, authorProfile,
                         "post_notification", post.getGroupId(), targetUrl, String.valueOf(post.getId()),
-                        user.getFcmtoken()
+                        user.getFcmtoken(),
+                        post.getGroupId()
                 );
             }
 

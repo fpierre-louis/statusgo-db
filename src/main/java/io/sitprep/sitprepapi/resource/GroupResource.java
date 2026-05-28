@@ -43,6 +43,9 @@ public class GroupResource {
     @Autowired
     private io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
 
+    @Autowired
+    private io.sitprep.sitprepapi.service.GroupMuteService groupMuteService;
+
     @GetMapping("/admin")
     public List<Group> getGroupsByAdminEmail() {
         AuthUtils.requireAuthenticatedEmail();
@@ -278,6 +281,55 @@ public class GroupResource {
         s.setLastReadAt(java.time.Instant.now());
         groupReadStateRepo.save(s);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Read the viewer's mute pref for this circle. Returns
+     * {@code {mutedUntil: "ISO-8601" | null}}; an absent pref reads
+     * as {@code mutedUntil: null} so the FE doesn't have to handle a
+     * 404 separately. Used by the long-press Mute sheet to seed its
+     * current-state line ("Muted for 3 more hours").
+     */
+    @GetMapping("/{groupId}/mute")
+    public ResponseEntity<java.util.Map<String, Object>> getGroupMute(@PathVariable String groupId) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        java.time.Instant until = groupMuteService.getMute(email, groupId)
+                .map(io.sitprep.sitprepapi.domain.GroupMutePref::getMutedUntil)
+                .orElse(null);
+        return ResponseEntity.ok(java.util.Collections.singletonMap("mutedUntil", until));
+    }
+
+    /**
+     * Upsert the viewer's mute pref for this circle. Body shape:
+     * {@code {"mutedUntil": "ISO-8601"}} for a deadline,
+     * {@code {"mutedUntil": "indefinite"}} for "until I turn it
+     * back on" (resolves to {@link io.sitprep.sitprepapi.service.GroupMuteService#INDEFINITE}),
+     * or {@code {"mutedUntil": null}} to clear. The MeDto's
+     * {@code groups.mutedUntil} surfaces the result so other surfaces
+     * (card bell, long-press subtitle) update on next /me hit.
+     */
+    @PutMapping("/{groupId}/mute")
+    public ResponseEntity<java.util.Map<String, Object>> setGroupMute(
+            @PathVariable String groupId,
+            @RequestBody(required = false) java.util.Map<String, Object> body
+    ) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        Object raw = body == null ? null : body.get("mutedUntil");
+        java.time.Instant until = null;
+        if (raw instanceof String s) {
+            String trimmed = s.trim();
+            if (trimmed.equalsIgnoreCase("indefinite")) {
+                until = io.sitprep.sitprepapi.service.GroupMuteService.INDEFINITE;
+            } else if (!trimmed.isEmpty()) {
+                try {
+                    until = java.time.Instant.parse(trimmed);
+                } catch (java.time.format.DateTimeParseException e) {
+                    return ResponseEntity.badRequest().build();
+                }
+            }
+        }
+        var pref = groupMuteService.setMute(email, groupId, until);
+        return ResponseEntity.ok(java.util.Collections.singletonMap("mutedUntil", pref.getMutedUntil()));
     }
 
     /**
