@@ -213,7 +213,27 @@ public record MeDto(
              * as null. Past timestamps also surface as null (already
              * expired); enforcement uses the same check at dispatch.
              */
-            Instant mutedUntil
+            Instant mutedUntil,
+            /**
+             * Daily quiet-hours window start, minutes from midnight
+             * in {@link #quietTimezone} (0..1439). Null when the
+             * window isn't configured. {@code quietStart > quietEnd}
+             * means the window crosses midnight (e.g. 22:00→07:00
+             * stores as 1320/420). Quiet hours and mute coexist;
+             * dispatch is suppressed when either is active.
+             */
+            Integer quietStart,
+            /** Daily quiet-hours window end. Same units as {@link #quietStart}. */
+            Integer quietEnd,
+            /**
+             * IANA timezone for {@link #quietStart} / {@link #quietEnd}
+             * (e.g. {@code "America/New_York"}). Null when the window
+             * isn't configured. The FE captures this from
+             * {@code Intl.DateTimeFormat().resolvedOptions().timeZone}
+             * on save so the window follows the user when they travel
+             * without a re-save.
+             */
+            String quietTimezone
     ) {}
 
     /** A single member's avatar for the circle-card member stack. */

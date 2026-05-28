@@ -60,6 +60,37 @@ public class GroupMutePref {
     @Column(name = "muted_until")
     private Instant mutedUntil;
 
+    /**
+     * Daily quiet-hours window — start, expressed as minutes from
+     * midnight in {@link #quietTimezone} (0..1439). Null when not
+     * set. The window is inclusive on the start, exclusive on the
+     * end; {@code quietStart > quietEnd} means the window crosses
+     * midnight (e.g. 22:00→07:00 stores as start=1320, end=420).
+     *
+     * <p>Quiet hours is additive to {@link #mutedUntil}: dispatch
+     * is suppressed when EITHER is active. Mute is the manual
+     * "stop pushing me", quiet hours is the recurring "not during
+     * these times" — both can be set independently and persist
+     * together.</p>
+     */
+    @Column(name = "quiet_start")
+    private Integer quietStart;
+
+    /** Daily quiet-hours window end. Same units as {@link #quietStart}. */
+    @Column(name = "quiet_end")
+    private Integer quietEnd;
+
+    /**
+     * IANA timezone in which {@link #quietStart} / {@link #quietEnd}
+     * are interpreted (e.g. {@code "America/New_York"}). Captured on
+     * the client at save time via
+     * {@code Intl.DateTimeFormat().resolvedOptions().timeZone} so the
+     * window follows the user as they travel without re-saving.
+     * Falls back to UTC at enforcement time when null or unparseable.
+     */
+    @Column(name = "quiet_timezone", length = 64)
+    private String quietTimezone;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 }

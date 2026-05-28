@@ -209,15 +209,19 @@ public class MeService {
             }
         }
 
-        // Per-(user,group) mute deadline. Same one-query-then-in-memory
-        // pattern. Past deadlines are filtered out at populate time so
-        // the wire shape only carries deadlines the FE should treat as
-        // active mutes.
+        // Per-(user,group) mute + quiet-hours pref. Same one-query-
+        // then-in-memory pattern. Past mute deadlines are filtered
+        // out at populate time so the wire only carries deadlines
+        // the FE should treat as active. Quiet-hours fields are
+        // carried verbatim — enforcement decides at dispatch time.
         java.util.Map<String, java.time.Instant> muteMap = new java.util.HashMap<>();
+        java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap = new java.util.HashMap<>();
         if (email != null && !email.isBlank()) {
             java.time.Instant now = java.time.Instant.now();
             for (var m : groupMutePrefRepo.findByUserEmailIgnoreCase(email)) {
-                if (m.getGroupId() == null || m.getMutedUntil() == null) continue;
+                if (m.getGroupId() == null) continue;
+                prefMap.put(m.getGroupId(), m);
+                if (m.getMutedUntil() == null) continue;
                 if (m.getMutedUntil().isBefore(now)) continue;
                 muteMap.put(m.getGroupId(), m.getMutedUntil());
             }
@@ -255,7 +259,7 @@ public class MeService {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -471,7 +475,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -481,6 +485,8 @@ public class MeService {
         // builders above).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
         int pendingCount = g.getPendingMemberEmails() == null ? 0 : g.getPendingMemberEmails().size();
+        io.sitprep.sitprepapi.domain.GroupMutePref pref =
+                g.getGroupId() == null ? null : prefMap.get(g.getGroupId());
         return new GroupSummary(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -494,7 +500,10 @@ public class MeService {
                 previewFor(g, profiles),
                 unreadCountFor(g, readMap),
                 lastActivityFor(g, latestPostMap),
-                g.getGroupId() == null ? null : muteMap.get(g.getGroupId())
+                g.getGroupId() == null ? null : muteMap.get(g.getGroupId()),
+                pref == null ? null : pref.getQuietStart(),
+                pref == null ? null : pref.getQuietEnd(),
+                pref == null ? null : pref.getQuietTimezone()
         );
     }
 

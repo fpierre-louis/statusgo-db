@@ -268,24 +268,30 @@ public class NotificationService {
                                              String additionalData,
                                              String recipientFcmTokenOrNull,
                                              String groupIdForMuteCheck) {
-        if (groupIdForMuteCheck != null
-                && !groupIdForMuteCheck.isBlank()
-                && groupMuteService.isMuted(recipientEmail, groupIdForMuteCheck)) {
-            // Inbox row stays so the user can review what they missed
-            // when they unmute + open the bell. Errors are swallowed —
-            // a logging hiccup mustn't block the dispatch loop for
-            // other recipients.
-            try {
-                saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
-                        title, body, referenceId, targetUrl,
-                        /* success */ false,
-                        /* error */ "Muted by recipient (group=" + groupIdForMuteCheck + ")",
-                        Lane.B, mapTypeToCategory(notificationType));
-            } catch (Exception e) {
-                logger.warn("Mute-path log write failed for {} group={}: {}",
-                        recipientEmail, groupIdForMuteCheck, e.getMessage());
+        if (groupIdForMuteCheck != null && !groupIdForMuteCheck.isBlank()) {
+            boolean muted = groupMuteService.isMuted(recipientEmail, groupIdForMuteCheck);
+            boolean quiet = !muted && groupMuteService.isInQuietHours(recipientEmail, groupIdForMuteCheck);
+            if (muted || quiet) {
+                // Inbox row stays so the user can review what they
+                // missed when the suppression clears (mute deadline
+                // passes, or quiet-hours window ends). Errors are
+                // swallowed — a logging hiccup mustn't block the
+                // dispatch loop for other recipients.
+                String reason = muted
+                        ? "Muted by recipient (group=" + groupIdForMuteCheck + ")"
+                        : "Quiet hours active (group=" + groupIdForMuteCheck + ")";
+                try {
+                    saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
+                            title, body, referenceId, targetUrl,
+                            /* success */ false,
+                            /* error */ reason,
+                            Lane.B, mapTypeToCategory(notificationType));
+                } catch (Exception e) {
+                    logger.warn("Suppression-path log write failed for {} group={}: {}",
+                            recipientEmail, groupIdForMuteCheck, e.getMessage());
+                }
+                return;
             }
-            return;
         }
         deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,

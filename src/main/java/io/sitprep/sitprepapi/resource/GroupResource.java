@@ -333,6 +333,57 @@ public class GroupResource {
     }
 
     /**
+     * Upsert the viewer's daily quiet-hours window for this circle.
+     * Body shape:
+     * <pre>
+     *   { "start": 1320, "end": 420, "timezone": "America/New_York" }
+     *   { "start": null, "end": null }    // clears the window
+     * </pre>
+     * {@code start} / {@code end} are minutes from midnight in the
+     * supplied timezone (0..1439). {@code start > end} means the
+     * window crosses midnight (22:00→07:00). Returns the saved
+     * pref's window + timezone so the FE can reconcile without a
+     * second fetch.
+     */
+    @PutMapping("/{groupId}/quiet-hours")
+    public ResponseEntity<java.util.Map<String, Object>> setGroupQuietHours(
+            @PathVariable String groupId,
+            @RequestBody(required = false) java.util.Map<String, Object> body
+    ) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        Integer start = readMinute(body, "start");
+        Integer end = readMinute(body, "end");
+        Object tzRaw = body == null ? null : body.get("timezone");
+        String tz = tzRaw instanceof String s ? s.trim() : null;
+        try {
+            var pref = groupMuteService.setQuietHours(email, groupId, start, end, tz);
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            out.put("quietStart", pref.getQuietStart());
+            out.put("quietEnd", pref.getQuietEnd());
+            out.put("quietTimezone", pref.getQuietTimezone());
+            return ResponseEntity.ok(out);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
+     * Pull a 0..1439 minute value from a loose JSON body, accepting
+     * either a Number ({@code 1320}) or a String ({@code "1320"}).
+     * Returns null when the key is absent or the value is null.
+     */
+    private static Integer readMinute(java.util.Map<String, Object> body, String key) {
+        if (body == null) return null;
+        Object raw = body.get(key);
+        if (raw == null) return null;
+        if (raw instanceof Number n) return n.intValue();
+        if (raw instanceof String s && !s.isBlank()) {
+            try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { /* fall through */ }
+        }
+        return null;
+    }
+
+    /**
      * Set or clear the group's custom logo — Phase 4 of
      * docs/BUSINESS_MODEL.md ("co-branded page"). Admin or owner only.
      * Body: {@code {"logoImageUrl": "https://…"}}; a null / blank value
