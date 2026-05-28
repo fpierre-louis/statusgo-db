@@ -80,6 +80,14 @@ public class GroupViewService {
                 .map(p -> toPostSummary(p, byEmail))
                 .toList();
 
+        // Pinned posts are fetched separately so the FE can render
+        // them in a dedicated section regardless of how far back they
+        // were pinned. Bounded cardinality (admins pin 0-3 per group)
+        // so this stays a single small query.
+        List<GroupPostSummaryDto> pinnedPosts = postRepo.findPinnedByGroupId(g.getGroupId()).stream()
+                .map(p -> toPostSummary(p, byEmail))
+                .toList();
+
         return new GroupMemberViewDto(
                 toGroupInfo(g),
                 resolveViewerRole(g, viewerEmail),
@@ -87,6 +95,7 @@ public class GroupViewService {
                 manualMembers,
                 accompaniments,
                 recentPosts,
+                pinnedPosts,
                 new MetaDto(Instant.now(), DTO_VERSION)
         );
     }
@@ -189,6 +198,8 @@ public class GroupViewService {
         }
         dto.setContent(p.getContent());
         dto.setTimestamp(p.getTimestamp());
+        dto.setPinnedAt(p.getPinnedAt());
+        dto.setPinnedBy(p.getPinnedBy());
         return dto;
     }
 

@@ -19,6 +19,15 @@ public record GroupMemberViewDto(
          */
         List<HouseholdAccompanimentDto> accompaniments,
         List<GroupPostSummaryDto> recentPosts,
+        /**
+         * Posts pinned to the top of this group's feed, newest-pin
+         * first. Empty list when nothing is pinned — never null. A
+         * pinned post may also appear in {@link #recentPosts} if it's
+         * recent enough to fall inside the recent-posts limit; the FE
+         * de-dupes by id so the inline feed doesn't double-render it.
+         * Cardinality is small in practice (admins typically pin 0-3).
+         */
+        List<GroupPostSummaryDto> pinnedPosts,
         MetaDto meta
 ) {
 
