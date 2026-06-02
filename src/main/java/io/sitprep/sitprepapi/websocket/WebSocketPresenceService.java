@@ -87,6 +87,13 @@ public class WebSocketPresenceService {
         return key == null ? 0 : emailCounts.getOrDefault(key, 0);
     }
 
+    /** Resolve the lower-cased email associated with a STOMP session. */
+    public String getEmailForSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return null;
+        PresenceInfo info = sessions.get(sessionId);
+        return info == null ? null : info.email;
+    }
+
     /** Snapshot of all sessions. */
     public Map<String, PresenceInfo> snapshot() {
         return Map.copyOf(sessions);

@@ -42,7 +42,7 @@ public class GroupResource {
     private GroupService groupService;
 
     @Autowired
-    private io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
+    private io.sitprep.sitprepapi.service.GroupPostReadReceiptService groupPostReadReceiptService;
 
     @Autowired
     private io.sitprep.sitprepapi.service.GroupMuteService groupMuteService;
@@ -284,16 +284,7 @@ public class GroupResource {
     @PostMapping("/{groupId}/read")
     public ResponseEntity<Void> markGroupRead(@PathVariable String groupId) {
         String email = AuthUtils.requireAuthenticatedEmail();
-        io.sitprep.sitprepapi.domain.GroupReadState s = groupReadStateRepo
-                .findByUserEmailIgnoreCaseAndGroupId(email, groupId)
-                .orElseGet(() -> {
-                    var ns = new io.sitprep.sitprepapi.domain.GroupReadState();
-                    ns.setUserEmail(email);
-                    ns.setGroupId(groupId);
-                    return ns;
-                });
-        s.setLastReadAt(java.time.Instant.now());
-        groupReadStateRepo.save(s);
+        groupPostReadReceiptService.markGroupRead(groupId, email);
         return ResponseEntity.noContent().build();
     }
 

@@ -65,6 +65,16 @@ public class WebSocketMessageSender {
         messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, frame);
     }
 
+    /**
+     * Broadcast delivered/read/closed chat receipt frames. Uses the same
+     * topic as group posts and carries {@code type:"receipt"} so list
+     * subscribers can merge it without another subscription.
+     */
+    public void sendGroupPostReceipt(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, dto);
+    }
+
     // --- Comments ---
     public void sendNewGroupPostComment(Long postId, GroupPostCommentDto dto) {
         messagingTemplate.convertAndSend("/topic/group-post-comments/" + postId, dto);

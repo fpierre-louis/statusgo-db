@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.GroupPost;
+import io.sitprep.sitprepapi.domain.GroupReadState;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostPageDto;
@@ -10,6 +11,7 @@ import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
+import io.sitprep.sitprepapi.repo.GroupReadStateRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 
@@ -45,18 +47,24 @@ public class GroupPostService {
     private final NotificationService notificationService;
     private final WebSocketMessageSender webSocketMessageSender;
     private final GroupPostReactionService reactionService;
+    private final GroupReadStateRepo groupReadStateRepo;
+    private final GroupPostThreadPresenceService threadPresenceService;
 
     @Autowired
     public GroupPostService(GroupPostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
                        NotificationService notificationService,
                        WebSocketMessageSender webSocketMessageSender,
-                       GroupPostReactionService reactionService) {
+                       GroupPostReactionService reactionService,
+                       GroupReadStateRepo groupReadStateRepo,
+                       GroupPostThreadPresenceService threadPresenceService) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
         this.webSocketMessageSender = webSocketMessageSender;
         this.reactionService = reactionService;
+        this.groupReadStateRepo = groupReadStateRepo;
+        this.threadPresenceService = threadPresenceService;
     }
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
@@ -80,6 +88,13 @@ public class GroupPostService {
 
         GroupPost savedPost = postRepo.save(post);
         GroupPostDto savedDto = convertToPostDto(savedPost);
+        savedDto.setTempId(postDto.getTempId());
+        int deliveredCount = threadPresenceService.openRecipientCount(
+                savedPost.getGroupId(), savedPost.getAuthor());
+        if (deliveredCount > 0) {
+            savedDto.setDeliveredCount(deliveredCount);
+            savedDto.setDeliveredAt(Instant.now());
+        }
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
@@ -182,6 +197,7 @@ public class GroupPostService {
 
         List<GroupPostDto> out = new ArrayList<>(rows.size());
         for (GroupPost p : rows) out.add(convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())));
+        applyReadReceipts(out, groupId);
         return out;
     }
 
@@ -207,7 +223,7 @@ public class GroupPostService {
         Map<Long, Map<String, List<EmojiReactionDto>>> reactionsByPost =
                 reactionService.loadByPostIds(posts.stream().map(GroupPost::getId).toList());
 
-        return posts.stream()
+        List<GroupPostDto> out = posts.stream()
                 .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
                 // Sort pinned posts first (by pinnedAt DESC so a recent
                 // pin reads above older pins), then everything else by
@@ -231,6 +247,8 @@ public class GroupPostService {
                     return b.getTimestamp().compareTo(a.getTimestamp());
                 })
                 .toList();
+        applyReadReceipts(out, groupId);
+        return out;
     }
 
     /**
@@ -313,6 +331,8 @@ public class GroupPostService {
         List<GroupPostDto> unpinnedDtos = unpinned.stream()
                 .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
                 .toList();
+        applyReadReceipts(pinnedDtos, groupId);
+        applyReadReceipts(unpinnedDtos, groupId);
 
         return new GroupPostPageDto(pinnedDtos, unpinnedDtos, nextBefore, hasMore);
     }
@@ -320,7 +340,13 @@ public class GroupPostService {
     public Optional<GroupPost> getPostById(Long id) { return postRepo.findById(id); }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Optional<GroupPostDto> getPostDtoById(Long id) { return postRepo.findById(id).map(this::convertToPostDto); }
+    public Optional<GroupPostDto> getPostDtoById(Long id) {
+        return postRepo.findById(id).map(post -> {
+            GroupPostDto dto = convertToPostDto(post);
+            applyReadReceipts(List.of(dto), post.getGroupId());
+            return dto;
+        });
+    }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
@@ -456,6 +482,32 @@ public class GroupPostService {
                     dto.setPinnedByFirstName(u.getUserFirstName()));
         }
         return dto;
+    }
+
+    private void applyReadReceipts(List<GroupPostDto> posts, String groupId) {
+        if (posts == null || posts.isEmpty() || groupId == null || groupId.isBlank()) return;
+        List<GroupReadState> states = groupReadStateRepo.findByGroupId(groupId);
+        if (states.isEmpty()) return;
+
+        for (GroupPostDto post : posts) {
+            if (post.getTimestamp() == null) continue;
+            Instant latest = null;
+            int count = 0;
+            for (GroupReadState state : states) {
+                if (state.getLastReadAt() == null || state.getUserEmail() == null) continue;
+                if (post.getAuthor() != null && state.getUserEmail().equalsIgnoreCase(post.getAuthor())) {
+                    continue;
+                }
+                if (!state.getLastReadAt().isBefore(post.getTimestamp())) {
+                    count++;
+                    if (latest == null || state.getLastReadAt().isAfter(latest)) {
+                        latest = state.getLastReadAt();
+                    }
+                }
+            }
+            post.setReadCount(count);
+            post.setReadAt(latest);
+        }
     }
 
     /**

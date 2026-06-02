@@ -2,7 +2,6 @@ package io.sitprep.sitprepapi.controller;
 
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.service.GroupPostService;
-import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -16,9 +15,6 @@ public class GroupPostWebSocketController {
     @Autowired
     private GroupPostService postService;
 
-    @Autowired
-    private WebSocketMessageSender wsSender;
-
     @MessageMapping("/group-post")
     public void handleNewPost(GroupPostDto postDto,
                               @Header(name = "email", required = false) String emailHeader) {
@@ -30,17 +26,7 @@ public class GroupPostWebSocketController {
                 postDto.setTimestamp(Instant.now());
             }
 
-            // Persist and get real id
-            GroupPostDto saved = postService.createPostFromDto(postDto, author);
-
-            // Preserve tempId for optimistic replacement
-            saved.setTempId(postDto.getTempId());
-
-            if (saved.getGroupId() != null) {
-                wsSender.sendNewGroupPost(saved.getGroupId(), saved);
-            } else {
-                wsSender.sendGenericUpdate("posts", saved);
-            }
+            postService.createPostFromDto(postDto, author);
         } catch (Exception e) {
             System.err.println("❌ Error saving post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();

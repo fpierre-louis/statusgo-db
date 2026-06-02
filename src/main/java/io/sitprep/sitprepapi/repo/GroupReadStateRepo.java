@@ -20,4 +20,10 @@ public interface GroupReadStateRepo extends JpaRepository<GroupReadState, Long> 
      * mark-read endpoint to upsert.
      */
     Optional<GroupReadState> findByUserEmailIgnoreCaseAndGroupId(String userEmail, String groupId);
+
+    /**
+     * Group-wide read pointers used to hydrate per-message read receipts
+     * in the chat feed without one query per post.
+     */
+    List<GroupReadState> findByGroupId(String groupId);
 }

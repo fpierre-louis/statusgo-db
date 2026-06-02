@@ -74,4 +74,16 @@ public class GroupPostDto {
      * legacy row) — the FE falls back to "📌 Pinned".
      */
     private String pinnedByFirstName;
+
+    /** Number of non-author group members whose chat topic had this post delivered. */
+    private int deliveredCount;
+
+    /** Latest delivery moment known to the server for this post. */
+    private Instant deliveredAt;
+
+    /** Number of non-author group members whose read pointer covers this post. */
+    private int readCount;
+
+    /** Latest read moment known to the server for this post. */
+    private Instant readAt;
 }
