@@ -196,7 +196,7 @@ public class PushPolicyService {
                  GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG,
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
-                 CHECK_IN_REQUEST -> Lane.A;
+                 CHECK_IN_REQUEST, CHECK_IN_REVIEW -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -216,7 +216,7 @@ public class PushPolicyService {
             // A check-in request rides the same user preference as group
             // alerts — if a user muted group alerts, they've opted out of
             // group-initiated pings generally, check-in requests included.
-            case CHECK_IN_REQUEST -> p.isGroupAlerts();
+            case CHECK_IN_REQUEST, CHECK_IN_REVIEW -> p.isGroupAlerts();
             case PLAN_ACTIVATION_RECEIVED -> p.isPlanActivations();
             case ACTIVATION_ACK -> p.isActivationAcks();
             case TASK_ASSIGNED -> p.isTaskAssignments();
@@ -307,6 +307,14 @@ public class PushPolicyService {
          * the whole point is to prompt a status update.
          */
         CHECK_IN_REQUEST,
+        /**
+         * Operational prompts for admins/owners during or after an active
+         * check-in window: review who has checked in, decide whether to keep
+         * going, or close it out. Lane A because it is actionable for the
+         * people responsible for the check-in, but not in the critical-bypass
+         * list because it should respect quiet hours.
+         */
+        CHECK_IN_REVIEW,
 
         // Lane B — silent inbox
         NWS_MINOR,

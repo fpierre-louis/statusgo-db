@@ -84,13 +84,14 @@ public class NotificationService {
             // via the overload to opt into critical-bypass quiet hours.
             case "alert", "group_status" -> Category.GROUP_ALERT_ORG;
             case "post_notification", "post_mention" -> Category.MENTION;
-            case "comment_on_post" -> Category.COMMENT_REPLY;
+            case "comment_on_post", "comment_on_task" -> Category.COMMENT_REPLY;
             case "new_member" -> Category.NEW_MEMBER;
             case "pending_member" -> Category.PENDING_MEMBER_REQUEST;
             case "task_assigned" -> Category.TASK_ASSIGNED;
             case "plan_activation" -> Category.PLAN_ACTIVATION_RECEIVED;
             case "activation_ack" -> Category.ACTIVATION_ACK;
             case "check_in_request" -> Category.CHECK_IN_REQUEST;
+            case "checkin_reminder", "checkin_auto_ended" -> Category.CHECK_IN_REVIEW;
             default -> null;
         };
     }
@@ -217,6 +218,7 @@ public class NotificationService {
         m.put("readAt", n.getReadAt());
         m.put("lane", n.getLane());
         m.put("category", n.getCategory());
+        m.put("errorMessage", n.getErrorMessage());
         m.put("archivedAt", n.getArchivedAt());
         return m;
     }
@@ -268,6 +270,23 @@ public class NotificationService {
                                              String additionalData,
                                              String recipientFcmTokenOrNull,
                                              String groupIdForMuteCheck) {
+        deliverPresenceAwareForGroup(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, groupIdForMuteCheck, /* categoryOverride */ null);
+    }
+
+    public void deliverPresenceAwareForGroup(String recipientEmail,
+                                             String title,
+                                             String body,
+                                             String senderName,
+                                             String iconUrl,
+                                             String notificationType,
+                                             String referenceId,
+                                             String targetUrl,
+                                             String additionalData,
+                                             String recipientFcmTokenOrNull,
+                                             String groupIdForMuteCheck,
+                                             Category categoryOverride) {
         if (groupIdForMuteCheck != null && !groupIdForMuteCheck.isBlank()) {
             boolean muted = groupMuteService.isMuted(recipientEmail, groupIdForMuteCheck);
             boolean quiet = !muted && groupMuteService.isInQuietHours(recipientEmail, groupIdForMuteCheck);
@@ -285,7 +304,9 @@ public class NotificationService {
                             title, body, referenceId, targetUrl,
                             /* success */ false,
                             /* error */ reason,
-                            Lane.B, mapTypeToCategory(notificationType));
+                            Lane.B, categoryOverride != null
+                                    ? categoryOverride
+                                    : mapTypeToCategory(notificationType));
                 } catch (Exception e) {
                     logger.warn("Suppression-path log write failed for {} group={}: {}",
                             recipientEmail, groupIdForMuteCheck, e.getMessage());
@@ -295,7 +316,7 @@ public class NotificationService {
         }
         deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,
-                recipientFcmTokenOrNull, /* categoryOverride */ null);
+                recipientFcmTokenOrNull, categoryOverride);
     }
 
     /**
@@ -966,6 +987,7 @@ public class NotificationService {
             case "PLAN_ACTIVATION":
                 return "alerts";
             case "comment_on_post":
+            case "comment_on_task":
             case "comment_thread_reply":
                 return "conversations";
             case "new_member":
@@ -1027,6 +1049,7 @@ public class NotificationService {
             case "new_member":
                 return "NEW_MEMBER";
             case "comment_on_post":
+            case "comment_on_task":
             case "comment_thread_reply":
                 return "COMMENT_REPLY";
             case "post_mention":

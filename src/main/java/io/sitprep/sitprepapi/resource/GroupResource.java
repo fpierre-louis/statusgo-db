@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.constant.GroupPermission;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.dto.EmailRequest;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -205,6 +206,19 @@ public class GroupResource {
             }
             throw e;
         }
+    }
+
+    @GetMapping("/{groupId}/check-in-rollup")
+    public ResponseEntity<CheckInRollupDto> getCheckInRollup(@PathVariable String groupId) {
+        requireAdminOf(groupId);
+        return ResponseEntity.ok(groupService.getCheckInRollup(groupId));
+    }
+
+    @PostMapping("/{groupId}/check-in-ping-missing")
+    public ResponseEntity<CheckInRollupDto> pingMissingCheckIns(@PathVariable String groupId) {
+        requireAdminOf(groupId);
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(groupService.pingMissingCheckIns(groupId, caller));
     }
 
     @PostMapping("/{groupId}/members/approve")

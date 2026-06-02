@@ -16,6 +16,34 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
 
     Optional<UserInfo> findByUserEmailIgnoreCase(String email);
 
+    /**
+     * Typeahead user search for the InviteSheet. Excludes the caller and
+     * matches against firstName/lastName/email prefix. Only
+     * {@code searchable=true} rows surface — discovery is opt-in
+     * (see {@code UserInfo.searchable}). Pagination drives the 10-result
+     * cap at the service layer.
+     *
+     * <p>The {@code searchable IS NOT FALSE} predicate (vs. {@code IS TRUE})
+     * keeps users null-valued during the column rollout visible — once
+     * existing rows backfill to FALSE, the semantics converge to
+     * "explicitly opt-in only".</p>
+     */
+    @Query("""
+           SELECT u FROM UserInfo u
+            WHERE u.searchable IS NOT FALSE
+              AND LOWER(u.userEmail) <> LOWER(:viewerEmail)
+              AND (
+                LOWER(u.userFirstName) LIKE LOWER(CONCAT(:q, '%'))
+                OR LOWER(u.userLastName) LIKE LOWER(CONCAT(:q, '%'))
+                OR LOWER(u.userEmail) LIKE LOWER(CONCAT(:q, '%'))
+              )
+            ORDER BY LOWER(u.userLastName), LOWER(u.userFirstName)
+           """)
+    List<UserInfo> searchUsers(
+            @Param("q") String q,
+            @Param("viewerEmail") String viewerEmail,
+            Pageable pageable);
+
     // ✅ NEW: stable identity lookup
     Optional<UserInfo> findByFirebaseUid(String firebaseUid);
 

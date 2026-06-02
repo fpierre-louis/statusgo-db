@@ -131,7 +131,13 @@ public class HouseholdBackfillService {
         g.setGroupId(UUID.randomUUID().toString());
         String first = u.getUserFirstName();
         String last = u.getUserLastName();
-        g.setGroupName((first != null && !first.isBlank() ? first.trim() + "'s" : "My") + " Household");
+        // Family-name convention: prefer lastName (it's what "the Plouis household"
+        // sounds like when spoken). Fall back to firstName, then "My".
+        String stem;
+        if (last != null && !last.isBlank()) stem = last.trim() + "'s";
+        else if (first != null && !first.isBlank()) stem = first.trim() + "'s";
+        else stem = "My";
+        g.setGroupName(stem + " Household");
         g.setGroupCode("HH-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
         g.setGroupType("Household");
         g.setPrivacy("Private");

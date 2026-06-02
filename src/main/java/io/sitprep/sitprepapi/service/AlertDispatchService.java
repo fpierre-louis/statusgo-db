@@ -517,7 +517,10 @@ public class AlertDispatchService {
         String referenceId = a.source() + "-" + a.id();
 
         // One batched MulticastMessage instead of N sequential sends.
-        notificationService.sendHazardAlertBatch(nearby, title, body, referenceId, "/Fema");
+        // Deep-link to the renamed hazards page. /Fema is still routed in
+        // the FE as an alias (see App.js) for in-flight pushes; new ones
+        // land on the canonical /hazards URL.
+        notificationService.sendHazardAlertBatch(nearby, title, body, referenceId, "/hazards");
         log.info("AlertDispatch: severe-alert push for {} dispatched to {} nearby user(s)",
                 referenceId, nearby.size());
     }

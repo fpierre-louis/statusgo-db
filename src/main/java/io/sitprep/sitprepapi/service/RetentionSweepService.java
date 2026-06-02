@@ -55,6 +55,9 @@ public class RetentionSweepService {
     @Value("${app.retention.notificationLogDays:30}")
     private int notificationLogRetentionDays;
 
+    @Value("${app.retention.notificationLogArchivedDays:7}")
+    private int notificationLogArchivedRetentionDays;
+
     @Value("${app.retention.householdEventDays:90}")
     private int householdEventRetentionDays;
 
@@ -86,6 +89,25 @@ public class RetentionSweepService {
     }
 
     /**
+     * Daily 3:32am UTC sweep of archived {@code NotificationLog} rows.
+     * Default retention is 7d after archive — short on purpose: when
+     * the user taps the ✓ archive button on the inbox they mean
+     * "I'm done with this", and we don't earn the row-bytes by
+     * keeping it any longer than the standard window for "did I really
+     * mean to dismiss that?" recovery. The longer all-rows sweep
+     * ({@link #scheduledNotificationLogSweep}) still catches any
+     * unarchived rows past 30d.
+     */
+    @Scheduled(cron = "0 32 3 * * *", zone = "UTC")
+    public void scheduledArchivedNotificationSweep() {
+        runSweep(
+                "NotificationLogArchivedRetention",
+                notificationLogArchivedRetentionDays,
+                this::sweepArchivedNotificationsOnce
+        );
+    }
+
+    /**
      * Daily 3:35am UTC sweep of {@code HouseholdEvent}. 5min after
      * notif sweep so the two don't compete for DB connections /
      * autovacuum cycles. Default 90d retention — 30d felt too
@@ -112,6 +134,20 @@ public class RetentionSweepService {
     public int sweepNotificationLogOnce() {
         Instant cutoff = Instant.now().minus(Duration.ofDays(notificationLogRetentionDays));
         List<Long> ids = notificationLogRepo.findIdsOlderThan(cutoff, PageRequest.of(0, sweepBatchSize));
+        if (ids.isEmpty()) return 0;
+        return notificationLogRepo.deleteByIdIn(ids);
+    }
+
+    /**
+     * Sweep archived NotificationLog rows whose archivedAt is older than
+     * the configured window (default 7d). User-driven dismissals burn
+     * their row-bytes fast — the user said "I'm done with this" when they
+     * tapped ✓ archive, so we honor it.
+     */
+    @Transactional
+    public int sweepArchivedNotificationsOnce() {
+        Instant cutoff = Instant.now().minus(Duration.ofDays(notificationLogArchivedRetentionDays));
+        List<Long> ids = notificationLogRepo.findArchivedOlderThan(cutoff, PageRequest.of(0, sweepBatchSize));
         if (ids.isEmpty()) return 0;
         return notificationLogRepo.deleteByIdIn(ids);
     }

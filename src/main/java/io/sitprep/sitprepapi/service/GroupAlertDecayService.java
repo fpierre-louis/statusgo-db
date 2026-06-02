@@ -6,6 +6,8 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -146,12 +148,10 @@ public class GroupAlertDecayService {
             }
 
             // "Continue check-in?" notification (added 2026-05-03 per
-            // user). When the auto-decay fires, every member of the
-            // group gets a push asking whether they want to keep the
-            // check-in going. Tapping the deep link routes them to
-            // the group surface where an admin can re-flip alert to
-            // Active. Non-admins see the same prompt but their tap
-            // just opens the surface (no admin controls).
+            // user). When the auto-decay fires, admins/owners get a prompt
+            // asking whether they want to keep the check-in going. Tapping
+            // the deep link routes them to the group surface where they can
+            // re-flip alert to Active.
             try {
                 notifyContinuePrompt(g);
             } catch (Exception inner) {
@@ -166,12 +166,11 @@ public class GroupAlertDecayService {
 
     /**
      * Fan out the "Check-in ended after 48h — continue?" prompt to
-     * every member of an auto-decayed group. Mirrors the shape of
-     * {@link NotificationService#notifyGroupAlertChange}.
+     * admins/owners of an auto-decayed group.
      */
     private void notifyContinuePrompt(Group group) {
-        List<String> memberEmails = group.getMemberEmails();
-        if (memberEmails == null || memberEmails.isEmpty()) return;
+        List<String> recipientEmails = GroupNotificationRecipients.adminOwnerEmails(group);
+        if (recipientEmails.isEmpty()) return;
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String title = group.getGroupName();
@@ -180,10 +179,10 @@ public class GroupAlertDecayService {
         String referenceId = group.getGroupId();
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
         for (UserInfo user : users) {
             String token = user.getFcmtoken();
-            notificationService.deliverPresenceAware(
+            notificationService.deliverPresenceAwareForGroup(
                     user.getUserEmail(),
                     title,
                     body,
@@ -193,10 +192,12 @@ public class GroupAlertDecayService {
                     referenceId,
                     targetUrl,
                     null,
-                    token
+                    token,
+                    group.getGroupId(),
+                    Category.CHECK_IN_REVIEW
             );
         }
-        log.info("GroupAlertDecay: continue-prompt fanned out to {} members of group {}",
+        log.info("GroupAlertDecay: continue-prompt fanned out to {} admins/owners of group {}",
                 users.size(), group.getGroupId());
     }
 }

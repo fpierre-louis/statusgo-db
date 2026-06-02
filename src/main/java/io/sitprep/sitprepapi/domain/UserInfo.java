@@ -85,6 +85,21 @@ public class UserInfo {
     @Column(name = "guest_expiry_reminder_sent_at")
     private Instant guestExpiryReminderSentAt;
 
+    /**
+     * Opt-in flag for in-app user search. Default {@code false} — a user
+     * is invisible to the household/group/community invite search unless
+     * they've explicitly chosen to be discoverable in Profile settings.
+     * Exact-email lookup still works regardless (so admins can always
+     * add a known address by typing it), but with a confirmation-only
+     * response shape that returns no profile preview.
+     *
+     * <p>See {@code UserSearchResource} for the lookup semantics and
+     * {@code docs/HOME_HOUSEHOLD_MERGE.md} §5 for the privacy
+     * contract.</p>
+     */
+    @Column(name = "searchable", columnDefinition = "boolean default false")
+    private Boolean searchable;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "managed_group_id")

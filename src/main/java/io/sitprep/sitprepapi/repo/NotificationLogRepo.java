@@ -31,6 +31,23 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     @Query("SELECT n.id FROM NotificationLog n WHERE n.timestamp < :cutoff ORDER BY n.timestamp ASC")
     List<Long> findIdsOlderThan(@Param("cutoff") Instant cutoff, Pageable page);
 
+    /**
+     * Page of IDs whose {@code archivedAt} is older than {@code cutoff}.
+     * Drives the short-window archived-row sweep (default 7d) — distinct
+     * from the longer {@link #findIdsOlderThan} sweep that retains rows
+     * by {@code timestamp}. The shorter window matters because users tap
+     * "archive" as a deliberate "I'm done with this" signal: keeping
+     * archived rows around longer than a week wastes storage and risks
+     * stale rows reappearing if archive is undone in the FE.
+     */
+    @Query("""
+           SELECT n.id FROM NotificationLog n
+            WHERE n.archivedAt IS NOT NULL
+              AND n.archivedAt < :cutoff
+            ORDER BY n.archivedAt ASC
+           """)
+    List<Long> findArchivedOlderThan(@Param("cutoff") Instant cutoff, Pageable page);
+
     @Modifying
     @Query("DELETE FROM NotificationLog n WHERE n.id IN :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);

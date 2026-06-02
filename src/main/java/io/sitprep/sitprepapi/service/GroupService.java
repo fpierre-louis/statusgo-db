@@ -5,7 +5,10 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class GroupService {
@@ -184,6 +188,130 @@ public class GroupService {
                 .orElse(null);
 
         notificationService.notifyCheckInRequest(group, callerEmail, callerName);
+    }
+
+    @Transactional(readOnly = true)
+    public CheckInRollupDto getCheckInRollup(String groupId) {
+        Group group = getGroupByPublicId(groupId);
+        return buildCheckInRollup(group);
+    }
+
+    /**
+     * Nudge only members who have not checked in since the current active
+     * alert started. This is the targeted follow-up behind the admin rollup
+     * card: first review who is missing, then ping only the missing people.
+     */
+    @Transactional
+    public CheckInRollupDto pingMissingCheckIns(String groupId, String callerEmail) {
+        Group group = getGroupByPublicId(groupId);
+        CheckInRollupDto rollup = buildCheckInRollup(group);
+        if (!rollup.active() || rollup.missing() <= 0) return rollup;
+
+        String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
+                .map(UserInfo::getUserFirstName)
+                .filter(n -> n != null && !n.isBlank())
+                .orElse("Your group admin");
+
+        Set<String> missingEmails = rollup.members().stream()
+                .filter(m -> !m.accounted())
+                .map(CheckInRollupDto.Member::email)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (missingEmails.isEmpty()) return rollup;
+
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(new ArrayList<>(missingEmails));
+        String title = group.getGroupName() != null ? group.getGroupName() : "Check in";
+        String body = callerName + " is checking who is safe. Tap to share your status.";
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+        for (UserInfo user : users) {
+            if (user.getUserEmail() == null) continue;
+            notificationService.deliverPresenceAwareForGroup(
+                    user.getUserEmail(),
+                    title,
+                    body,
+                    callerName,
+                    "/images/group-alert-icon.png",
+                    "check_in_request",
+                    group.getGroupId(),
+                    targetUrl,
+                    null,
+                    user.getFcmtoken(),
+                    group.getGroupId(),
+                    Category.CHECK_IN_REQUEST
+            );
+        }
+        logger.info("Pinged {} missing check-in member(s) for group {}",
+                users.size(), group.getGroupId());
+        return rollup;
+    }
+
+    private CheckInRollupDto buildCheckInRollup(Group group) {
+        List<String> memberEmails = safeList(group.getMemberEmails());
+        Map<String, UserInfo> byEmail = memberEmails.isEmpty()
+                ? Map.of()
+                : userInfoRepo.findByUserEmailIn(memberEmails).stream()
+                .filter(u -> u.getUserEmail() != null)
+                .collect(Collectors.toMap(
+                        u -> u.getUserEmail().trim().toLowerCase(Locale.ROOT),
+                        u -> u,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+
+        boolean active = "Active".equalsIgnoreCase(group.getAlert());
+        Instant startedAt = group.getAlertActivatedAt() != null
+                ? group.getAlertActivatedAt()
+                : group.getUpdatedAt();
+
+        int[] counts = new int[4]; // safe, help, injured, accounted
+        List<CheckInRollupDto.Member> members = new ArrayList<>();
+        for (String email : memberEmails) {
+            String key = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+            UserInfo u = key == null ? null : byEmail.get(key);
+            String raw = u == null ? null : u.getUserStatus();
+            Instant statusAt = u == null ? null : u.getUserStatusLastUpdated();
+            boolean fresh = isFreshCheckIn(statusAt, startedAt, active);
+            String status = fresh && raw != null ? raw.trim().toUpperCase(Locale.ROOT) : null;
+            boolean accounted = status != null && !status.isBlank();
+            if (accounted) {
+                counts[3]++;
+                switch (status) {
+                    case "SAFE" -> counts[0]++;
+                    case "HELP" -> counts[1]++;
+                    case "INJURED" -> counts[2]++;
+                    default -> { }
+                }
+            }
+            members.add(new CheckInRollupDto.Member(
+                    key,
+                    u == null ? null : u.getUserFirstName(),
+                    u == null ? null : u.getUserLastName(),
+                    u == null ? null : u.getProfileImageURL(),
+                    status,
+                    statusAt,
+                    accounted
+            ));
+        }
+
+        int total = members.size();
+        return new CheckInRollupDto(
+                group.getGroupId(),
+                group.getGroupName(),
+                active,
+                startedAt,
+                total,
+                counts[3],
+                counts[0],
+                counts[1],
+                counts[2],
+                Math.max(0, total - counts[3]),
+                members
+        );
+    }
+
+    private static boolean isFreshCheckIn(Instant statusAt, Instant startedAt, boolean active) {
+        if (statusAt == null) return false;
+        if (!active || startedAt == null) return true;
+        return !statusAt.isBefore(startedAt);
     }
 
     /**
@@ -372,7 +500,8 @@ public class GroupService {
         newPendingMemberEmails.removeAll(oldPendingMemberEmails);
         if (newPendingMemberEmails.isEmpty()) return;
 
-        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
+        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(
+                GroupNotificationRecipients.adminOwnerEmails(group));
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
         for (UserInfo admin : admins) {
@@ -440,7 +569,8 @@ public class GroupService {
         newMemberEmails.removeAll(oldMemberEmails);
         if (newMemberEmails.isEmpty()) return;
 
-        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(group.getAdminEmails());
+        List<UserInfo> admins = userInfoRepo.findByUserEmailIn(
+                GroupNotificationRecipients.adminOwnerEmails(group));
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
         for (String email : newMemberEmails) {

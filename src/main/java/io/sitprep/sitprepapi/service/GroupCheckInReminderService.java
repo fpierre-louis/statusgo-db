@@ -6,6 +6,8 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
+import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Sends staged reminder notifications during a group's 48h check-in
@@ -177,15 +180,16 @@ public class GroupCheckInReminderService {
     }
 
     /**
-     * Fan out one reminder to every member of the group. Mirrors the
-     * shape of {@link NotificationService#notifyGroupAlertChange} so
-     * the inbox + push + WS treatment all match an actual alert
-     * change. Records a household timeline event when the group is a
-     * household so the chat thread reflects the system reminder.
+     * Fan out one reminder to the admins/owner of the group. These are
+     * operational prompts to review the active check-in and decide whether
+     * to keep it running, so sending them to every member creates noise and
+     * exposes controls the member cannot act on. Records a household timeline
+     * event when the group is a household so the chat thread reflects the
+     * system reminder.
      */
     private void fireReminder(Group group, int slotIndex) {
-        List<String> memberEmails = group.getMemberEmails();
-        if (memberEmails == null || memberEmails.isEmpty()) return;
+        List<String> recipientEmails = GroupNotificationRecipients.adminOwnerEmails(group);
+        if (recipientEmails.isEmpty()) return;
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String title = group.getGroupName();
@@ -201,10 +205,14 @@ public class GroupCheckInReminderService {
         String referenceId = group.getGroupId();
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
+        List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
+        List<UserInfo> members = group.getMemberEmails() == null
+                ? List.of()
+                : userInfoRepo.findByUserEmailIn(group.getMemberEmails());
+        body = rollupBody(body, members, group);
         for (UserInfo user : users) {
             String token = user.getFcmtoken();
-            notificationService.deliverPresenceAware(
+            notificationService.deliverPresenceAwareForGroup(
                     user.getUserEmail(),
                     title,
                     body,
@@ -214,7 +222,9 @@ public class GroupCheckInReminderService {
                     referenceId,
                     targetUrl,
                     null,
-                    token
+                    token,
+                    group.getGroupId(),
+                    Category.CHECK_IN_REVIEW
             );
         }
 
@@ -227,7 +237,38 @@ public class GroupCheckInReminderService {
             }
         }
 
-        log.info("GroupCheckInReminder: fired slot {} for group {} ({} members)",
+        log.info("GroupCheckInReminder: fired slot {} for group {} ({} admins/owners)",
                 slotIndex, group.getGroupId(), users.size());
+    }
+
+    private static String rollupBody(String fallback, List<UserInfo> members, Group group) {
+        if (members == null || members.isEmpty()) return fallback;
+        Instant startedAt = group.getAlertActivatedAt() != null
+                ? group.getAlertActivatedAt()
+                : group.getUpdatedAt();
+        int safe = 0;
+        int help = 0;
+        int injured = 0;
+        int accounted = 0;
+        for (UserInfo user : members) {
+            Instant statusAt = user.getUserStatusLastUpdated();
+            if (startedAt != null && (statusAt == null || statusAt.isBefore(startedAt))) continue;
+            String status = user.getUserStatus() == null
+                    ? ""
+                    : user.getUserStatus().trim().toUpperCase(Locale.ROOT);
+            if (status.isBlank()) continue;
+            accounted++;
+            switch (status) {
+                case "SAFE" -> safe++;
+                case "HELP" -> help++;
+                case "INJURED" -> injured++;
+                default -> { }
+            }
+        }
+        int total = members.size();
+        int missing = Math.max(0, total - accounted);
+        return accounted + " of " + total + " checked in: "
+                + safe + " safe, " + help + " need help, " + injured
+                + " injured, " + missing + " missing. Tap to review.";
     }
 }

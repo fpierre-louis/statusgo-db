@@ -270,6 +270,26 @@ public class UserInfoResource {
     public record UpdateLocationRequest(Double lat, Double lng) {}
 
     /**
+     * Flip the caller's discoverability for in-app search. Default is
+     * {@code false} — discovery is opt-in. The InviteSheet hides users
+     * whose flag is false (or null during the column rollout) so a
+     * person can only be found by name/prefix after they've explicitly
+     * agreed. Exact-email lookup still works regardless, but returns a
+     * confirmation-only response (see {@code UserSearchResource}).
+     */
+    @PatchMapping("/me/searchable")
+    public ResponseEntity<Void> updateMySearchable(@RequestBody UpdateSearchableRequest body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        if (body == null || body.searchable() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        userInfoService.updateSearchableByEmail(email, body.searchable());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record UpdateSearchableRequest(Boolean searchable) {}
+
+    /**
      * Set the caller's "home base" (main) household — the one the dashboard
      * anchors to. Only a household the caller belongs to can be chosen
      * (households are private; non-members get a 400). The FE refreshes /me

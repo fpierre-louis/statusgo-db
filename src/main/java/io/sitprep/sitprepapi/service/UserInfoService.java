@@ -368,6 +368,21 @@ public class UserInfoService {
     }
 
     /**
+     * Flip the caller's {@code searchable} flag — backs
+     * {@code PATCH /api/userinfo/me/searchable}. Discovery is opt-in;
+     * see {@link io.sitprep.sitprepapi.resource.UserSearchResource} for
+     * the privacy contract.
+     */
+    @Transactional
+    public void updateSearchableByEmail(String email, Boolean searchable) {
+        if (email == null || email.isBlank() || searchable == null) return;
+        userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
+            u.setSearchable(searchable);
+            userInfoRepo.save(u);
+        });
+    }
+
+    /**
      * Set the caller's "home base" (main) household — the one the dashboard
      * anchors to. Only a household the user actually belongs to (member,
      * admin, or owner) can be made base; non-member ids + non-household
