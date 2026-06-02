@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,27 +35,36 @@ public class WebSocketPresenceService {
         private void touch() { this.lastSeen = Instant.now(); }
     }
 
+    public record PresenceChange(String email, int onlineCount) {}
+
     // sessionId -> presence
     private final Map<String, PresenceInfo> sessions = new ConcurrentHashMap<>();
     // email -> count of active sessions
     private final Map<String, Integer> emailCounts = new ConcurrentHashMap<>();
 
-    public void addSession(String sessionId, String email) {
-        PresenceInfo prev = sessions.put(sessionId, new PresenceInfo(sessionId, email));
+    public PresenceChange addSession(String sessionId, String email) {
+        if (sessionId == null || sessionId.isBlank()) return null;
+        String normalizedEmail = normalizeEmail(email);
+        PresenceInfo prev = sessions.put(sessionId, new PresenceInfo(sessionId, normalizedEmail));
         if (prev != null && prev.email != null) {
             decrement(prev.email);
         }
-        if (email != null && !email.isBlank()) {
-            increment(email.trim());
+        int count = 0;
+        if (normalizedEmail != null) {
+            count = increment(normalizedEmail);
         }
         maybePruneStale();
+        return normalizedEmail == null ? null : new PresenceChange(normalizedEmail, count);
     }
 
-    public void removeSession(String sessionId) {
+    public PresenceChange removeSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return null;
         PresenceInfo removed = sessions.remove(sessionId);
         if (removed != null && removed.email != null) {
-            decrement(removed.email);
+            int count = decrement(removed.email);
+            return new PresenceChange(removed.email, count);
         }
+        return null;
     }
 
     /** Touch lastSeen for a connected session (e.g., from a /app/ping message). */
@@ -66,13 +76,15 @@ public class WebSocketPresenceService {
     /** Used by NotificationService */
     public boolean isUserOnline(String email) {
         if (email == null || email.isBlank()) return false;
-        return emailCounts.getOrDefault(email.trim(), 0) > 0;
+        String key = normalizeEmail(email);
+        return key != null && emailCounts.getOrDefault(key, 0) > 0;
     }
 
     /** Handy: how many sessions for this email are currently active. */
     public int getOnlineCount(String email) {
         if (email == null || email.isBlank()) return 0;
-        return emailCounts.getOrDefault(email.trim(), 0);
+        String key = normalizeEmail(email);
+        return key == null ? 0 : emailCounts.getOrDefault(key, 0);
     }
 
     /** Snapshot of all sessions. */
@@ -95,15 +107,23 @@ public class WebSocketPresenceService {
 
     // ---- internals ----
 
-    private void increment(String email) {
-        emailCounts.merge(email, 1, Integer::sum);
+    private int increment(String email) {
+        return emailCounts.merge(email, 1, Integer::sum);
     }
 
-    private void decrement(String email) {
+    private int decrement(String email) {
+        final int[] nextValue = {0};
         emailCounts.compute(email, (e, n) -> {
             int next = (n == null ? 0 : n - 1);
+            nextValue[0] = Math.max(0, next);
             return next <= 0 ? null : next;
         });
+        return nextValue[0];
+    }
+
+    private static String normalizeEmail(String email) {
+        if (email == null || email.isBlank()) return null;
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     private void maybePruneStale() {

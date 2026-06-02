@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.websocket;
 
+import io.sitprep.sitprepapi.service.WebSocketPresenceBroadcastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -13,10 +14,10 @@ public class WebSocketEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketEventListener.class);
 
-    private final WebSocketPresenceService presenceService;
+    private final WebSocketPresenceBroadcastService presenceBroadcastService;
 
-    public WebSocketEventListener(WebSocketPresenceService presenceService) {
-        this.presenceService = presenceService;
+    public WebSocketEventListener(WebSocketPresenceBroadcastService presenceBroadcastService) {
+        this.presenceBroadcastService = presenceBroadcastService;
     }
 
     @EventListener
@@ -26,7 +27,7 @@ public class WebSocketEventListener {
 
         // MVP: allow optional “email” header (NOT secure; convenience only)
         String email = accessor.getFirstNativeHeader("email");
-        presenceService.addSession(sessionId, email);
+        presenceBroadcastService.addSession(sessionId, email);
 
         log.info("WS CONNECT sessionId={}, email={}", sessionId, email);
     }
@@ -36,7 +37,7 @@ public class WebSocketEventListener {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = accessor.getSessionId();
 
-        presenceService.removeSession(sessionId);
+        presenceBroadcastService.removeSession(sessionId);
         log.info("WS DISCONNECT sessionId={}", sessionId);
     }
 }

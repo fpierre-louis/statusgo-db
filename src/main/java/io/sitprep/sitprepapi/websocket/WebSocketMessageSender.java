@@ -175,6 +175,17 @@ public class WebSocketMessageSender {
     }
 
     /**
+     * Household member online/offline presence.
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/presence}</p>
+     */
+    public void sendHouseholdPresence(String householdId, Object dto) {
+        if (householdId == null || householdId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/presence", dto);
+    }
+
+    /**
      * Group twin for member status changes.
      *
      * <p>Topic: {@code /topic/group/{groupId}/members/status}</p>
