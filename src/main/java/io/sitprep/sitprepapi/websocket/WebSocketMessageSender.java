@@ -185,6 +185,18 @@ public class WebSocketMessageSender {
                 "/topic/group/" + groupId + "/members/status", dto);
     }
 
+    /**
+     * Group member-location update. Frames are privacy-gated before this
+     * sender is called; the topic carries only members visible to that group.
+     *
+     * <p>Topic: {@code /topic/group/{groupId}/members/location}</p>
+     */
+    public void sendGroupMemberLocation(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/group/" + groupId + "/members/location", dto);
+    }
+
     // --- Group alert state (Sprint 1 / G2) ---
     /**
      * Broadcast a group check-in/alert flip so group headers and the global

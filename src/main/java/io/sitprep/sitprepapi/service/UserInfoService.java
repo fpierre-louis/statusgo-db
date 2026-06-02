@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.MemberLocationFrame;
 import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
@@ -29,6 +30,9 @@ import java.util.stream.Collectors;
 public class UserInfoService {
 
     private static final int MAX_ASSESSMENT_SUMMARY_JSON_BYTES = 50_000;
+    private static final String SHARE_ALWAYS = "always";
+    private static final String SHARE_CHECK_IN_ONLY = "check-in-only";
+    private static final String SHARE_NEVER = "never";
 
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
@@ -441,11 +445,58 @@ public class UserInfoService {
     public void updateLastKnownLocationByEmail(String email, Double lat, Double lng) {
         if (email == null || email.isBlank() || lat == null || lng == null) return;
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
+            Instant updatedAt = Instant.now();
             u.setLastKnownLat(lat);
             u.setLastKnownLng(lng);
-            u.setLastKnownLocationAt(Instant.now());
-            userInfoRepo.save(u);
+            u.setLastKnownLocationAt(updatedAt);
+            UserInfo saved = userInfoRepo.save(u);
+
+            final String frameEmail = saved.getUserEmail() == null
+                    ? null
+                    : saved.getUserEmail().trim().toLowerCase(Locale.ROOT);
+            if (frameEmail == null || frameEmail.isBlank()) return;
+
+            final MemberLocationFrame frame = new MemberLocationFrame(
+                    frameEmail,
+                    saved.getLastKnownLat(),
+                    saved.getLastKnownLng(),
+                    saved.getLastKnownLocationAt()
+            );
+            final List<String> groupIds = groupRepo.findByMemberEmail(frameEmail).stream()
+                    .filter(group -> shouldShareLocationWithGroup(saved, group))
+                    .map(Group::getGroupId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+
+            if (!groupIds.isEmpty()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        for (String groupId : groupIds) {
+                            ws.sendGroupMemberLocation(groupId, frame);
+                        }
+                    }
+                });
+            }
         });
+    }
+
+    private boolean shouldShareLocationWithGroup(UserInfo u, Group group) {
+        if (u == null || group == null || group.getGroupId() == null) return false;
+        Map<String, String> map = u.getGroupLocationSharing();
+        String mode = map == null ? null : map.get(group.getGroupId());
+        if (mode == null || mode.isBlank()) {
+            mode = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType())
+                    ? SHARE_CHECK_IN_ONLY
+                    : SHARE_NEVER;
+        }
+        boolean alertActive = "active".equalsIgnoreCase(group.getAlert());
+        return switch (mode) {
+            case SHARE_ALWAYS -> true;
+            case SHARE_NEVER -> false;
+            case SHARE_CHECK_IN_ONLY -> alertActive;
+            default -> false;
+        };
     }
 
     /**
