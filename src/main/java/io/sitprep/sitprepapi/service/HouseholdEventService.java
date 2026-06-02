@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdEvent;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
+import io.sitprep.sitprepapi.dto.WeeklyCheckInDigestDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInResultDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -475,6 +476,86 @@ public class HouseholdEventService {
             else break;
         }
         return streak;
+    }
+
+    /**
+     * §8 Round 5 — admin-side digest. Per-member streak counts +
+     * this-week roster, scoped to the calendar week boundaries the
+     * summary uses. Iterates household members and reuses the
+     * existing streak math per member (N+1 queries; bounded at
+     * household size). Caller (resource) gates to admin.
+     */
+    @Transactional
+    public WeeklyCheckInDigestDto computeWeeklyDigest(String householdId) {
+        if (householdId == null || householdId.isBlank()) {
+            throw new IllegalArgumentException("householdId is required");
+        }
+        ZoneId tz = resolveHouseholdTz(householdId);
+        Instant now = Instant.now();
+        Instant windowStart = currentWeekStart(now, tz);
+        Instant windowEnd = nextWeekStart(now, tz);
+
+        Group household = groupRepo.findByGroupId(householdId)
+                .filter(g -> HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
+                .orElse(null);
+        if (household == null) {
+            return new WeeklyCheckInDigestDto(
+                    windowStart, windowEnd, 0, 0, null, List.of()
+            );
+        }
+        List<String> memberEmails = household.getMemberEmails() == null
+                ? List.of()
+                : household.getMemberEmails().stream()
+                        .filter(Objects::nonNull)
+                        .map(e -> e.toLowerCase(Locale.ROOT))
+                        .distinct()
+                        .toList();
+        Map<String, UserInfo> userByEmail = memberEmails.isEmpty()
+                ? Map.of()
+                : userInfoRepo.findByUserEmailIn(new ArrayList<>(memberEmails)).stream()
+                        .collect(Collectors.toMap(
+                                u -> u.getUserEmail().toLowerCase(Locale.ROOT),
+                                Function.identity(),
+                                (a, b) -> a));
+
+        // This-week roster — query once, bucket per member. Cheaper
+        // than N additional queries when most members haven't checked
+        // in (the common case for a Sunday-evening fire).
+        List<HouseholdEvent> thisWeekEvents = eventRepo.findRangeByKind(
+                householdId, KIND_WEEKLY_CHECK_IN_COMPLETED,
+                windowStart.minusSeconds(1), windowEnd
+        );
+        Set<String> checkedInThisWeek = new HashSet<>();
+        for (HouseholdEvent e : thisWeekEvents) {
+            if (e.getActorEmail() != null) checkedInThisWeek.add(e.getActorEmail());
+        }
+
+        List<WeeklyCheckInDigestDto.MemberStreak> rows = new ArrayList<>(memberEmails.size());
+        WeeklyCheckInDigestDto.MemberStreak longest = null;
+        for (String email : memberEmails) {
+            int streak = computeStreakWeeks(householdId, email, now, tz);
+            UserInfo u = userByEmail.get(email);
+            String name = u == null ? null : u.getUserFirstName();
+            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageURL());
+            WeeklyCheckInDigestDto.MemberStreak row = new WeeklyCheckInDigestDto.MemberStreak(
+                    email, name, img, streak, checkedInThisWeek.contains(email)
+            );
+            rows.add(row);
+            if (longest == null || streak > longest.streakWeeks()) {
+                longest = row;
+            }
+        }
+        // Sort high-to-low streak so the leaderboard reads naturally.
+        rows.sort((a, b) -> Integer.compare(b.streakWeeks(), a.streakWeeks()));
+
+        // Don't surface a "longest" with 0 — it would feel like
+        // calling out the household for nobody having a streak.
+        if (longest != null && longest.streakWeeks() < 1) longest = null;
+
+        int totalMembers = memberEmails.size();
+        return new WeeklyCheckInDigestDto(
+                windowStart, windowEnd, totalMembers, checkedInThisWeek.size(), longest, rows
+        );
     }
 
     // ---------------------------------------------------------------------

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.WeeklyCheckInDigestDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInResultDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInSummaryDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
@@ -83,6 +84,26 @@ public class WeeklyCheckInResource {
         access.requireCanReadHousehold(caller, householdId);
         try {
             return ResponseEntity.ok(events.summarizeWeeklyCheckIn(householdId, caller));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * §8 R5 — admin-side rollup. Per-member streak counts +
+     * this-week roster + the longest-streak member callout.
+     * Admin-only because the per-member data set is broader than
+     * what a member needs (members see their own streak via the
+     * /summary endpoint's actorPosition + viewerStreakWeeks).
+     */
+    @GetMapping("/digest")
+    public ResponseEntity<WeeklyCheckInDigestDto> digest(
+            @PathVariable String householdId
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanAdminHousehold(caller, householdId);
+        try {
+            return ResponseEntity.ok(events.computeWeeklyDigest(householdId));
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
