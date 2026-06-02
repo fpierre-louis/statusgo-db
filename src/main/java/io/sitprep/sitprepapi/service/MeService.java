@@ -373,8 +373,30 @@ public class MeService {
                 evacPlans,
                 originLocations,
                 mealPlan,
-                contactGroups
+                contactGroups,
+                g == null ? null : g.getPlanLastConfirmedAt()
         );
+    }
+
+    /**
+     * §3 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — stamp the
+     * household plan as confirmed-as-current right now. Does not touch
+     * any plan-component entity; only bumps {@code Group.planLastConfirmedAt}.
+     * The FE freshness sub-copy reads that timestamp and decides when
+     * to nudge "quick refresh?". Returns the refreshed plan document so
+     * the caller can render the new state without a follow-up GET.
+     *
+     * <p>Auth + household-membership gating is the resource's
+     * responsibility — this method assumes the caller has already
+     * verified.</p>
+     */
+    @Transactional
+    public HouseholdPlanDto confirmHouseholdPlan(String householdId) {
+        Group g = groupRepo.findByGroupId(householdId)
+                .orElseThrow(() -> new IllegalArgumentException("Household not found: " + householdId));
+        g.setPlanLastConfirmedAt(java.time.Instant.now());
+        groupRepo.save(g);
+        return buildHouseholdPlanDocument(householdId);
     }
 
     /** Run a repo call; on any exception, log and return {@code fallback}. */

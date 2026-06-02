@@ -7,6 +7,7 @@ import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.OriginLocation;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -32,5 +33,14 @@ public record HouseholdPlanDto(
         List<EvacuationPlan> evacuationPlans,
         List<OriginLocation> originLocations,
         MealPlanData mealPlan,
-        List<EmergencyContactGroup> contactGroups
+        List<EmergencyContactGroup> contactGroups,
+        /**
+         * §3 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — timestamp the
+         * household plan was most recently confirmed as current (distinct
+         * from any individual plan-component edit time). Null on legacy
+         * households + on households whose admin has never tapped
+         * "Mark confirmed"; FE treats null as "not yet confirmed" and
+         * shows the standard sub-copy. Mirrored from {@code Group.planLastConfirmedAt}.
+         */
+        Instant planLastConfirmedAt
 ) {}

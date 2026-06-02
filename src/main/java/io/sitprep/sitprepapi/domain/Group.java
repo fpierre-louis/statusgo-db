@@ -147,4 +147,22 @@ public class Group {
     @Column(name = "subscription_status")
     private String subscriptionStatus;
 
+    /**
+     * Timestamp the household plan was most recently <i>confirmed as current</i>
+     * — distinct from {@link #updatedAt}, which tracks any edit to the Group
+     * row (name change, member add, etc.). §3 of
+     * {@code docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md}: surfaces calibrated
+     * loss aversion ("confirmed 4 months ago — quick refresh?") on stale
+     * plans without forcing the user to re-edit every section. Set by
+     * {@code POST /api/households/{id}/plan/confirm}.
+     *
+     * <p>Null on legacy rows — the FE treats null as "not yet confirmed"
+     * and falls back to the standard plan sub-copy. A user can bring a
+     * legacy plan into the freshness pattern by tapping "Mark confirmed"
+     * once on the Plan tab (FE Round 2). Only relevant for groups with
+     * {@code groupType = "Household"}; null is safe on every other row.</p>
+     */
+    @Column(name = "plan_last_confirmed_at")
+    private Instant planLastConfirmedAt;
+
 }

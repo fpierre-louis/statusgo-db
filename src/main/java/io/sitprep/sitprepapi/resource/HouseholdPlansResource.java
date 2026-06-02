@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,5 +42,22 @@ public class HouseholdPlansResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         householdAccessService.requireCanReadHousehold(caller, householdId);
         return ResponseEntity.ok(meService.buildHouseholdPlanDocument(householdId));
+    }
+
+    /**
+     * §3 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — admin taps
+     * "Mark confirmed" on the Plan tab. Stamps {@code Group.planLastConfirmedAt}
+     * to now and returns the refreshed plan document. Any household
+     * member who can read the plan can confirm it (the action is
+     * a maintenance pulse, not a destructive edit, so the wider gate is
+     * fine and matches how the doc framed it — "a one-tap 'Mark
+     * confirmed' affordance inside the Plan tab itself so users can
+     * reset the timer without re-editing every section").
+     */
+    @PostMapping("/{householdId}/plan/confirm")
+    public ResponseEntity<HouseholdPlanDto> confirmHouseholdPlan(@PathVariable String householdId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        householdAccessService.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(meService.confirmHouseholdPlan(householdId));
     }
 }
