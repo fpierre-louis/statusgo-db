@@ -198,6 +198,19 @@ public class WebSocketMessageSender {
                 "/topic/group/" + groupId + "/status", dto);
     }
 
+    // --- Group membership deltas (Sprint 2 / G3) ---
+    /**
+     * Broadcast a roster add/remove delta so admin/member roster surfaces
+     * reconcile without a manual refresh.
+     *
+     * <p>Topic: {@code /topic/group/{groupId}/members}</p>
+     */
+    public void sendGroupMembership(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/group/" + groupId + "/members", dto);
+    }
+
     // --- Household accompaniments (with-me feature) ---
     public void sendHouseholdAccompanimentUpdate(String householdId, HouseholdAccompanimentDto dto) {
         if (householdId == null || householdId.isBlank() || dto == null) return;

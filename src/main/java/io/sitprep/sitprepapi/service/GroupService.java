@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlanTier;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -7,6 +8,7 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.dto.GroupAlertFrame;
+import io.sitprep.sitprepapi.dto.GroupMembershipFrame;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
@@ -711,7 +713,9 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
-        return groupRepo.save(g);
+        Group saved = groupRepo.save(g);
+        broadcastMembershipAfterCommit(saved, "ADD", email, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
+        return saved;
     }
 
     private static boolean containsCaseInsensitive(java.util.Collection<String> coll, String needle) {
@@ -742,6 +746,7 @@ public class GroupService {
 
         g.setMemberEmails(members);
         g.setPendingMemberEmails(pending);
+        g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
         // sync user.joinedGroupIDs
@@ -751,7 +756,16 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
-        return groupRepo.save(g);
+        Group saved = groupRepo.save(g);
+        if (!alreadyMember) {
+            broadcastMembershipAfterCommit(
+                    saved,
+                    "ADD",
+                    email,
+                    GroupRole.fromGroup(saved, email).wire(),
+                    saved.getUpdatedAt());
+        }
+        return saved;
     }
 
     @Transactional
@@ -775,6 +789,8 @@ public class GroupService {
 
         List<String> members = safeList(g.getMemberEmails());
         List<String> admins = safeList(g.getAdminEmails());
+        boolean wasMember = containsCaseInsensitive(members, email);
+        String previousRole = GroupRole.fromGroup(g, email).wire();
 
         // null-safe removals
         members.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
@@ -782,6 +798,7 @@ public class GroupService {
 
         g.setMemberEmails(members);
         g.setAdminEmails(admins);
+        g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
         userInfoRepo.findByUserEmail(email).ifPresent(u -> {
@@ -792,7 +809,11 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
-        return groupRepo.save(g);
+        Group saved = groupRepo.save(g);
+        if (wasMember) {
+            broadcastMembershipAfterCommit(saved, "REMOVE", email, previousRole, saved.getUpdatedAt());
+        }
+        return saved;
     }
 
     @Transactional
@@ -818,6 +839,7 @@ public class GroupService {
 
         g.setAdminEmails(admins);
         g.setMemberEmails(members);
+        g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
         userInfoRepo.findByUserEmail(email).ifPresent(u -> {
@@ -828,7 +850,16 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
-        return groupRepo.save(g);
+        Group saved = groupRepo.save(g);
+        if (!alreadyMember) {
+            broadcastMembershipAfterCommit(
+                    saved,
+                    "ADD",
+                    email,
+                    GroupRole.fromGroup(saved, email).wire(),
+                    saved.getUpdatedAt());
+        }
+        return saved;
     }
 
     /**
@@ -912,6 +943,7 @@ public class GroupService {
             members.add(newOwnerEmail);
         }
         g.setMemberEmails(members);
+        g.setMemberCount(members.size());
 
         g.setUpdatedAt(Instant.now());
 
@@ -924,7 +956,34 @@ public class GroupService {
             userInfoRepo.save(u);
         });
 
-        return groupRepo.save(g);
+        Group saved = groupRepo.save(g);
+        if (!alreadyMember) {
+            broadcastMembershipAfterCommit(
+                    saved,
+                    "ADD",
+                    newOwnerEmail,
+                    GroupRole.fromGroup(saved, newOwnerEmail).wire(),
+                    saved.getUpdatedAt());
+        }
+        return saved;
+    }
+
+    private void broadcastMembershipAfterCommit(Group group, String action, String email,
+                                                String role, Instant updatedAt) {
+        if (group == null || group.getGroupId() == null || group.getGroupId().isBlank()) return;
+        if (email == null || email.isBlank()) return;
+
+        GroupMembershipFrame frame = new GroupMembershipFrame(
+                action,
+                email.trim().toLowerCase(Locale.ROOT),
+                role,
+                updatedAt != null ? updatedAt : Instant.now()
+        );
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                webSocketMessageSender.sendGroupMembership(group.getGroupId(), frame);
+            }
+        });
     }
 
     // ---------------- permissions & set helpers ----------------
