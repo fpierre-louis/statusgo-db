@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Household activity events — chronological log feeding the chat thread's
@@ -72,15 +73,7 @@ public class HouseholdEventResource {
     ) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         access.requireCanReadHousehold(caller, householdId);
-        String fullKind = switch (shortKind == null ? "" : shortKind) {
-            case "meeting"  -> HouseholdEventService.KIND_MEMBER_CONFIRMED_MEETING;
-            case "contacts" -> HouseholdEventService.KIND_MEMBER_CONFIRMED_CONTACTS;
-            case "evac"     -> HouseholdEventService.KIND_MEMBER_CONFIRMED_EVAC;
-            default -> throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Unknown confirmation kind: " + shortKind
-            );
-        };
+        String fullKind = expandShortKind(shortKind);
         try {
             HouseholdEventDto dto = service.recordMemberConfirmation(
                     householdId, fullKind, caller
@@ -89,6 +82,53 @@ public class HouseholdEventResource {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /**
+     * §6 Round 2 — viewer-confirmation lookup. Returns the caller's
+     * latest confirmation timestamp for each of the 3 kinds in ONE
+     * round-trip, so the FE can render "Confirmed N days ago" badges
+     * on the member confirmation rows without firing 3 separate
+     * fetches per page mount.
+     *
+     * <p>Response is a flat map keyed by short kind:</p>
+     * <pre>
+     *   { "meeting": "2026-05-30T18:14:22Z", "contacts": null,
+     *     "evac":    "2026-05-12T08:01:09Z" }
+     * </pre>
+     *
+     * <p>Null = never confirmed. Membership-gated (same rule as the
+     * write endpoint).</p>
+     */
+    @GetMapping("/member-confirmations/me")
+    public ResponseEntity<Map<String, Instant>> myConfirmations(
+            @PathVariable String householdId
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        Map<String, Instant> out = new java.util.LinkedHashMap<>();
+        out.put("meeting",  latestAt(householdId, HouseholdEventService.KIND_MEMBER_CONFIRMED_MEETING, caller));
+        out.put("contacts", latestAt(householdId, HouseholdEventService.KIND_MEMBER_CONFIRMED_CONTACTS, caller));
+        out.put("evac",     latestAt(householdId, HouseholdEventService.KIND_MEMBER_CONFIRMED_EVAC, caller));
+        return ResponseEntity.ok(out);
+    }
+
+    private Instant latestAt(String householdId, String kind, String caller) {
+        return service.findLatestConfirmation(householdId, kind, caller)
+                .map(e -> e.getAt())
+                .orElse(null);
+    }
+
+    private static String expandShortKind(String shortKind) {
+        return switch (shortKind == null ? "" : shortKind) {
+            case "meeting"  -> HouseholdEventService.KIND_MEMBER_CONFIRMED_MEETING;
+            case "contacts" -> HouseholdEventService.KIND_MEMBER_CONFIRMED_CONTACTS;
+            case "evac"     -> HouseholdEventService.KIND_MEMBER_CONFIRMED_EVAC;
+            default -> throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Unknown confirmation kind: " + shortKind
+            );
+        };
     }
 
     private static Instant parse(String iso) {

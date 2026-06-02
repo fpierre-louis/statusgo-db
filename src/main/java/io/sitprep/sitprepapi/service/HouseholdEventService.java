@@ -378,9 +378,11 @@ public class HouseholdEventService {
         }
 
         int totalMembers = totalMembers(householdId);
+        int viewerStreakWeeks = computeStreakWeeks(householdId, actorKey, windowEnd);
 
         return new WeeklyCheckInSummaryDto(
-                windowStart, windowEnd, totalMembers, actorPosition, completions
+                windowStart, windowEnd, totalMembers, actorPosition,
+                viewerStreakWeeks, completions
         );
     }
 
@@ -389,6 +391,46 @@ public class HouseholdEventService {
                 .filter(g -> HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
                 .map(g -> g.getMemberEmails() == null ? 0 : g.getMemberEmails().size())
                 .orElse(0);
+    }
+
+    /**
+     * §8 Round 2 — count consecutive 7-day windows back from
+     * {@code now} where {@code actorEmail} has ≥1 weekly-check-in
+     * event. Capped at 12 weeks of lookback to bound the query.
+     * Returns 0 when the actor hasn't checked in this week (no
+     * in-flight streak to display).
+     *
+     * <p>Honest mechanic: the number only grows when the user
+     * actually checks in; there's no inflated "streak at risk"
+     * surface that pushes users to tap defensively.</p>
+     */
+    private int computeStreakWeeks(String householdId, String actorKey, Instant now) {
+        if (actorKey == null) return 0;
+        final int LOOKBACK_WEEKS = 12;
+        final long WEEK_MS = 7L * 24 * 60 * 60 * 1000;
+        Instant floor = now.minusMillis(WEEK_MS * LOOKBACK_WEEKS);
+        List<HouseholdEvent> events = eventRepo.findRangeByKind(
+                householdId, KIND_WEEKLY_CHECK_IN_COMPLETED,
+                floor.minusSeconds(1), now.plusSeconds(1)
+        );
+        long[] timestamps = events.stream()
+                .filter(e -> actorKey.equals(e.getActorEmail()))
+                .mapToLong(e -> e.getAt().toEpochMilli())
+                .toArray();
+        if (timestamps.length == 0) return 0;
+        long nowMs = now.toEpochMilli();
+        int streak = 0;
+        for (int i = 0; i < LOOKBACK_WEEKS; i++) {
+            long windowEnd = nowMs - i * WEEK_MS;
+            long windowStart = windowEnd - WEEK_MS;
+            boolean hit = false;
+            for (long t : timestamps) {
+                if (t > windowStart && t <= windowEnd) { hit = true; break; }
+            }
+            if (hit) streak++;
+            else break;
+        }
+        return streak;
     }
 
     private String extractMood(String payloadJson) {
