@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.HouseholdRitual;
 import io.sitprep.sitprepapi.dto.HouseholdRitualDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
+import io.sitprep.sitprepapi.service.HouseholdRitualScheduler;
 import io.sitprep.sitprepapi.service.HouseholdRitualService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -28,13 +29,16 @@ import java.util.Optional;
 public class HouseholdRitualResource {
 
     private final HouseholdRitualService ritualService;
+    private final HouseholdRitualScheduler scheduler;
     private final HouseholdAccessService access;
 
     public HouseholdRitualResource(
             HouseholdRitualService ritualService,
+            HouseholdRitualScheduler scheduler,
             HouseholdAccessService access
     ) {
         this.ritualService = ritualService;
+        this.scheduler = scheduler;
         this.access = access;
     }
 
@@ -105,6 +109,36 @@ public class HouseholdRitualResource {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Invalid dayOfWeek: " + raw);
+        }
+    }
+
+    /**
+     * Admin-triggered manual fire. Bypasses the {@code isDueNow}
+     * window check so QA can verify the dispatch pipeline at any
+     * time without waiting for the scheduled local-time window.
+     * Returns 200 with {@code {fired: true}} on success, 200 with
+     * {@code {fired: false, reason: "no-ritual"}} if no ritual is
+     * opted in yet for this household.
+     *
+     * <p>Updates {@code lastFiredAt} so a same-day scheduled fire is
+     * naturally suppressed (no duplicate). On a different local-day
+     * from the scheduled day, the scheduled fire still happens as
+     * normal — the test fire just adds an extra fire today.</p>
+     */
+    @PostMapping("/{householdId}/rituals/weekly-check-in/test-fire")
+    public ResponseEntity<Map<String, Object>> testFireWeeklyCheckIn(
+            @PathVariable String householdId
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanAdminHousehold(caller, householdId);
+        try {
+            int result = scheduler.testFire(householdId);
+            if (result == 0) {
+                return ResponseEntity.ok(Map.of("fired", false, "reason", "no-ritual"));
+            }
+            return ResponseEntity.ok(Map.of("fired", true));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
     }
 
