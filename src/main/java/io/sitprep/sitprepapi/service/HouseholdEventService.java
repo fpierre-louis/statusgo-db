@@ -6,15 +6,17 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdEvent;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
+import io.sitprep.sitprepapi.dto.WeeklyCheckInResultDto;
+import io.sitprep.sitprepapi.dto.WeeklyCheckInSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdEventRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
-import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -236,6 +238,168 @@ public class HouseholdEventService {
         return eventRepo.findFirstByHouseholdIdAndKindAndActorEmailOrderByAtDesc(
                 householdId, kind, actorEmail.toLowerCase(Locale.ROOT)
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // §8 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — weekly check-in
+    // completion + variable reward inputs.
+    //
+    // Decoupled from the §4 ritual scheduler on purpose. A member can
+    // complete a weekly check-in any time; the (future) scheduled nudge
+    // is just one channel that surfaces the action. This lets §8 ship
+    // without waiting on the scheduler and keeps the action available
+    // even when a household hasn't opted into the ritual yet.
+    //
+    // "Variable reward" = the FE composes copy from honest signals
+    // (roster position, household size) that genuinely vary across
+    // calls. We never invent social proof — if the roster shows 1 of 1,
+    // copy reflects that.
+    //
+    // Mood is recorded as a payload field, not a separate kind, because
+    // both moods are the same primary action (the member checking in);
+    // they just route the reward UI differently on the FE.
+    // ---------------------------------------------------------------------
+
+    public static final String KIND_WEEKLY_CHECK_IN_COMPLETED = "weekly-check-in-completed";
+    public static final String MOOD_GOOD = "good";
+    public static final String MOOD_NEEDS_HELP = "needs-help";
+
+    private static final Set<String> ALLOWED_MOODS = Set.of(MOOD_GOOD, MOOD_NEEDS_HELP);
+    private static final java.time.Duration WEEK_WINDOW = java.time.Duration.ofDays(7);
+
+    @Transactional
+    public WeeklyCheckInResultDto recordWeeklyCheckIn(
+            String householdId,
+            String actorEmail,
+            String mood
+    ) {
+        if (householdId == null || householdId.isBlank()) {
+            throw new IllegalArgumentException("householdId is required");
+        }
+        if (actorEmail == null || actorEmail.isBlank()) {
+            throw new IllegalArgumentException("actorEmail is required");
+        }
+        if (mood == null || !ALLOWED_MOODS.contains(mood)) {
+            throw new IllegalArgumentException("Unknown mood: " + mood);
+        }
+
+        Map<String, Object> payload = Map.of("mood", mood);
+        HouseholdEvent e = new HouseholdEvent();
+        e.setHouseholdId(householdId);
+        e.setKind(KIND_WEEKLY_CHECK_IN_COMPLETED);
+        e.setAt(Instant.now());
+        e.setActorEmail(actorEmail.toLowerCase(Locale.ROOT));
+        try {
+            e.setPayloadJson(objectMapper.writeValueAsString(payload));
+        } catch (Exception ex) {
+            // ObjectMapper can't fail on a single-entry string map, but
+            // be defensive — the event itself is more valuable than the
+            // mood metadata if serialization ever breaks.
+            log.warn("Failed to serialize mood payload, recording without: {}", ex.getMessage());
+            e.setPayloadJson(null);
+        }
+        HouseholdEvent saved = eventRepo.save(e);
+
+        HouseholdEventDto eventDto = toDto(saved, resolveActorMap(saved.getActorEmail()));
+        broadcastAfterCommit(householdId, eventDto);
+
+        WeeklyCheckInSummaryDto summary = summarizeWeeklyCheckIn(
+                householdId, actorEmail.toLowerCase(Locale.ROOT)
+        );
+        return new WeeklyCheckInResultDto(eventDto, summary);
+    }
+
+    /**
+     * Roster of the rolling-7-day check-in window. Returns the latest
+     * completion per actor (so a member tapping twice doesn't get
+     * counted twice) plus the caller's 1-based position in the
+     * window's chronological order — 0 when they haven't checked in.
+     *
+     * <p>Member count comes from {@link Group#getMemberEmails()}; the
+     * variable reward uses {@code completions.size() / totalMembers}
+     * for honest "{N} of {M} checked in this week" copy.</p>
+     */
+    @Transactional(readOnly = true)
+    public WeeklyCheckInSummaryDto summarizeWeeklyCheckIn(
+            String householdId,
+            String actorEmail
+    ) {
+        if (householdId == null || householdId.isBlank()) {
+            throw new IllegalArgumentException("householdId is required");
+        }
+        Instant windowEnd = Instant.now();
+        Instant windowStart = windowEnd.minus(WEEK_WINDOW);
+
+        List<HouseholdEvent> events = eventRepo.findRangeByKind(
+                householdId, KIND_WEEKLY_CHECK_IN_COMPLETED,
+                windowStart.minusSeconds(1), windowEnd.plusSeconds(1)
+        );
+
+        // Dedupe by actor — keep each member's EARLIEST check-in in the
+        // window so "position" reflects the chronological order they
+        // first showed up this week. A later re-tap doesn't bump them
+        // down the list.
+        Map<String, HouseholdEvent> earliestByActor = new LinkedHashMap<>();
+        for (HouseholdEvent e : events) {
+            String actor = e.getActorEmail();
+            if (actor == null) continue;
+            earliestByActor.putIfAbsent(actor, e);
+        }
+
+        List<HouseholdEvent> roster = new ArrayList<>(earliestByActor.values());
+        // Already ascending from the repo, but make it explicit so this
+        // doesn't silently break if the repo's ordering ever changes.
+        roster.sort(Comparator.comparing(HouseholdEvent::getAt));
+
+        Set<String> rosterEmails = earliestByActor.keySet();
+        Map<String, UserInfo> userByEmail = rosterEmails.isEmpty()
+                ? Map.of()
+                : userInfoRepo.findByUserEmailIn(new ArrayList<>(rosterEmails)).stream()
+                    .collect(Collectors.toMap(
+                            u -> u.getUserEmail().toLowerCase(Locale.ROOT),
+                            Function.identity(),
+                            (a, b) -> a));
+
+        List<WeeklyCheckInSummaryDto.Completion> completions = new ArrayList<>(roster.size());
+        int actorPosition = 0;
+        String actorKey = actorEmail == null ? null : actorEmail.toLowerCase(Locale.ROOT);
+        for (int i = 0; i < roster.size(); i++) {
+            HouseholdEvent e = roster.get(i);
+            UserInfo u = userByEmail.get(e.getActorEmail());
+            String name = u == null ? null : u.getUserFirstName();
+            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageURL());
+            String mood = extractMood(e.getPayloadJson());
+            completions.add(new WeeklyCheckInSummaryDto.Completion(
+                    e.getActorEmail(), name, img, e.getAt(), mood
+            ));
+            if (actorKey != null && actorKey.equals(e.getActorEmail())) {
+                actorPosition = i + 1;
+            }
+        }
+
+        int totalMembers = totalMembers(householdId);
+
+        return new WeeklyCheckInSummaryDto(
+                windowStart, windowEnd, totalMembers, actorPosition, completions
+        );
+    }
+
+    private int totalMembers(String householdId) {
+        return groupRepo.findByGroupId(householdId)
+                .filter(g -> HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
+                .map(g -> g.getMemberEmails() == null ? 0 : g.getMemberEmails().size())
+                .orElse(0);
+    }
+
+    private String extractMood(String payloadJson) {
+        if (payloadJson == null || payloadJson.isBlank()) return null;
+        try {
+            Map<String, Object> p = objectMapper.readValue(payloadJson, MAP_TYPE);
+            Object m = p.get("mood");
+            return m == null ? null : m.toString();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------------

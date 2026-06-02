@@ -61,4 +61,31 @@ public interface HouseholdEventRepo extends JpaRepository<HouseholdEvent, Long> 
     Optional<HouseholdEvent> findFirstByHouseholdIdAndKindAndActorEmailOrderByAtDesc(
             String householdId, String kind, String actorEmail
     );
+
+    /**
+     * Events of a specific kind in a time window. Used by §8 of
+     * docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md to build the weekly
+     * check-in roster (kind = {@code weekly-check-in-completed},
+     * window = rolling 7 days). Ascending order so the first row is
+     * the earliest completion in the window — that's the actor whose
+     * reward copy reads "First this week".
+     *
+     * <p>Same as {@link #findRange} but with a kind filter; couldn't
+     * be expressed as a derived query because of the inclusive/exclusive
+     * bound semantics we already use on findRange (strict {@code >} on
+     * the lower bound to avoid double-counting the {@code FAR_PAST}
+     * sentinel).</p>
+     */
+    @Query("""
+           SELECT e FROM HouseholdEvent e
+            WHERE e.householdId = :householdId
+              AND e.kind = :kind
+              AND e.at > :since
+              AND e.at < :before
+            ORDER BY e.at ASC, e.id ASC
+           """)
+    List<HouseholdEvent> findRangeByKind(@Param("householdId") String householdId,
+                                         @Param("kind") String kind,
+                                         @Param("since") Instant since,
+                                         @Param("before") Instant before);
 }
