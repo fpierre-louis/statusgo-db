@@ -143,6 +143,48 @@ public class HouseholdRitualResource {
     }
 
     /**
+     * §4 R5 — pause the weekly check-in for N weeks (default 1). Body
+     * optional: {@code {"weeks": N}}. The scheduler suppresses fires
+     * until {@code pausedUntil}. Returns the updated ritual, or 404
+     * if no ritual exists.
+     */
+    @PostMapping("/{householdId}/rituals/weekly-check-in/pause")
+    public ResponseEntity<HouseholdRitualDto> pauseWeeklyCheckIn(
+            @PathVariable String householdId,
+            @RequestBody(required = false) Map<String, Object> body
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanAdminHousehold(caller, householdId);
+        int weeks = 1;
+        if (body != null && body.get("weeks") instanceof Number n) {
+            weeks = Math.max(1, n.intValue());
+        }
+        HouseholdRitual saved = ritualService.pause(householdId, weeks);
+        if (saved == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No ritual to pause");
+        }
+        return ResponseEntity.ok(HouseholdRitualDto.from(saved));
+    }
+
+    /**
+     * §4 R5 — resume immediately. Clears pausedUntil so the next
+     * scheduled fire window runs normally. No-op if not paused or no
+     * ritual exists.
+     */
+    @PostMapping("/{householdId}/rituals/weekly-check-in/resume")
+    public ResponseEntity<HouseholdRitualDto> resumeWeeklyCheckIn(
+            @PathVariable String householdId
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanAdminHousehold(caller, householdId);
+        HouseholdRitual saved = ritualService.resume(householdId);
+        if (saved == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No ritual to resume");
+        }
+        return ResponseEntity.ok(HouseholdRitualDto.from(saved));
+    }
+
+    /**
      * Delete by ID. Verifies the ritual exists and actually belongs to
      * the household path-parameter before deleting (defense against an
      * admin of household A trying to delete a ritual scoped to

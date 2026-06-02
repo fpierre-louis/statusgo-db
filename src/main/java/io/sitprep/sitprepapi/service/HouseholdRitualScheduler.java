@@ -207,6 +207,12 @@ public class HouseholdRitualScheduler {
      */
     private boolean isDueNow(HouseholdRitual r, Instant now) {
         if (r == null) return false;
+        // §4 R5 — pause overrides everything else. Past pausedUntil is
+        // treated as expired (active); only a future timestamp blocks
+        // the fire.
+        if (r.getPausedUntil() != null && r.getPausedUntil().isAfter(now)) {
+            return false;
+        }
         Optional<WeeklyScheduleSpec> parsed = WeeklyScheduleSpec.parse(r.getScheduleSpec());
         if (parsed.isEmpty()) {
             // Refuse silently to fire anything we don't understand

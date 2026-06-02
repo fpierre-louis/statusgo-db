@@ -472,10 +472,18 @@ public class MeService {
         // for the base household; bounded since at-most-one ritual per
         // (household, kind) in Round 1. Null when the admin hasn't opted
         // in yet; the FE renders "Set a weekly check-in" in that case.
-        String weeklyCheckInScheduleSpec = g.getGroupId() == null ? null
-                : householdRitualRepo.findFirstByHouseholdIdAndKind(g.getGroupId(), "check-in")
-                        .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getScheduleSpec)
-                        .orElse(null);
+        var ritual = g.getGroupId() == null
+                ? java.util.Optional.<io.sitprep.sitprepapi.domain.HouseholdRitual>empty()
+                : householdRitualRepo.findFirstByHouseholdIdAndKind(g.getGroupId(), "check-in");
+        String weeklyCheckInScheduleSpec = ritual
+                .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getScheduleSpec)
+                .orElse(null);
+        java.time.Instant weeklyCheckInPausedUntil = ritual
+                .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getPausedUntil)
+                .orElse(null);
+        String weeklyCheckInTimezone = ritual
+                .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getTimezone)
+                .orElse(null);
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -496,7 +504,9 @@ public class MeService {
                 pref == null ? null : pref.getQuietStart(),
                 pref == null ? null : pref.getQuietEnd(),
                 pref == null ? null : pref.getQuietTimezone(),
-                weeklyCheckInScheduleSpec
+                weeklyCheckInScheduleSpec,
+                weeklyCheckInPausedUntil,
+                weeklyCheckInTimezone
         );
     }
 

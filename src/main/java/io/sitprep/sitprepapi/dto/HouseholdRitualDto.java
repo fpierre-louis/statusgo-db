@@ -18,6 +18,7 @@ public record HouseholdRitualDto(
         String timezone,
         String optedInByEmail,
         Instant lastFiredAt,
+        Instant pausedUntil,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -31,6 +32,7 @@ public record HouseholdRitualDto(
                 r.getTimezone(),
                 r.getOptedInByEmail(),
                 r.getLastFiredAt(),
+                r.getPausedUntil(),
                 r.getCreatedAt(),
                 r.getUpdatedAt()
         );

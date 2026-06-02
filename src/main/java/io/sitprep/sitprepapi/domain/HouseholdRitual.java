@@ -87,6 +87,20 @@ public class HouseholdRitual {
     @Column(name = "last_fired_at")
     private Instant lastFiredAt;
 
+    /**
+     * §4 R5 — pause-until timestamp. NULL = active. Non-NULL future =
+     * paused until this instant; the scheduler's {@code isDueNow}
+     * returns false while {@code now < pausedUntil}. Lets a household
+     * skip a week (or longer) without deleting and re-creating the
+     * ritual + losing the configured day/hour/timezone.
+     *
+     * <p>Past instants are treated as expired (active) by the
+     * scheduler check — the column doesn't need a cleanup sweep since
+     * the comparison is forward-looking.</p>
+     */
+    @Column(name = "paused_until")
+    private Instant pausedUntil;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

@@ -154,7 +154,22 @@ public record MeDto(
              * {@code GET /api/households/{id}/rituals} when the FE
              * needs the id (for delete) or the timezone.
              */
-            String weeklyCheckInScheduleSpec
+            String weeklyCheckInScheduleSpec,
+            /**
+             * §4 R5 — non-null future instant means the ritual is
+             * paused; the FE renders "Paused until ..." copy on the
+             * home-card row in place of the scheduled-time. The
+             * scheduler suppresses fires while this is in the future.
+             * Null OR past means active.
+             */
+            Instant weeklyCheckInPausedUntil,
+            /**
+             * §4 R5 — IANA tz the ritual fires in. Null when no
+             * ritual exists. Lets the picker UI render the current
+             * "household time" and offer to change it, separately
+             * from the viewer's device tz.
+             */
+            String weeklyCheckInTimezone
     ) {}
 
     /**

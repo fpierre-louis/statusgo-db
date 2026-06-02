@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -139,5 +140,89 @@ public class HouseholdRitualService {
     @Transactional
     public void delete(Long ritualId) {
         repo.deleteById(ritualId);
+    }
+
+    /**
+     * §4 R5 — pause a household's check-in ritual through the next
+     * {@code weeks} scheduled fires. Sets {@code pausedUntil} to the
+     * end of the Nth upcoming fire window (fire instant + 1 hour) so
+     * the (week+1)-th scheduled fire runs normally.
+     *
+     * <p>No-op if the household has no opted-in ritual. Returns the
+     * updated ritual when one exists (null otherwise).</p>
+     */
+    @Transactional
+    public HouseholdRitual pause(String householdId, int weeks) {
+        if (householdId == null) return null;
+        int n = Math.max(1, weeks);
+        Optional<HouseholdRitual> existing = repo.findFirstByHouseholdIdAndKind(
+                householdId, KIND_CHECK_IN
+        );
+        if (existing.isEmpty()) return null;
+        HouseholdRitual r = existing.get();
+        WeeklyScheduleSpec spec = WeeklyScheduleSpec.parse(r.getScheduleSpec())
+                .orElse(null);
+        if (spec == null) {
+            // Unparseable spec: just set a flat 7-day pause from now so
+            // the pause still functions, even if the spec is broken.
+            r.setPausedUntil(Instant.now().plusSeconds(7L * 24 * 60 * 60));
+        } else {
+            ZoneId tz = safeZone(r.getTimezone());
+            Instant nthFire = nextFireInstant(spec, tz, Instant.now(), n);
+            r.setPausedUntil(nthFire.plusSeconds(60L * 60)); // +1h grace
+        }
+        r.setUpdatedAt(Instant.now());
+        log.info("HouseholdRitual: paused household={} until {} (weeks={})",
+                householdId, r.getPausedUntil(), n);
+        return repo.save(r);
+    }
+
+    /**
+     * §4 R5 — resume immediately. No-op if no ritual exists or
+     * already not paused. Clears {@code pausedUntil}; the next
+     * scheduled fire window will fire normally.
+     */
+    @Transactional
+    public HouseholdRitual resume(String householdId) {
+        if (householdId == null) return null;
+        Optional<HouseholdRitual> existing = repo.findFirstByHouseholdIdAndKind(
+                householdId, KIND_CHECK_IN
+        );
+        if (existing.isEmpty()) return null;
+        HouseholdRitual r = existing.get();
+        if (r.getPausedUntil() == null) return r;
+        r.setPausedUntil(null);
+        r.setUpdatedAt(Instant.now());
+        log.info("HouseholdRitual: resumed household={}", householdId);
+        return repo.save(r);
+    }
+
+    /**
+     * Compute the Nth (1-indexed) future fire instant strictly after
+     * {@code now} for a given weekly spec + tz. weeks=1 → next fire;
+     * weeks=2 → fire after next, etc.
+     */
+    private Instant nextFireInstant(WeeklyScheduleSpec spec, ZoneId tz, Instant now, int weeks) {
+        java.time.ZonedDateTime nowLocal = now.atZone(tz);
+        java.time.ZonedDateTime candidate = nowLocal
+                .with(java.time.temporal.TemporalAdjusters.nextOrSame(spec.day()))
+                .with(spec.time())
+                .withSecond(0)
+                .withNano(0);
+        // nextOrSame may land on TODAY at a time that's already past;
+        // bump to next week in that case.
+        if (!candidate.isAfter(nowLocal)) {
+            candidate = candidate.plusWeeks(1);
+        }
+        if (weeks > 1) {
+            candidate = candidate.plusWeeks(weeks - 1);
+        }
+        return candidate.toInstant();
+    }
+
+    private static ZoneId safeZone(String raw) {
+        if (raw == null || raw.isBlank()) return ZoneId.of(DEFAULT_TIMEZONE);
+        try { return ZoneId.of(raw); }
+        catch (Exception e) { return ZoneId.of(DEFAULT_TIMEZONE); }
     }
 }
