@@ -44,11 +44,17 @@ public class CommunityDiscoverResource {
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
             @RequestParam(value = "includeMine", required = false, defaultValue = "false") boolean includeMine
     ) {
-        // Auth required — the FE only renders this surface for signed-in
-        // users (route is ProtectedRoute). Verified token email is the
-        // source of viewer identity; the legacy viewerEmail body param is
-        // gone now that Phase E is enforced here.
-        String viewer = AuthUtils.requireAuthenticatedEmail();
+        // Auth optional (2026-06-02) — guest sessions land on /community
+        // and need this endpoint to surface place label + nearby public
+        // groups; previously this required auth and 401'd, surfacing a
+        // "Couldn't load nearby groups" red toast for every guest user.
+        // The response shape is public-equivalent (no private group data,
+        // no per-user membership state when viewer is null); the service
+        // already handles null viewer correctly (treats as
+        // not-a-member-of-anything). getCurrentUserEmail returns null
+        // when no Firebase token is present; requireAuthenticatedEmail
+        // would throw — we want the former here.
+        String viewer = AuthUtils.getCurrentUserEmail();
         return ResponseEntity.ok(service.discover(lat, lng, radiusKm, viewer, includeMine));
     }
 }

@@ -82,6 +82,13 @@ public record MeDto(
             /** Who can see this profile. v1 vocab: public | circles | followers | private. Default "circles". */
             String profileVisibility,
             /**
+             * Discoverable in InviteSheet user search. Default {@code false} —
+             * users must opt in via Profile settings before they surface in
+             * name-prefix search results. Exact-email lookup still works
+             * regardless. See {@code UserSearchResource} + docs/HOME_HOUSEHOLD_MERGE.md §5.
+             */
+            Boolean searchable,
+            /**
              * Latest structured Readiness Assessment summary, parsed from
              * UserInfo.assessmentSummaryJson. Null when the user has not
              * completed the check on a client that sends the payload.

@@ -416,6 +416,7 @@ public class MeService {
                 u.getBio(),
                 u.getCoverImageUrl(),
                 u.getProfileVisibility(),
+                u.getSearchable(),
                 parseAssessmentSummary(u)
         );
     }
