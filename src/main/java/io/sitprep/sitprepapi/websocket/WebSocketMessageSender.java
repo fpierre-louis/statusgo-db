@@ -161,6 +161,30 @@ public class WebSocketMessageSender {
                 "/topic/households/" + householdId + "/events", dto);
     }
 
+    // --- Member status broadcasts (Sprint 1 / G1) ---
+    /**
+     * Broadcast a member's self-status change so household rosters update
+     * live without a /me refresh. Mirrors the household-event topic shape.
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/members/status}</p>
+     */
+    public void sendHouseholdMemberStatus(String householdId, Object dto) {
+        if (householdId == null || householdId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/members/status", dto);
+    }
+
+    /**
+     * Group twin for member status changes.
+     *
+     * <p>Topic: {@code /topic/group/{groupId}/members/status}</p>
+     */
+    public void sendGroupMemberStatus(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/group/" + groupId + "/members/status", dto);
+    }
+
     // --- Household accompaniments (with-me feature) ---
     public void sendHouseholdAccompanimentUpdate(String householdId, HouseholdAccompanimentDto dto) {
         if (householdId == null || householdId.isBlank() || dto == null) return;

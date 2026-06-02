@@ -5,15 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.PublicCdn;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Field;
@@ -33,6 +37,7 @@ public class UserInfoService {
     private final FollowService followService;
     private final BlockService blockService;
     private final ObjectMapper objectMapper;
+    private final WebSocketMessageSender ws;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
@@ -41,7 +46,8 @@ public class UserInfoService {
                            PostRepo taskRepo,
                            FollowService followService,
                            BlockService blockService,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           WebSocketMessageSender ws) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
@@ -49,6 +55,7 @@ public class UserInfoService {
         this.followService = followService;
         this.blockService = blockService;
         this.objectMapper = objectMapper;
+        this.ws = ws;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -319,6 +326,80 @@ public class UserInfoService {
     }
 
     public void deleteUser(String id) { userInfoRepo.deleteById(id); }
+
+    @Transactional
+    public MemberStatusFrame updateSelfStatusByEmail(String email, String status, String color, Instant updatedAt) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("email is required");
+        }
+        final String normalizedStatus = normalizeSelfStatus(status);
+        final Instant effectiveUpdatedAt = updatedAt == null ? Instant.now() : updatedAt;
+        final String effectiveColor = color == null || color.isBlank()
+                ? defaultStatusColor(normalizedStatus)
+                : color.trim();
+
+        UserInfo userInfo = userInfoRepo.findByUserEmailIgnoreCase(email.trim())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        final String oldStatus = normalizeStatusOrNull(userInfo.getUserStatus());
+
+        userInfo.setUserStatus(normalizedStatus);
+        userInfo.setStatusColor(effectiveColor);
+        userInfo.setUserStatusLastUpdated(effectiveUpdatedAt);
+
+        UserInfo saved = userInfoRepo.save(userInfo);
+        MemberStatusFrame frame = new MemberStatusFrame(
+                saved.getUserEmail() == null ? null : saved.getUserEmail().trim().toLowerCase(Locale.ROOT),
+                saved.getUserStatus(),
+                saved.getStatusColor(),
+                saved.getUserStatusLastUpdated()
+        );
+
+        final boolean statusChanged = !Objects.equals(oldStatus, normalizedStatus);
+        if (statusChanged && saved.getUserEmail() != null) {
+            householdEventService.recordStatusChangedForActor(saved.getUserEmail(), normalizedStatus);
+
+            final String householdId = saved.getBaseHouseholdId();
+            final List<String> groupIds = groupRepo.findByMemberEmail(saved.getUserEmail()).stream()
+                    .map(Group::getGroupId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    ws.sendHouseholdMemberStatus(householdId, frame);
+                    for (String groupId : groupIds) {
+                        ws.sendGroupMemberStatus(groupId, frame);
+                    }
+                }
+            });
+        }
+
+        return frame;
+    }
+
+    private String normalizeSelfStatus(String status) {
+        String normalized = normalizeStatusOrNull(status);
+        if (normalized == null || !Set.of("SAFE", "HELP", "INJURED").contains(normalized)) {
+            throw new IllegalArgumentException("status must be SAFE, HELP, or INJURED");
+        }
+        return normalized;
+    }
+
+    private String normalizeStatusOrNull(String status) {
+        if (status == null || status.isBlank()) return null;
+        return status.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String defaultStatusColor(String status) {
+        return switch (status) {
+            case "SAFE" -> "#1BBC9B";
+            case "HELP" -> "#FFC107";
+            case "INJURED" -> "#F25A7C";
+            default -> "#673AB7";
+        };
+    }
 
     /**
      * Merge an incoming partial map into the user's groupLocationSharing

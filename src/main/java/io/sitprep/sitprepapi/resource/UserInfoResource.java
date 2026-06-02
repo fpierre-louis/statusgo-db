@@ -1,8 +1,10 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
+import io.sitprep.sitprepapi.dto.UpdateSelfStatusRequest;
 import io.sitprep.sitprepapi.service.AccountDeletionService;
 import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
 import io.sitprep.sitprepapi.service.BlockService;
@@ -268,6 +270,29 @@ public class UserInfoResource {
     }
 
     public record UpdateLocationRequest(Double lat, Double lng) {}
+
+    /**
+     * Dedicated self-status mutation. Keeps SAFE / HELP / INJURED out of the
+     * generic reflection PATCH path so the service can broadcast the committed
+     * status frame to household and group roster subscribers.
+     */
+    @PatchMapping("/me/status")
+    public ResponseEntity<MemberStatusFrame> updateMyStatus(@RequestBody UpdateSelfStatusRequest body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        if (body == null || body.status() == null || body.status().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            return ResponseEntity.ok(userInfoService.updateSelfStatusByEmail(
+                    email,
+                    body.status(),
+                    body.color(),
+                    body.updatedAt()
+            ));
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+    }
 
     /**
      * Flip the caller's discoverability for in-app search. Default is
