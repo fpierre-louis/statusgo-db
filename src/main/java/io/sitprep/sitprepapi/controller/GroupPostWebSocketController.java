@@ -1,7 +1,9 @@
 package io.sitprep.sitprepapi.controller;
 
 import io.sitprep.sitprepapi.dto.GroupPostDto;
+import io.sitprep.sitprepapi.dto.GroupTypingRequest;
 import io.sitprep.sitprepapi.service.GroupPostService;
+import io.sitprep.sitprepapi.service.GroupTypingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.stereotype.Controller;
@@ -14,6 +16,9 @@ public class GroupPostWebSocketController {
 
     @Autowired
     private GroupPostService postService;
+
+    @Autowired
+    private GroupTypingService typingService;
 
     @MessageMapping("/group-post")
     public void handleNewPost(GroupPostDto postDto,
@@ -57,6 +62,15 @@ public class GroupPostWebSocketController {
         } catch (Exception e) {
             System.err.println("❌ Error editing post (MVP no-JWT): " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    @MessageMapping("/group-post/typing")
+    public void handleTyping(GroupTypingRequest request, Principal principal) {
+        try {
+            typingService.relay(request.groupId(), requirePrincipalEmail(principal), request.typing());
+        } catch (Exception e) {
+            System.err.println("❌ Error relaying typing frame: " + e.getMessage());
         }
     }
 

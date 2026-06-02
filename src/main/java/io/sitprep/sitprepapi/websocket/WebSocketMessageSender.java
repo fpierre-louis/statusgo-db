@@ -75,6 +75,16 @@ public class WebSocketMessageSender {
         messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, dto);
     }
 
+    /**
+     * Ephemeral chat typing indicator.
+     *
+     * <p>Topic: {@code /topic/group-posts/{groupId}/typing}</p>
+     */
+    public void sendGroupTyping(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/group-posts/" + groupId + "/typing", dto);
+    }
+
     // --- Comments ---
     public void sendNewGroupPostComment(Long postId, GroupPostCommentDto dto) {
         messagingTemplate.convertAndSend("/topic/group-post-comments/" + postId, dto);
