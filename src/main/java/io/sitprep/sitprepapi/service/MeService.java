@@ -53,6 +53,7 @@ public class MeService {
     private final io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo;
     private final io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo;
     private final io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo;
+    private final io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -69,6 +70,7 @@ public class MeService {
             io.sitprep.sitprepapi.repo.GroupReadStateRepo groupReadStateRepo,
             io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo,
             io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo,
+            io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -84,6 +86,7 @@ public class MeService {
         this.groupReadStateRepo = groupReadStateRepo;
         this.groupPostRepo = groupPostRepo;
         this.groupMutePrefRepo = groupMutePrefRepo;
+        this.householdRitualRepo = householdRitualRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -465,6 +468,14 @@ public class MeService {
         int adminCount = g.getAdminEmails() == null ? 0 : g.getAdminEmails().size();
         io.sitprep.sitprepapi.domain.GroupMutePref pref =
                 g.getGroupId() == null ? null : prefMap.get(g.getGroupId());
+        // §4 — weekly check-in ritual lookup. One extra query per /me call
+        // for the base household; bounded since at-most-one ritual per
+        // (household, kind) in Round 1. Null when the admin hasn't opted
+        // in yet; the FE renders "Set a weekly check-in" in that case.
+        String weeklyCheckInScheduleSpec = g.getGroupId() == null ? null
+                : householdRitualRepo.findFirstByHouseholdIdAndKind(g.getGroupId(), "check-in")
+                        .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getScheduleSpec)
+                        .orElse(null);
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -484,7 +495,8 @@ public class MeService {
                 g.getGroupId() == null ? null : muteMap.get(g.getGroupId()),
                 pref == null ? null : pref.getQuietStart(),
                 pref == null ? null : pref.getQuietEnd(),
-                pref == null ? null : pref.getQuietTimezone()
+                pref == null ? null : pref.getQuietTimezone(),
+                weeklyCheckInScheduleSpec
         );
     }
 

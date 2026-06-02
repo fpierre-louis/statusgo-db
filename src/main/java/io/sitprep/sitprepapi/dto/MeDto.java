@@ -143,7 +143,18 @@ public record MeDto(
             /** Quiet-hours window end. See {@link GroupSummary#quietEnd()}. */
             Integer quietEnd,
             /** Quiet-hours IANA timezone. See {@link GroupSummary#quietTimezone()}. */
-            String quietTimezone
+            String quietTimezone,
+            /**
+             * §4 of {@code docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md} —
+             * non-null means the household has opted into a recurring
+             * ritual (currently always {@code "WEEKLY_SUN_19:00"} for
+             * the weekly check-in). The FE reads this off the /me DTO
+             * to render the row state without a separate fetch; the
+             * full ritual entity is reachable via
+             * {@code GET /api/households/{id}/rituals} when the FE
+             * needs the id (for delete) or the timezone.
+             */
+            String weeklyCheckInScheduleSpec
     ) {}
 
     /**

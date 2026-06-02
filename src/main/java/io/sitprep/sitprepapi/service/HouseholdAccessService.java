@@ -94,6 +94,17 @@ public class HouseholdAccessService {
         return containsIgnoreCase(g.getAdminEmails(), caller);
     }
 
+    /** Throws 403 when {@link #canWriteHousehold} would return false. */
+    @Transactional(readOnly = true)
+    public void requireCanAdminHousehold(String caller, String householdId) {
+        if (!canWriteHousehold(caller, householdId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "Admin access required for household " + householdId
+            );
+        }
+    }
+
     /** Loads a group by id, returning null unless it's a Household. */
     private Group household(String householdId) {
         if (householdId == null || householdId.isBlank()) return null;
