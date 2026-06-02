@@ -17,4 +17,12 @@ public interface HouseholdRitualRepo extends JpaRepository<HouseholdRitual, Long
      * support will need a list method instead.
      */
     Optional<HouseholdRitual> findFirstByHouseholdIdAndKind(String householdId, String kind);
+
+    /**
+     * Cross-household scan for the §4 Round 2 scheduler — pulls every
+     * opted-in ritual of a kind so the sweep can decide which are due
+     * right now. Beta-scale fine without pagination; revisit if
+     * household count climbs.
+     */
+    List<HouseholdRitual> findByKind(String kind);
 }

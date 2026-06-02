@@ -200,7 +200,8 @@ public class PushPolicyService {
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
-                 NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL -> Lane.B;
+                 NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
+                 HOUSEHOLD_RITUAL_REMINDER -> Lane.B;
             // Lane C — ephemeral
             case SELF_STATUS_SYNC, CONNECTION_STATE,
                  OPTIMISTIC_ROLLBACK, TOAST_CONFIRMATION -> Lane.C;
@@ -326,6 +327,14 @@ public class PushPolicyService {
         NEW_MEMBER,
         TASK_STATUS_CHANGE,
         AUTO_POST_LOCAL,
+        /**
+         * §4 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — calm-mode
+         * opt-in weekly household ritual nudge. Lane B by design:
+         * users opted INTO this; the nudge lands in the inbox without
+         * an interruptive push. Users opt OUT by deleting the ritual,
+         * not by muting a category.
+         */
+        HOUSEHOLD_RITUAL_REMINDER,
 
         // Lane C — ephemeral (in-app banner only)
         SELF_STATUS_SYNC,
