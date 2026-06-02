@@ -8,18 +8,20 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdRitualRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
+import io.sitprep.sitprepapi.util.WeeklyScheduleSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * §4 Round 2 of {@code docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md} —
@@ -69,23 +71,29 @@ public class HouseholdRitualScheduler {
     /** Sentinel for "this household's timezone wasn't resolvable." */
     private static final ZoneId FALLBACK_TZ = ZoneId.of("America/Denver");
 
-    /** Fire window inside the local day — 19:00 inclusive to 20:00 exclusive. */
-    private static final int FIRE_HOUR = 19;
-    private static final int FIRE_HOUR_END_EXCLUSIVE = 20;
+    /**
+     * Width of the per-ritual fire window after its scheduled time —
+     * tolerates scheduler downtime + lets the every-15min tick land
+     * in the window even when boundaries are mid-quarter.
+     */
+    private static final java.time.Duration FIRE_WINDOW = java.time.Duration.ofHours(1);
 
     private final HouseholdRitualRepo ritualRepo;
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
+    private final HouseholdEventService householdEventService;
 
     public HouseholdRitualScheduler(HouseholdRitualRepo ritualRepo,
                                     GroupRepo groupRepo,
                                     UserInfoRepo userInfoRepo,
-                                    NotificationService notificationService) {
+                                    NotificationService notificationService,
+                                    HouseholdEventService householdEventService) {
         this.ritualRepo = ritualRepo;
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
+        this.householdEventService = householdEventService;
     }
 
     /**
@@ -141,22 +149,40 @@ public class HouseholdRitualScheduler {
 
     /**
      * Fire-window predicate. True iff RIGHT NOW in the household's
-     * local tz is within the configured fire hour AND the ritual
+     * local tz is within the configured fire window AND the ritual
      * hasn't already fired today (same calendar date in that tz).
+     *
+     * <p>§4 Round 3 — schedule is parsed via {@link WeeklyScheduleSpec},
+     * so any valid {@code WEEKLY_<DAY>_<HH:MM>} spec works (not just
+     * the Round 1 hardcoded Sunday-7pm). Fire window = scheduled time
+     * → scheduled time + {@link #FIRE_WINDOW} (1 hour). Outside the
+     * window we don't catch up — a Tuesday catch-up notification for a
+     * missed Sunday-evening ritual would feel like noise, not a nudge.</p>
      */
     private boolean isDueNow(HouseholdRitual r, Instant now) {
         if (r == null) return false;
-        if (!HouseholdRitualService.DEFAULT_SCHEDULE_SPEC.equals(r.getScheduleSpec())) {
-            // v2 picker will extend the parser; for now refuse silently
-            // to fire anything we don't understand rather than guessing.
+        Optional<WeeklyScheduleSpec> parsed = WeeklyScheduleSpec.parse(r.getScheduleSpec());
+        if (parsed.isEmpty()) {
+            // Refuse silently to fire anything we don't understand
+            // rather than guessing — a malformed spec stays inert.
             return false;
         }
+        WeeklyScheduleSpec spec = parsed.get();
         ZoneId tz = resolveTz(r.getTimezone());
         ZonedDateTime nowLocal = now.atZone(tz);
-        if (nowLocal.getDayOfWeek() != DayOfWeek.SUNDAY) return false;
-        int hour = nowLocal.getHour();
-        if (hour < FIRE_HOUR || hour >= FIRE_HOUR_END_EXCLUSIVE) return false;
-        // Idempotency: don't double-fire on the same Sunday.
+        if (nowLocal.getDayOfWeek() != spec.day()) return false;
+        LocalTime fireStart = spec.time();
+        LocalTime fireEnd = fireStart.plus(FIRE_WINDOW);
+        // Same-day window: must hold even when fireStart+1h spills past
+        // midnight, in which case we treat the post-midnight portion as
+        // out-of-window (the ritual's next chance is next week — no
+        // late-night catchup that would surprise the recipient).
+        LocalTime nowTime = nowLocal.toLocalTime();
+        boolean inWindow = !nowTime.isBefore(fireStart) &&
+                (fireEnd.isAfter(fireStart) ? nowTime.isBefore(fireEnd) : false);
+        if (!inWindow) return false;
+        // Idempotency: don't double-fire on the same local calendar
+        // date in the household's tz.
         if (r.getLastFiredAt() != null) {
             ZonedDateTime lastLocal = r.getLastFiredAt().atZone(tz);
             if (lastLocal.toLocalDate().equals(nowLocal.toLocalDate())) {
@@ -205,12 +231,30 @@ public class HouseholdRitualScheduler {
                 r.getKind()
         );
 
+        // §4 R3b — per-recipient suppression. Skip members who already
+        // have a weekly-check-in event in the last 7 days. The nudge is
+        // for people who haven't engaged this week; sending it to
+        // already-engaged members trains them to ignore it. 7-day
+        // rolling window (not calendar-week) so the check is simple
+        // and self-anchoring against the fire moment.
+        Instant suppressionCutoff = Instant.now().minusSeconds(7L * 24 * 60 * 60);
+
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
+        int dispatched = 0;
+        int suppressed = 0;
         for (UserInfo u : users) {
             try {
                 String email = u.getUserEmail() == null
                         ? null : u.getUserEmail().toLowerCase(Locale.ROOT);
                 if (email == null) continue;
+                if (householdEventService.findLatestConfirmation(
+                        household.getGroupId(),
+                        HouseholdEventService.KIND_WEEKLY_CHECK_IN_COMPLETED,
+                        email
+                ).map(e -> e.getAt().isAfter(suppressionCutoff)).orElse(false)) {
+                    suppressed++;
+                    continue;
+                }
                 String token = u.getFcmtoken();
                 notificationService.deliverPresenceAwareForGroup(
                         email,
@@ -226,17 +270,27 @@ public class HouseholdRitualScheduler {
                         household.getGroupId(),
                         Category.HOUSEHOLD_RITUAL_REMINDER
                 );
+                dispatched++;
             } catch (Exception perRecipient) {
                 log.warn("HouseholdRitualScheduler: dispatch failed for {} household={}: {}",
                         u.getUserEmail(), household.getGroupId(), perRecipient.getMessage());
             }
         }
 
-        // Round 2 surfaces the fire via the per-recipient inbox row
-        // only. Round 3 can add a first-class KIND_RITUAL_FIRED event
-        // so admins see "system fired the nudge" in the chat thread —
-        // wire {@link HouseholdEventService#recordSafely} back in then.
-        log.debug("HouseholdRitualScheduler: nudge fired for household={} recipients={}",
-                household.getGroupId(), users.size());
+        // §6 Round 3 — chat-thread breadcrumb so admins see the system
+        // fire in the household activity feed, not just per-recipient
+        // inbox rows. Fire-and-forget; a recorder failure must not
+        // block the dispatch loop.
+        try {
+            householdEventService.recordRitualFired(
+                    household.getGroupId(), r.getKind(), dispatched
+            );
+        } catch (Exception ignored) {
+            // recordRitualFired uses recordSafely internally, so this
+            // catch is belt-and-suspenders — log already happens there.
+        }
+
+        log.debug("HouseholdRitualScheduler: nudge fired for household={} recipients={} suppressed={}",
+                household.getGroupId(), dispatched, suppressed);
     }
 }

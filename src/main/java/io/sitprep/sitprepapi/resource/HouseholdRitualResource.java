@@ -50,24 +50,62 @@ public class HouseholdRitualResource {
     }
 
     /**
-     * Opt in to the weekly check-in ritual. Body is optional — the FE
-     * may pass {@code {"timezone": "America/Los_Angeles"}} so the
-     * fire-time is rooted in the household's local TZ; missing falls
-     * back to the service's DEFAULT_TIMEZONE. Idempotent — re-posting
-     * returns the existing row without creating a duplicate.
+     * Opt in to the weekly check-in ritual, or update an existing
+     * one's day/hour/minute. Body is optional and accepts:
+     * <ul>
+     *   <li>{@code timezone} — IANA tz string, defaults to the service's DEFAULT_TIMEZONE</li>
+     *   <li>{@code dayOfWeek} — Java {@link java.time.DayOfWeek} name (MONDAY..SUNDAY); defaults to SUNDAY</li>
+     *   <li>{@code hour} — 0..23, defaults to 19</li>
+     *   <li>{@code minute} — 0..59, defaults to 0</li>
+     * </ul>
+     * <p>No-args POST is idempotent (returns existing row unchanged).
+     * Body with day/hour/minute is the picker save — overwrites the
+     * existing spec without creating a duplicate row.</p>
      */
     @PostMapping("/{householdId}/rituals/weekly-check-in")
     public ResponseEntity<HouseholdRitualDto> createWeeklyCheckIn(
             @PathVariable String householdId,
-            @RequestBody(required = false) Map<String, String> body
+            @RequestBody(required = false) Map<String, Object> body
     ) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         access.requireCanAdminHousehold(caller, householdId);
-        String timezone = body == null ? null : body.get("timezone");
+        String timezone = stringField(body, "timezone");
+        java.time.DayOfWeek day = parseDayOfWeek(stringField(body, "dayOfWeek"));
+        Integer hour = intField(body, "hour");
+        Integer minute = intField(body, "minute");
         HouseholdRitual saved = ritualService.createWeeklyCheckIn(
-                householdId, caller, timezone
+                householdId, caller, timezone, day, hour, minute
         );
         return ResponseEntity.ok(HouseholdRitualDto.from(saved));
+    }
+
+    private static String stringField(Map<String, Object> body, String key) {
+        if (body == null) return null;
+        Object v = body.get(key);
+        return v == null ? null : String.valueOf(v).trim();
+    }
+
+    private static Integer intField(Map<String, Object> body, String key) {
+        if (body == null) return null;
+        Object v = body.get(key);
+        if (v == null) return null;
+        if (v instanceof Number n) return n.intValue();
+        try {
+            return Integer.valueOf(String.valueOf(v).trim());
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid integer for " + key + ": " + v);
+        }
+    }
+
+    private static java.time.DayOfWeek parseDayOfWeek(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return java.time.DayOfWeek.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid dayOfWeek: " + raw);
+        }
     }
 
     /**

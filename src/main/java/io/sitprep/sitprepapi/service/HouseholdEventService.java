@@ -10,6 +10,7 @@ import io.sitprep.sitprepapi.dto.WeeklyCheckInResultDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdEventRepo;
+import io.sitprep.sitprepapi.repo.HouseholdRitualRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -20,7 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -48,17 +54,23 @@ public class HouseholdEventService {
     private final HouseholdEventRepo eventRepo;
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
+    private final HouseholdRitualRepo ritualRepo;
     private final WebSocketMessageSender ws;
     private final ObjectMapper objectMapper;
+
+    /** Fallback tz when neither ritual nor household supplies one. */
+    private static final ZoneId FALLBACK_TZ = ZoneId.of("America/Denver");
 
     public HouseholdEventService(HouseholdEventRepo eventRepo,
                                  UserInfoRepo userInfoRepo,
                                  GroupRepo groupRepo,
+                                 HouseholdRitualRepo ritualRepo,
                                  WebSocketMessageSender ws,
                                  ObjectMapper objectMapper) {
         this.eventRepo = eventRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
+        this.ritualRepo = ritualRepo;
         this.ws = ws;
         this.objectMapper = objectMapper;
     }
@@ -164,6 +176,20 @@ public class HouseholdEventService {
                 subjectEmail == null ? Map.of() : Map.of("subjectEmail", subjectEmail));
     }
 
+    /**
+     * §6 Round 3 — record that the §4 scheduler fired a ritual nudge.
+     * actorEmail is null (system-fired). Payload carries the ritual
+     * kind so future ritual kinds (drill, plan-review) can ride this
+     * same event constant without a new column. Fire-and-forget: a
+     * recorder failure must not block notification dispatch.
+     */
+    public void recordRitualFired(String householdId, String ritualKind, int recipients) {
+        Map<String, Object> payload = ritualKind == null
+                ? Map.of("recipients", recipients)
+                : Map.of("ritualKind", ritualKind, "recipients", recipients);
+        recordSafely(householdId, "ritual-fired", null, payload);
+    }
+
     // ---------------------------------------------------------------------
     // §6 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — member micro-actions
     //
@@ -265,7 +291,6 @@ public class HouseholdEventService {
     public static final String MOOD_NEEDS_HELP = "needs-help";
 
     private static final Set<String> ALLOWED_MOODS = Set.of(MOOD_GOOD, MOOD_NEEDS_HELP);
-    private static final java.time.Duration WEEK_WINDOW = java.time.Duration.ofDays(7);
 
     @Transactional
     public WeeklyCheckInResultDto recordWeeklyCheckIn(
@@ -327,12 +352,19 @@ public class HouseholdEventService {
         if (householdId == null || householdId.isBlank()) {
             throw new IllegalArgumentException("householdId is required");
         }
-        Instant windowEnd = Instant.now();
-        Instant windowStart = windowEnd.minus(WEEK_WINDOW);
+        // §8 Round 3 — calendar-week boundaries in the household's tz.
+        // "This week" = current Sunday 00:00 (inclusive) → next Sunday
+        // 00:00 (exclusive) in the household's saved timezone. Aligns
+        // with the §4 Sunday-evening ritual fire day so the user's
+        // mental model of "this week's check-in" matches what they see.
+        ZoneId tz = resolveHouseholdTz(householdId);
+        Instant now = Instant.now();
+        Instant windowStart = currentWeekStart(now, tz);
+        Instant windowEnd = nextWeekStart(now, tz);
 
         List<HouseholdEvent> events = eventRepo.findRangeByKind(
                 householdId, KIND_WEEKLY_CHECK_IN_COMPLETED,
-                windowStart.minusSeconds(1), windowEnd.plusSeconds(1)
+                windowStart.minusSeconds(1), windowEnd
         );
 
         // Dedupe by actor — keep each member's EARLIEST check-in in the
@@ -378,7 +410,7 @@ public class HouseholdEventService {
         }
 
         int totalMembers = totalMembers(householdId);
-        int viewerStreakWeeks = computeStreakWeeks(householdId, actorKey, windowEnd);
+        int viewerStreakWeeks = computeStreakWeeks(householdId, actorKey, now, tz);
 
         return new WeeklyCheckInSummaryDto(
                 windowStart, windowEnd, totalMembers, actorPosition,
@@ -394,43 +426,103 @@ public class HouseholdEventService {
     }
 
     /**
-     * §8 Round 2 — count consecutive 7-day windows back from
+     * §8 Round 2/3 — count consecutive calendar weeks back from
      * {@code now} where {@code actorEmail} has ≥1 weekly-check-in
      * event. Capped at 12 weeks of lookback to bound the query.
      * Returns 0 when the actor hasn't checked in this week (no
      * in-flight streak to display).
      *
+     * <p>Round 3 switched the bucketing from rolling 7-day blocks to
+     * calendar weeks in the household's tz (Sunday 00:00 → next
+     * Sunday 00:00). A user who checks in Sunday morning AND the
+     * following Saturday gets a 1-week streak (both events in the
+     * same calendar week), not a 2-week streak — which is the honest
+     * read of the mechanic ("how many weeks in a row have I shown
+     * up", not "how many 7-day slabs in a row").</p>
+     *
      * <p>Honest mechanic: the number only grows when the user
      * actually checks in; there's no inflated "streak at risk"
      * surface that pushes users to tap defensively.</p>
      */
-    private int computeStreakWeeks(String householdId, String actorKey, Instant now) {
+    private int computeStreakWeeks(String householdId, String actorKey, Instant now, ZoneId tz) {
         if (actorKey == null) return 0;
         final int LOOKBACK_WEEKS = 12;
-        final long WEEK_MS = 7L * 24 * 60 * 60 * 1000;
-        Instant floor = now.minusMillis(WEEK_MS * LOOKBACK_WEEKS);
+        Instant currentWeekStart = currentWeekStart(now, tz);
+        Instant floor = currentWeekStart.minusSeconds(7L * 24 * 60 * 60 * LOOKBACK_WEEKS);
         List<HouseholdEvent> events = eventRepo.findRangeByKind(
                 householdId, KIND_WEEKLY_CHECK_IN_COMPLETED,
-                floor.minusSeconds(1), now.plusSeconds(1)
+                floor.minusSeconds(1), nextWeekStart(now, tz)
         );
         long[] timestamps = events.stream()
                 .filter(e -> actorKey.equals(e.getActorEmail()))
                 .mapToLong(e -> e.getAt().toEpochMilli())
                 .toArray();
         if (timestamps.length == 0) return 0;
-        long nowMs = now.toEpochMilli();
+
         int streak = 0;
+        // Walk backwards one calendar week at a time. Current week is
+        // i=0 (last Sunday 00:00 → next Sunday 00:00); i=1 is the week
+        // before that, etc. Stop at the first week with no hit.
         for (int i = 0; i < LOOKBACK_WEEKS; i++) {
-            long windowEnd = nowMs - i * WEEK_MS;
-            long windowStart = windowEnd - WEEK_MS;
+            ZonedDateTime weekStartLocal = currentWeekStart.atZone(tz).minusWeeks(i);
+            long weekStartMs = weekStartLocal.toInstant().toEpochMilli();
+            long weekEndMs = weekStartLocal.plusWeeks(1).toInstant().toEpochMilli();
             boolean hit = false;
             for (long t : timestamps) {
-                if (t > windowStart && t <= windowEnd) { hit = true; break; }
+                if (t >= weekStartMs && t < weekEndMs) { hit = true; break; }
             }
             if (hit) streak++;
             else break;
         }
         return streak;
+    }
+
+    // ---------------------------------------------------------------------
+    // §8 Round 3 — calendar-week + timezone helpers
+    // ---------------------------------------------------------------------
+
+    /**
+     * Beginning of the current calendar week in the given tz —
+     * the most-recent Sunday at 00:00 local time. Used by the §8
+     * summary + streak math so "this week" maps to what the viewer
+     * actually thinks of as this week, not a rolling 7-day slab.
+     */
+    private Instant currentWeekStart(Instant now, ZoneId tz) {
+        ZonedDateTime nowLocal = now.atZone(tz);
+        LocalDate sunday = nowLocal.toLocalDate()
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY));
+        return sunday.atStartOfDay(tz).toInstant();
+    }
+
+    /**
+     * Start of the next calendar week (Sunday 00:00 local) — used as
+     * the exclusive upper bound on the week-range query.
+     */
+    private Instant nextWeekStart(Instant now, ZoneId tz) {
+        return currentWeekStart(now, tz).atZone(tz).plusWeeks(1).toInstant();
+    }
+
+    /**
+     * Resolve a household's effective timezone for week-boundary math.
+     * Prefers the household's opted-in check-in ritual's saved tz
+     * (set by the viewer who created the ritual); falls back to
+     * {@link #FALLBACK_TZ} when no ritual exists or the spec is
+     * unparseable. Round 4 could read from a Group.timezone column
+     * once we add one — for now ritual-driven tz is good enough since
+     * non-ritual households still get a sane default.
+     */
+    private ZoneId resolveHouseholdTz(String householdId) {
+        if (householdId == null) return FALLBACK_TZ;
+        return ritualRepo.findFirstByHouseholdIdAndKind(
+                        householdId, HouseholdRitualService.KIND_CHECK_IN)
+                .map(r -> safeZone(r.getTimezone()))
+                .orElse(FALLBACK_TZ);
+    }
+
+    private static ZoneId safeZone(String raw) {
+        if (raw == null || raw.isBlank()) return FALLBACK_TZ;
+        try { return ZoneId.of(raw); }
+        catch (Exception e) { return FALLBACK_TZ; }
     }
 
     private String extractMood(String payloadJson) {

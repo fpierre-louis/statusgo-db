@@ -2,11 +2,13 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.HouseholdRitual;
 import io.sitprep.sitprepapi.repo.HouseholdRitualRepo;
+import io.sitprep.sitprepapi.util.WeeklyScheduleSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -49,14 +51,8 @@ public class HouseholdRitualService {
     }
 
     /**
-     * Idempotent opt-in. If a check-in ritual already exists for this
-     * household, returns it without creating a duplicate; otherwise
-     * creates the canonical Sunday-7pm ritual in the caller's chosen
-     * timezone (or {@link #DEFAULT_TIMEZONE} as fallback).
-     *
-     * <p>Idempotency matters because the FE may double-tap; we want
-     * "opt-in then immediately verify" to land on the same row both
-     * times rather than creating duplicates.</p>
+     * Idempotent opt-in with the default Sunday-7pm schedule.
+     * Convenience wrapper around the day/hour-aware overload.
      */
     @Transactional
     public HouseholdRitual createWeeklyCheckIn(
@@ -64,25 +60,74 @@ public class HouseholdRitualService {
             String optedInByEmail,
             String timezone
     ) {
+        return createWeeklyCheckIn(householdId, optedInByEmail, timezone,
+                /* dayOfWeek */ null, /* hour */ null, /* minute */ null);
+    }
+
+    /**
+     * Idempotent opt-in with explicit day/hour/minute. If a check-in
+     * ritual already exists for this household:
+     *   • return it unchanged when no day/hour/minute were supplied
+     *     (matches the no-args opt-in semantics — re-tapping the
+     *     "Set weekly check-in" button doesn't bulldoze custom timing),
+     *   • UPDATE its scheduleSpec when day/hour/minute ARE supplied
+     *     (matches the picker UI semantics — saving a new time
+     *     overwrites the existing one).
+     *
+     * <p>Idempotency matters because the FE may double-tap; we want
+     * the no-args path to be safe on double-tap. The explicit-args
+     * path is the picker save, which IS supposed to mutate.</p>
+     *
+     * <p>Null day → SUNDAY. Null hour → 19. Null minute → 0. Matches
+     * the prior hardcoded {@link #DEFAULT_SCHEDULE_SPEC}.</p>
+     */
+    @Transactional
+    public HouseholdRitual createWeeklyCheckIn(
+            String householdId,
+            String optedInByEmail,
+            String timezone,
+            DayOfWeek dayOfWeek,
+            Integer hour,
+            Integer minute
+    ) {
+        DayOfWeek day = dayOfWeek == null ? DayOfWeek.SUNDAY : dayOfWeek;
+        int h = hour == null ? 19 : Math.max(0, Math.min(23, hour));
+        int m = minute == null ? 0 : Math.max(0, Math.min(59, minute));
+        boolean explicit = dayOfWeek != null || hour != null || minute != null;
+        String spec = WeeklyScheduleSpec.of(day, h, m).toSpecString();
+
         Optional<HouseholdRitual> existing = repo.findFirstByHouseholdIdAndKind(
                 householdId, KIND_CHECK_IN
         );
         if (existing.isPresent()) {
-            log.debug("HouseholdRitual: opt-in no-op for household={} (already exists)", householdId);
-            return existing.get();
+            HouseholdRitual r = existing.get();
+            if (!explicit) {
+                log.debug("HouseholdRitual: opt-in no-op for household={} (already exists)", householdId);
+                return r;
+            }
+            // Picker save — mutate the existing row's spec/tz instead
+            // of creating a second one. Preserve lastFiredAt so a
+            // schedule change doesn't accidentally re-fire today.
+            r.setScheduleSpec(spec);
+            if (timezone != null && !timezone.isBlank()) r.setTimezone(timezone);
+            r.setUpdatedAt(Instant.now());
+            HouseholdRitual saved = repo.save(r);
+            log.info("HouseholdRitual: updated check-in spec for household={} → {}",
+                    householdId, spec);
+            return saved;
         }
         HouseholdRitual r = new HouseholdRitual();
         r.setHouseholdId(householdId);
         r.setKind(KIND_CHECK_IN);
-        r.setScheduleSpec(DEFAULT_SCHEDULE_SPEC);
+        r.setScheduleSpec(spec);
         r.setTimezone(timezone == null || timezone.isBlank() ? DEFAULT_TIMEZONE : timezone);
         r.setOptedInByEmail(optedInByEmail);
         Instant now = Instant.now();
         r.setCreatedAt(now);
         r.setUpdatedAt(now);
         HouseholdRitual saved = repo.save(r);
-        log.info("HouseholdRitual: created check-in for household={} by={}",
-                householdId, optedInByEmail);
+        log.info("HouseholdRitual: created check-in for household={} by={} spec={}",
+                householdId, optedInByEmail, spec);
         return saved;
     }
 
