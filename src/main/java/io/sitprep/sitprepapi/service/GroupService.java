@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
+import io.sitprep.sitprepapi.dto.GroupAlertFrame;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
@@ -14,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.*;
@@ -391,10 +394,27 @@ public class GroupService {
         try { return Double.parseDouble(raw.trim()); } catch (NumberFormatException e) { return null; }
     }
 
+    @Transactional
     public Group updateGroupByPublicId(String groupId, Group groupDetails) {
         Group group = getGroupByPublicId(groupId);
+        String previousAlert = group.getAlert();
         updateGroupFields(group, groupDetails);
-        return groupRepo.save(group);
+        Group saved = groupRepo.save(group);
+        if (!sameAlertState(previousAlert, saved.getAlert())) {
+            GroupAlertFrame frame = new GroupAlertFrame(
+                    saved.getGroupId(),
+                    frameAlert(saved.getAlert()),
+                    saved.getAlertActivatedAt(),
+                    initiatedBy(saved),
+                    "manual"
+            );
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    webSocketMessageSender.sendGroupAlertStatus(saved.getGroupId(), frame);
+                }
+            });
+        }
+        return saved;
     }
 
     public void deleteGroupByPublicId(String groupId) {
@@ -482,6 +502,24 @@ public class GroupService {
             }
         }
         return out;
+    }
+
+    private static boolean sameAlertState(String a, String b) {
+        return Objects.equals(frameAlert(a), frameAlert(b));
+    }
+
+    private static String frameAlert(String alert) {
+        return "Active".equalsIgnoreCase(alert) ? "Active" : "Cleared";
+    }
+
+    private static String initiatedBy(Group group) {
+        if (group.getLastUpdatedBy() != null && !group.getLastUpdatedBy().isBlank()) {
+            return group.getLastUpdatedBy();
+        }
+        if (group.getOwnerEmail() != null && !group.getOwnerEmail().isBlank()) {
+            return group.getOwnerEmail();
+        }
+        return "system";
     }
 
     /** Trigger full alert fan-out via NotificationService (handles socket + push + logging). */

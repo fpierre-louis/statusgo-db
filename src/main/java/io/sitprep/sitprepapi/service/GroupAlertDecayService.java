@@ -3,11 +3,13 @@ package io.sitprep.sitprepapi.service;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.GroupAlertFrame;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,9 +17,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -48,13 +53,9 @@ import java.util.List;
  * {@code updatedAt} or {@code createdAt}) risks surprise mass-clears
  * on rollout.</p>
  *
- * <p><b>Live-broadcast:</b> v1 of this service does NOT broadcast on
- * {@code /topic/groups/{id}} when it auto-clears. The manual
- * {@code alertBecameInactive} path doesn't broadcast either (only the
- * Active-flip fans out push) — connected clients see the change on
- * their next refresh / WS reconnect / poll. If real-time decay
- * reflection becomes a real ask, both paths should add the same
- * broadcast in {@code GroupService} and we shouldn't fork them here.</p>
+ * <p><b>Live-broadcast:</b> auto-clears broadcast after commit on
+ * {@code /topic/group/{id}/status}, using the same frame as manual
+ * alert flips so connected clients dismount crisis UI immediately.</p>
  *
  * <p><b>Household event:</b> for groups of type Household, we record
  * a {@code checkin-ended} event with {@code actorEmail = null} so the
@@ -71,6 +72,7 @@ public class GroupAlertDecayService {
     private final HouseholdEventService householdEventService;
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
+    private final WebSocketMessageSender webSocketMessageSender;
 
     /**
      * Threshold for the auto-decay sweep. Default is 48h, matching
@@ -87,11 +89,13 @@ public class GroupAlertDecayService {
     public GroupAlertDecayService(GroupRepo groupRepo,
                                   HouseholdEventService householdEventService,
                                   UserInfoRepo userInfoRepo,
-                                  NotificationService notificationService) {
+                                  NotificationService notificationService,
+                                  WebSocketMessageSender webSocketMessageSender) {
         this.groupRepo = groupRepo;
         this.householdEventService = householdEventService;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
+        this.webSocketMessageSender = webSocketMessageSender;
     }
 
     /**
@@ -128,12 +132,20 @@ public class GroupAlertDecayService {
         if (stale.isEmpty()) return 0;
 
         Instant now = Instant.now();
+        List<GroupAlertFrame> frames = new ArrayList<>();
         for (Group g : stale) {
             g.setAlert(null);
             g.setActiveHazardType(null);
             g.setAlertActivatedAt(null);
             g.setCheckInRemindersFired(0);
             g.setUpdatedAt(now);
+            frames.add(new GroupAlertFrame(
+                    g.getGroupId(),
+                    "Cleared",
+                    null,
+                    "system",
+                    "decay"
+            ));
 
             if (HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) {
                 try {
@@ -161,6 +173,13 @@ public class GroupAlertDecayService {
         }
 
         groupRepo.saveAll(stale);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                for (GroupAlertFrame frame : frames) {
+                    webSocketMessageSender.sendGroupAlertStatus(frame.groupId(), frame);
+                }
+            }
+        });
         return stale.size();
     }
 

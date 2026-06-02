@@ -185,6 +185,19 @@ public class WebSocketMessageSender {
                 "/topic/group/" + groupId + "/members/status", dto);
     }
 
+    // --- Group alert state (Sprint 1 / G2) ---
+    /**
+     * Broadcast a group check-in/alert flip so group headers and the global
+     * CrisisBand reflect alert state without waiting for /me refresh.
+     *
+     * <p>Topic: {@code /topic/group/{groupId}/status}</p>
+     */
+    public void sendGroupAlertStatus(String groupId, Object dto) {
+        if (groupId == null || groupId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/group/" + groupId + "/status", dto);
+    }
+
     // --- Household accompaniments (with-me feature) ---
     public void sendHouseholdAccompanimentUpdate(String householdId, HouseholdAccompanimentDto dto) {
         if (householdId == null || householdId.isBlank() || dto == null) return;
