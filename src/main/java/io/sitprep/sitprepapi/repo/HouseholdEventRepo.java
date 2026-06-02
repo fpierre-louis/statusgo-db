@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface HouseholdEventRepo extends JpaRepository<HouseholdEvent, Long> {
@@ -50,4 +51,14 @@ public interface HouseholdEventRepo extends JpaRepository<HouseholdEvent, Long> 
     @Modifying
     @Query("DELETE FROM HouseholdEvent e WHERE e.id IN :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
+     * Most recent event of a given (kind, actor) pair in a household —
+     * used by §6 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md to render
+     * "Confirmed N days ago" on the member confirmation rows. Derived
+     * query — Spring Data builds the SQL from the method name.
+     */
+    Optional<HouseholdEvent> findFirstByHouseholdIdAndKindAndActorEmailOrderByAtDesc(
+            String householdId, String kind, String actorEmail
+    );
 }

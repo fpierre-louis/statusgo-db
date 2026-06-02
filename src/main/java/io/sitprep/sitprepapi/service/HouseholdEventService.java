@@ -163,6 +163,82 @@ public class HouseholdEventService {
     }
 
     // ---------------------------------------------------------------------
+    // §6 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — member micro-actions
+    //
+    // Members confirm "I know my meeting spot / who to call / my evac
+    // route" — gives the non-admin side of the household a daily
+    // 30-second action with social meaning (the admin sees the
+    // confirmation in their activity feed). Closes the member-activation
+    // gap: §6 should move the "non-admins taking ≥1 weekly action" rate
+    // from near-zero to >30%.
+    //
+    // Unlike the fire-and-forget recorders above, member confirmations
+    // are USER-INITIATED — the FE expects an event back so it can
+    // optimistically render the "Confirmed ✓" state. So these throw on
+    // unknown kinds instead of silently dropping, and return the saved
+    // DTO instead of void.
+    // ---------------------------------------------------------------------
+
+    public static final String KIND_MEMBER_CONFIRMED_MEETING = "member-confirmed-meeting";
+    public static final String KIND_MEMBER_CONFIRMED_CONTACTS = "member-confirmed-contacts";
+    public static final String KIND_MEMBER_CONFIRMED_EVAC = "member-confirmed-evac";
+
+    private static final Set<String> ALLOWED_MEMBER_CONFIRMATION_KINDS = Set.of(
+            KIND_MEMBER_CONFIRMED_MEETING,
+            KIND_MEMBER_CONFIRMED_CONTACTS,
+            KIND_MEMBER_CONFIRMED_EVAC
+    );
+
+    @Transactional
+    public HouseholdEventDto recordMemberConfirmation(
+            String householdId,
+            String kind,
+            String actorEmail
+    ) {
+        if (householdId == null || householdId.isBlank()) {
+            throw new IllegalArgumentException("householdId is required");
+        }
+        if (kind == null || !ALLOWED_MEMBER_CONFIRMATION_KINDS.contains(kind)) {
+            throw new IllegalArgumentException(
+                    "Unknown member-confirmation kind: " + kind
+            );
+        }
+        if (actorEmail == null || actorEmail.isBlank()) {
+            throw new IllegalArgumentException("actorEmail is required");
+        }
+        HouseholdEvent e = new HouseholdEvent();
+        e.setHouseholdId(householdId);
+        e.setKind(kind);
+        e.setAt(Instant.now());
+        e.setActorEmail(actorEmail.toLowerCase(Locale.ROOT));
+        // No payload — the kind tells the renderer everything it needs.
+        e.setPayloadJson(null);
+        HouseholdEvent saved = eventRepo.save(e);
+
+        HouseholdEventDto dto = toDto(saved, resolveActorMap(saved.getActorEmail()));
+        broadcastAfterCommit(householdId, dto);
+        return dto;
+    }
+
+    /**
+     * The most recent confirmation of {@code kind} by {@code actorEmail}
+     * in this household, or null if never. Used by the FE row to render
+     * "Confirmed N days ago" / "✓ recently" vs the un-confirmed call.
+     */
+    public Optional<HouseholdEvent> findLatestConfirmation(
+            String householdId,
+            String kind,
+            String actorEmail
+    ) {
+        if (householdId == null || kind == null || actorEmail == null) {
+            return Optional.empty();
+        }
+        return eventRepo.findFirstByHouseholdIdAndKindAndActorEmailOrderByAtDesc(
+                householdId, kind, actorEmail.toLowerCase(Locale.ROOT)
+        );
+    }
+
+    // ---------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------
 
