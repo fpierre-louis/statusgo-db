@@ -3,10 +3,10 @@ package io.sitprep.sitprepapi.controller;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.service.GroupPostService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.stereotype.Controller;
 
+import java.security.Principal;
 import java.time.Instant;
 
 @Controller
@@ -17,9 +17,9 @@ public class GroupPostWebSocketController {
 
     @MessageMapping("/group-post")
     public void handleNewPost(GroupPostDto postDto,
-                              @Header(name = "email", required = false) String emailHeader) {
+                              Principal principal) {
         try {
-            final String author = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");
+            final String author = requirePrincipalEmail(principal);
             postDto.setAuthor(author);
 
             if (postDto.getTimestamp() == null) {
@@ -35,9 +35,9 @@ public class GroupPostWebSocketController {
 
     @MessageMapping("/group-post/delete")
     public void handleDeletePost(GroupPostDto postDto,
-                                 @Header(name = "email", required = false) String emailHeader) {
+                                 Principal principal) {
         try {
-            final String actor = firstNonBlank(emailHeader, "anonymous@sitprep");
+            final String actor = requirePrincipalEmail(principal);
             postService.deletePostAndBroadcast(postDto.getId(), actor);
             // GroupPostService should call wsSender.sendGroupPostDeletion(groupId, postId)
         } catch (Exception e) {
@@ -48,9 +48,9 @@ public class GroupPostWebSocketController {
 
     @MessageMapping("/group-post/edit")
     public void handleEditPost(GroupPostDto postDto,
-                               @Header(name = "email", required = false) String emailHeader) {
+                               Principal principal) {
         try {
-            final String actor = firstNonBlank(postDto.getAuthor(), emailHeader, "anonymous@sitprep");
+            final String actor = requirePrincipalEmail(principal);
             postDto.setAuthor(actor);
             postService.updatePostFromDto(postDto);
             // Your service already broadcasts on update
@@ -60,11 +60,11 @@ public class GroupPostWebSocketController {
         }
     }
 
-    private static String firstNonBlank(String... values) {
-        if (values == null) return null;
-        for (String v : values) {
-            if (v != null && !v.trim().isEmpty()) return v.trim();
+    private static String requirePrincipalEmail(Principal principal) {
+        String email = principal == null ? null : principal.getName();
+        if (email == null || email.isBlank()) {
+            throw new SecurityException("Authenticated WebSocket user required");
         }
-        return null;
+        return email.trim().toLowerCase();
     }
 }

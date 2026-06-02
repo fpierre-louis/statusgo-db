@@ -12,6 +12,8 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
+import java.security.Principal;
+
 @Component
 public class WebSocketEventListener {
 
@@ -36,8 +38,7 @@ public class WebSocketEventListener {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = accessor.getSessionId();
 
-        // MVP: allow optional “email” header (NOT secure; convenience only)
-        String email = accessor.getFirstNativeHeader("email");
+        String email = principalEmail(accessor.getUser());
         presenceBroadcastService.addSession(sessionId, email);
 
         log.info("WS CONNECT sessionId={}, email={}", sessionId, email);
@@ -58,7 +59,8 @@ public class WebSocketEventListener {
         String sessionId = accessor.getSessionId();
         String subscriptionId = accessor.getSubscriptionId();
         String destination = accessor.getDestination();
-        String email = presenceService.getEmailForSession(sessionId);
+        String email = principalEmail(accessor.getUser());
+        if (email == null) email = presenceService.getEmailForSession(sessionId);
         threadPresenceService.addSubscription(sessionId, subscriptionId, email, destination);
     }
 
@@ -66,5 +68,10 @@ public class WebSocketEventListener {
     public void handleWebSocketUnsubscribeListener(SessionUnsubscribeEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         threadPresenceService.removeSubscription(accessor.getSessionId(), accessor.getSubscriptionId());
+    }
+
+    private static String principalEmail(Principal principal) {
+        String name = principal == null ? null : principal.getName();
+        return name == null || name.isBlank() ? null : name.trim().toLowerCase();
     }
 }
