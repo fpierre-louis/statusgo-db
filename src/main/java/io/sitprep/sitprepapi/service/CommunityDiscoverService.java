@@ -127,6 +127,7 @@ public class CommunityDiscoverService {
         for (Group g : withinRadiusGroups) {
             double d = distanceByGroupId.getOrDefault(g.getGroupId(), 0.0);
             boolean viewerIsMember = isViewerInGroup(g, normalizedViewer);
+            String viewerRole = viewerRoleOf(g, normalizedViewer);
             UserInfo owner = g.getOwnerEmail() == null ? null
                     : ownersByEmail.get(g.getOwnerEmail().toLowerCase());
             boolean verified = owner != null && owner.isVerifiedPublisher();
@@ -135,7 +136,7 @@ public class CommunityDiscoverService {
             List<MemberAvatar> mutualAvatars = buildMutualAvatars(
                     mutualEmailsByGroup.get(g.getGroupId()), mutualProfiles);
             Instant activity = lastActivityFor(g, latestPostMap);
-            withinRadius.add(toNearbyGroup(g, d, viewerIsMember,
+            withinRadius.add(toNearbyGroup(g, d, viewerIsMember, viewerRole,
                     verified, verifiedKind, mutuals, mutualAvatars, activity));
         }
 
@@ -163,6 +164,21 @@ public class CommunityDiscoverService {
         return false;
     }
 
+    /**
+     * Resolve the viewer's role with a group — Owner / Admin / Member /
+     * Pending / None. Mirrors the FE {@code groupRoles.roleOf} precedence
+     * (owner beats admin beats member beats pending). Returns "NONE" for
+     * an anonymous viewer or any miss; never returns null.
+     */
+    private static String viewerRoleOf(Group g, String viewerEmail) {
+        if (viewerEmail == null) return "NONE";
+        if (viewerEmail.equalsIgnoreCase(g.getOwnerEmail())) return "OWNER";
+        if (containsCaseInsensitive(g.getAdminEmails(), viewerEmail)) return "ADMIN";
+        if (containsCaseInsensitive(g.getMemberEmails(), viewerEmail)) return "MEMBER";
+        if (containsCaseInsensitive(g.getPendingMemberEmails(), viewerEmail)) return "PENDING";
+        return "NONE";
+    }
+
     private static boolean containsCaseInsensitive(List<String> list, String needle) {
         if (list == null || list.isEmpty()) return false;
         for (String e : list) {
@@ -188,6 +204,7 @@ public class CommunityDiscoverService {
     }
 
     private NearbyGroup toNearbyGroup(Group g, double distanceKm, boolean viewerIsMember,
+                                      String viewerRole,
                                       boolean verified, String verifiedKind,
                                       int mutuals, List<MemberAvatar> mutualMembers,
                                       Instant lastActivityAt) {
@@ -208,6 +225,7 @@ public class CommunityDiscoverService {
                 g.getAlert(),
                 g.getPrivacy(),
                 viewerIsMember,
+                viewerRole,
                 verified,
                 verifiedKind,
                 mutuals,

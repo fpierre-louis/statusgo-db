@@ -56,8 +56,30 @@ public record CommunityDiscoverDto(
              * response — this flag exists so a future "groups you're already
              * in" surface can opt in by passing {@code includeMine=true}.
              * Always false when no viewerEmail is supplied.
+             *
+             * <p>Superseded by {@link #viewerRole} (2026-06-03) — kept for
+             * back-compat with older FE bundles. New consumers should read
+             * {@code viewerRole} which carries the four-state distinction
+             * Owner / Admin / Member / Pending instead of a single bool.</p>
              */
             boolean viewerIsMember,
+            /**
+             * Viewer's resolved role with this group, computed server-side
+             * via the same OWNER/ADMIN/MEMBER/PENDING precedence the FE
+             * {@code groupRoles.roleOf} helper uses. Value is one of
+             * {@code "OWNER"}, {@code "ADMIN"}, {@code "MEMBER"},
+             * {@code "PENDING"}, {@code "NONE"}; never null on the wire.
+             *
+             * <p>Exists because the community-discover DTO deliberately
+             * does NOT ship raw ownerEmail / adminEmails / memberEmails
+             * lists (privacy — a discover surface shouldn't leak group
+             * rosters to strangers). The FE's relationship-aware Discover
+             * CTAs (Owner/Admin → "Manage", Member → "Open", etc.) read
+             * this field instead of trying to derive role from missing
+             * email lists. Added 2026-06-03 to back the
+             * MAP_SURFACES_REDESIGN_PLAN.md Phase 1 work end-to-end.</p>
+             */
+            String viewerRole,
             /**
              * True when the group's owner is a verified publisher (Red
              * Cross, CERT, municipal EM, etc. — controlled via
