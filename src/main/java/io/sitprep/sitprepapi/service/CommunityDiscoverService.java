@@ -300,7 +300,7 @@ public class CommunityDiscoverService {
         for (String e : emails) {
             UserInfo u = profiles.get(e);
             if (u == null) continue;
-            out.add(new MemberAvatar(u.getUserFirstName(), u.getProfileImageURL()));
+            out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), u.getProfileImageURL()));
         }
         return out;
     }

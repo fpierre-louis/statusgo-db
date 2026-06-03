@@ -603,7 +603,7 @@ public class MeService {
         for (String e : g.getMemberEmails()) {
             if (e == null) continue;
             UserInfo u = profiles.get(e.toLowerCase());
-            if (u != null) out.add(new MemberAvatar(u.getUserFirstName(), u.getProfileImageURL()));
+            if (u != null) out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), u.getProfileImageURL()));
             if (out.size() >= 4) break;
         }
         return out;
