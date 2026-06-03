@@ -93,7 +93,17 @@ public record MeDto(
              * UserInfo.assessmentSummaryJson. Null when the user has not
              * completed the check on a client that sends the payload.
              */
-            Map<String, Object> assessmentSummary
+            Map<String, Object> assessmentSummary,
+            /**
+             * Per-group map-visibility preference. Keys are group IDs; values are
+             * one of {@code "always"}, {@code "check-in-only"}, or {@code "never"}.
+             * A missing entry means the BE default applies (always for the user's
+             * own household, check-in-only for member groups — locked 2026-06-02
+             * per docs/MAP_SURFACES_REDESIGN_PLAN.md Phase 3). Driven by the FE
+             * settings page at /account/map-visibility; updates flow through
+             * {@code PATCH /userinfo/me/group-location-sharing}.
+             */
+            Map<String, String> groupLocationSharing
     ) {}
 
     public record SelfStatusDto(

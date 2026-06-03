@@ -442,7 +442,14 @@ public class MeService {
                 u.getCoverImageUrl(),
                 u.getProfileVisibility(),
                 u.getSearchable(),
-                parseAssessmentSummary(u)
+                parseAssessmentSummary(u),
+                // Per-group map-visibility preferences. Defensive copy so a
+                // downstream mutation can't ripple back into the JPA-managed
+                // entity. Map may be empty (never null on the wire — keeps FE
+                // state shape predictable).
+                u.getGroupLocationSharing() == null
+                        ? java.util.Map.of()
+                        : new java.util.HashMap<>(u.getGroupLocationSharing())
         );
     }
 
