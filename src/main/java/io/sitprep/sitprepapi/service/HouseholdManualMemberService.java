@@ -56,6 +56,9 @@ public class HouseholdManualMemberService {
         m.setName(body.name().trim());
         m.setRelationship(body.relationship());
         m.setAge(body.age());
+        // Explicit minor default when the caller omits — matches the locked
+        // privacy decision in docs/MAP_SURFACES_REDESIGN_PLAN.md Phase 4.
+        m.setIsAdult(Boolean.TRUE.equals(body.isAdult()));
         m.setPhotoUrl(body.photoUrl());
         HouseholdManualMember saved = repo.save(m);
         HouseholdManualMemberDto dto = toDto(saved);
@@ -69,6 +72,10 @@ public class HouseholdManualMemberService {
         if (body.name() != null && !body.name().isBlank()) m.setName(body.name().trim());
         if (body.relationship() != null) m.setRelationship(body.relationship());
         if (body.age() != null) m.setAge(body.age());
+        // Explicit-only update — null body.isAdult leaves the stored value
+        // untouched so partial PATCHes don't accidentally flip an admin's
+        // adult opt-in back to minor.
+        if (body.isAdult() != null) m.setIsAdult(body.isAdult());
         if (body.photoUrl() != null) m.setPhotoUrl(body.photoUrl());
         HouseholdManualMember saved = repo.save(m);
         HouseholdManualMemberDto dto = toDto(saved);
@@ -112,6 +119,9 @@ public class HouseholdManualMemberService {
                 m.getName(),
                 m.getRelationship(),
                 m.getAge(),
+                // Defensive — older rows without the column populated yet
+                // (immediately after the migration) read as Boolean false.
+                Boolean.TRUE.equals(m.getIsAdult()),
                 m.getPhotoUrl(),
                 m.getCreatedAt(),
                 m.getUpdatedAt()
@@ -123,6 +133,7 @@ public class HouseholdManualMemberService {
             String name,
             String relationship,
             Integer age,
+            Boolean isAdult,
             String photoUrl
     ) {}
 }

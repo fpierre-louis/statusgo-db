@@ -39,6 +39,19 @@ public class HouseholdManualMember {
 
     private Integer age;
 
+    /**
+     * Whether this manual member is 18 or older. Defaults to {@code false}
+     * (treated as a minor). Locked 2026-06-02 per docs/MAP_SURFACES_REDESIGN_PLAN.md
+     * Phase 4: manual members are minors by default — the operating account
+     * holder attests to adulthood via the ToS at signup, but added family
+     * members do not. An admin can flip this on per-row for the rare elder-
+     * without-phone case who wants to be tracked on a non-household group's
+     * map. Minors never appear on non-household group maps regardless of
+     * any per-group sharing setting.
+     */
+    @Column(name = "is_adult", nullable = false)
+    private Boolean isAdult = Boolean.FALSE;
+
     /** R2 object key or full URL — same convention as profile photos. */
     @Column(name = "photo_url", length = 1024)
     private String photoUrl;
