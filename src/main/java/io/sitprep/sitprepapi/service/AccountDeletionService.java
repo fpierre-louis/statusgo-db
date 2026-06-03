@@ -189,6 +189,8 @@ public class AccountDeletionService {
             String hh = g.getGroupId();
             em.createQuery("DELETE FROM HouseholdManualMember m WHERE m.householdId = :hh")
                     .setParameter("hh", hh).executeUpdate();
+            em.createQuery("DELETE FROM HouseholdPet p WHERE p.householdId = :hh")
+                    .setParameter("hh", hh).executeUpdate();
             em.createQuery("DELETE FROM HouseholdAccompaniment a WHERE a.householdId = :hh")
                     .setParameter("hh", hh).executeUpdate();
             em.createQuery("DELETE FROM HouseholdEvent he WHERE he.householdId = :hh")

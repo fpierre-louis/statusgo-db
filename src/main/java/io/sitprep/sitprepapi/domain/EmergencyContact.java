@@ -26,8 +26,8 @@ public class EmergencyContact {
 
     /**
      * Optional subject this contact is specifically for. Current V1 supports
-     * named manual household members only (subjectType="manual"); null means
-     * household-wide. Pets remain demographic counts until they have stable ids.
+     * named manual household members (subjectType="manual") and named pets
+     * (subjectType="pet"); null means household-wide.
      */
     private String subjectType;
     private String subjectId;
