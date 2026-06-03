@@ -336,7 +336,8 @@ public class PlanActivationService {
     private EmergencyContactSnapshotDto toContactSnapshot(EmergencyContact c) {
         return new EmergencyContactSnapshotDto(
                 c.getId(), c.getName(), c.getRole(), c.getPhone(), c.getEmail(),
-                c.getAddress(), c.getRadioChannel(), c.getMedicalInfo()
+                c.getAddress(), c.getRadioChannel(), c.getMedicalInfo(),
+                c.getSubjectType(), c.getSubjectId(), c.getSubjectName()
         );
     }
 

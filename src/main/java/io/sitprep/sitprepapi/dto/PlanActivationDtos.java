@@ -126,6 +126,9 @@ public final class PlanActivationDtos {
             String email,
             String address,
             String radioChannel,
-            String medicalInfo
+            String medicalInfo,
+            String subjectType,
+            String subjectId,
+            String subjectName
     ) {}
 }

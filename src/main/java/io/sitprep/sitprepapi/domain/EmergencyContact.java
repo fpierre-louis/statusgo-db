@@ -24,6 +24,15 @@ public class EmergencyContact {
     private String medicalInfo;
     private String radioChannel;
 
+    /**
+     * Optional subject this contact is specifically for. Current V1 supports
+     * named manual household members only (subjectType="manual"); null means
+     * household-wide. Pets remain demographic counts until they have stable ids.
+     */
+    private String subjectType;
+    private String subjectId;
+    private String subjectName;
+
     @ManyToOne
     @JoinColumn(name = "group_id", nullable = false)
     @JsonBackReference // ✅ Prevents infinite recursion
