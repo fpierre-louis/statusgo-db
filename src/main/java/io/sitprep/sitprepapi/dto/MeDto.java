@@ -206,6 +206,7 @@ public record MeDto(
 
     public record DemographicDto(
             int adults,
+            int teens,
             int kids,
             int infants,
             int dogs,

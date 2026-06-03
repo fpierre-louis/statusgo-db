@@ -26,6 +26,7 @@ public class Demographic {
 
     private int infants;
     private int adults;
+    private int teens;
     private int kids;
     private int dogs;
     private int cats;
@@ -78,6 +79,14 @@ public class Demographic {
 
     public void setAdults(int adults) {
         this.adults = adults;
+    }
+
+    public int getTeens() {
+        return teens;
+    }
+
+    public void setTeens(int teens) {
+        this.teens = teens;
     }
 
     public int getKids() {

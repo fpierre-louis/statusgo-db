@@ -468,7 +468,7 @@ public class MeService {
 
     private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
-                d.getAdults(), d.getKids(), d.getInfants(),
+                d.getAdults(), d.getTeens(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
         );
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();

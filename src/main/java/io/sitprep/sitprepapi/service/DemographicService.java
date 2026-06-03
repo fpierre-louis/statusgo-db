@@ -35,6 +35,7 @@ public class DemographicService {
                     .orElseGet(Demographic::new);
             row.setInfants(demographic.getInfants());
             row.setAdults(demographic.getAdults());
+            row.setTeens(demographic.getTeens());
             row.setKids(demographic.getKids());
             row.setDogs(demographic.getDogs());
             row.setCats(demographic.getCats());
@@ -50,6 +51,7 @@ public class DemographicService {
             Demographic updated = existing.get();
             updated.setInfants(demographic.getInfants());
             updated.setAdults(demographic.getAdults());
+            updated.setTeens(demographic.getTeens());
             updated.setKids(demographic.getKids());
             updated.setDogs(demographic.getDogs());
             updated.setCats(demographic.getCats());
