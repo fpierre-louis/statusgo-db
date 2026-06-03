@@ -77,6 +77,14 @@ public final class PlanActivationDtos {
             Instant ackedAt
     ) {}
 
+    public record ActivationPlanUpdatedFrame(
+            String type,
+            String activationId,
+            String resourceKind,
+            Long version,
+            Instant updatedAt
+    ) {}
+
     public record LocationDto(Double lat, Double lng) {}
 
     public record MeetingPlaceSnapshotDto(

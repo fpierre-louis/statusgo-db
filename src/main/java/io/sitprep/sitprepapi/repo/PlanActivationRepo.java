@@ -31,6 +31,22 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
     );
 
     /**
+     * All non-expired activations for an owner. Used to notify open
+     * recipient views that activation-visible plan data changed and they
+     * should refetch the authoritative activation detail.
+     */
+    @Query(
+        "SELECT a FROM PlanActivation a " +
+        "WHERE LOWER(a.ownerEmail) = LOWER(:email) " +
+        "AND a.expiresAt > :now " +
+        "ORDER BY a.activatedAt DESC"
+    )
+    List<PlanActivation> findActiveByOwnerEmail(
+            @Param("email") String email,
+            @Param("now") Instant now
+    );
+
+    /**
      * IDs of activations whose {@code expiresAt} is older than the cutoff,
      * paginated. Used by {@code ActivationExpirySweepService} to bound each
      * scheduled tick — a single backlog burst (e.g. after a long pause in

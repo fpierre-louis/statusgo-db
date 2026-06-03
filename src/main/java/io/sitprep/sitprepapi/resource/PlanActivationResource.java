@@ -23,7 +23,8 @@ import java.util.List;
  * </pre>
  *
  * WebSocket: {@code /topic/activations/{id}/acks} receives a new {@code AckDto}
- * after every successful ack commit.
+ * after every successful ack commit. {@code /topic/activations/{id}/plan}
+ * receives lightweight refetch frames when activation-visible plan data changes.
  */
 @RestController
 @RequestMapping("/api/plans/activations")

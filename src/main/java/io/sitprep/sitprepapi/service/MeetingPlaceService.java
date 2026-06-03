@@ -13,11 +13,14 @@ public class MeetingPlaceService {
 
     private final MeetingPlaceRepo meetingPlaceRepository;
     private final HouseholdResolver householdResolver;
+    private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
 
     public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepository,
-                               HouseholdResolver householdResolver) {
+                               HouseholdResolver householdResolver,
+                               ActivationPlanUpdateBroadcastService activationPlanUpdates) {
         this.meetingPlaceRepository = meetingPlaceRepository;
         this.householdResolver = householdResolver;
+        this.activationPlanUpdates = activationPlanUpdates;
     }
 
     @Transactional
@@ -34,7 +37,9 @@ public class MeetingPlaceService {
             if (place.getHouseholdId() == null) place.setHouseholdId(householdId);
         });
 
-        return meetingPlaceRepository.saveAll(meetingPlaces);
+        List<MeetingPlace> saved = meetingPlaceRepository.saveAll(meetingPlaces);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+        return saved;
     }
 
     public List<MeetingPlace> getMeetingPlacesForCurrentUser() {
@@ -42,6 +47,7 @@ public class MeetingPlaceService {
         return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
     }
 
+    @Transactional
     public MeetingPlace updateMeetingPlace(Long id, MeetingPlace updatedPlace) {
         String currentUser = AuthUtils.getCurrentUserEmail();
 
@@ -64,11 +70,15 @@ public class MeetingPlaceService {
                                 householdResolver.baseHouseholdIdFor(existingPlace.getOwnerEmail()));
                     }
 
-                    return meetingPlaceRepository.save(existingPlace);
+                    MeetingPlace saved = meetingPlaceRepository.save(existingPlace);
+                    activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(
+                            existingPlace.getOwnerEmail(), "meetingPlaces");
+                    return saved;
                 })
                 .orElseThrow(() -> new RuntimeException("Meeting place with id " + id + " not found"));
     }
 
+    @Transactional
     public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> places) {
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's meeting places + stamp it. Else unchanged.
@@ -79,7 +89,9 @@ public class MeetingPlaceService {
                 place.setOwnerEmail(ownerEmail);
                 place.setHouseholdId(target);
             });
-            return meetingPlaceRepository.saveAll(places);
+            List<MeetingPlace> saved = meetingPlaceRepository.saveAll(places);
+            activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+            return saved;
         }
         meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByOwnerEmail(ownerEmail));
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
@@ -87,7 +99,9 @@ public class MeetingPlaceService {
             place.setOwnerEmail(ownerEmail);
             if (place.getHouseholdId() == null) place.setHouseholdId(householdId);
         });
-        return meetingPlaceRepository.saveAll(places);
+        List<MeetingPlace> saved = meetingPlaceRepository.saveAll(places);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+        return saved;
     }
 
     public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
@@ -99,6 +113,7 @@ public class MeetingPlaceService {
      * ones (unlike the bulk save). Used by the activation surface's
      * "add another spot" so adding one doesn't clobber the rest.
      */
+    @Transactional
     public MeetingPlace addMeetingPlace(MeetingPlace place) {
         if (place.getHouseholdId() == null) {
             String target = householdResolver.writableTargetHousehold(place.getOwnerEmail());
@@ -106,7 +121,9 @@ public class MeetingPlaceService {
                     ? target
                     : householdResolver.baseHouseholdIdFor(place.getOwnerEmail()));
         }
-        return meetingPlaceRepository.save(place);
+        MeetingPlace saved = meetingPlaceRepository.save(place);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(place.getOwnerEmail(), "meetingPlaces");
+        return saved;
     }
 
 }

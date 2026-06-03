@@ -15,11 +15,14 @@ public class EmergencyContactGroupService {
 
     private final EmergencyContactGroupRepo groupRepo;
     private final HouseholdResolver householdResolver;
+    private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
 
     public EmergencyContactGroupService(EmergencyContactGroupRepo groupRepo,
-                                        HouseholdResolver householdResolver) {
+                                        HouseholdResolver householdResolver,
+                                        ActivationPlanUpdateBroadcastService activationPlanUpdates) {
         this.groupRepo = groupRepo;
         this.householdResolver = householdResolver;
+        this.activationPlanUpdates = activationPlanUpdates;
     }
 
     public List<EmergencyContactGroup> getAllGroups() {
@@ -62,7 +65,9 @@ public class EmergencyContactGroupService {
                 c.setId(null);
             }
         }
-        return groupRepo.save(group);
+        EmergencyContactGroup saved = groupRepo.save(group);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(email, "emergencyContacts");
+        return saved;
     }
 
     // @Transactional so `existing` stays MANAGED across the contacts
@@ -95,11 +100,17 @@ public class EmergencyContactGroupService {
                 existing.getContacts().add(c);
             }
         }
-        return groupRepo.save(existing);
+        EmergencyContactGroup saved = groupRepo.save(existing);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(existing.getOwnerEmail(), "emergencyContacts");
+        return saved;
     }
 
+    @Transactional
     public void deleteGroup(Long id) {
-        if (!groupRepo.existsById(id)) return;
+        Optional<EmergencyContactGroup> existing = groupRepo.findById(id);
+        if (existing.isEmpty()) return;
+        String ownerEmail = existing.get().getOwnerEmail();
         groupRepo.deleteById(id);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "emergencyContacts");
     }
 }

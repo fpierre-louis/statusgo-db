@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.websocket;
 
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
+import io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationPlanUpdatedFrame;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Component;
  *  - Post cmts:   /topic/task-comments/{postId}
  *  - Post cmt del:/topic/task-comments/{postId}/delete
  *  - Activations: /topic/activations/{activationId}/acks
+ *  - Activation plan updates: /topic/activations/{activationId}/plan
  *  - Chat:        /topic/chat/{groupId}
  *  - Chat del:    /topic/chat/{groupId}/delete
  *  - Group tasks: /topic/group/{groupId}/tasks
@@ -145,6 +147,11 @@ public class WebSocketMessageSender {
     // --- Activations ---
     public void sendActivationAck(String activationId, AckDto dto) {
         messagingTemplate.convertAndSend("/topic/activations/" + activationId + "/acks", dto);
+    }
+
+    public void sendActivationPlanUpdate(String activationId, ActivationPlanUpdatedFrame dto) {
+        if (activationId == null || activationId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/activations/" + activationId + "/plan", dto);
     }
 
     // --- Tasks ---

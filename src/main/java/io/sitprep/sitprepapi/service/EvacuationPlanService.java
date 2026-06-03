@@ -12,11 +12,14 @@ public class EvacuationPlanService {
 
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final HouseholdResolver householdResolver;
+    private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
 
     public EvacuationPlanService(EvacuationPlanRepo evacuationPlanRepo,
-                                 HouseholdResolver householdResolver) {
+                                 HouseholdResolver householdResolver,
+                                 ActivationPlanUpdateBroadcastService activationPlanUpdates) {
         this.evacuationPlanRepo = evacuationPlanRepo;
         this.householdResolver = householdResolver;
+        this.activationPlanUpdates = activationPlanUpdates;
     }
 
     @Transactional
@@ -30,7 +33,9 @@ public class EvacuationPlanService {
                 plan.setOwnerEmail(ownerEmail);
                 plan.setHouseholdId(target);
             });
-            return evacuationPlanRepo.saveAll(evacuationPlans);
+            List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(evacuationPlans);
+            activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+            return saved;
         }
 
         // Delete all existing plans for the user to prevent duplicates
@@ -44,7 +49,9 @@ public class EvacuationPlanService {
         });
 
         // Save the new list of plans
-        return evacuationPlanRepo.saveAll(evacuationPlans);
+        List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(evacuationPlans);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+        return saved;
     }
 
     public List<EvacuationPlan> getEvacuationPlansForCurrentUser() {
@@ -61,6 +68,7 @@ public class EvacuationPlanService {
      * existing ones (unlike the bulk save). Used by the activation
      * surface's "add another shelter".
      */
+    @Transactional
     public EvacuationPlan addEvacuationPlan(EvacuationPlan plan) {
         if (plan.getHouseholdId() == null) {
             String target = householdResolver.writableTargetHousehold(plan.getOwnerEmail());
@@ -68,6 +76,8 @@ public class EvacuationPlanService {
                     ? target
                     : householdResolver.baseHouseholdIdFor(plan.getOwnerEmail()));
         }
-        return evacuationPlanRepo.save(plan);
+        EvacuationPlan saved = evacuationPlanRepo.save(plan);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(plan.getOwnerEmail(), "evacuationPlans");
+        return saved;
     }
 }
