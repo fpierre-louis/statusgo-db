@@ -4,6 +4,9 @@ import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,12 +31,18 @@ import java.util.Optional;
 @Service
 public class FollowService {
 
+    private static final Logger logger = LoggerFactory.getLogger(FollowService.class);
+
     private final FollowRepo followRepo;
     private final UserInfoRepo userInfoRepo;
+    private final NotificationService notificationService;
 
-    public FollowService(FollowRepo followRepo, UserInfoRepo userInfoRepo) {
+    public FollowService(FollowRepo followRepo,
+                         UserInfoRepo userInfoRepo,
+                         NotificationService notificationService) {
         this.followRepo = followRepo;
         this.userInfoRepo = userInfoRepo;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -74,6 +83,218 @@ public class FollowService {
         row.setFollowerEmail(f);
         row.setFollowedEmail(t);
         followRepo.save(row);
+
+        // Notification side effect — wrapped in try/catch so a delivery
+        // hiccup (FCM outage, log write failure, missing UserInfo row)
+        // never fails the follow itself. The follow edge is the durable
+        // contract; notifications are best-effort.
+        dispatchFollowNotification(f, t);
+    }
+
+    /**
+     * Resolve recipient + actor identities and dispatch a
+     * {@link Category#FOLLOW} ("X started following you") notification
+     * for a fresh follow edge.
+     *
+     * <p>The Follow entity has no status field today — every follow
+     * succeeds instantly regardless of {@code profileVisibility}. We
+     * therefore dispatch the informational FOLLOW flavor for every
+     * follow event, including private targets, because sending a
+     * "X wants to follow you" FOLLOW_INVITE while the edge is already
+     * live would mislead the recipient into thinking there's a pending
+     * approval step that doesn't exist.</p>
+     *
+     * <p>{@link Category#FOLLOW_INVITE} is intentionally retained in
+     * {@code PushPolicyService} for the future request-approval flow
+     * (Follow.status column + approval endpoints) — the FE
+     * {@code NotificationCard} CATEGORY_CTAS map already branches on it,
+     * so removing the enum would break forward compatibility. It is
+     * simply not dispatched from here today.</p>
+     *
+     * <p>The actor's email + userId are carried via {@code additionalData}
+     * so the FE inbox can deep-link to the actor's profile through
+     * {@code useProfileNav}, which encodes the identifier into the
+     * {@code /profile/:identifier} URL.</p>
+     */
+    private void dispatchFollowNotification(String followerEmail, String targetEmail) {
+        try {
+            Optional<UserInfo> targetOpt = userInfoRepo.findByUserEmailIgnoreCase(targetEmail);
+            if (targetOpt.isEmpty()) return;
+            UserInfo target = targetOpt.get();
+
+            Optional<UserInfo> actorOpt = userInfoRepo.findByUserEmailIgnoreCase(followerEmail);
+            UserInfo actor = actorOpt.orElse(null);
+            String actorName = displayName(actor, followerEmail);
+            String actorIcon = actor != null ? actor.getProfileImageURL() : null;
+            String actorIdentifier = profileIdentifier(actor, followerEmail);
+            String actorUserId = actor != null ? actor.getId() : null;
+
+            // Always FOLLOW — no FOLLOW_INVITE today (see javadoc).
+            String title = "New follower";
+            String body = actorName + " started following you";
+            String type = "follow";
+            Category category = Category.FOLLOW;
+            String targetUrl = "/profile/" + actorIdentifier;
+            String additionalData = buildActorPayload(followerEmail, actorUserId);
+
+            notificationService.deliverPresenceAware(
+                    target.getUserEmail(),
+                    title,
+                    body,
+                    actorName,
+                    actorIcon,
+                    type,
+                    /* referenceId — the actor identifier so the inbox can
+                       thread or de-dupe follow events from the same actor */
+                    actorIdentifier,
+                    targetUrl,
+                    additionalData,
+                    target.getFcmtoken(),
+                    category
+            );
+        } catch (Exception e) {
+            // Notifications are best-effort — never let a dispatch
+            // failure roll back the follow row.
+            logger.warn("Follow notification dispatch failed (follower={}, target={}): {}",
+                    followerEmail, targetEmail, e.getMessage());
+        }
+    }
+
+    /**
+     * Dispatch a {@link Category#FOLLOW_ACCEPTED} notification back to
+     * the original requester when a private-profile follow request is
+     * approved by the target. The "actor" of this notification is the
+     * TARGET (the person who just accepted), so the notification routes
+     * the requester to the target's profile.
+     *
+     * <p>No-op when either identity can't be resolved. Best-effort —
+     * a delivery failure is logged but never throws.</p>
+     *
+     * <p>Forward-compatible hook: no resource endpoint invokes this
+     * today because the pending-request flow (Follow.status column +
+     * approval endpoints) doesn't exist yet. The method is intentionally
+     * kept dormant so wiring it in later is a one-line call-site change
+     * with no other ripple. {@link #dispatchFollowNotification} currently
+     * dispatches the informational {@link Category#FOLLOW} for every
+     * follow event regardless of {@code profileVisibility}.</p>
+     *
+     * <p>Carries accepter email + userId via {@code additionalData} so
+     * the FE inbox can deep-link to the accepter's profile through
+     * {@code useProfileNav}.</p>
+     */
+    @Transactional(readOnly = true)
+    public void notifyFollowAccepted(String requesterEmail, String accepterEmail) {
+        try {
+            String requester = normalize(requesterEmail);
+            String accepter = normalize(accepterEmail);
+            if (requester == null || accepter == null || requester.equals(accepter)) return;
+
+            Optional<UserInfo> requesterOpt = userInfoRepo.findByUserEmailIgnoreCase(requester);
+            if (requesterOpt.isEmpty()) return;
+            UserInfo requesterUser = requesterOpt.get();
+
+            Optional<UserInfo> accepterOpt = userInfoRepo.findByUserEmailIgnoreCase(accepter);
+            UserInfo accepterUser = accepterOpt.orElse(null);
+            String accepterName = displayName(accepterUser, accepter);
+            String accepterIcon = accepterUser != null ? accepterUser.getProfileImageURL() : null;
+            String accepterIdentifier = profileIdentifier(accepterUser, accepter);
+            String accepterUserId = accepterUser != null ? accepterUser.getId() : null;
+
+            String title = "Follow request accepted";
+            String body = accepterName + " accepted your follow request";
+            String targetUrl = "/profile/" + accepterIdentifier;
+            String additionalData = buildActorPayload(accepter, accepterUserId);
+
+            notificationService.deliverPresenceAware(
+                    requesterUser.getUserEmail(),
+                    title,
+                    body,
+                    accepterName,
+                    accepterIcon,
+                    "follow_accepted",
+                    accepterIdentifier,
+                    targetUrl,
+                    additionalData,
+                    requesterUser.getFcmtoken(),
+                    Category.FOLLOW_ACCEPTED
+            );
+        } catch (Exception e) {
+            logger.warn("Follow-accepted notification dispatch failed "
+                            + "(requester={}, accepter={}): {}",
+                    requesterEmail, accepterEmail, e.getMessage());
+        }
+    }
+
+    /**
+     * Build the actor-identity JSON payload that rides on
+     * {@code additionalData}. The FE persists this on
+     * {@code NotificationLog.additionalData} and reads
+     * {@code actorEmail} / {@code actorUserId} so {@code useProfileNav}
+     * can deep-link to the actor's profile from the inbox card —
+     * matches the inline JSON pattern used elsewhere (e.g.
+     * {@code HouseholdRitualScheduler}).
+     *
+     * <p>{@code actorUserId} is omitted from the JSON when null so we
+     * don't write an explicit {@code "actorUserId":null} string into
+     * the log row.</p>
+     */
+    private static String buildActorPayload(String actorEmail, String actorUserId) {
+        if ((actorEmail == null || actorEmail.isBlank())
+                && (actorUserId == null || actorUserId.isBlank())) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        if (actorEmail != null && !actorEmail.isBlank()) {
+            sb.append("\"actorEmail\":\"").append(escapeJson(actorEmail)).append("\"");
+            first = false;
+        }
+        if (actorUserId != null && !actorUserId.isBlank()) {
+            if (!first) sb.append(",");
+            sb.append("\"actorUserId\":\"").append(escapeJson(actorUserId)).append("\"");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    /** Minimal JSON string escaper for the two fields above (email + id
+     * are tightly constrained, but we still escape quotes/backslashes
+     * defensively so a malformed value can't corrupt the payload). */
+    private static String escapeJson(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /**
+     * Build a presentable actor name for notification body copy. Prefers
+     * "First Last", falls back to first name, then to the email-local
+     * part — matches the convention used elsewhere (e.g. PostCommentService).
+     */
+    private static String displayName(UserInfo user, String fallbackEmail) {
+        if (user != null) {
+            String first = user.getUserFirstName();
+            String last = user.getUserLastName();
+            String combined = ((first != null ? first.trim() : "")
+                    + " "
+                    + (last != null ? last.trim() : "")).trim();
+            if (!combined.isEmpty()) return combined;
+        }
+        if (fallbackEmail != null && fallbackEmail.contains("@")) {
+            return fallbackEmail.substring(0, fallbackEmail.indexOf('@'));
+        }
+        return "Someone";
+    }
+
+    /**
+     * Resolve a routable identifier for the actor's profile URL. The
+     * FE profile route accepts id OR email (UserInfoResource resolves
+     * both); we prefer the stable userId when we have it and fall back
+     * to email so unauthenticated lookups can still navigate.
+     */
+    private static String profileIdentifier(UserInfo user, String fallbackEmail) {
+        if (user != null && user.getId() != null && !user.getId().isBlank()) {
+            return user.getId();
+        }
+        return fallbackEmail;
     }
 
     /**

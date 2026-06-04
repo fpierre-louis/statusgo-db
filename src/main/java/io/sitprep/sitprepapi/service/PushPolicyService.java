@@ -201,7 +201,8 @@ public class PushPolicyService {
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
                  NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
-                 HOUSEHOLD_RITUAL_REMINDER -> Lane.B;
+                 HOUSEHOLD_RITUAL_REMINDER,
+                 FOLLOW, FOLLOW_INVITE, FOLLOW_ACCEPTED -> Lane.B;
             // Lane C — ephemeral
             case SELF_STATUS_SYNC, CONNECTION_STATE,
                  OPTIMISTIC_ROLLBACK, TOAST_CONFIRMATION -> Lane.C;
@@ -327,6 +328,28 @@ public class PushPolicyService {
         NEW_MEMBER,
         TASK_STATUS_CHANGE,
         AUTO_POST_LOCAL,
+        /**
+         * Someone started following you on a PUBLIC profile (instant,
+         * no approval required). Informational — inbox-only, no
+         * interruptive push. Mirrors NEW_MEMBER's "passive social
+         * notification" treatment. FE renders via NotificationCard's
+         * FALLBACK_VIS branch (no action buttons).
+         */
+        FOLLOW,
+        /**
+         * Someone requested to follow you on a PRIVATE profile and
+         * is waiting on your approval. Lane B so it lands in the
+         * inbox without an interruptive push at 3am — a follow
+         * request is not life-safety. FE renders Accept / Decline
+         * CTAs via NotificationCard's CATEGORY_CTAS map.
+         */
+        FOLLOW_INVITE,
+        /**
+         * A follow request you sent was accepted by the target.
+         * Lane B — purely informational, the original requester now
+         * sees the relationship in their following list.
+         */
+        FOLLOW_ACCEPTED,
         /**
          * §4 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — calm-mode
          * opt-in weekly household ritual nudge. Lane B by design:
