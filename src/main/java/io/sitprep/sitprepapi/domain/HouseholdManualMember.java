@@ -49,7 +49,10 @@ public class HouseholdManualMember {
      * map. Minors never appear on non-household group maps regardless of
      * any per-group sharing setting.
      */
-    @Column(name = "is_adult", nullable = false)
+    // columnDefinition supplies a database-level default so Hibernate's
+    // auto-DDL can add this NOT NULL column to existing non-empty tables
+    // (pre-existing rows otherwise can't satisfy the NOT NULL constraint).
+    @Column(name = "is_adult", nullable = false, columnDefinition = "boolean default false not null")
     private Boolean isAdult = Boolean.FALSE;
 
     /** R2 object key or full URL — same convention as profile photos. */

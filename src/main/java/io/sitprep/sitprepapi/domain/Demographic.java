@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -26,7 +27,14 @@ public class Demographic {
 
     private int infants;
     private int adults;
+
+    // columnDefinition supplies a database-level default so Hibernate's
+    // auto-DDL can add this NOT NULL column to existing non-empty tables.
+    // Without the default, Postgres refuses the `ALTER TABLE ... ADD
+    // COLUMN ... NOT NULL` because pre-existing rows would have nulls.
+    @Column(nullable = false, columnDefinition = "integer default 0 not null")
     private int teens;
+
     private int kids;
     private int dogs;
     private int cats;
