@@ -95,6 +95,18 @@ public class VerificationApplication {
     @Column(length = 160)
     private String approvedPublisherEmail;
 
+    @Column(length = 400)
+    private String publisherServiceArea;
+
+    @Column(length = 400)
+    private String publisherPermanentAddress;
+
+    @Column(length = 400)
+    private String publisherTemporaryEventAddress;
+
+    @Column(columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean emergencyPostingEnabled = false;
+
     @Column(nullable = false)
     private Instant createdAt;
 

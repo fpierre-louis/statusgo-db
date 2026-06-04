@@ -134,12 +134,37 @@ public class VerificationApplicationService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "verifiedKind is required when approving");
             }
-            verifiedPublisherService.setVerified(publisherEmail, true, kind, reviewerEmail);
             app.setApprovedPublisherEmail(publisherEmail);
             app.setVerifiedKind(kind.trim().toLowerCase(Locale.ROOT));
+            String serviceArea = trim(req == null ? null : req.publisherServiceArea(), 400);
+            if (serviceArea == null) serviceArea = app.getServiceArea();
+            String permanentAddress = trim(req == null ? null : req.publisherPermanentAddress(), 400);
+            if (permanentAddress == null) permanentAddress = app.getAddressOrJurisdiction();
+            String temporaryEventAddress = trim(req == null ? null : req.publisherTemporaryEventAddress(), 400);
+            boolean emergencyPostingEnabled = Boolean.TRUE.equals(
+                    req == null ? null : req.emergencyPostingEnabled());
+            verifiedPublisherService.setVerified(
+                    publisherEmail,
+                    true,
+                    kind,
+                    reviewerEmail,
+                    serviceArea,
+                    permanentAddress,
+                    temporaryEventAddress,
+                    emergencyPostingEnabled,
+                    app.getGroupId()
+            );
+            app.setPublisherServiceArea(serviceArea);
+            app.setPublisherPermanentAddress(permanentAddress);
+            app.setPublisherTemporaryEventAddress(temporaryEventAddress);
+            app.setEmergencyPostingEnabled(emergencyPostingEnabled);
         } else {
             app.setApprovedPublisherEmail(null);
             app.setVerifiedKind(null);
+            app.setPublisherServiceArea(null);
+            app.setPublisherPermanentAddress(null);
+            app.setPublisherTemporaryEventAddress(null);
+            app.setEmergencyPostingEnabled(false);
         }
 
         VerificationApplication saved = applicationRepo.save(app);

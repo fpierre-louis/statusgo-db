@@ -117,6 +117,19 @@ public class VerifiedPublisherService {
      */
     @Transactional
     public VerifiedPublisherDto setVerified(String userEmail, boolean verified, String kind, String adminEmail) {
+        return setVerified(userEmail, verified, kind, adminEmail, null, null, null, false, null);
+    }
+
+    @Transactional
+    public VerifiedPublisherDto setVerified(String userEmail,
+                                            boolean verified,
+                                            String kind,
+                                            String adminEmail,
+                                            String serviceArea,
+                                            String permanentAddress,
+                                            String temporaryEventAddress,
+                                            boolean emergencyPostingEnabled,
+                                            String groupId) {
         UserInfo u = userInfoRepo.findByUserEmail(userEmail)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
 
@@ -130,12 +143,22 @@ public class VerifiedPublisherService {
             u.setVerifiedPublisherKind(k);
             u.setVerifiedSince(Instant.now());
             u.setVerifiedBy(adminEmail);
+            u.setVerifiedPublisherServiceArea(trim(serviceArea, 400));
+            u.setVerifiedPublisherPermanentAddress(trim(permanentAddress, 400));
+            u.setVerifiedPublisherTemporaryEventAddress(trim(temporaryEventAddress, 400));
+            u.setVerifiedPublisherEmergencyPostingEnabled(emergencyPostingEnabled);
+            u.setVerifiedPublisherGroupId(trim(groupId, 80));
             log.info("VerifiedPublisher: {} → true (kind={}) by {}", userEmail, k, adminEmail);
         } else {
             u.setVerifiedPublisher(false);
             u.setVerifiedPublisherKind(null);
             u.setVerifiedSince(null);
             u.setVerifiedBy(null);
+            u.setVerifiedPublisherServiceArea(null);
+            u.setVerifiedPublisherPermanentAddress(null);
+            u.setVerifiedPublisherTemporaryEventAddress(null);
+            u.setVerifiedPublisherEmergencyPostingEnabled(false);
+            u.setVerifiedPublisherGroupId(null);
             log.info("VerifiedPublisher: {} → false by {}", userEmail, adminEmail);
         }
         userInfoRepo.save(u);
@@ -170,5 +193,12 @@ public class VerifiedPublisherService {
         if (s == null || s.isBlank()) return null;
         try { return Double.parseDouble(s.trim()); }
         catch (NumberFormatException e) { return null; }
+    }
+
+    private static String trim(String raw, int max) {
+        if (raw == null) return null;
+        String value = raw.trim();
+        if (value.isBlank()) return null;
+        return value.length() <= max ? value : value.substring(0, max);
     }
 }

@@ -17,6 +17,11 @@ public record VerifiedPublisherDto(
         String profileImageUrl,
         String kind,
         Instant verifiedSince,
+        String serviceArea,
+        String permanentAddress,
+        String temporaryEventAddress,
+        boolean emergencyPostingEnabled,
+        String groupId,
         Double latitude,
         Double longitude,
         /** Distance from query point — only set on the radius endpoint; null otherwise. */
@@ -32,6 +37,11 @@ public record VerifiedPublisherDto(
                 u.getProfileImageURL(),
                 u.getVerifiedPublisherKind(),
                 u.getVerifiedSince(),
+                u.getVerifiedPublisherServiceArea(),
+                u.getVerifiedPublisherPermanentAddress(),
+                u.getVerifiedPublisherTemporaryEventAddress(),
+                u.isVerifiedPublisherEmergencyPostingEnabled(),
+                u.getVerifiedPublisherGroupId(),
                 parseDoubleOrNull(u.getLatitude()),
                 parseDoubleOrNull(u.getLongitude()),
                 distanceKm

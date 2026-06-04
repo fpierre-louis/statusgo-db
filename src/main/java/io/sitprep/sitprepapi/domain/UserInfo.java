@@ -246,7 +246,8 @@ public class UserInfo {
 
     /**
      * Free-form lowercase string identifying the publisher tier:
-     * {@code city | county | state | newsroom | utility | red-cross | other}.
+     * {@code business | organization | city | county | state | newsroom |
+     * utility | red-cross | official-agency | other}.
      * Forward-compat (admin can introduce new kinds without a schema
      * change). Null when {@code verifiedPublisher == false}.
      */
@@ -260,6 +261,40 @@ public class UserInfo {
     /** Email of the SitPrep admin who approved verification. Auditable. */
     @Column(name = "verified_by", length = 255)
     private String verifiedBy;
+
+    /**
+     * Human-readable reach label approved by SitPrep review: e.g.
+     * "Boulder County", "City of Arvada", "15 mi around 80014", or
+     * "Denver metro". The feed can show this as why the publisher's
+     * content is relevant without exposing raw targeting internals.
+     */
+    @Column(name = "verified_publisher_service_area", length = 400)
+    private String verifiedPublisherServiceArea;
+
+    /** Permanent physical/jurisdictional address reviewed for the publisher. */
+    @Column(name = "verified_publisher_permanent_address", length = 400)
+    private String verifiedPublisherPermanentAddress;
+
+    /**
+     * Temporary/event address for pop-up services, seasonal resource
+     * centers, or incident-specific operations. Null for ordinary
+     * always-on publishers.
+     */
+    @Column(name = "verified_publisher_temporary_event_address", length = 400)
+    private String verifiedPublisherTemporaryEventAddress;
+
+    /**
+     * Whether this verified publisher has SitPrep approval for future
+     * emergency/official alert-mode posting. Defaults false; broad
+     * marketplace/profile verification should not imply emergency reach.
+     */
+    @Column(name = "verified_publisher_emergency_posting_enabled",
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean verifiedPublisherEmergencyPostingEnabled = false;
+
+    /** Group that supplied the verification application, when applicable. */
+    @Column(name = "verified_publisher_group_id", length = 80)
+    private String verifiedPublisherGroupId;
 
     // -----------------------------------------------------------------
     // Public-profile fields — docs/PROFILE_AND_FOLLOW.md build-order
