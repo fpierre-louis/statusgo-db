@@ -86,6 +86,13 @@ public record PostDto(
         boolean crisisRelevant,
         Instant sponsoredUntil,
         String sponsoredBy,
+        String authorType,
+        String verifiedState,
+        String publisherScope,
+        String publisherProfileUrl,
+        String serviceAreaLabel,
+        String jurisdictionLabel,
+        String sponsoredDisclosure,
         // Post-kind vocabulary (MARKETPLACE_AND_FEED_CALM step 1).
         // Lowercase free-form: ask | offer | tip | recommendation |
         // lost-found | alert-update | blog-promo | marketplace.
@@ -233,6 +240,13 @@ public record PostDto(
                 t.isCrisisRelevant(),
                 t.getSponsoredUntil(),
                 t.getSponsoredBy(),
+                /* authorType */ null,
+                /* verifiedState */ null,
+                /* publisherScope */ null,
+                /* publisherProfileUrl */ null,
+                /* serviceAreaLabel */ null,
+                /* jurisdictionLabel */ null,
+                sponsoredDisclosure(t.isSponsored(), t.getSponsoredBy()),
                 t.getKind(),
                 t.getPrice(),
                 t.isFree(),
@@ -270,6 +284,8 @@ public record PostDto(
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
                 kind, price, isFree, paymentMethods,
                 /* viaFollow */ true,
                 thanksCount, viewerThanked, commentsCount,
@@ -290,6 +306,7 @@ public record PostDto(
     public PostDto withAuthor(UserInfo u) {
         if (u == null) return this;
         String avatarUrl = u.getProfileImageURL();  // already a URL on UserInfo
+        PublisherIdentity identity = publisherIdentity(u);
         return new PostDto(
                 id,
                 groupId,
@@ -321,6 +338,13 @@ public record PostDto(
                 crisisRelevant,
                 sponsoredUntil,
                 sponsoredBy,
+                coalesce(identity.authorType(), authorType),
+                coalesce(identity.verifiedState(), verifiedState),
+                coalesce(identity.publisherScope(), publisherScope),
+                coalesce(identity.publisherProfileUrl(), publisherProfileUrl),
+                coalesce(identity.serviceAreaLabel(), serviceAreaLabel),
+                coalesce(identity.jurisdictionLabel(), jurisdictionLabel),
+                sponsoredDisclosure,
                 kind,
                 price,
                 isFree,
@@ -354,6 +378,8 @@ public record PostDto(
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
@@ -381,6 +407,8 @@ public record PostDto(
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 safeMap, safeSet,
@@ -405,6 +433,8 @@ public record PostDto(
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
@@ -430,6 +460,8 @@ public record PostDto(
      */
     public PostDto withAuthoredAsGroup(String name, String type) {
         if (authoredAsGroupId == null || authoredAsGroupId.isBlank()) return this;
+        String groupAuthorType = authorTypeFromKind(type);
+        String groupScope = publisherScopeFromKind(type);
         return new PostDto(
                 id, groupId, requesterEmail,
                 requesterFirstName, requesterLastName, requesterProfileImageUrl,
@@ -438,6 +470,13 @@ public record PostDto(
                 dueAt, createdAt, updatedAt, claimedAt, completedAt,
                 parentPostId, tags, imageKeys, imageUrls, distanceKm,
                 sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                coalesce(authorType, groupAuthorType),
+                verifiedState,
+                coalesce(publisherScope, groupScope),
+                publisherProfileUrl,
+                serviceAreaLabel,
+                jurisdictionLabel,
+                sponsoredDisclosure,
                 kind, price, isFree, paymentMethods, viaFollow,
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis,
@@ -459,6 +498,83 @@ public record PostDto(
     private static final ObjectMapper PAYMENT_JSON = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PAYMENT_TYPE =
             new TypeReference<>() {};
+
+    private static PublisherIdentity publisherIdentity(UserInfo u) {
+        if (u == null || !u.isVerifiedPublisher()) {
+            return new PublisherIdentity(null, null, null, null, null, null);
+        }
+        String kind = u.getVerifiedPublisherKind();
+        String email = u.getUserEmail();
+        String verified = u.isVerifiedPublisherEmergencyPostingEnabled()
+                || "official-agency".equalsIgnoreCase(String.valueOf(kind))
+                ? "official"
+                : "verified";
+        return new PublisherIdentity(
+                authorTypeFromKind(kind),
+                verified,
+                publisherScopeFromKind(kind),
+                email == null || email.isBlank() ? null : "/business/" + email.trim(),
+                trim(u.getVerifiedPublisherServiceArea()),
+                coalesce(u.getVerifiedPublisherTemporaryEventAddress(),
+                        u.getVerifiedPublisherPermanentAddress())
+        );
+    }
+
+    private static String authorTypeFromKind(String kind) {
+        String k = normalizeKind(kind);
+        return switch (k) {
+            case "business", "commercial" -> "business";
+            case "city" -> "city";
+            case "county" -> "county";
+            case "state" -> "state";
+            case "officialagency", "publicsafety", "utility" -> "officialAgency";
+            case "organization", "nonprofit", "school", "church", "neighborhood" -> "organization";
+            default -> null;
+        };
+    }
+
+    private static String publisherScopeFromKind(String kind) {
+        String k = normalizeKind(kind);
+        return switch (k) {
+            case "business", "commercial" -> "commercial";
+            case "city" -> "municipal";
+            case "county" -> "county";
+            case "state" -> "state";
+            case "officialagency", "publicsafety", "utility" -> "publicSafety";
+            case "organization", "nonprofit", "school", "church", "neighborhood" -> "nonprofit";
+            default -> null;
+        };
+    }
+
+    private static String sponsoredDisclosure(boolean sponsored, String sponsoredBy) {
+        if (!sponsored) return null;
+        String by = trim(sponsoredBy);
+        return by == null ? "Sponsored" : "Sponsored by " + by;
+    }
+
+    private static String normalizeKind(String value) {
+        if (value == null || value.isBlank()) return "";
+        return value.trim().replaceAll("[^A-Za-z0-9]", "").toLowerCase();
+    }
+
+    private static String coalesce(String preferred, String fallback) {
+        String trimmed = trim(preferred);
+        return trimmed == null ? trim(fallback) : trimmed;
+    }
+
+    private static String trim(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
+    }
+
+    private record PublisherIdentity(
+            String authorType,
+            String verifiedState,
+            String publisherScope,
+            String publisherProfileUrl,
+            String serviceAreaLabel,
+            String jurisdictionLabel
+    ) {}
 
     /**
      * Parse the {@code payment_methods_json} column into a Map for
