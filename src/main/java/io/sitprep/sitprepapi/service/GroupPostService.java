@@ -49,6 +49,7 @@ public class GroupPostService {
     private final GroupPostReactionService reactionService;
     private final GroupReadStateRepo groupReadStateRepo;
     private final GroupPostThreadPresenceService threadPresenceService;
+    private final PublisherPublishAuditService publisherPublishAuditService;
 
     @Autowired
     public GroupPostService(GroupPostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
@@ -56,7 +57,8 @@ public class GroupPostService {
                        WebSocketMessageSender webSocketMessageSender,
                        GroupPostReactionService reactionService,
                        GroupReadStateRepo groupReadStateRepo,
-                       GroupPostThreadPresenceService threadPresenceService) {
+                       GroupPostThreadPresenceService threadPresenceService,
+                       PublisherPublishAuditService publisherPublishAuditService) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -65,6 +67,7 @@ public class GroupPostService {
         this.reactionService = reactionService;
         this.groupReadStateRepo = groupReadStateRepo;
         this.threadPresenceService = threadPresenceService;
+        this.publisherPublishAuditService = publisherPublishAuditService;
     }
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
@@ -87,6 +90,7 @@ public class GroupPostService {
         }
 
         GroupPost savedPost = postRepo.save(post);
+        publisherPublishAuditService.recordGroupPost(savedPost, actorEmail);
         GroupPostDto savedDto = convertToPostDto(savedPost);
         savedDto.setTempId(postDto.getTempId());
         int deliveredCount = threadPresenceService.openRecipientCount(

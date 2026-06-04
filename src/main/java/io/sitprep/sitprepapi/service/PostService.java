@@ -70,6 +70,7 @@ public class PostService {
     private final PostCommentService commentService;
     private final StorageService storage;
     private final GroupRepo groupRepo;
+    private final PublisherPublishAuditService publisherPublishAuditService;
 
     public PostService(PostRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
@@ -80,7 +81,8 @@ public class PostService {
                        PostReactionService reactionService,
                        PostCommentService commentService,
                        StorageService storage,
-                       GroupRepo groupRepo) {
+                       GroupRepo groupRepo,
+                       PublisherPublishAuditService publisherPublishAuditService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -92,6 +94,7 @@ public class PostService {
         this.commentService = commentService;
         this.storage = storage;
         this.groupRepo = groupRepo;
+        this.publisherPublishAuditService = publisherPublishAuditService;
     }
 
     /**
@@ -405,6 +408,7 @@ public class PostService {
         // populated — no second round-trip needed on the FE to render
         // the post card with the right author header.
         dto = withAuthoredAsGroups(List.of(dto)).get(0);
+        publisherPublishAuditService.recordCommunityPost(saved, requesterEmail);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -811,6 +815,7 @@ public class PostService {
         // sponsorships use the admin's identifier; self-serve uses the
         // author's email so we can audit who claimed which slot.
         t.setSponsoredBy(actorEmail.trim().toLowerCase());
+        publisherPublishAuditService.recordSponsoredPost(t, actorEmail);
         return saveAndBroadcast(t);
     }
 

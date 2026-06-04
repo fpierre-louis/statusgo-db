@@ -68,6 +68,8 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
      */
     List<UserInfo> findByVerifiedPublisherTrue();
 
+    Optional<UserInfo> findFirstByVerifiedPublisherGroupIdIgnoreCase(String groupId);
+
     /**
      * Every user who can receive a push (a non-empty FCM token) AND has
      * a known current location. {@code AlertDispatchService}'s severe-
