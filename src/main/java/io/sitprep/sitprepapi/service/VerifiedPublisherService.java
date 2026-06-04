@@ -48,7 +48,16 @@ public class VerifiedPublisherService {
      * doesn't need to change.
      */
     private static final Set<String> AUTHORIZED_KINDS = Set.of(
-            "city", "county", "state", "newsroom", "utility", "red-cross", "other"
+            "business",
+            "organization",
+            "city",
+            "county",
+            "state",
+            "newsroom",
+            "utility",
+            "red-cross",
+            "official-agency",
+            "other"
     );
 
     private final UserInfoRepo userInfoRepo;
