@@ -401,6 +401,8 @@ public class PostService {
             }
         }
 
+        publisherPublishAuditService.requirePublisherPostAllowed(
+                t.getAuthoredAsGroupId(), t.getRequesterEmail(), requesterEmail, false);
         Post saved = taskRepo.save(t);
         PostDto dto = PostDto.fromEntity(saved);
         // Fold in authored-as-group identity (name + type) so the
@@ -808,6 +810,8 @@ public class PostService {
             throw new IllegalStateException(
                     "Only open listings can be promoted (status=" + t.getStatus() + ")");
         }
+        publisherPublishAuditService.requirePublisherPostAllowed(
+                t.getAuthoredAsGroupId(), t.getRequesterEmail(), actorEmail, true);
         int clampedDays = Math.max(1, Math.min(30, days));
         t.setSponsored(true);
         t.setSponsoredUntil(Instant.now().plus(java.time.Duration.ofDays(clampedDays)));

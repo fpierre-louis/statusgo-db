@@ -2,6 +2,8 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -26,6 +28,13 @@ import java.time.Instant;
         }
 )
 public class PublisherPublishAudit {
+
+    public enum ReviewStatus {
+        PENDING,
+        APPROVED,
+        REJECTED,
+        NEEDS_INFO
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -70,11 +79,25 @@ public class PublisherPublishAudit {
     @Column(columnDefinition = "TEXT")
     private String message;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_status", nullable = false, length = 24)
+    private ReviewStatus reviewStatus = ReviewStatus.PENDING;
+
+    @Column(name = "reviewer_email", length = 255)
+    private String reviewerEmail;
+
+    @Column(name = "reviewer_notes", length = 1000)
+    private String reviewerNotes;
+
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @PrePersist
     void onCreate() {
         if (createdAt == null) createdAt = Instant.now();
+        if (reviewStatus == null) reviewStatus = ReviewStatus.PENDING;
     }
 }

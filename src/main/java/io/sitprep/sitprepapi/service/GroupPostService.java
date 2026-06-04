@@ -89,6 +89,8 @@ public class GroupPostService {
             post.setImageKey(postDto.getImageKey().trim());
         }
 
+        publisherPublishAuditService.requirePublisherPostAllowed(
+                post.getGroupId(), post.getAuthor(), actorEmail, false);
         GroupPost savedPost = postRepo.save(post);
         publisherPublishAuditService.recordGroupPost(savedPost, actorEmail);
         GroupPostDto savedDto = convertToPostDto(savedPost);

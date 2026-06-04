@@ -5,12 +5,18 @@ import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PublisherPublishAudit;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.PublisherPublishAuditDto;
+import io.sitprep.sitprepapi.dto.ReviewPublisherPublishAuditRequest;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PublisherPublishAuditRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -20,13 +26,31 @@ public class PublisherPublishAuditService {
     private final PublisherPublishAuditRepo auditRepo;
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
+    private final PublisherPublishRateLimiter rateLimiter;
 
     public PublisherPublishAuditService(PublisherPublishAuditRepo auditRepo,
                                         UserInfoRepo userInfoRepo,
-                                        GroupRepo groupRepo) {
+                                        GroupRepo groupRepo,
+                                        PublisherPublishRateLimiter rateLimiter) {
         this.auditRepo = auditRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
+        this.rateLimiter = rateLimiter;
+    }
+
+    public void requirePublisherPostAllowed(String groupId,
+                                            String authorEmail,
+                                            String actorEmail,
+                                            boolean sponsored) {
+        ResolvedPublisher publisher = resolvePublisher(groupId, authorEmail, actorEmail);
+        if (!sponsored && publisher.user() == null) return;
+        String key = publisherKey(publisher, actorEmail);
+        if (!rateLimiter.tryConsume(key, sponsored)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    sponsored
+                            ? "Sponsored posting limit reached for this publisher"
+                            : "Official posting limit reached for this publisher");
+        }
     }
 
     @Transactional
@@ -77,6 +101,31 @@ public class PublisherPublishAuditService {
                 post.getContent());
     }
 
+    @Transactional(readOnly = true)
+    public List<PublisherPublishAuditDto> listReviews(String rawStatus) {
+        PublisherPublishAudit.ReviewStatus status = parseReviewStatus(rawStatus, true);
+        List<PublisherPublishAudit> rows = status == null
+                ? auditRepo.findTop100ByOrderByCreatedAtDesc()
+                : auditRepo.findByReviewStatusOrderByCreatedAtDesc(status);
+        return rows.stream().map(PublisherPublishAuditDto::from).toList();
+    }
+
+    @Transactional
+    public PublisherPublishAuditDto review(Long id,
+                                           ReviewPublisherPublishAuditRequest req,
+                                           String reviewerEmail) {
+        PublisherPublishAudit row = auditRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Publisher review row not found"));
+        PublisherPublishAudit.ReviewStatus status =
+                parseReviewStatus(req == null ? null : req.status(), false);
+        row.setReviewStatus(status);
+        row.setReviewerEmail(normalize(reviewerEmail));
+        row.setReviewerNotes(trim(req == null ? null : req.reviewerNotes(), 1000));
+        row.setReviewedAt(Instant.now());
+        return PublisherPublishAuditDto.from(auditRepo.save(row));
+    }
+
     private void save(String eventType,
                       String actorEmail,
                       ResolvedPublisher publisher,
@@ -107,6 +156,28 @@ public class PublisherPublishAuditService {
         audit.setPostId(postId);
         audit.setMessage(trim(message, 4096));
         auditRepo.save(audit);
+    }
+
+    private static String publisherKey(ResolvedPublisher publisher, String actorEmail) {
+        if (publisher.group() != null && publisher.group().getGroupId() != null) {
+            return "group:" + publisher.group().getGroupId();
+        }
+        if (publisher.user() != null && publisher.user().getUserEmail() != null) {
+            return "publisher:" + publisher.user().getUserEmail();
+        }
+        return "actor:" + actorEmail;
+    }
+
+    private static PublisherPublishAudit.ReviewStatus parseReviewStatus(String raw, boolean allowAll) {
+        if (raw == null || raw.isBlank()) return allowAll ? PublisherPublishAudit.ReviewStatus.PENDING : null;
+        String value = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (allowAll && "ALL".equals(value)) return null;
+        try {
+            return PublisherPublishAudit.ReviewStatus.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "status must be PENDING, APPROVED, REJECTED, NEEDS_INFO, or ALL");
+        }
     }
 
     private ResolvedPublisher resolvePublisher(String groupId, String authorEmail, String actorEmail) {
