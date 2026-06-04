@@ -143,6 +143,14 @@ public class VerificationApplicationService {
             String temporaryEventAddress = trim(req == null ? null : req.publisherTemporaryEventAddress(), 400);
             boolean emergencyPostingEnabled = Boolean.TRUE.equals(
                     req == null ? null : req.emergencyPostingEnabled());
+            if (emergencyPostingEnabled) {
+                Group group = findGroup(app.getGroupId());
+                int authorizedAdmins = authorizedAdminCount(group);
+                if (authorizedAdmins < 2) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Emergency posting requires at least two authorized group admins");
+                }
+            }
             verifiedPublisherService.setVerified(
                     publisherEmail,
                     true,
@@ -186,6 +194,21 @@ public class VerificationApplicationService {
     private Group findGroup(String groupId) {
         if (groupId == null || groupId.isBlank()) return null;
         return groupRepo.findByGroupId(groupId).orElse(null);
+    }
+
+    private static int authorizedAdminCount(Group group) {
+        if (group == null) return 0;
+        java.util.Set<String> emails = new java.util.HashSet<>();
+        addEmail(emails, group.getOwnerEmail());
+        if (group.getAdminEmails() != null) {
+            for (String email : group.getAdminEmails()) addEmail(emails, email);
+        }
+        return emails.size();
+    }
+
+    private static void addEmail(java.util.Set<String> emails, String email) {
+        if (email == null || email.isBlank()) return;
+        emails.add(email.trim().toLowerCase(Locale.ROOT));
     }
 
     private static String requireAccountType(String raw) {

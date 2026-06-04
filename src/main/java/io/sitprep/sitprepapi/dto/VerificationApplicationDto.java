@@ -10,6 +10,7 @@ public record VerificationApplicationDto(
         String groupId,
         String groupName,
         String groupType,
+        int authorizedAdminCount,
         String applicantEmail,
         String accountType,
         String legalName,
@@ -43,6 +44,7 @@ public record VerificationApplicationDto(
                 app.getGroupId(),
                 group == null ? null : group.getGroupName(),
                 group == null ? null : group.getGroupType(),
+                authorizedAdminCount(group),
                 app.getApplicantEmail(),
                 app.getAccountType(),
                 app.getLegalName(),
@@ -70,5 +72,20 @@ public record VerificationApplicationDto(
                 app.getSubmittedAt(),
                 app.getReviewedAt()
         );
+    }
+
+    private static int authorizedAdminCount(Group group) {
+        if (group == null) return 0;
+        java.util.Set<String> emails = new java.util.HashSet<>();
+        add(emails, group.getOwnerEmail());
+        if (group.getAdminEmails() != null) {
+            for (String email : group.getAdminEmails()) add(emails, email);
+        }
+        return emails.size();
+    }
+
+    private static void add(java.util.Set<String> emails, String email) {
+        if (email == null || email.isBlank()) return;
+        emails.add(email.trim().toLowerCase(java.util.Locale.ROOT));
     }
 }
