@@ -195,8 +195,55 @@ public record PostDto(
          * assignment by a group admin), or null when unassigned. See
          * {@link io.sitprep.sitprepapi.domain.Post#assigneeEmail}.
          */
-        String assigneeEmail
+        String assigneeEmail,
+        /**
+         * Compact preview of the original post when this row is a
+         * repost / quote-post. Null for normal posts and for missing
+         * parents. This keeps feed/detail cards one-response shaped:
+         * the FE can render the quoted card without an N+1 lookup.
+         */
+        ParentPostPreview parentPost
 ) {
+
+    public record ParentPostPreview(
+            Long id,
+            String requesterEmail,
+            String requesterFirstName,
+            String requesterLastName,
+            String requesterProfileImageUrl,
+            String title,
+            String description,
+            String kind,
+            Instant createdAt,
+            String placeLabel,
+            List<String> imageUrls,
+            String authoredAsGroupId,
+            String authoredAsGroupName,
+            String authoredAsGroupType
+    ) {
+        public static ParentPostPreview fromEntity(Post t, UserInfo author, String groupName, String groupType) {
+            if (t == null || t.getId() == null) return null;
+            List<String> urls = (t.getImageKeys() == null ? List.<String>of() : t.getImageKeys()).stream()
+                    .map(PublicCdn::toPublicUrl)
+                    .collect(Collectors.toList());
+            return new ParentPostPreview(
+                    t.getId(),
+                    t.getRequesterEmail(),
+                    author == null ? null : author.getUserFirstName(),
+                    author == null ? null : author.getUserLastName(),
+                    author == null ? null : author.getProfileImageURL(),
+                    t.getTitle(),
+                    t.getDescription(),
+                    t.getKind(),
+                    t.getCreatedAt(),
+                    t.getPlaceLabel(),
+                    urls,
+                    t.getAuthoredAsGroupId(),
+                    groupName,
+                    groupType
+            );
+        }
+    }
 
     /**
      * Entity-only conversion. Author profile fields stay null — the
@@ -261,7 +308,8 @@ public record PostDto(
                 t.getAuthoredAsGroupId(),
                 /* authoredAsGroupName */ null,
                 /* authoredAsGroupType */ null,
-                t.getAssigneeEmail()
+                t.getAssigneeEmail(),
+                /* parentPost */ null
         );
     }
 
@@ -292,7 +340,8 @@ public record PostDto(
                 reactionsByEmoji, viewerEmojis,
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
         );
     }
 
@@ -359,7 +408,8 @@ public record PostDto(
                 authoredAsGroupId,
                 authoredAsGroupName,
                 authoredAsGroupType,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
         );
     }
 
@@ -385,7 +435,8 @@ public record PostDto(
                 reactionsByEmoji, viewerEmojis,
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
         );
     }
 
@@ -414,7 +465,8 @@ public record PostDto(
                 safeMap, safeSet,
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
         );
     }
 
@@ -440,7 +492,8 @@ public record PostDto(
                 reactionsByEmoji, viewerEmojis,
                 preview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
         );
     }
 
@@ -482,7 +535,33 @@ public record PostDto(
                 reactionsByEmoji, viewerEmojis,
                 latestCommentPreview,
                 authoredAsGroupId, name, type,
-                assigneeEmail
+                assigneeEmail,
+                parentPost
+        );
+    }
+
+    /**
+     * Returns a copy with a compact parent preview folded in. Used for
+     * repost / quote-post rendering.
+     */
+    public PostDto withParentPost(ParentPostPreview preview) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                preview
         );
     }
 

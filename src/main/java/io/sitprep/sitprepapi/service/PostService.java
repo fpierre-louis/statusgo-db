@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +72,12 @@ public class PostService {
     private final StorageService storage;
     private final GroupRepo groupRepo;
     private final PublisherPublishAuditService publisherPublishAuditService;
+
+    public record PostSharePreview(
+            String title,
+            String description,
+            String imageUrl
+    ) {}
 
     public PostService(PostRepo taskRepo, UserInfoRepo userInfoRepo,
                        NominatimGeocodeService geocode,
@@ -203,6 +210,80 @@ public class PostService {
     }
 
     /**
+     * Batch-fold parent post previews for repost / quote-post cards.
+     * Parent previews are intentionally compact and scope-aware: a
+     * community post cannot expose a group-only parent unless the child
+     * lives in the same group scope.
+     */
+    private List<PostDto> withParentPosts(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> parentIds = dtos.stream()
+                .map(PostDto::parentPostId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (parentIds.isEmpty()) return dtos;
+
+        Map<Long, Post> parentsById = new HashMap<>();
+        for (Post p : taskRepo.findAllById(parentIds)) {
+            if (p != null && p.getId() != null) parentsById.put(p.getId(), p);
+        }
+        if (parentsById.isEmpty()) return dtos;
+
+        List<String> parentEmails = parentsById.values().stream()
+                .map(Post::getRequesterEmail)
+                .filter(Objects::nonNull)
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .distinct()
+                .toList();
+        Map<String, UserInfo> authorByEmail = parentEmails.isEmpty()
+                ? Map.of()
+                : userInfoRepo.findByUserEmailIn(parentEmails).stream()
+                    .filter(u -> u.getUserEmail() != null)
+                    .collect(Collectors.toMap(
+                            u -> u.getUserEmail().toLowerCase(Locale.ROOT),
+                            Function.identity(),
+                            (a, b) -> a
+                    ));
+
+        List<String> authoredGroupIds = parentsById.values().stream()
+                .map(Post::getAuthoredAsGroupId)
+                .filter(Objects::nonNull)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .toList();
+        Map<String, Group> groupById = new HashMap<>();
+        for (Group g : groupRepo.findAllById(authoredGroupIds)) {
+            if (g != null && g.getGroupId() != null) groupById.put(g.getGroupId(), g);
+        }
+
+        return dtos.stream()
+                .map(d -> {
+                    Long parentId = d.parentPostId();
+                    if (parentId == null) return d;
+                    Post parent = parentsById.get(parentId);
+                    if (parent == null) return d;
+                    boolean parentIsGroupScoped = parent.getGroupId() != null && !parent.getGroupId().isBlank();
+                    boolean sameGroupScope = Objects.equals(parent.getGroupId(), d.groupId());
+                    if (parentIsGroupScoped && !sameGroupScope) return d;
+
+                    UserInfo author = parent.getRequesterEmail() == null
+                            ? null
+                            : authorByEmail.get(parent.getRequesterEmail().toLowerCase(Locale.ROOT));
+                    Group authoredGroup = parent.getAuthoredAsGroupId() == null
+                            ? null
+                            : groupById.get(parent.getAuthoredAsGroupId());
+                    return d.withParentPost(PostDto.ParentPostPreview.fromEntity(
+                            parent,
+                            author,
+                            authoredGroup == null ? null : authoredGroup.getGroupName(),
+                            authoredGroup == null ? null : authoredGroup.getGroupType()
+                    ));
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Batch-fold engagement counts (heart "Thank" count, viewer-thanked
      * flag, and — once Phase 2 ships — comment count) onto a list of
      * TaskDtos. Single batched query for the reaction summary so a
@@ -302,6 +383,9 @@ public class PostService {
         t.setLongitude(incoming.getLongitude());
         t.setDueAt(incoming.getDueAt());
         t.setParentPostId(incoming.getParentPostId());
+        if (t.getParentPostId() != null && !taskRepo.existsById(t.getParentPostId())) {
+            throw new IllegalArgumentException("parentPostId references an unknown post");
+        }
         if (incoming.getTags() != null) t.getTags().addAll(incoming.getTags());
         if (incoming.getImageKeys() != null) {
             // BE-side cap to match the composer's MAX_IMAGES (currently
@@ -349,13 +433,15 @@ public class PostService {
         } else {
             // post / tip: description is the body; ignore any title that
             // a legacy client (or a stale cached composer build) might
-            // still send. Description must be present so the card has
-            // something to render.
-            if (incoming.getDescription() == null || incoming.getDescription().isBlank()) {
+            // still send. Description must be present unless this is a
+            // bare repost whose parent card is the visible content.
+            boolean hasParentPost = t.getParentPostId() != null;
+            if (!hasParentPost && (incoming.getDescription() == null || incoming.getDescription().isBlank())) {
                 throw new IllegalArgumentException(
                         "description required for kind=" + t.getKind());
             }
             t.setTitle(null);
+            t.setDescription(incoming.getDescription() == null ? null : incoming.getDescription().trim());
         }
 
         // Marketplace fields. price + isFree are mutually exclusive
@@ -409,7 +495,7 @@ public class PostService {
         // newly-created post returns with the group emblem already
         // populated — no second round-trip needed on the FE to render
         // the post card with the right author header.
-        dto = withAuthoredAsGroups(List.of(dto)).get(0);
+        dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(dto)))).get(0);
         publisherPublishAuditService.recordCommunityPost(saved, requesterEmail);
         broadcastAfterCommit(dto);
         return dto;
@@ -426,7 +512,7 @@ public class PostService {
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
         List<PostDto> dtos = rows.stream().map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), viewerEmail);
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail);
     }
 
     /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
@@ -442,7 +528,7 @@ public class PostService {
         // same email so a user's own thanks render correctly on their list.
         List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), email);
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
     }
 
     @Transactional(readOnly = true)
@@ -451,7 +537,7 @@ public class PostService {
         // Claimer is the viewer for this surface (same reasoning as listRequestedBy).
         List<PostDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withAuthoredAsGroups(withAuthors(dtos)), email);
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
     }
 
     /**
@@ -616,7 +702,7 @@ public class PostService {
         List<PostDto> balanced = applyKindBalance(filtered);
 
         List<PostDto> capped = balanced.size() > 50 ? balanced.subList(0, 50) : balanced;
-        return withEngagement(withAuthoredAsGroups(withAuthors(capped)), viewerEmail);
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(capped))), viewerEmail);
     }
 
     // ---------------------------------------------------------------------
@@ -895,7 +981,7 @@ public class PostService {
 
     private PostDto saveAndBroadcast(Post t) {
         Post saved = taskRepo.save(t);
-        PostDto dto = PostDto.fromEntity(saved);
+        PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(saved))))).get(0);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -934,14 +1020,86 @@ public class PostService {
         return taskRepo.findById(id)
                 .map(PostDto::fromEntity)
                 .map(d -> {
-                    List<PostDto> folded = withEngagement(withAuthoredAsGroups(withAuthors(List.of(d))), viewerEmail);
+                    List<PostDto> folded = withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(d)))), viewerEmail);
                     return folded.isEmpty() ? d : folded.get(0);
                 });
+    }
+
+    /**
+     * Public, sanitized preview for social-platform unfurls. Only
+     * community-scope posts emit user-generated title/body/image into
+     * OpenGraph tags; group-scoped rows return a generic preview so
+     * private circle content is not leaked through chat scrapers.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PostSharePreview> findPublicSharePreview(Long id) {
+        if (id == null) return Optional.empty();
+        return taskRepo.findById(id).map(t -> {
+            if (t.getGroupId() != null && !t.getGroupId().isBlank()) {
+                return new PostSharePreview(
+                        "View this SitPrep post",
+                        "Open SitPrep to view this post from your circle.",
+                        null
+                );
+            }
+
+            String author = "a neighbor";
+            if (t.getAuthoredAsGroupId() != null && !t.getAuthoredAsGroupId().isBlank()) {
+                Group g = groupRepo.findById(t.getAuthoredAsGroupId()).orElse(null);
+                if (g != null && g.getGroupName() != null && !g.getGroupName().isBlank()) {
+                    author = g.getGroupName().trim();
+                }
+            } else if (t.getRequesterEmail() != null) {
+                UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(t.getRequesterEmail()).orElse(null);
+                if (u != null) {
+                    String full = (String.valueOf(u.getUserFirstName() == null ? "" : u.getUserFirstName())
+                            + " "
+                            + String.valueOf(u.getUserLastName() == null ? "" : u.getUserLastName())).trim();
+                    if (!full.isBlank()) author = full;
+                }
+            }
+
+            String title = firstNonBlank(t.getTitle(), excerpt(t.getDescription(), 72), "SitPrep community post");
+            StringBuilder desc = new StringBuilder("From ").append(author);
+            if (t.getPlaceLabel() != null && !t.getPlaceLabel().isBlank()) {
+                desc.append(" near ").append(t.getPlaceLabel().trim());
+            }
+            String body = excerpt(t.getDescription(), 150);
+            if (body != null && !body.equals(title)) {
+                desc.append(": ").append(body);
+            } else {
+                desc.append(" on SitPrep.");
+            }
+            String imageUrl = t.getImageKeys() == null || t.getImageKeys().isEmpty()
+                    ? null
+                    : PublicCdn.toPublicUrl(t.getImageKeys().get(0));
+            return new PostSharePreview(
+                    title.endsWith("on SitPrep") ? title : title + " on SitPrep",
+                    desc.toString(),
+                    imageUrl
+            );
+        });
     }
 
     private Post mustExist(Long id) {
         return taskRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Post not found: " + id));
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
+    private static String excerpt(String value, int max) {
+        if (value == null) return null;
+        String s = value.trim().replaceAll("\\s+", " ");
+        if (s.isBlank()) return null;
+        if (max <= 0 || s.length() <= max) return s;
+        return s.substring(0, Math.max(0, max - 1)).trim() + "…";
     }
 
     private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {

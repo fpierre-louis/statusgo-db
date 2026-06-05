@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupInvite;
 import io.sitprep.sitprepapi.service.GroupInviteService;
 import io.sitprep.sitprepapi.service.GroupService;
+import io.sitprep.sitprepapi.service.PostService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -76,6 +77,7 @@ public class ShareResource {
 
     private final GroupService groupService;
     private final GroupInviteService inviteService;
+    private final PostService postService;
 
     /**
      * Public origin used when building absolute URLs in the OG
@@ -90,9 +92,10 @@ public class ShareResource {
     @Value("${app.frontend-base-url:https://sitprep.app}")
     private String frontendBaseUrl;
 
-    public ShareResource(GroupService groupService, GroupInviteService inviteService) {
+    public ShareResource(GroupService groupService, GroupInviteService inviteService, PostService postService) {
         this.groupService = groupService;
         this.inviteService = inviteService;
+        this.postService = postService;
     }
 
     /**
@@ -161,6 +164,42 @@ public class ShareResource {
         boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
         String baseOrigin = trimTrailingSlash(frontendBaseUrl);
         return renderShare(groupId, /* inviteId */ null, isBot, baseOrigin);
+    }
+
+    @GetMapping("/share/post/{postId}")
+    public ResponseEntity<?> sharePost(
+            @PathVariable Long postId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent
+    ) {
+        boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
+        String baseOrigin = trimTrailingSlash(frontendBaseUrl);
+        String safePostId = URLEncoder.encode(String.valueOf(postId), StandardCharsets.UTF_8);
+        String spaUrl = baseOrigin + "/community/posts/" + safePostId;
+        String shareUrl = baseOrigin + "/share/post/" + safePostId;
+
+        if (!isBot) {
+            HttpHeaders h = new HttpHeaders();
+            h.setLocation(URI.create(spaUrl));
+            h.setCacheControl("no-store");
+            return ResponseEntity.status(302).headers(h).build();
+        }
+
+        PostService.PostSharePreview preview = postService.findPublicSharePreview(postId)
+                .orElse(new PostService.PostSharePreview(
+                        "View this SitPrep post",
+                        "Open SitPrep to view this community post.",
+                        null
+                ));
+        String image = preview.imageUrl() == null || preview.imageUrl().isBlank()
+                ? baseOrigin + "/images/sitprep-share-default.png"
+                : preview.imageUrl();
+        String html = renderOgHtml(preview.title(), preview.description(), image, shareUrl, spaUrl);
+
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.TEXT_HTML);
+        h.setCacheControl("public, max-age=300");
+        h.add(HttpHeaders.VARY, "User-Agent");
+        return ResponseEntity.ok().headers(h).body(html);
     }
 
     /**
