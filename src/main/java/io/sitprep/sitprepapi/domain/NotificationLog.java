@@ -98,6 +98,23 @@ public class NotificationLog {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    /**
+     * Stable user id of the person who triggered this notification
+     * (post author, commenter, alert initiator, check-in starter,
+     * follow actor, etc.). Read by the FE inbox so the actor avatar
+     * + name on {@code NotificationCard} / {@code NotificationConversation} /
+     * {@code NotificationBanner} can deep-link to
+     * {@code /profile/:identifier} via {@code useProfileNav}.
+     *
+     * <p>Nullable for back-compat — pre-2026-06-05 rows and any
+     * system-originated notifications (hazard alerts, FEMA
+     * declarations, retention sweep notices) have no actor. FE
+     * falls back to {@code senderEmail} / title-derived initial when
+     * absent.</p>
+     */
+    @Column(name = "actor_user_id", length = 64, nullable = true)
+    private String actorUserId;
+
     public NotificationLog() {}
 
     public NotificationLog(String recipientEmail,

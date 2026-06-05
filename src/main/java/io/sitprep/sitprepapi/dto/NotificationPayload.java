@@ -33,4 +33,12 @@ public class NotificationPayload {
      * (consistent with the inbox spec's null-lane handling).</p>
      */
     private String lane;
+    /**
+     * Stable user id of the person who triggered this notification.
+     * Mirrors {@code NotificationLog.actorUserId}. Lets the FE banner
+     * + inbox tap the actor avatar to deep-link straight to
+     * {@code /profile/:identifier}. Null on system-originated frames
+     * (hazard alerts, FEMA declarations) and on legacy frames.
+     */
+    private String actorUserId;
 }

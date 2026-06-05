@@ -408,6 +408,10 @@ public class GroupPostService {
             var authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
             String authorFirst = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
             String authorProfile = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
+            // Actor identity — post author's stable userId. Persisted on
+            // every NotificationLog row so the FE inbox can deep-link the
+            // actor avatar tap to /profile/:actorUserId via useProfileNav.
+            String actorUserId = authorOpt.map(UserInfo::getId).orElse(null);
 
             String title = group.getGroupName();
             String snippet = post.getContent() == null ? "" :
@@ -427,7 +431,9 @@ public class GroupPostService {
                         user.getUserEmail(), title, body, authorFirst, authorProfile,
                         "post_notification", post.getGroupId(), targetUrl, String.valueOf(post.getId()),
                         user.getFcmtoken(),
-                        post.getGroupId()
+                        post.getGroupId(),
+                        /* categoryOverride */ null,
+                        actorUserId
                 );
             }
 

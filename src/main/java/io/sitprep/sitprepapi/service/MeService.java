@@ -491,6 +491,13 @@ public class MeService {
         String weeklyCheckInTimezone = ritual
                 .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getTimezone)
                 .orElse(null);
+        // Challenge progress — bare map copy is safe (small, single
+        // household, FE consumes as a plain object). Defensive copy
+        // avoids leaking the persistence-context-managed collection
+        // out onto the wire.
+        java.util.Map<String, Boolean> challengeProgress = g.getChallengeProgress() == null
+                ? java.util.Map.of()
+                : new java.util.HashMap<>(g.getChallengeProgress());
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -513,7 +520,8 @@ public class MeService {
                 pref == null ? null : pref.getQuietTimezone(),
                 weeklyCheckInScheduleSpec,
                 weeklyCheckInPausedUntil,
-                weeklyCheckInTimezone
+                weeklyCheckInTimezone,
+                challengeProgress
         );
     }
 

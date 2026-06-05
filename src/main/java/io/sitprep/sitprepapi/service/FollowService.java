@@ -150,7 +150,11 @@ public class FollowService {
                     targetUrl,
                     additionalData,
                     target.getFcmtoken(),
-                    category
+                    category,
+                    /* actorUserId — written onto NotificationLog so the
+                       inbox card's actor avatar deep-links to /profile
+                       via useProfileNav (Status Now FE convention). */
+                    actorUserId
             );
         } catch (Exception e) {
             // Notifications are best-effort — never let a dispatch
@@ -216,7 +220,10 @@ public class FollowService {
                     targetUrl,
                     additionalData,
                     requesterUser.getFcmtoken(),
-                    Category.FOLLOW_ACCEPTED
+                    Category.FOLLOW_ACCEPTED,
+                    /* actorUserId — accepter's id, so the FE inbox actor
+                       avatar deep-links to their /profile. */
+                    accepterUserId
             );
         } catch (Exception e) {
             logger.warn("Follow-accepted notification dispatch failed "

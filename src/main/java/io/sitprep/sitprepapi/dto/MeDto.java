@@ -179,7 +179,20 @@ public record MeDto(
              * "household time" and offer to change it, separately
              * from the viewer's device tz.
              */
-            String weeklyCheckInTimezone
+            String weeklyCheckInTimezone,
+            /**
+             * Per-household weekly preparedness challenge completion log.
+             * Keys are ISO week-year strings ("2026-W22"), values are
+             * {@code true} when the household has marked that week's
+             * drill done. Drives the FE {@code isThisWeekDone(householdId)}
+             * and {@code getDrillsCompleted(householdId)} BE-backed
+             * reads (see {@code src/me/challenges/challenges.js}).
+             *
+             * <p>Empty / null reads as "nothing done yet" — the FE
+             * keeps a meCache fallback so offline writes can replay
+             * on reconnect via {@code POST /api/households/{id}/challenges/{weekKey}/complete}.</p>
+             */
+            java.util.Map<String, Boolean> challengeProgress
     ) {}
 
     /**

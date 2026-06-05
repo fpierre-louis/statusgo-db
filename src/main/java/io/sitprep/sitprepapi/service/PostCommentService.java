@@ -492,6 +492,13 @@ public class PostCommentService {
         String iconUrl = enrichedDto.getAuthorProfileImageURL();
         String targetUrl = "/community/tasks/" + task.getId();
 
+        // Actor identity — commenter's stable userId for FE tap-to-profile
+        // on the NotificationCard avatar. Lookup by email since
+        // savedComment carries the author email, not userId.
+        String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(savedComment.getAuthor())
+                .map(UserInfo::getId)
+                .orElse(null);
+
         notificationService.deliverPresenceAware(
                 owner.getUserEmail(),
                 title,
@@ -502,7 +509,8 @@ public class PostCommentService {
                 String.valueOf(task.getId()),
                 targetUrl,
                 null,
-                owner.getFcmtoken()
+                owner.getFcmtoken(),
+                actorUserId
         );
     }
 

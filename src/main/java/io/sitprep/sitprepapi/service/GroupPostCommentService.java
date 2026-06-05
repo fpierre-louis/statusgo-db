@@ -462,6 +462,15 @@ public class GroupPostCommentService {
         // Deep-link to the post. Service worker already prefers targetUrl first.
         String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();
 
+        // Actor identity — commenter's stable userId, so the FE inbox
+        // card can deep-link the actor avatar to /profile/:actorUserId
+        // via useProfileNav (the standard tap-to-profile convention).
+        // Falls back to email lookup since savedComment carries the
+        // author email, not userId.
+        String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(savedComment.getAuthor())
+                .map(UserInfo::getId)
+                .orElse(null);
+
         notificationService.deliverPresenceAware(
                 owner.getUserEmail(),
                 title,
@@ -472,7 +481,8 @@ public class GroupPostCommentService {
                 String.valueOf(post.getId()),
                 targetUrl,
                 null,
-                owner.getFcmtoken()
+                owner.getFcmtoken(),
+                actorUserId
         );
     }
 

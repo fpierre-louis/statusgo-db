@@ -103,6 +103,11 @@ public class NotificationService {
      * surface can render cleanly. Existing call sites pass null lane
      * + null category for unmapped types — the FE inbox treats null
      * lane as Lane B (silent inbox) per the spec.
+     *
+     * <p>Legacy overload — preserved for call sites that don't carry
+     * actor identity (hazard fan-out, retention notices, etc.).
+     * Delegates with a null {@code actorUserId} so older paths keep
+     * working unchanged.</p>
      */
     private void saveLogRow(String recipientEmail,
                             String notificationType,
@@ -115,6 +120,31 @@ public class NotificationService {
                             String errorMessage,
                             Lane lane,
                             Category category) {
+        saveLogRow(recipientEmail, notificationType, token, title, body,
+                referenceId, targetUrl, success, errorMessage, lane, category,
+                /* actorUserId */ null);
+    }
+
+    /**
+     * Actor-aware variant. {@code actorUserId} is the stable user id of
+     * the person who triggered the notification (post author, commenter,
+     * alert initiator, etc.) — read by the FE inbox so tapping the actor
+     * avatar / name deep-links to {@code /profile/:identifier} via
+     * {@code useProfileNav}. Nullable: system-originated rows (hazard
+     * alerts, FEMA declarations) have no actor.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -129,6 +159,7 @@ public class NotificationService {
         );
         if (lane != null) row.setLane(lane.name());
         if (category != null) row.setCategory(category.name());
+        if (actorUserId != null) row.setActorUserId(actorUserId);
         NotificationLog saved = notificationLogRepo.save(row);
 
         // Live-update fan-out: prepend the new row in any open inbox
@@ -220,6 +251,12 @@ public class NotificationService {
         m.put("category", n.getCategory());
         m.put("errorMessage", n.getErrorMessage());
         m.put("archivedAt", n.getArchivedAt());
+        // Actor identity — present on rows dispatched after the
+        // 2026-06-05 column add; null on legacy rows + system-originated
+        // (hazard alerts, FEMA declarations) where there's no actor.
+        // The FE inbox card uses this to wire the actor avatar tap to
+        // /profile/:identifier via useProfileNav.
+        m.put("actorUserId", n.getActorUserId());
         return m;
     }
 
@@ -240,7 +277,34 @@ public class NotificationService {
                                      String recipientFcmTokenOrNull) {
         deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,
-                recipientFcmTokenOrNull, /* categoryOverride */ null);
+                recipientFcmTokenOrNull, /* categoryOverride */ null,
+                /* actorUserId */ null);
+    }
+
+    /**
+     * Actor-aware overload — passes a stable {@code actorUserId} all
+     * the way to the {@code NotificationLog} row + the STOMP banner
+     * frame so the FE inbox + banner can deep-link the actor avatar
+     * to {@code /profile/:identifier}. Use when the caller knows who
+     * triggered the notification (post author, commenter, alert
+     * initiator, check-in starter, follow actor). Null on system-
+     * originated paths.
+     */
+    public void deliverPresenceAware(String recipientEmail,
+                                     String title,
+                                     String body,
+                                     String senderName,
+                                     String iconUrl,
+                                     String notificationType,
+                                     String referenceId,
+                                     String targetUrl,
+                                     String additionalData,
+                                     String recipientFcmTokenOrNull,
+                                     String actorUserId) {
+        deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, /* categoryOverride */ null,
+                actorUserId);
     }
 
     /**
@@ -272,7 +336,8 @@ public class NotificationService {
                                              String groupIdForMuteCheck) {
         deliverPresenceAwareForGroup(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,
-                recipientFcmTokenOrNull, groupIdForMuteCheck, /* categoryOverride */ null);
+                recipientFcmTokenOrNull, groupIdForMuteCheck, /* categoryOverride */ null,
+                /* actorUserId */ null);
     }
 
     public void deliverPresenceAwareForGroup(String recipientEmail,
@@ -287,6 +352,32 @@ public class NotificationService {
                                              String recipientFcmTokenOrNull,
                                              String groupIdForMuteCheck,
                                              Category categoryOverride) {
+        deliverPresenceAwareForGroup(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, groupIdForMuteCheck, categoryOverride,
+                /* actorUserId */ null);
+    }
+
+    /**
+     * Actor-aware, group-scoped variant. {@code actorUserId} flows
+     * through the mute-aware suppression log row AND the eventual
+     * {@link #deliverPresenceAware} call so the inbox row carries it
+     * either way. See the actor-aware {@link #deliverPresenceAware}
+     * javadoc for the FE consumer (NotificationCard avatar tap).
+     */
+    public void deliverPresenceAwareForGroup(String recipientEmail,
+                                             String title,
+                                             String body,
+                                             String senderName,
+                                             String iconUrl,
+                                             String notificationType,
+                                             String referenceId,
+                                             String targetUrl,
+                                             String additionalData,
+                                             String recipientFcmTokenOrNull,
+                                             String groupIdForMuteCheck,
+                                             Category categoryOverride,
+                                             String actorUserId) {
         if (groupIdForMuteCheck != null && !groupIdForMuteCheck.isBlank()) {
             boolean muted = groupMuteService.isMuted(recipientEmail, groupIdForMuteCheck);
             boolean quiet = !muted && groupMuteService.isInQuietHours(recipientEmail, groupIdForMuteCheck);
@@ -306,7 +397,8 @@ public class NotificationService {
                             /* error */ reason,
                             Lane.B, categoryOverride != null
                                     ? categoryOverride
-                                    : mapTypeToCategory(notificationType));
+                                    : mapTypeToCategory(notificationType),
+                            actorUserId);
                 } catch (Exception e) {
                     logger.warn("Suppression-path log write failed for {} group={}: {}",
                             recipientEmail, groupIdForMuteCheck, e.getMessage());
@@ -316,7 +408,7 @@ public class NotificationService {
         }
         deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
                 notificationType, referenceId, targetUrl, additionalData,
-                recipientFcmTokenOrNull, categoryOverride);
+                recipientFcmTokenOrNull, categoryOverride, actorUserId);
     }
 
     /**
@@ -339,6 +431,31 @@ public class NotificationService {
                                      String additionalData,
                                      String recipientFcmTokenOrNull,
                                      Category categoryOverride) {
+        deliverPresenceAware(recipientEmail, title, body, senderName, iconUrl,
+                notificationType, referenceId, targetUrl, additionalData,
+                recipientFcmTokenOrNull, categoryOverride, /* actorUserId */ null);
+    }
+
+    /**
+     * Category + actor-aware delivery — the full-fat chokepoint every
+     * other overload eventually funnels into. {@code actorUserId} is
+     * persisted on the {@code NotificationLog} row and also rides the
+     * STOMP banner frame so the FE inbox + banner can deep-link the
+     * actor avatar to {@code /profile/:identifier} via
+     * {@code useProfileNav}.
+     */
+    public void deliverPresenceAware(String recipientEmail,
+                                     String title,
+                                     String body,
+                                     String senderName,
+                                     String iconUrl,
+                                     String notificationType,
+                                     String referenceId,
+                                     String targetUrl,
+                                     String additionalData,
+                                     String recipientFcmTokenOrNull,
+                                     Category categoryOverride,
+                                     String actorUserId) {
 
         boolean online = presenceService.isUserOnline(recipientEmail);
         String channelId = channelForType(notificationType);
@@ -389,7 +506,11 @@ public class NotificationService {
                         // can skip the optimistic unread-count bump on
                         // Lane C events (they don't earn an inbox row,
                         // so bumping then reconciling produces a flicker).
-                        lane != null ? lane.name() : null
+                        lane != null ? lane.name() : null,
+                        // Actor id rides the banner frame so the FE
+                        // NotificationBanner avatar tap deep-links to
+                        // /profile/:actorUserId via useProfileNav.
+                        actorUserId
                 ));
                 logger.info("🟢 Socket banner sent to online user {}", recipientEmail);
             } catch (Exception e) {
@@ -407,7 +528,7 @@ public class NotificationService {
                     title, body, referenceId, targetUrl,
                     /* success */ false,
                     /* error */ "Lane B (silent inbox)",
-                    lane, catEnum);
+                    lane, catEnum, actorUserId);
             return;
         }
 
@@ -417,7 +538,7 @@ public class NotificationService {
             logger.info("No FCM token for user {}, logging only.", recipientEmail);
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl,
-                    false, "No token", lane, catEnum);
+                    false, "No token", lane, catEnum, actorUserId);
             return;
         }
 
@@ -496,7 +617,7 @@ public class NotificationService {
         } finally {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
                     title, body, referenceId, targetUrl,
-                    success, errorMessage, lane, catEnum);
+                    success, errorMessage, lane, catEnum, actorUserId);
         }
     }
 
@@ -514,6 +635,28 @@ public class NotificationService {
                                  String targetUrl,
                                  String additionalData,
                                  String recipientEmail) {
+        sendNotification(title, body, sender, iconUrl, tokens, notificationType,
+                referenceId, targetUrl, additionalData, recipientEmail,
+                /* actorUserId */ null);
+    }
+
+    /**
+     * Actor-aware overload of the legacy multi-token sender. Threads
+     * {@code actorUserId} onto every {@code NotificationLog} row written
+     * by the per-token loop so the FE inbox can deep-link the actor
+     * avatar tap regardless of which dispatch path produced the row.
+     */
+    public void sendNotification(String title,
+                                 String body,
+                                 String sender,
+                                 String iconUrl,
+                                 Set<String> tokens,
+                                 String notificationType,
+                                 String referenceId,
+                                 String targetUrl,
+                                 String additionalData,
+                                 String recipientEmail,
+                                 String actorUserId) {
         // Apply policy at the top — same gating as deliverPresenceAware.
         // sendNotification is the legacy multi-token wrapper but the
         // policy still applies: a user who muted earthquakes shouldn't
@@ -528,7 +671,7 @@ public class NotificationService {
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl,
                     false, "Lane B (silent inbox)",
-                    lane, catEnum);
+                    lane, catEnum, actorUserId);
             return;
         }
         // Lane C = ephemeral: this path is offline-FCM only, so Lane C
@@ -540,7 +683,7 @@ public class NotificationService {
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl,
                     false, "No tokens provided",
-                    lane, catEnum);
+                    lane, catEnum, actorUserId);
             return;
         }
 
@@ -615,7 +758,7 @@ public class NotificationService {
             } finally {
                 saveLogRow(recipientEmail, notificationType, token,
                         title, body, referenceId, targetUrl,
-                        success, errorMessage, lane, catEnum);
+                        success, errorMessage, lane, catEnum, actorUserId);
             }
         }
     }
@@ -669,6 +812,17 @@ public class NotificationService {
 
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
 
+        // Resolve the initiator's stable userId once outside the loop so
+        // every fan-out row carries the same actor identity. The FE
+        // NotificationCard uses this to deep-link the actor avatar to
+        // /profile/:actorUserId via useProfileNav. Null when the initiator
+        // can't be resolved (system-fired alert, deleted user); the FE
+        // falls back to the title-derived initial.
+        String actorUserId = initiatedByEmail == null ? null :
+                userInfoRepo.findByUserEmailIgnoreCase(initiatedByEmail)
+                        .map(UserInfo::getId)
+                        .orElse(null);
+
         int delivered = 0;
         for (UserInfo user : users) {
             if (user.getUserEmail() == null) continue;
@@ -688,7 +842,8 @@ public class NotificationService {
                     targetUrl,
                     null,
                     user.getFcmtoken(),
-                    alertCategory
+                    alertCategory,
+                    actorUserId
             );
             delivered++;
         }
@@ -735,6 +890,14 @@ public class NotificationService {
 
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(memberEmails);
 
+        // Resolve the initiator's stable userId so the FE NotificationCard
+        // avatar tap deep-links to /profile/:actorUserId. One lookup per
+        // fan-out, not per recipient.
+        String actorUserId = initiatedByEmail == null ? null :
+                userInfoRepo.findByUserEmailIgnoreCase(initiatedByEmail)
+                        .map(UserInfo::getId)
+                        .orElse(null);
+
         int delivered = 0;
         for (UserInfo user : users) {
             if (user.getUserEmail() == null) continue;
@@ -753,7 +916,8 @@ public class NotificationService {
                     targetUrl,
                     null,
                     user.getFcmtoken(),
-                    Category.CHECK_IN_REQUEST
+                    Category.CHECK_IN_REQUEST,
+                    actorUserId
             );
             delivered++;
         }
@@ -785,12 +949,30 @@ public class NotificationService {
                                   String targetUrl,
                                   Lane lane,
                                   Category category) {
+        logSocketDelivery(recipientEmail, type, title, body, referenceId, targetUrl,
+                lane, category, /* actorUserId */ null);
+    }
+
+    /**
+     * Lane + actor-aware overload. {@code actorUserId} flows through
+     * to {@code NotificationLog} so the FE inbox card can deep-link
+     * the actor avatar straight to {@code /profile/:identifier}.
+     */
+    public void logSocketDelivery(String recipientEmail,
+                                  String type,
+                                  String title,
+                                  String body,
+                                  String referenceId,
+                                  String targetUrl,
+                                  Lane lane,
+                                  Category category,
+                                  String actorUserId) {
         saveLogRow(recipientEmail, type,
                 /* token */ null,
                 title, body, referenceId, targetUrl,
                 /* success */ true,
                 /* error */ null,
-                lane, category);
+                lane, category, actorUserId);
     }
 
     /**
@@ -838,9 +1020,11 @@ public class NotificationService {
             // alert. The FE de-dupes the socket banner vs the FCM frame.
             if (presenceService.isUserOnline(email)) {
                 try {
+                    // hazard_alert is system-originated (NWS / USGS),
+                    // not actor-originated — actorUserId is null.
                     webSocketMessageSender.sendInAppNotification(new NotificationPayload(
                             email, title, body, null, type, targetUrl, referenceId,
-                            Instant.now(), null));
+                            Instant.now(), null, /* actorUserId */ null));
                 } catch (Exception e) {
                     logger.warn("Hazard-alert socket frame failed for {}: {}", email, e.getMessage());
                 }

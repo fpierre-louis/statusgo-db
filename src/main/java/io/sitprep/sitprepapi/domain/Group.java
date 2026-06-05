@@ -5,7 +5,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "groups")
@@ -164,5 +166,33 @@ public class Group {
      */
     @Column(name = "plan_last_confirmed_at")
     private Instant planLastConfirmedAt;
+
+    /**
+     * Per-household weekly preparedness challenge completion log. Keys are
+     * ISO-week-year strings ("2026-W22"), values are {@code true} when the
+     * household has marked that week's curated drill done. Surfaces on
+     * {@link io.sitprep.sitprepapi.dto.MeDto.HouseholdDto#challengeProgress()}
+     * and is written by
+     * {@code POST /api/households/{id}/challenges/{weekKey}/complete}.
+     *
+     * <p>Round-1 storage uses the same {@code @ElementCollection} +
+     * {@code @MapKeyColumn} pattern as {@code UserInfo.groupLocationSharing}
+     * (lives at {@code group_challenge_progress} side-table) — boring,
+     * indexable, no JSON column / Hibernate JdbcTypeCode dependency, plays
+     * fine with the existing schema.gen flow.</p>
+     *
+     * <p>FE behavior: empty / absent map reads as "nothing done yet"; the
+     * FE legacy {@code meCache} bucket continues to work for offline
+     * writes and as a fallback for legacy users until they touch the
+     * surface once.</p>
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "group_challenge_progress",
+            joinColumns = @JoinColumn(name = "group_id")
+    )
+    @MapKeyColumn(name = "week_key", length = 16)
+    @Column(name = "completed")
+    private Map<String, Boolean> challengeProgress = new HashMap<>();
 
 }
