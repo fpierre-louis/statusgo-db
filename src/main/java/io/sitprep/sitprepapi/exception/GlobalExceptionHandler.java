@@ -1,6 +1,8 @@
 // src/main/java/io/sitprep/sitprepapi/exception/GlobalExceptionHandler.java
 package io.sitprep.sitprepapi.exception;
 
+import io.sitprep.sitprepapi.dto.ApiError;
+import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -21,15 +23,42 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex, HttpServletRequest req) {
-        log.warn("Bad request on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+    /**
+     * Build an error response body that satisfies BOTH the canonical
+     * envelope shape ({@code {data, error, meta}}) AND the legacy flat
+     * shape ({@code {error, message, path}}) that pre-envelope FE
+     * callers still read via {@code err.response.data.message}.
+     *
+     * <p>Review #5 migrated the 3 catch-all handlers (BadRequest /
+     * ResponseStatus / Uncaught) from raw maps to this dual shape so
+     * the doctrine is consistent end-to-end while in-flight FE code
+     * keeps working. The duplicate {@code message} + {@code path} keys
+     * are extras the envelope detector in {@code http.js} ignores
+     * (it requires {@code data + error + meta} all present; surplus
+     * keys are fine). Drop the legacy shim once every FE error
+     * consumer reads from {@code response.envelope.error.message}.</p>
+     */
+    private static Map<String, Object> buildErrorBody(
+            String code, String message, HttpServletRequest req) {
+        Map<String, Object> body = new HashMap<>();
+        // Canonical envelope keys — required for the FE interceptor
+        // to recognize this as ApiResponse.error and stash it onto
+        // response.envelope.
+        body.put("data", null);
+        body.put("error", new ApiError(code, message));
+        body.put("meta", ApiMeta.now());
+        // Legacy compat keys — pre-envelope FE callers still expect
+        // err.response.data.message. Safe to remove post-launch.
+        body.put("message", message);
+        body.put("path", req.getRequestURI());
+        return body;
+    }
 
-        Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", "Bad request.");
-        errorResponse.put("message", safeMessage(ex));
-        errorResponse.put("path", req.getRequestURI());
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex, HttpServletRequest req) {
+        log.warn("Bad request on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildErrorBody("BAD_REQUEST", safeMessage(ex), req));
     }
 
     /**
@@ -40,7 +69,7 @@ public class GlobalExceptionHandler {
      * masking real auth + not-found responses as server errors.
      */
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<Map<String, String>> handleResponseStatus(ResponseStatusException ex, HttpServletRequest req) {
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(ResponseStatusException ex, HttpServletRequest req) {
         HttpStatusCode status = ex.getStatusCode();
         // 4xx is expected client error; log at WARN. 5xx (rare via this path)
         // gets ERROR with stack trace.
@@ -51,11 +80,9 @@ public class GlobalExceptionHandler {
                     req.getMethod(), req.getRequestURI(), ex.getReason());
         }
 
-        Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", status.is4xxClientError() ? "Client error." : "Server error.");
-        errorResponse.put("message", ex.getReason() != null ? ex.getReason() : ex.getClass().getSimpleName());
-        errorResponse.put("path", req.getRequestURI());
-        return new ResponseEntity<>(errorResponse, status);
+        String code = "HTTP_" + status.value();
+        String message = ex.getReason() != null ? ex.getReason() : ex.getClass().getSimpleName();
+        return ResponseEntity.status(status).body(buildErrorBody(code, message, req));
     }
 
     /**
@@ -78,7 +105,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleAllUncaughtException(Exception ex, HttpServletRequest req) {
+    public ResponseEntity<Map<String, Object>> handleAllUncaughtException(Exception ex, HttpServletRequest req) {
         // Catch-all for anything that escaped the more-specific handlers above.
         // ResponseStatusException is handled separately so 401/403/404/etc.
         // surface with their real status codes — see handleResponseStatus.
@@ -89,12 +116,8 @@ public class GlobalExceptionHandler {
         // logger.error retains the full stack for diagnosis; the response
         // body carries only a static, generic string.
         log.error("Unhandled exception on {} {}", req.getMethod(), req.getRequestURI(), ex);
-
-        Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", "An unexpected error occurred.");
-        errorResponse.put("message", "An unexpected error occurred");
-        errorResponse.put("path", req.getRequestURI());
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(buildErrorBody("INTERNAL_ERROR", "An unexpected error occurred", req));
     }
 
     private String safeMessage(Exception ex) {
