@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.AskTip;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -32,10 +33,12 @@ public interface AskTipRepo extends JpaRepository<AskTip, Long> {
            "ORDER BY t.voteScore DESC, t.id DESC")
     List<AskTip> topSince(@Param("since") Instant since, Pageable pageable);
 
+    @Transactional
     @Modifying
     @Query("UPDATE AskTip t SET t.voteScore = t.voteScore + :delta WHERE t.id = :id")
     int bumpVoteScore(@Param("id") Long id, @Param("delta") int delta);
 
+    @Transactional
     @Modifying
     @Query("UPDATE AskTip t SET t.viewCount = t.viewCount + 1 WHERE t.id = :id")
     int incrementViewCount(@Param("id") Long id);

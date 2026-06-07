@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.GroupPost;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -22,6 +23,7 @@ public interface GroupPostRepo extends JpaRepository<GroupPost, Long> {
      * Returns the number of rows updated (0 if the post was deleted
      * between the comment write and this UPDATE — safe to ignore).
      */
+    @Transactional
     @Modifying
     @Query("UPDATE GroupPost p " +
            "SET p.commentsCount = COALESCE(p.commentsCount, 0) + :delta " +

@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,6 +32,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     // entity snapshot from the L1 cache and broadcast a stale DTO.
     // ---------------------------------------------------------------------
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
@@ -49,6 +51,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                         @Param("claimerEmail") String claimerEmail,
                         @Param("claimedAt") Instant claimedAt);
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
@@ -64,6 +67,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                          @Param("assignedAt") Instant assignedAt,
                          @Param("forbidden") Set<PostStatus> forbidden);
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
@@ -75,6 +79,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                                @Param("expected") Set<PostStatus> expected,
                                @Param("next") PostStatus next);
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
@@ -88,6 +93,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                            @Param("completedAt") Instant completedAt,
                            @Param("forbidden") Set<PostStatus> forbidden);
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
@@ -99,6 +105,7 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                          @Param("next") PostStatus next,
                          @Param("forbidden") PostStatus forbidden);
 
+    @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p

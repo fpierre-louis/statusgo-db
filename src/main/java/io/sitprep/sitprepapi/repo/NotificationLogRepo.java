@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.NotificationLog;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -48,6 +49,7 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
            """)
     List<Long> findArchivedOlderThan(@Param("cutoff") Instant cutoff, Pageable page);
 
+    @Transactional
     @Modifying
     @Query("DELETE FROM NotificationLog n WHERE n.id IN :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);
@@ -103,6 +105,7 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
      * Mark one row read (only if it belongs to the caller — the
      * recipient predicate is the row-level auth check).
      */
+    @Transactional
     @Modifying
     @Query("""
            UPDATE NotificationLog n
@@ -121,6 +124,7 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
      * unread becomes read. Lets the user clear without losing rows
      * that arrived mid-tap.
      */
+    @Transactional
     @Modifying
     @Query("""
            UPDATE NotificationLog n
@@ -134,6 +138,7 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
                           @Param("before") Instant before,
                           @Param("at") Instant at);
 
+    @Transactional
     @Modifying
     @Query("""
            UPDATE NotificationLog n

@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.AskQuestion;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -54,14 +55,17 @@ public interface AskQuestionRepo extends JpaRepository<AskQuestion, Long> {
     List<AskQuestion> topSince(@Param("since") Instant since, Pageable pageable);
 
     /** Atomic vote-score bump used in the same transaction as vote insert/delete. */
+    @Transactional
     @Modifying
     @Query("UPDATE AskQuestion q SET q.voteScore = q.voteScore + :delta WHERE q.id = :id")
     int bumpVoteScore(@Param("id") Long id, @Param("delta") int delta);
 
+    @Transactional
     @Modifying
     @Query("UPDATE AskQuestion q SET q.viewCount = q.viewCount + 1 WHERE q.id = :id")
     int incrementViewCount(@Param("id") Long id);
 
+    @Transactional
     @Modifying
     @Query("UPDATE AskQuestion q SET q.answerCount = q.answerCount + :delta WHERE q.id = :id")
     int bumpAnswerCount(@Param("id") Long id, @Param("delta") int delta);

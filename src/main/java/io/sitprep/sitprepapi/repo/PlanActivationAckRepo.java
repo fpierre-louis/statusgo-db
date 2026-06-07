@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.repo;
 import io.sitprep.sitprepapi.domain.PlanActivationAck;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -24,6 +25,7 @@ public interface PlanActivationAckRepo extends JpaRepository<PlanActivationAck, 
      * the application's responsibility). Returns the number of rows
      * deleted for log/telemetry.
      */
+    @Transactional
     @Modifying
     @Query("DELETE FROM PlanActivationAck a WHERE a.activationId IN :ids")
     int deleteByActivationIdIn(@Param("ids") Collection<String> ids);

@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.repo;
 import io.sitprep.sitprepapi.domain.PostCommentReaction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -42,6 +43,7 @@ public interface PostCommentReactionRepo extends JpaRepository<PostCommentReacti
             @Param("userEmail") String userEmail,
             @Param("emoji") String emoji);
 
+    @Transactional
     @Modifying
     @Query("DELETE FROM PostCommentReaction r WHERE r.postCommentId = :postCommentId " +
            "AND lower(r.userEmail) = lower(:userEmail) AND r.emoji = :emoji")
@@ -49,6 +51,7 @@ public interface PostCommentReactionRepo extends JpaRepository<PostCommentReacti
                                      @Param("userEmail") String userEmail,
                                      @Param("emoji") String emoji);
 
+    @Transactional
     @Modifying
     @Query("DELETE FROM PostCommentReaction r WHERE r.postCommentId = :postCommentId")
     void deleteAllByPostCommentId(@Param("postCommentId") Long postCommentId);

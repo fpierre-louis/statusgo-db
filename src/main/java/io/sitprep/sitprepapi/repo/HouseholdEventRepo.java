@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.HouseholdEvent;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -48,6 +49,7 @@ public interface HouseholdEventRepo extends JpaRepository<HouseholdEvent, Long> 
     @Query("SELECT e.id FROM HouseholdEvent e WHERE e.at < :cutoff ORDER BY e.at ASC")
     List<Long> findIdsOlderThan(@Param("cutoff") Instant cutoff, Pageable page);
 
+    @Transactional
     @Modifying
     @Query("DELETE FROM HouseholdEvent e WHERE e.id IN :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);
