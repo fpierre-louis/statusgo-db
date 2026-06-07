@@ -110,14 +110,25 @@ public class AlertIngestService {
     }
 
     /**
-     * Poll NWS + USGS every 5 minutes. {@code fixedDelay} (not
-     * {@code fixedRate}) so a slow poll doesn't queue up another.
-     * {@code initialDelay} of 60s lets the @PostConstruct prime finish
-     * first. Both polls run sequentially in this method — they're cheap
-     * enough that parallelism isn't worth the extra complexity, and a
-     * sequential failure is easier to reason about in logs.
+     * Poll NWS + USGS + FEMA every {@code alerts.ingest.intervalMs} (default
+     * 5 minutes = 300000 ms). {@code fixedDelay} (not {@code fixedRate}) so a
+     * slow poll doesn't queue up another. {@code initialDelay} of 60s lets
+     * the @PostConstruct prime finish first. Both polls run sequentially in
+     * this method — they're cheap enough that parallelism isn't worth the
+     * extra complexity, and a sequential failure is easier to reason about
+     * in logs.
+     *
+     * <p>Property-driven (2026-06-07 phase-2 memory trim) so we can dial the
+     * interval up without a redeploy if the dyno is pressured: each poll
+     * deserializes ~hundreds of KB of JSON across NWS+USGS+FEMA into the
+     * young gen — at 60s that's ~60 churns/hr per source, and on a 512 MB
+     * dyno the GC pressure showed up as elevated R14s. 5 min is the
+     * baseline; bump to 600000 (10 min) or higher via Heroku config var if
+     * needed. Lower bound is whatever NWS rate-limits accept (~30s).</p>
      */
-    @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT1M")
+    @Scheduled(
+            fixedDelayString = "${alerts.ingest.intervalMs:300000}",
+            initialDelayString = "${alerts.ingest.initialDelayMs:60000}")
     public void scheduledPoll() {
         refreshNow();
     }

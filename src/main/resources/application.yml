@@ -31,7 +31,12 @@ spring:
     # the dyno tier is bumped.
     hikari:
       maximum-pool-size: ${DB_POOL_MAX:10}
-      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      # Trimmed 2 -> 1 (2026-06-07 phase-2 memory trim): a single warm idle
+      # connection is enough to keep first-request latency low. Each idle
+      # connection holds a few hundred KB (JDBC driver buffers + Hikari
+      # housekeeping); cutting one back saves a small but real slice of
+      # the 512 MB R14 budget. Restore to 2 when dyno tier rises.
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
       connection-timeout: ${DB_POOL_CONN_TIMEOUT_MS:30000}
       idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:600000}
       max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
@@ -50,12 +55,21 @@ spring:
     properties:
       hibernate:
         format_sql: ${HIBERNATE_FORMAT_SQL:false}
-        # Trimmed 50 -> 25 (2026-06-07) to reduce memory footprint on the
-        # 512 MB Heroku dyno (R14 ceiling). Each batch entry caches one
-        # extra entity per association in the persistence context. 25 keeps
-        # the N+1 mitigation meaningful (saves 25x round trips) without
-        # bloating the L1 cache. Bump back to 50+ when dyno tier rises.
-        default_batch_fetch_size: 25
+        # Trimmed 25 -> 10 (2026-06-07 phase-2 memory trim) on top of the
+        # initial 50 -> 25 cut. Each batch entry caches one extra entity
+        # per association in the persistence context; halving the batch
+        # roughly halves that per-association cache cost. 10 still
+        # collapses the worst N+1 patterns (10x round-trip reduction)
+        # while keeping the L1 cache tight on the 512 MB R14 dyno. Bump
+        # back to 25/50 when dyno tier rises.
+        default_batch_fetch_size: 10
+        jdbc:
+          # Write-side batching — coalesces multiple INSERT/UPDATEs into
+          # one round-trip when a save loop runs in the same transaction.
+          # Smaller batches = lower JDBC driver buffer footprint per
+          # flush. 25 matches the pre-trim read-side batch fetch size and
+          # is conservative for our write volume.
+          batch_size: 25
 
   # --- FLYWAY (schema migration / DDL drift gate) ---
   # Landed 2026-06-05 (P0-7 in docs/audit/RACE_AUDIT_GAMEPLAN.md). Existing

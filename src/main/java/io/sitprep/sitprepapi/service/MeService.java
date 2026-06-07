@@ -629,9 +629,30 @@ public class MeService {
         // household, FE consumes as a plain object). Defensive copy
         // avoids leaking the persistence-context-managed collection
         // out onto the wire.
-        java.util.Map<String, Boolean> challengeProgress = g.getChallengeProgress() == null
-                ? java.util.Map.of()
-                : new java.util.HashMap<>(g.getChallengeProgress());
+        //
+        // HOTFIX (2026-06-07): Group has 6 @ElementCollections, which
+        // exceeds Hibernate's single-SELECT bag-fetch budget — extras
+        // become secondary selects that need a live session to
+        // materialize. The Group entity was loaded inside the
+        // REQUIRES_NEW tx in safeGet(groupRepo.findBy*), so its session
+        // is already closed by the time we get here, and walking
+        // challengeProgress throws LazyInitializationException — which
+        // bubbled out of the assemble() call and 500'd /me, breaking
+        // login. Defensive try/catch + empty-map fallback so a stale
+        // session never sinks the whole /me payload. Followup (P2):
+        // hoist toHouseholdDto into a runReadOnly so the session is
+        // live, or split challengeProgress onto its own fetch.
+        java.util.Map<String, Boolean> challengeProgress;
+        try {
+            challengeProgress = g.getChallengeProgress() == null
+                    ? java.util.Map.of()
+                    : new java.util.HashMap<>(g.getChallengeProgress());
+        } catch (org.hibernate.LazyInitializationException lie) {
+            log.warn("MeService: challengeProgress LAZY init failed for household={} (session closed). Falling back to empty.",
+                    g.getGroupId());
+            MeBuildContext.markDegraded("household.challengeProgress");
+            challengeProgress = java.util.Map.of();
+        }
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
