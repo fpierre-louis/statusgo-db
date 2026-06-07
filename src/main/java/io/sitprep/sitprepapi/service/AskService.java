@@ -486,7 +486,7 @@ public class AskService {
         applyAuthor(d, authors.get(normalize(q.getAuthorEmail())),
                 AskQuestionDto::setAuthorFirstName,
                 AskQuestionDto::setAuthorLastName,
-                AskQuestionDto::setAuthorProfileImageURL);
+                AskQuestionDto::setAuthorProfileImageUrl);
         d.setTitle(q.getTitle());
         d.setBody(q.getBody());
         d.setTags(q.getTags());
@@ -531,7 +531,7 @@ public class AskService {
         applyAuthor(d, authors.get(normalize(t.getAuthorEmail())),
                 AskTipDto::setAuthorFirstName,
                 AskTipDto::setAuthorLastName,
-                AskTipDto::setAuthorProfileImageURL);
+                AskTipDto::setAuthorProfileImageUrl);
         d.setTitle(t.getTitle());
         d.setBody(t.getBody());
         d.setCoverImageKey(t.getCoverImageKey());
@@ -574,7 +574,7 @@ public class AskService {
         applyAuthor(d, authors.get(normalize(a.getAuthorEmail())),
                 AskAnswerDto::setAuthorFirstName,
                 AskAnswerDto::setAuthorLastName,
-                AskAnswerDto::setAuthorProfileImageURL);
+                AskAnswerDto::setAuthorProfileImageUrl);
         d.setBody(a.getBody());
         d.setVoteScore(a.getVoteScore());
         d.setCreatedAt(a.getCreatedAt());
@@ -637,7 +637,7 @@ public class AskService {
             if (u != null) {
                 h.setAuthorFirstName(u.getUserFirstName());
                 h.setAuthorLastName(u.getUserLastName());
-                h.setAuthorProfileImageURL(u.getProfileImageURL());
+                h.setAuthorProfileImageUrl(u.getProfileImageUrl());
             }
         }
         return hits;
@@ -767,7 +767,7 @@ public class AskService {
         if (u == null) return;
         setFirst.accept(dto, u.getUserFirstName());
         setLast.accept(dto, u.getUserLastName());
-        setImg.accept(dto, u.getProfileImageURL());
+        setImg.accept(dto, u.getProfileImageUrl());
     }
 
     private static String snippet(String body) {

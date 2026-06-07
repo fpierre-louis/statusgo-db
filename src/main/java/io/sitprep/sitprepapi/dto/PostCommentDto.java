@@ -14,7 +14,7 @@ import java.util.Map;
  * eventual entity unification collapses both DTOs into one.
  *
  * <p>Author profile fields ({@code authorFirstName}, {@code authorLastName},
- * {@code authorProfileImageURL}) are populated server-side per the codebase
+ * {@code authorProfileImageUrl}) are populated server-side per the codebase
  * principle "backend shapes the data, frontend just displays" — saves a
  * separate {@code POST /userinfo/profiles/batch} round trip per page-load.</p>
  */
@@ -28,7 +28,7 @@ public class PostCommentDto {
     private String author;                       // email
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     // Content. Replies use the quote-prefix convention from PostComments:
     //   "> Replying to {name}:\n> {snippet}\n\n{actual reply text}"

@@ -261,11 +261,11 @@ public class HouseholdInviteRequestService {
                 row.getRequesterEmail(),
                 requester == null ? null : requester.getUserFirstName(),
                 requester == null ? null : requester.getUserLastName(),
-                requester == null ? null : requester.getProfileImageURL(),
+                requester == null ? null : requester.getProfileImageUrl(),
                 row.getCandidateEmail(),
                 candidate == null ? null : candidate.getUserFirstName(),
                 candidate == null ? null : candidate.getUserLastName(),
-                candidate == null ? null : candidate.getProfileImageURL(),
+                candidate == null ? null : candidate.getProfileImageUrl(),
                 row.getCreatedAt(),
                 row.getResolvedAt(),
                 row.getResolverEmail()

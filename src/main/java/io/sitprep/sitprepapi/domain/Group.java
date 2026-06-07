@@ -19,9 +19,28 @@ public class Group {
     @Column(name = "group_id", unique = true, nullable = false)
     private String groupId;  // UUID as primary ID (VARCHAR)
 
+    /**
+     * Optimistic-locking token — audit P1-6. JPA increments on every flush;
+     * concurrent updates that race on a stale read fail with
+     * {@code OptimisticLockingFailureException}, which the global handler
+     * surfaces as HTTP 409 {@code STALE_WRITE}.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
+    // Reverted to EAGER for launch (post-audit re-evaluation): P2-7 flipped this
+    // to LAZY but ~30 call sites across GroupService / GroupRole / AccountDeletion /
+    // HouseholdRitualScheduler / GroupCheckInReminderService / PlanActivationService
+    // walk these collections — many outside an open session (scheduled tasks, async
+    // dispatch, post-tx event handlers). Auditing each site for tx safety is
+    // post-launch hardening; EAGER preserves the pre-audit behavior and avoids
+    // LazyInitializationException in production. Cost: ~3 small side-table joins
+    // per Group load. Acceptable for launch volume.
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_admin_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "admin_email")
+    @OrderColumn(name = "ord")
     private List<String> adminEmails;
 
     private String alert;
@@ -76,14 +95,18 @@ public class Group {
     private String lastUpdatedBy;
     private Integer memberCount;
 
+    // EAGER (see adminEmails comment) — launch-safety revert of P2-7.
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "member_email")
+    @OrderColumn(name = "ord")
     private List<String> memberEmails;
 
+    // EAGER (see adminEmails comment) — launch-safety revert of P2-7.
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_pending_member_emails", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "pending_member_email")
+    @OrderColumn(name = "ord")
     private List<String> pendingMemberEmails;
 
     private String privacy;
@@ -91,11 +114,13 @@ public class Group {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_sub_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "sub_group_id")
+    @OrderColumn(name = "ord")
     private List<String> subGroupIDs;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_parent_group_ids", joinColumns = @JoinColumn(name = "group_id"))
     @Column(name = "parent_group_id")
+    @OrderColumn(name = "ord")
     private List<String> parentGroupIDs;
 
     private Instant updatedAt;

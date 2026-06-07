@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +13,105 @@ import java.util.List;
 import java.util.Set;
 
 public interface PostRepo extends JpaRepository<Post, Long> {
+
+    // ---------------------------------------------------------------------
+    // Conditional status transitions (audit DB-03, C-3).
+    //
+    // Each lifecycle move (claim / assign / in-progress / complete / cancel
+    // / reopen) ships as a single UPDATE with a WHERE clause that pins the
+    // expected current status. Two concurrent claims for the same post
+    // race in the database — the second UPDATE matches zero rows and the
+    // service raises IllegalStateException. Replaces the old "read,
+    // check status in Java, setStatus, save" pattern that opened a TOCTOU
+    // window between the read and the save.
+    //
+    // {@code flushAutomatically + clearAutomatically} on each @Modifying
+    // forces the persistence context to be re-synced — without
+    // clearAutomatically the next findById would return the pre-UPDATE
+    // entity snapshot from the L1 cache and broadcast a stale DTO.
+    // ---------------------------------------------------------------------
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status = :next,
+                  p.claimedByGroupId = :claimerGroupId,
+                  p.claimedByEmail   = :claimerEmail,
+                  p.claimedAt        = :claimedAt
+            WHERE p.id = :id
+              AND p.status = :expected
+              AND p.claimedByGroupId IS NULL
+           """)
+    int transitionClaim(@Param("id") Long id,
+                        @Param("expected") PostStatus expected,
+                        @Param("next") PostStatus next,
+                        @Param("claimerGroupId") String claimerGroupId,
+                        @Param("claimerEmail") String claimerEmail,
+                        @Param("claimedAt") Instant claimedAt);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.assigneeEmail   = :assignee,
+                  p.assignedByEmail = :assignedBy,
+                  p.assignedAt      = :assignedAt
+            WHERE p.id = :id
+              AND p.status NOT IN :forbidden
+           """)
+    int transitionAssign(@Param("id") Long id,
+                         @Param("assignee") String assignee,
+                         @Param("assignedBy") String assignedBy,
+                         @Param("assignedAt") Instant assignedAt,
+                         @Param("forbidden") Set<PostStatus> forbidden);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status = :next
+            WHERE p.id = :id
+              AND p.status IN :expected
+           """)
+    int transitionToInProgress(@Param("id") Long id,
+                               @Param("expected") Set<PostStatus> expected,
+                               @Param("next") PostStatus next);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status      = :next,
+                  p.completedAt = :completedAt
+            WHERE p.id = :id
+              AND p.status NOT IN :forbidden
+           """)
+    int transitionComplete(@Param("id") Long id,
+                           @Param("next") PostStatus next,
+                           @Param("completedAt") Instant completedAt,
+                           @Param("forbidden") Set<PostStatus> forbidden);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status = :next
+            WHERE p.id = :id
+              AND p.status <> :forbidden
+           """)
+    int transitionCancel(@Param("id") Long id,
+                         @Param("next") PostStatus next,
+                         @Param("forbidden") PostStatus forbidden);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status            = :next,
+                  p.claimedByGroupId  = NULL,
+                  p.claimedByEmail    = NULL,
+                  p.claimedAt         = NULL
+            WHERE p.id = :id
+              AND p.status = :expected
+           """)
+    int transitionReopen(@Param("id") Long id,
+                         @Param("expected") PostStatus expected,
+                         @Param("next") PostStatus next);
 
     /** Group-scope feed — tasks bound to a single group, newest first. */
     List<Post> findByGroupIdOrderByCreatedAtDesc(String groupId);

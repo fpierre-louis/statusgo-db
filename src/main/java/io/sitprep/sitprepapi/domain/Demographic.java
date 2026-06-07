@@ -7,6 +7,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OrderColumn;
 import java.util.List;
 
 @Entity
@@ -23,6 +24,7 @@ public class Demographic {
     private String householdId;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @OrderColumn(name = "ord")
     private List<String> adminEmails;
 
     private int infants;

@@ -372,18 +372,19 @@ public class GroupPostCommentService {
     // --------------------------------------------------------------------------------------------
     // Internals
     // --------------------------------------------------------------------------------------------
+    /**
+     * Atomic {@code commentsCount} adjust. Was a read-modify-write loop
+     * (findById -> get -> +delta -> setCommentsCount -> save) that drifted
+     * under concurrent comment create/delete on the same post (audit
+     * DB-02). The single UPDATE statement is race-free and never collides
+     * with other transactions touching unrelated fields on the same row.
+     */
     private void bumpCommentsCount(Long postId, int delta) {
         if (postId == null || delta == 0) return;
         try {
-            postRepo.findById(postId).ifPresent(p -> {
-                Integer cur = p.getCommentsCount();
-                int next = (cur == null ? 0 : cur) + delta;
-                if (next < 0) next = 0;
-                p.setCommentsCount(next);
-                postRepo.save(p);
-            });
+            postRepo.adjustCommentsCount(postId, delta);
         } catch (Exception e) {
-            log.warn("Could not update commentsCount for postId={} by {}: {}", postId, delta, e.getMessage());
+            log.warn("Could not adjust commentsCount for postId={} by {}: {}", postId, delta, e.getMessage());
         }
     }
 
@@ -407,7 +408,7 @@ public class GroupPostCommentService {
             if (u != null) {
                 d.setAuthorFirstName(u.getUserFirstName());
                 d.setAuthorLastName(u.getUserLastName());
-                d.setAuthorProfileImageURL(u.getProfileImageURL());
+                d.setAuthorProfileImageUrl(u.getProfileImageUrl());
             }
         }
         return d;
@@ -418,7 +419,7 @@ public class GroupPostCommentService {
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
             d.setAuthorLastName(u.getUserLastName());
-            d.setAuthorProfileImageURL(u.getProfileImageURL());
+            d.setAuthorProfileImageUrl(u.getProfileImageUrl());
         });
     }
 
@@ -457,7 +458,7 @@ public class GroupPostCommentService {
         }
 
         String body = commenterName + " commented: " + snippet(enrichedDto.getContent());
-        String iconUrl = enrichedDto.getAuthorProfileImageURL();
+        String iconUrl = enrichedDto.getAuthorProfileImageUrl();
 
         // Deep-link to the post. Service worker already prefers targetUrl first.
         String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();

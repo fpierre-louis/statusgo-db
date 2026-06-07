@@ -3,10 +3,13 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.web.Idempotent;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -56,17 +59,24 @@ public class PostResource {
     // -----------------------------------------------------------------
 
     @PostMapping("/api/posts")
-    public ResponseEntity<PostDto> create(@RequestBody Post incoming) {
+    @Idempotent
+    public ResponseEntity<ApiResponse<PostDto>> create(@RequestBody Post incoming) {
         String requester = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.status(HttpStatus.CREATED).body(tasks.create(incoming, requester));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(tasks.create(incoming, requester), ApiMeta.now()));
     }
 
     // -----------------------------------------------------------------
     // Reads
     // -----------------------------------------------------------------
 
+    // Reads below are wrapped in {@link ApiResponse} per P2-3 (audit BE-02 /
+    // BE-15). The FE axios interceptor in src/shared/api/http.js detects
+    // the {data,error,meta} envelope and unwraps response.data to the
+    // inner payload, so legacy callers keep receiving List<PostDto>
+    // byte-for-byte; new consumers can read response.envelope.meta.
     @GetMapping("/api/groups/{groupId}/posts")
-    public List<PostDto> listByGroup(
+    public ResponseEntity<ApiResponse<List<PostDto>>> listByGroup(
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) PostStatus status
     ) {
@@ -74,11 +84,12 @@ public class PostResource {
         // per row — the feed UI's heart shows filled when the viewer has
         // already thanked the post.
         String viewer = AuthUtils.requireAuthenticatedEmail();
-        return tasks.listByGroup(groupId, status, viewer);
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.listByGroup(groupId, status, viewer), ApiMeta.now()));
     }
 
     @GetMapping("/api/community/posts")
-    public List<PostDto> discoverCommunity(
+    public ResponseEntity<ApiResponse<List<PostDto>>> discoverCommunity(
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
@@ -91,17 +102,19 @@ public class PostResource {
         String viewer = AuthUtils.requireAuthenticatedEmail();
         Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : EnumSet.copyOf(statuses);
-        return tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer);
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer), ApiMeta.now()));
     }
 
     @GetMapping("/api/me/posts")
-    public List<PostDto> listMine(
+    public ResponseEntity<ApiResponse<List<PostDto>>> listMine(
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role
     ) {
         String me = AuthUtils.requireAuthenticatedEmail();
-        return "claimer".equalsIgnoreCase(role)
+        List<PostDto> result = "claimer".equalsIgnoreCase(role)
                 ? tasks.listClaimedBy(me)
                 : tasks.listRequestedBy(me);
+        return ResponseEntity.ok(ApiResponse.ok(result, ApiMeta.now()));
     }
 
     /**
@@ -112,16 +125,16 @@ public class PostResource {
      * author. Auth still required (no anonymous reads).
      */
     @GetMapping("/api/posts/by-author/{email}")
-    public List<PostDto> listByAuthor(@PathVariable String email) {
+    public ResponseEntity<ApiResponse<List<PostDto>>> listByAuthor(@PathVariable String email) {
         AuthUtils.requireAuthenticatedEmail();
-        return tasks.listRequestedBy(email);
+        return ResponseEntity.ok(ApiResponse.ok(tasks.listRequestedBy(email), ApiMeta.now()));
     }
 
     @GetMapping("/api/posts/{id}")
-    public ResponseEntity<PostDto> get(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> get(@PathVariable Long id) {
         String viewer = AuthUtils.requireAuthenticatedEmail();
         return tasks.findDtoById(id, viewer)
-                .map(ResponseEntity::ok)
+                .map(dto -> ResponseEntity.ok(ApiResponse.ok(dto, ApiMeta.now())))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -130,9 +143,9 @@ public class PostResource {
     // -----------------------------------------------------------------
 
     @PatchMapping("/api/posts/{id}")
-    public ResponseEntity<PostDto> patch(@PathVariable Long id, @RequestBody Post patch) {
+    public ResponseEntity<ApiResponse<PostDto>> patch(@PathVariable Long id, @RequestBody Post patch) {
         ensureRequester(id);
-        return ResponseEntity.ok(tasks.patch(id, patch));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.patch(id, patch), ApiMeta.now()));
     }
 
     @DeleteMapping("/api/posts/{id}")
@@ -147,7 +160,7 @@ public class PostResource {
      * "claimerEmail": "..." (optional) }}. claimerEmail defaults to caller.
      */
     @PostMapping("/api/posts/{id}/claim")
-    public ResponseEntity<PostDto> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
+    public ResponseEntity<ApiResponse<PostDto>> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         if (req == null || req.groupId == null || req.groupId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId required");
@@ -168,7 +181,8 @@ public class PostResource {
         }
         String claimerEmail = (req.claimerEmail == null || req.claimerEmail.isBlank())
                 ? caller : req.claimerEmail;
-        return ResponseEntity.ok(tasks.claim(id, req.groupId, claimerEmail));
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.claim(id, req.groupId, claimerEmail), ApiMeta.now()));
     }
 
     /**
@@ -178,35 +192,35 @@ public class PostResource {
      * own group.
      */
     @PostMapping("/api/posts/{id}/assign")
-    public ResponseEntity<PostDto> assign(@PathVariable Long id,
-                                          @RequestBody(required = false) AssignRequest req) {
+    public ResponseEntity<ApiResponse<PostDto>> assign(@PathVariable Long id,
+                                                      @RequestBody(required = false) AssignRequest req) {
         String caller = ensureGroupManagerOf(id);
         String assignee = (req == null) ? null : req.assigneeEmail();
-        return ResponseEntity.ok(tasks.assign(id, assignee, caller));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.assign(id, assignee, caller), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/in-progress")
-    public ResponseEntity<PostDto> markInProgress(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> markInProgress(@PathVariable Long id) {
         ensureCanProgressTask(id);
-        return ResponseEntity.ok(tasks.markInProgress(id));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.markInProgress(id), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/complete")
-    public ResponseEntity<PostDto> complete(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> complete(@PathVariable Long id) {
         ensureCanProgressTask(id);
-        return ResponseEntity.ok(tasks.complete(id));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.complete(id), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/cancel")
-    public ResponseEntity<PostDto> cancel(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> cancel(@PathVariable Long id) {
         ensureRequester(id);
-        return ResponseEntity.ok(tasks.cancel(id));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.cancel(id), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/reopen")
-    public ResponseEntity<PostDto> reopen(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> reopen(@PathVariable Long id) {
         ensureRequester(id);
-        return ResponseEntity.ok(tasks.reopen(id));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.reopen(id), ApiMeta.now()));
     }
 
     /**
@@ -218,20 +232,20 @@ public class PostResource {
      * to 7 when omitted.</p>
      */
     @PostMapping("/api/posts/{id}/promote")
-    public ResponseEntity<PostDto> promote(
+    public ResponseEntity<ApiResponse<PostDto>> promote(
             @PathVariable Long id,
             @RequestBody(required = false) PromoteRequest body) {
         String me = AuthUtils.requireAuthenticatedEmail();
         ensureRequester(id);
         int days = (body != null && body.days() != null) ? body.days() : 7;
-        return ResponseEntity.ok(tasks.promote(id, me, days));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.promote(id, me, days), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/unpromote")
-    public ResponseEntity<PostDto> unpromote(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<PostDto>> unpromote(@PathVariable Long id) {
         String me = AuthUtils.requireAuthenticatedEmail();
         ensureRequester(id);
-        return ResponseEntity.ok(tasks.unpromote(id, me));
+        return ResponseEntity.ok(ApiResponse.ok(tasks.unpromote(id, me), ApiMeta.now()));
     }
 
     public record PromoteRequest(Integer days) {}

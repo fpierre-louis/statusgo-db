@@ -16,7 +16,7 @@ public class GroupPostCommentDto {
     private String author;                       // email
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     // Content
     private String content;

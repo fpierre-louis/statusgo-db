@@ -154,7 +154,7 @@ public class GroupViewService {
                 normalize(u.getUserEmail()),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                u.getProfileImageURL(),
+                u.getProfileImageUrl(),
                 status,
                 u.getLastActiveAt(),
                 lat, lng, locAt
@@ -194,7 +194,7 @@ public class GroupViewService {
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageURL(u.getProfileImageURL());
+            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
         }
         dto.setContent(p.getContent());
         dto.setTimestamp(p.getTimestamp());

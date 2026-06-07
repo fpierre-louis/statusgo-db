@@ -38,6 +38,17 @@ public record MeDto(
          * existing /api/me/{uid} payload.
          */
         String activeActivationId,
+        /**
+         * Opt-in public-profile preview. Populated only when the caller
+         * passes {@code ?profile=<idOrEmail>} on {@code GET /api/me/{uid}}.
+         * Lets the FE PublicProfilePage render on cold boot in one round
+         * trip (no second {@code GET /api/users/profile/{idOrEmail}}).
+         * Null when the param is absent OR when the lookup misses /
+         * degrades — callers that don't pass {@code ?profile} never see
+         * this field non-null and don't need to change. Per audit BE-12 /
+         * P2-15.
+         */
+        PublicProfileDto profilePreview,
         MetaDto meta
 ) {
 
@@ -103,7 +114,17 @@ public record MeDto(
              * settings page at /account/map-visibility; updates flow through
              * {@code PATCH /userinfo/me/group-location-sharing}.
              */
-            Map<String, String> groupLocationSharing
+            Map<String, String> groupLocationSharing,
+            /**
+             * Deterministic existence flags computed BEFORE DtoImages
+             * normalization (audit BE-03 / P1-2). True iff the raw column
+             * was non-blank AND resolved to a usable R2 object key. The FE
+             * uses these to gate {@code <SafeImage>} rendering vs the
+             * deterministic empty-hero fallback without waiting for an
+             * image load/error to know what to draw.
+             */
+            boolean hasProfileImage,
+            boolean hasCoverImage
     ) {}
 
     public record SelfStatusDto(

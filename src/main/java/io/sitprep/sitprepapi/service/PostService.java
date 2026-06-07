@@ -714,18 +714,24 @@ public class PostService {
      * currently be unclaimed and OPEN. Caller email must be admin/owner of
      * the claimer group — checked at the resource layer; this service trusts
      * the caller has been authorized.
+     *
+     * <p>The OPEN-and-unclaimed precondition is enforced by the conditional
+     * UPDATE in {@link PostRepo#transitionClaim} — two leaders racing to
+     * claim the same task have exactly one UPDATE match; the loser hits
+     * the {@code rows == 0} branch and gets the conflict.</p>
      */
     @Transactional
     public PostDto claim(Long postId, String claimerGroupId, String claimerEmail) {
-        Post t = mustExist(postId);
-        if (t.getStatus() != PostStatus.OPEN || t.getClaimedByGroupId() != null) {
-            throw new IllegalStateException("Post is not open for claim");
+        // Verify existence up front so a missing id is a 400, not a 409.
+        mustExist(postId);
+        String email = claimerEmail == null ? null : claimerEmail.trim().toLowerCase();
+        int rows = taskRepo.transitionClaim(
+                postId, PostStatus.OPEN, PostStatus.CLAIMED,
+                claimerGroupId, email, Instant.now());
+        if (rows == 0) {
+            throw new IllegalStateException("Task was claimed by another group");
         }
-        t.setClaimedByGroupId(claimerGroupId);
-        t.setClaimedByEmail(claimerEmail == null ? null : claimerEmail.trim().toLowerCase());
-        t.setStatus(PostStatus.CLAIMED);
-        t.setClaimedAt(Instant.now());
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /**
@@ -735,25 +741,24 @@ public class PostService {
      * resource layer. Assignment is orthogonal to the claim/status
      * lifecycle — an OPEN task can be assigned, and the assignee then
      * works it through the normal in-progress / complete flow.
+     *
+     * <p>The UPDATE's WHERE rejects DONE / CANCELLED rows atomically —
+     * a concurrent complete/cancel beats this assign at the DB level.</p>
      */
     @Transactional
     public PostDto assign(Long postId, String assigneeEmail, String assignedByEmail) {
-        Post t = mustExist(postId);
-        if (t.getStatus() == PostStatus.DONE || t.getStatus() == PostStatus.CANCELLED) {
-            throw new IllegalStateException("Cannot assign a closed task");
-        }
+        mustExist(postId);
         String assignee = (assigneeEmail == null || assigneeEmail.isBlank())
                 ? null : assigneeEmail.trim().toLowerCase();
-        t.setAssigneeEmail(assignee);
-        if (assignee == null) {
-            t.setAssignedByEmail(null);
-            t.setAssignedAt(null);
-        } else {
-            t.setAssignedByEmail(assignedByEmail == null
-                    ? null : assignedByEmail.trim().toLowerCase());
-            t.setAssignedAt(Instant.now());
+        String assignedBy = (assignee == null) ? null
+                : (assignedByEmail == null ? null : assignedByEmail.trim().toLowerCase());
+        Instant assignedAt = (assignee == null) ? null : Instant.now();
+        int rows = taskRepo.transitionAssign(postId, assignee, assignedBy, assignedAt,
+                EnumSet.of(PostStatus.DONE, PostStatus.CANCELLED));
+        if (rows == 0) {
+            throw new IllegalStateException("Cannot assign a closed task");
         }
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /**
@@ -763,50 +768,49 @@ public class PostService {
      */
     @Transactional
     public PostDto markInProgress(Long postId) {
-        Post t = mustExist(postId);
-        if (t.getStatus() != PostStatus.OPEN && t.getStatus() != PostStatus.CLAIMED) {
+        mustExist(postId);
+        int rows = taskRepo.transitionToInProgress(postId,
+                EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED),
+                PostStatus.IN_PROGRESS);
+        if (rows == 0) {
             throw new IllegalStateException(
                     "Post must be open or claimed before marking in-progress");
         }
-        t.setStatus(PostStatus.IN_PROGRESS);
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /** Claimer or assignee marks complete. */
     @Transactional
     public PostDto complete(Long postId) {
-        Post t = mustExist(postId);
-        if (t.getStatus() == PostStatus.DONE || t.getStatus() == PostStatus.CANCELLED) {
+        mustExist(postId);
+        int rows = taskRepo.transitionComplete(postId, PostStatus.DONE, Instant.now(),
+                EnumSet.of(PostStatus.DONE, PostStatus.CANCELLED));
+        if (rows == 0) {
             throw new IllegalStateException("Post is already closed");
         }
-        t.setStatus(PostStatus.DONE);
-        t.setCompletedAt(Instant.now());
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /** Requester cancels. Frees claimedBy state in case it was claimed. */
     @Transactional
     public PostDto cancel(Long postId) {
-        Post t = mustExist(postId);
-        if (t.getStatus() == PostStatus.DONE) {
+        mustExist(postId);
+        int rows = taskRepo.transitionCancel(postId, PostStatus.CANCELLED, PostStatus.DONE);
+        if (rows == 0) {
             throw new IllegalStateException("Cannot cancel a completed task");
         }
-        t.setStatus(PostStatus.CANCELLED);
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /** Reopen a cancelled task — clears claimer state. */
     @Transactional
     public PostDto reopen(Long postId) {
-        Post t = mustExist(postId);
-        if (t.getStatus() != PostStatus.CANCELLED) {
+        mustExist(postId);
+        int rows = taskRepo.transitionReopen(postId, PostStatus.CANCELLED, PostStatus.OPEN);
+        if (rows == 0) {
             throw new IllegalStateException("Only cancelled tasks can be reopened");
         }
-        t.setStatus(PostStatus.OPEN);
-        t.setClaimedByGroupId(null);
-        t.setClaimedByEmail(null);
-        t.setClaimedAt(null);
-        return saveAndBroadcast(t);
+        return refetchAndBroadcast(postId);
     }
 
     /**
@@ -982,6 +986,21 @@ public class PostService {
     private PostDto saveAndBroadcast(Post t) {
         Post saved = taskRepo.save(t);
         PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(saved))))).get(0);
+        broadcastAfterCommit(dto);
+        return dto;
+    }
+
+    /**
+     * Post-conditional-UPDATE re-fetch + broadcast. The {@code @Modifying}
+     * transition queries clear the persistence context, so this re-reads
+     * the freshly-mutated row to build the DTO that goes back to the
+     * caller and over the WebSocket.
+     */
+    private PostDto refetchAndBroadcast(Long postId) {
+        Post fresh = taskRepo.findById(postId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Post vanished mid-transition: " + postId));
+        PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(fresh))))).get(0);
         broadcastAfterCommit(dto);
         return dto;
     }

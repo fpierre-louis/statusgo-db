@@ -48,6 +48,23 @@
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+		<!--
+			Flyway — schema migration / DDL drift gate. Switched on
+			2026-06-05 alongside flipping spring.jpa.hibernate.ddl-auto
+			from `update` to `validate` so the runtime can no longer
+			silently morph the database. V1__baseline.sql captures the
+			current Hibernate-derived schema as the starting point;
+			every subsequent column/index lands as a numbered migration.
+			Spring Boot 3.4 ships Flyway 10.x compatible bindings.
+		-->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>

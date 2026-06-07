@@ -231,7 +231,7 @@ public record PostDto(
                     t.getRequesterEmail(),
                     author == null ? null : author.getUserFirstName(),
                     author == null ? null : author.getUserLastName(),
-                    author == null ? null : author.getProfileImageURL(),
+                    author == null ? null : author.getProfileImageUrl(),
                     t.getTitle(),
                     t.getDescription(),
                     t.getKind(),
@@ -354,7 +354,7 @@ public record PostDto(
      */
     public PostDto withAuthor(UserInfo u) {
         if (u == null) return this;
-        String avatarUrl = u.getProfileImageURL();  // already a URL on UserInfo
+        String avatarUrl = u.getProfileImageUrl();  // already a URL on UserInfo
         PublisherIdentity identity = publisherIdentity(u);
         return new PostDto(
                 id,

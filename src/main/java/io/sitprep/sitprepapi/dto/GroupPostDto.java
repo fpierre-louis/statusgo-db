@@ -50,7 +50,7 @@ public class GroupPostDto {
 
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     /**
      * When non-null, this post is pinned to the top of its group's feed.

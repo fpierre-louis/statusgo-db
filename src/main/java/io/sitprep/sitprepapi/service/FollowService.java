@@ -7,6 +7,9 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +69,15 @@ public class FollowService {
      * already-following is silently treated as success. Self-follow
      * throws {@link IllegalArgumentException}; the resource layer
      * returns 400.
+     *
+     * <p>Race-safe: a fast double-tap on Follow can land two requests
+     * inside the existsBy pre-check window. The second save() would
+     * then violate the unique (follower, followed) constraint and
+     * bubble a {@link DataIntegrityViolationException} as a 500. We
+     * catch it and treat as already-followed — the durable edge is
+     * what the caller asked for. The notification dispatch is skipped
+     * on the losing side so we don't double-fire a "X started
+     * following you" push for one user gesture.</p>
      */
     @Transactional
     public void follow(String followerEmail, String targetEmail) {
@@ -82,7 +94,16 @@ public class FollowService {
         Follow row = new Follow();
         row.setFollowerEmail(f);
         row.setFollowedEmail(t);
-        followRepo.save(row);
+        try {
+            followRepo.saveAndFlush(row);
+        } catch (DataIntegrityViolationException e) {
+            // Race: another request created the edge between our
+            // existsBy check and this insert. Treat as success — the
+            // FE wanted the edge to exist and it does. Skip the
+            // notification (the winning request already dispatched it).
+            logger.debug("Follow race resolved as no-op (follower={}, target={})", f, t);
+            return;
+        }
 
         // Notification side effect — wrapped in try/catch so a delivery
         // hiccup (FCM outage, log write failure, missing UserInfo row)
@@ -125,7 +146,7 @@ public class FollowService {
             Optional<UserInfo> actorOpt = userInfoRepo.findByUserEmailIgnoreCase(followerEmail);
             UserInfo actor = actorOpt.orElse(null);
             String actorName = displayName(actor, followerEmail);
-            String actorIcon = actor != null ? actor.getProfileImageURL() : null;
+            String actorIcon = actor != null ? actor.getProfileImageUrl() : null;
             String actorIdentifier = profileIdentifier(actor, followerEmail);
             String actorUserId = actor != null ? actor.getId() : null;
 
@@ -200,7 +221,7 @@ public class FollowService {
             Optional<UserInfo> accepterOpt = userInfoRepo.findByUserEmailIgnoreCase(accepter);
             UserInfo accepterUser = accepterOpt.orElse(null);
             String accepterName = displayName(accepterUser, accepter);
-            String accepterIcon = accepterUser != null ? accepterUser.getProfileImageURL() : null;
+            String accepterIcon = accepterUser != null ? accepterUser.getProfileImageUrl() : null;
             String accepterIdentifier = profileIdentifier(accepterUser, accepter);
             String accepterUserId = accepterUser != null ? accepterUser.getId() : null;
 
@@ -307,14 +328,26 @@ public class FollowService {
     /**
      * {@code follower} stops following {@code target}. Idempotent —
      * not-following is silently treated as success.
+     *
+     * <p>Race-safe: a double-tap on Unfollow can have both requests
+     * load the same row and call delete() on it. The losing side
+     * surfaces as {@link EmptyResultDataAccessException} (row gone
+     * before delete) or {@link ObjectOptimisticLockingFailureException}
+     * (concurrent delete invalidated the managed entity). Both mean
+     * the edge is now absent, which is what the caller asked for —
+     * so we swallow and return success.</p>
      */
     @Transactional
     public void unfollow(String followerEmail, String targetEmail) {
         String f = normalize(followerEmail);
         String t = normalize(targetEmail);
         if (f == null || t == null) return;
-        followRepo.findByFollowerEmailAndFollowedEmail(f, t)
-                .ifPresent(followRepo::delete);
+        try {
+            followRepo.findByFollowerEmailAndFollowedEmail(f, t)
+                    .ifPresent(followRepo::delete);
+        } catch (EmptyResultDataAccessException | ObjectOptimisticLockingFailureException e) {
+            logger.debug("Unfollow race resolved as no-op (follower={}, target={})", f, t);
+        }
     }
 
     /**

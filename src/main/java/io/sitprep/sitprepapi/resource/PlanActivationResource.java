@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.service.AckRateLimiter;
 import io.sitprep.sitprepapi.service.PlanActivationService;
 import io.sitprep.sitprepapi.service.PlanActivationService.ActivationExpiredException;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.web.Idempotent;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,7 @@ public class PlanActivationResource {
     }
 
     @PostMapping
+    @Idempotent
     public ResponseEntity<ActivationCreatedDto> create(@RequestBody CreateActivationRequest request) {
         // Phase E enforcement — owner is whoever signed the request. Body's
         // ownerEmail is ignored; passing it (or a different email) would

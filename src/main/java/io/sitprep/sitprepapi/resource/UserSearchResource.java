@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.UserSearchDto;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -98,7 +99,7 @@ public class UserSearchResource {
                     u.getUserFirstName(),
                     u.getUserLastName(),
                     u.getUserEmail(),
-                    u.getProfileImageURL()
+                    DtoImages.avatar(u.getProfileImageUrl())
             ));
         }
         return ResponseEntity.ok(new SearchResponse(results, false));

@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.service.NotificationInboxService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -38,8 +40,11 @@ public class NotificationsInboxResource {
      * page; pass {@code since=} the newest currently-loaded row's
      * timestamp to fetch arrivals since the last refresh.
      */
+    // Reads wrapped in {@link ApiResponse} per P2-3 (audit BE-02 / BE-15).
+    // FE axios interceptor unwraps response.data transparently so existing
+    // callers see the same payloads as before.
     @GetMapping
-    public ResponseEntity<List<NotificationLog>> page(
+    public ResponseEntity<ApiResponse<List<NotificationLog>>> page(
             @RequestParam(value = "since", required = false) String sinceStr,
             @RequestParam(value = "before", required = false) String beforeStr,
             @RequestParam(value = "limit", required = false) Integer limit
@@ -47,7 +52,7 @@ public class NotificationsInboxResource {
         String email = AuthUtils.requireAuthenticatedEmail();
         Instant since = parseInstantOrNull(sinceStr);
         Instant before = parseInstantOrNull(beforeStr);
-        return ResponseEntity.ok(inbox.page(email, since, before, limit));
+        return ResponseEntity.ok(ApiResponse.ok(inbox.page(email, since, before, limit), ApiMeta.now()));
     }
 
     /**
@@ -56,9 +61,9 @@ public class NotificationsInboxResource {
      * {@code idx_notif_recipient_unread} index.
      */
     @GetMapping("/unreadCount")
-    public ResponseEntity<Map<String, Long>> unreadCount() {
+    public ResponseEntity<ApiResponse<Map<String, Long>>> unreadCount() {
         String email = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(Map.of("count", inbox.unreadCount(email)));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("count", inbox.unreadCount(email)), ApiMeta.now()));
     }
 
     /**

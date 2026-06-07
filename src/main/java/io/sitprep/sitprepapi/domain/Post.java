@@ -209,6 +209,7 @@ public class Post {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "task_image_keys", joinColumns = @JoinColumn(name = "task_id"))
     @Column(name = "image_key")
+    @OrderColumn(name = "ord")
     private List<String> imageKeys = new ArrayList<>();
 
     @ElementCollection(fetch = FetchType.EAGER)

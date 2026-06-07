@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.MemberLocationFrame;
 import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
@@ -113,20 +114,36 @@ public class UserInfoService {
         }
 
         String viewerRelationship = followService.getRelationship(viewerEmail, email);
+        boolean viewerIsSelf = "self".equals(viewerRelationship);
+
+        // Resolve the viewer's groups ONCE up front. The privacy gate
+        // (sharesCircleWith) and any other caller in this method reuse
+        // this set instead of re-firing findByMemberEmail. Closes audit
+        // BE-10: previously the privacy gate could fan out up to 3
+        // findByMemberEmail calls per public-profile build (1-2s hang).
+        Set<String> viewerGroupIds = (viewerIsSelf || viewerEmail == null || viewerEmail.isBlank())
+                ? Set.of()
+                : groupRepo.findByMemberEmail(viewerEmail).stream()
+                        .filter(g -> g != null && !"Household".equalsIgnoreCase(g.getGroupType()))
+                        .map(Group::getGroupId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+
+        // Pull the target user's groups ONCE; reused for the privacy
+        // gate AND the public group summaries below.
+        List<Group> targetGroupsRaw = email == null ? List.of() : groupRepo.findByMemberEmail(email);
 
         // Privacy gate — when the viewer can't see the full profile,
         // return a stub. Self always passes the gate.
-        boolean viewerIsSelf = "self".equals(viewerRelationship);
-        if (!viewerIsSelf && !isProfileVisibleToViewer(u, viewerEmail, viewerRelationship)) {
+        if (!viewerIsSelf && !isProfileVisibleToViewer(u, viewerRelationship, targetGroupsRaw, viewerGroupIds)) {
             return Optional.of(PublicProfileDto.stub(u, viewerRelationship));
         }
 
         // Public groups — exclude Household (personal, not a public
         // trust signal) and de-dup by groupId in case the user appears
         // both as admin and member (legacy data quirk).
-        List<Group> raw = email == null ? List.of() : groupRepo.findByMemberEmail(email);
         Map<String, Group> byId = new LinkedHashMap<>();
-        for (Group g : raw) {
+        for (Group g : targetGroupsRaw) {
             if (g == null || g.getGroupId() == null) continue;
             if ("Household".equalsIgnoreCase(g.getGroupType())) continue;
             byId.putIfAbsent(g.getGroupId(), g);
@@ -205,13 +222,16 @@ public class UserInfoService {
      * default. Caller must have already confirmed the viewer is not
      * the target (self always passes).</p>
      */
-    private boolean isProfileVisibleToViewer(UserInfo target, String viewerEmail, String viewerRelationship) {
+    private boolean isProfileVisibleToViewer(UserInfo target,
+                                             String viewerRelationship,
+                                             List<Group> targetGroups,
+                                             Set<String> viewerGroupIds) {
         String setting = target.getProfileVisibility();
         if (setting == null || setting.isBlank()) setting = "circles";
 
         if ("public".equalsIgnoreCase(setting)) return true;
 
-        boolean sharesCircle = sharesCircleWith(target, viewerEmail);
+        boolean sharesCircle = sharesCircleWith(targetGroups, viewerGroupIds);
 
         if ("circles".equalsIgnoreCase(setting)) return sharesCircle;
         if ("private".equalsIgnoreCase(setting)) return sharesCircle;
@@ -226,31 +246,23 @@ public class UserInfoService {
     }
 
     /**
-     * True when {@code viewerEmail} is a member of any group {@code target}
-     * is in (managed OR joined). The Group entity stores member lists as
-     * a flat collection — we compare via lookup-by-email so the check is
-     * a single repo round trip rather than walking both UserInfo group-id
-     * sets and resolving each group.
+     * True when the viewer shares any non-Household group with the target.
+     * Caller pre-resolves both sides (see {@code getPublicProfile}) so this
+     * is a pure in-memory intersection — no repo round trips. Closes audit
+     * BE-10 (privacy gate previously re-fetched groups up to 3x per call).
      */
-    private boolean sharesCircleWith(UserInfo target, String viewerEmail) {
-        if (viewerEmail == null || viewerEmail.isBlank()) return false;
-        if (target.getUserEmail() == null) return false;
+    private boolean sharesCircleWith(List<Group> targetGroups, Set<String> viewerGroupIds) {
+        if (viewerGroupIds == null || viewerGroupIds.isEmpty()) return false;
+        if (targetGroups == null || targetGroups.isEmpty()) return false;
 
-        // Pull both users' groups (Household excluded — those are private
-        // by construction and shouldn't grant cross-visibility). Compare
-        // by groupId.
-        String targetEmail = target.getUserEmail();
-        Set<String> targetGroupIds = groupRepo.findByMemberEmail(targetEmail).stream()
-                .filter(g -> !"Household".equalsIgnoreCase(g.getGroupType()))
-                .map(io.sitprep.sitprepapi.domain.Group::getGroupId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        if (targetGroupIds.isEmpty()) return false;
-
-        return groupRepo.findByMemberEmail(viewerEmail).stream()
-                .filter(g -> !"Household".equalsIgnoreCase(g.getGroupType()))
-                .map(io.sitprep.sitprepapi.domain.Group::getGroupId)
-                .anyMatch(targetGroupIds::contains);
+        // Household groups are private by construction — exclude them from
+        // the cross-visibility check.
+        for (Group g : targetGroups) {
+            if (g == null || g.getGroupId() == null) continue;
+            if ("Household".equalsIgnoreCase(g.getGroupType())) continue;
+            if (viewerGroupIds.contains(g.getGroupId())) return true;
+        }
+        return false;
     }
 
     /**
@@ -280,7 +292,7 @@ public class UserInfoService {
                         u.getUserEmail(),
                         u.getUserFirstName(),
                         u.getUserLastName(),
-                        u.getProfileImageURL(),
+                        DtoImages.avatar(u.getProfileImageUrl()),
                         u.getUserStatus(),
                         u.getStatusColor(),
                         u.getUserStatusLastUpdated(),
@@ -313,7 +325,7 @@ public class UserInfoService {
         existing.setAddress(incoming.getAddress());
         existing.setUserStatus(incoming.getUserStatus());
         existing.setStatusColor(incoming.getStatusColor());
-        existing.setProfileImageURL(incoming.getProfileImageURL());
+        existing.setProfileImageUrl(incoming.getProfileImageUrl());
         existing.setSubscription(incoming.getSubscription());
         existing.setSubscriptionPackage(incoming.getSubscriptionPackage());
         existing.setDateSubscribed(incoming.getDateSubscribed());
@@ -595,6 +607,7 @@ public class UserInfoService {
         }
     }
 
+    @Transactional
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
         UserInfo userInfo = userInfoRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));
@@ -632,7 +645,19 @@ public class UserInfoService {
         String newStatus = saved.getUserStatus();
         if (newStatus != null && !Objects.equals(oldUserStatus, newStatus)
                 && saved.getUserEmail() != null) {
-            householdEventService.recordStatusChangedForActor(saved.getUserEmail(), newStatus);
+            // Capture immutable args for the afterCommit hook — the household
+            // chat system event must only fire if the user-row commit actually
+            // lands. Closes audit BE-05: previously the event could be recorded
+            // even when the surrounding transaction rolled back, and could be
+            // skipped when the row landed via a deferred flush.
+            final String actorEmail = saved.getUserEmail();
+            final String committedStatus = newStatus;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    householdEventService.recordStatusChangedForActor(actorEmail, committedStatus);
+                }
+            });
         }
 
         return saved;
@@ -657,8 +682,10 @@ public class UserInfoService {
         UserInfo entity = existing.orElseGet(() -> {
             UserInfo u = new UserInfo();
             u.setUserEmail(norm);
-            u.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
-            u.setUserLastName(Optional.ofNullable(patch.getUserLastName()).orElse(""));
+            // P3-2: do NOT default missing names to "User" / "". Let nulls
+            // flow through — FE displayName helpers fall back to the
+            // email-local-part. applyPatch below still applies any provided
+            // names from the patch.
             return u;
         });
 
@@ -727,8 +754,8 @@ public class UserInfoService {
         UserInfo created = new UserInfo();
         created.setFirebaseUid(normUid);
         created.setUserEmail(normEmail != null ? normEmail : fallbackGuestEmailForUid(normUid));
-        created.setUserFirstName(Optional.ofNullable(patch.getUserFirstName()).orElse("User"));
-        created.setUserLastName(Optional.ofNullable(patch.getUserLastName()).orElse(""));
+        // P3-2: no "User" / "" defaulting — names stay null when the patch
+        // doesn't carry them. applyPatch sets them only when present.
         applyPatch(created, patch);
         applyInitialSystemDefaults(created, patch);
         return userInfoRepo.save(created);
@@ -756,7 +783,7 @@ public class UserInfoService {
 
         if (patch.getUserFirstName() != null) entity.setUserFirstName(patch.getUserFirstName());
         if (patch.getUserLastName()  != null) entity.setUserLastName(patch.getUserLastName());
-        if (patch.getProfileImageURL()!= null) entity.setProfileImageURL(patch.getProfileImageURL());
+        if (patch.getProfileImageUrl()!= null) entity.setProfileImageUrl(patch.getProfileImageUrl());
         if (patch.getPhone()         != null) entity.setPhone(patch.getPhone());
         if (patch.getAddress()       != null) entity.setAddress(patch.getAddress());
         if (patch.getTitle()         != null) entity.setTitle(patch.getTitle());

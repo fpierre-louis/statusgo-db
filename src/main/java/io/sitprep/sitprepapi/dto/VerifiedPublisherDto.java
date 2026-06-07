@@ -34,7 +34,7 @@ public record VerifiedPublisherDto(
         return new VerifiedPublisherDto(
                 u.getUserEmail(),
                 name.isBlank() ? u.getUserEmail() : name,
-                u.getProfileImageURL(),
+                u.getProfileImageUrl(),
                 u.getVerifiedPublisherKind(),
                 u.getVerifiedSince(),
                 u.getVerifiedPublisherServiceArea(),

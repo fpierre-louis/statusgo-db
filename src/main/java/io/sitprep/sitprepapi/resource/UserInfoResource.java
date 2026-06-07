@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
@@ -136,10 +138,14 @@ public class UserInfoResource {
      * step 5 alongside Block + privacy controls).</p>
      */
     @GetMapping("/{idOrEmail}/profile")
-    public ResponseEntity<PublicProfileDto> getPublicProfile(@PathVariable String idOrEmail) {
+    public ResponseEntity<ApiResponse<PublicProfileDto>> getPublicProfile(@PathVariable String idOrEmail) {
         String viewer = AuthUtils.requireAuthenticatedEmail();
+        // Wrapped in ApiResponse per P0-5: FE axios interceptor unwraps to the
+        // inner PublicProfileDto for existing callers, while new consumers can
+        // read response.envelope.meta. No degraded-section tracking on this
+        // path (single-shot service read, not a multi-section aggregate).
         return userInfoService.getPublicProfile(idOrEmail, viewer)
-                .map(ResponseEntity::ok)
+                .map(p -> ResponseEntity.ok(ApiResponse.ok(p)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -216,22 +222,31 @@ public class UserInfoResource {
      * that have been deleted just drop from the result rather than
      * leaving a placeholder row.</p>
      */
+    // Follow / blocked lists wrapped in {@link ApiResponse} per P2-3
+    // (audit BE-02 / BE-15). FE axios interceptor unwraps response.data
+    // so existing callers see the same List<ProfileSummaryDto> shape.
     @GetMapping("/me/following")
-    public List<ProfileSummaryDto> myFollowing() {
+    public ApiResponse<List<ProfileSummaryDto>> myFollowing() {
         String me = AuthUtils.requireAuthenticatedEmail();
-        return userInfoService.getProfileSummariesByEmails(followService.followingEmails(me));
+        return ApiResponse.ok(
+                userInfoService.getProfileSummariesByEmails(followService.followingEmails(me)),
+                ApiMeta.now());
     }
 
     @GetMapping("/me/followers")
-    public List<ProfileSummaryDto> myFollowers() {
+    public ApiResponse<List<ProfileSummaryDto>> myFollowers() {
         String me = AuthUtils.requireAuthenticatedEmail();
-        return userInfoService.getProfileSummariesByEmails(followService.followerEmails(me));
+        return ApiResponse.ok(
+                userInfoService.getProfileSummariesByEmails(followService.followerEmails(me)),
+                ApiMeta.now());
     }
 
     @GetMapping("/me/blocked")
-    public List<ProfileSummaryDto> myBlocked() {
+    public ApiResponse<List<ProfileSummaryDto>> myBlocked() {
         String me = AuthUtils.requireAuthenticatedEmail();
-        return userInfoService.getProfileSummariesByEmails(blockService.blockedEmails(me));
+        return ApiResponse.ok(
+                userInfoService.getProfileSummariesByEmails(blockService.blockedEmails(me)),
+                ApiMeta.now());
     }
 
     /**

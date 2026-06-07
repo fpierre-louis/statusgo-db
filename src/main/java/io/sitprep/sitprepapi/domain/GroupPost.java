@@ -48,11 +48,13 @@ public class GroupPost {
     private Instant updatedAt;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @OrderColumn(name = "ord")
     private List<String> tags = new ArrayList<>();
 
     private int commentsCount = 0;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @OrderColumn(name = "ord")
     private List<String> mentions = new ArrayList<>();
 
     /**

@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.repo;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -12,6 +13,20 @@ import java.util.List;
 
 @Repository
 public interface GroupPostRepo extends JpaRepository<GroupPost, Long> {
+
+    /**
+     * Atomic counter adjust for {@code commentsCount}. Replaces the
+     * read-modify-write pattern that drifted under concurrent comment
+     * create/delete (audit DB-02). The {@code COALESCE} guards against
+     * the legacy NULL rows that predate the {@code default 0} migration.
+     * Returns the number of rows updated (0 if the post was deleted
+     * between the comment write and this UPDATE — safe to ignore).
+     */
+    @Modifying
+    @Query("UPDATE GroupPost p " +
+           "SET p.commentsCount = COALESCE(p.commentsCount, 0) + :delta " +
+           "WHERE p.id = :id")
+    int adjustCommentsCount(@Param("id") Long id, @Param("delta") int delta);
 
     @Query("SELECT p FROM GroupPost p WHERE p.groupId = :groupId ORDER BY p.timestamp DESC")
     List<GroupPost> findPostsByGroupId(@Param("groupId") String groupId);

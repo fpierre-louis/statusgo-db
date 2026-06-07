@@ -12,17 +12,22 @@ spring:
     username: ${JDBC_DATABASE_USERNAME:ud96qhmmahggsm}
     password: ${JDBC_DATABASE_PASSWORD:pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037}
     driver-class-name: org.postgresql.Driver
+    # Hikari + Postgres timeouts — audit P1-12.
+    # 20s statement_timeout, 30s idle_in_transaction, 20 max pool.
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX:10}
+      maximum-pool-size: ${DB_POOL_MAX:20}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: ${DB_POOL_CONN_TIMEOUT_MS:30000}
       idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:600000}
       max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      leak-detection-threshold: ${DB_POOL_LEAK_DETECTION_MS:30000}
+      connection-init-sql: "SET statement_timeout = '20s'; SET idle_in_transaction_session_timeout = '30s';"
 
   # --- JPA & HIBERNATE CONFIGURATION ---
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:update}
+      # Switched 2026-06-05 — verify against Heroku Postgres before public launch.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     open-in-view: false
     show-sql: ${JPA_SHOW_SQL:false}
     database-platform: org.hibernate.dialect.PostgreSQLDialect
@@ -30,6 +35,19 @@ spring:
       hibernate:
         format_sql: ${HIBERNATE_FORMAT_SQL:false}
         default_batch_fetch_size: 50
+
+  # --- FLYWAY (schema migration / DDL drift gate) ---
+  # Landed 2026-06-05 (P0-7 in docs/audit/RACE_AUDIT_GAMEPLAN.md). Existing
+  # Heroku database is populated, so `baseline-on-migrate: true` +
+  # `baseline-version: 1` tells Flyway to stamp the current state as
+  # V1 on first run rather than trying to (re-)create tables it already
+  # finds. New schema changes from this point forward ship as numbered
+  # V{n}__name.sql files under db/migration.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
 
   # --- FILE UPLOAD SIZE LIMIT FIX (CRITICAL FOR 500 ERROR) ---
   servlet:

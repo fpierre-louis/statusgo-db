@@ -390,7 +390,7 @@ public class PostCommentService {
             UserInfo u = email == null ? null : profilesByEmail.get(email);
             String first = u != null ? u.getUserFirstName()
                     : (email != null ? email.split("@")[0] : "Neighbor");
-            String avatarUrl = u != null ? u.getProfileImageURL() : null;
+            String avatarUrl = u != null ? u.getProfileImageUrl() : null;
 
             // Strip the "> Replying to ...:" quote prefix so the preview
             // shows the actual reply text, not the quoted header. Then
@@ -435,7 +435,7 @@ public class PostCommentService {
             if (u != null) {
                 d.setAuthorFirstName(u.getUserFirstName());
                 d.setAuthorLastName(u.getUserLastName());
-                d.setAuthorProfileImageURL(u.getProfileImageURL());
+                d.setAuthorProfileImageUrl(u.getProfileImageUrl());
             }
         }
         return d;
@@ -446,7 +446,7 @@ public class PostCommentService {
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
             d.setAuthorLastName(u.getUserLastName());
-            d.setAuthorProfileImageURL(u.getProfileImageURL());
+            d.setAuthorProfileImageUrl(u.getProfileImageUrl());
         });
     }
 
@@ -489,7 +489,7 @@ public class PostCommentService {
                 : "New comment on your post";
 
         String body = commenterName + " commented: " + snippet(enrichedDto.getContent(), 80);
-        String iconUrl = enrichedDto.getAuthorProfileImageURL();
+        String iconUrl = enrichedDto.getAuthorProfileImageUrl();
         String targetUrl = "/community/tasks/" + task.getId();
 
         // Actor identity — commenter's stable userId for FE tap-to-profile

@@ -70,6 +70,7 @@ public class AskTip {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "ask_tip_image_keys", joinColumns = @JoinColumn(name = "tip_id"))
     @Column(name = "image_key", length = 256)
+    @OrderColumn(name = "ord")
     private List<String> imageKeys = new ArrayList<>();
 
     private Double latitude;

@@ -26,7 +26,7 @@ public class AskQuestionDto {
     private String authorEmail;
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     private String title;
     private String body;

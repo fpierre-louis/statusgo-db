@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
 import io.sitprep.sitprepapi.service.CommunityDiscoverService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -38,7 +40,7 @@ public class CommunityDiscoverResource {
      * surfaces that want to show both lists.</p>
      */
     @GetMapping("/discover")
-    public ResponseEntity<CommunityDiscoverDto> discover(
+    public ResponseEntity<ApiResponse<CommunityDiscoverDto>> discover(
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
@@ -54,7 +56,12 @@ public class CommunityDiscoverResource {
         // not-a-member-of-anything). getCurrentUserEmail returns null
         // when no Firebase token is present; requireAuthenticatedEmail
         // would throw — we want the former here.
+        //
+        // Wrapped in {@link ApiResponse} per P2-3 (audit BE-02 / BE-15).
+        // FE axios interceptor unwraps response.data transparently.
         String viewer = AuthUtils.getCurrentUserEmail();
-        return ResponseEntity.ok(service.discover(lat, lng, radiusKm, viewer, includeMine));
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.discover(lat, lng, radiusKm, viewer, includeMine),
+                ApiMeta.now()));
     }
 }

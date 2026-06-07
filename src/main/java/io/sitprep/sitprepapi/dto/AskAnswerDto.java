@@ -12,7 +12,7 @@ public class AskAnswerDto {
     private String authorEmail;
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     private String body;
     private int voteScore;

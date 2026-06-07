@@ -385,7 +385,7 @@ public class GroupPostService {
             if (u != null) {
                 dto.setAuthorFirstName(u.getUserFirstName());
                 dto.setAuthorLastName(u.getUserLastName());
-                dto.setAuthorProfileImageURL(u.getProfileImageURL());
+                dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
             }
             dto.setContent(p.getContent());
             dto.setTimestamp(p.getTimestamp());
@@ -407,7 +407,7 @@ public class GroupPostService {
 
             var authorOpt = userInfoRepo.findByUserEmail(post.getAuthor());
             String authorFirst = authorOpt.map(UserInfo::getUserFirstName).orElse("Someone");
-            String authorProfile = authorOpt.map(UserInfo::getProfileImageURL).orElse("/images/default-user-icon.png");
+            String authorProfile = authorOpt.map(UserInfo::getProfileImageUrl).orElse("/images/default-user-icon.png");
             // Actor identity — post author's stable userId. Persisted on
             // every NotificationLog row so the FE inbox can deep-link the
             // actor avatar tap to /profile/:actorUserId via useProfileNav.
@@ -446,7 +446,7 @@ public class GroupPostService {
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageURL(u.getProfileImageURL());
+            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
         });
         return dto;
     }
@@ -459,7 +459,7 @@ public class GroupPostService {
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageURL(u.getProfileImageURL());
+            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
         }
         return dto;
     }

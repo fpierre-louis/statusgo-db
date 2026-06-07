@@ -29,6 +29,16 @@ public class PlanActivation {
     @Column(name = "activation_id", unique = true, updatable = false)
     private String id;
 
+    /**
+     * Optimistic-locking token — audit P1-6. JPA increments on every flush;
+     * concurrent updates that race on a stale read fail with
+     * {@code OptimisticLockingFailureException}, which the global handler
+     * surfaces as HTTP 409 {@code STALE_WRITE}.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @Column(name = "owner_email", nullable = false)
     private String ownerEmail;
 

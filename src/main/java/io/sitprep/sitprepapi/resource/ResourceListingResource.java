@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.dto.SubmitResourceRequest;
 import io.sitprep.sitprepapi.service.ResourceListingService;
@@ -33,18 +35,21 @@ public class ResourceListingResource {
         this.service = service;
     }
 
+    // Wrapped in {@link ApiResponse} per P2-3 (audit BE-02 / BE-15). FE
+    // axios interceptor unwraps response.data to the inner list so legacy
+    // callers see the same shape they always did.
     @GetMapping
-    public ResponseEntity<List<ResourceListingDto>> board(
+    public ResponseEntity<ApiResponse<List<ResourceListingDto>>> board(
             @RequestParam(value = "lat", required = false) Double lat,
             @RequestParam(value = "lng", required = false) Double lng,
             @RequestParam(value = "radiusKm", required = false) Double radiusKm) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.board(lat, lng, radiusKm));
+        return ResponseEntity.ok(ApiResponse.ok(service.board(lat, lng, radiusKm), ApiMeta.now()));
     }
 
     @PostMapping
-    public ResponseEntity<ResourceListingDto> submit(@RequestBody SubmitResourceRequest req) {
+    public ResponseEntity<ApiResponse<ResourceListingDto>> submit(@RequestBody SubmitResourceRequest req) {
         String email = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(service.submit(req, email));
+        return ResponseEntity.ok(ApiResponse.ok(service.submit(req, email), ApiMeta.now()));
     }
 }

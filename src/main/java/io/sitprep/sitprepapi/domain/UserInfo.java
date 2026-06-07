@@ -28,14 +28,28 @@ public class UserInfo {
     @Column(name = "user_id", unique = true, updatable = false)
     private String id;
 
+    /**
+     * Optimistic-locking token — audit P1-6. JPA increments on every flush;
+     * concurrent updates that race on a stale read fail with
+     * {@code OptimisticLockingFailureException}, which the global handler
+     * surfaces as HTTP 409 {@code STALE_WRITE}.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     // ✅ NEW: stable identity key across SitPrep + Rediscover
     @Column(name = "firebase_uid", unique = true)
     private String firebaseUid;
 
-    @Column(name = "user_first_name", nullable = false)
+    // Nullable per P3-2 — FE displayName helpers gracefully fall back to the
+    // email-local-part, so the BE no longer needs to force "User" / "" on
+    // upsertByEmail just to satisfy a NOT NULL constraint. See
+    // docs/audit/RACE_AUDIT_GAMEPLAN.md row P3-2 and Flyway V7.
+    @Column(name = "user_first_name")
     private String userFirstName;
 
-    @Column(name = "user_last_name", nullable = false)
+    @Column(name = "user_last_name")
     private String userLastName;
 
     @Column(name = "user_email", unique = true, nullable = false)
@@ -66,7 +80,7 @@ public class UserInfo {
     private String statusColor;
 
     @Column(name = "profile_image_url")
-    private String profileImageURL;
+    private String profileImageUrl;
 
     @Column(name = "fcm_token")
     private String fcmtoken;

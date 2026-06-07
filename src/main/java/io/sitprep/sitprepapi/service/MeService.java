@@ -3,11 +3,14 @@ package io.sitprep.sitprepapi.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.*;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.HouseholdPlanDto;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MeDto.*;
 import io.sitprep.sitprepapi.dto.MePlansDto;
+import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.*;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,6 +57,8 @@ public class MeService {
     private final io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo;
     private final io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo;
     private final io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo;
+    private final MeSubfetchService subfetch;
+    private final UserInfoService userInfoService;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -71,6 +76,8 @@ public class MeService {
             io.sitprep.sitprepapi.repo.GroupPostRepo groupPostRepo,
             io.sitprep.sitprepapi.repo.GroupMutePrefRepo groupMutePrefRepo,
             io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo,
+            MeSubfetchService subfetch,
+            UserInfoService userInfoService,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -87,18 +94,75 @@ public class MeService {
         this.groupPostRepo = groupPostRepo;
         this.groupMutePrefRepo = groupMutePrefRepo;
         this.householdRitualRepo = householdRitualRepo;
+        this.subfetch = subfetch;
+        this.userInfoService = userInfoService;
         this.objectMapper = objectMapper;
     }
 
-    @Transactional(readOnly = true)
-    public Optional<MeDto> buildMe(String firebaseUid) {
-        return loadUser(firebaseUid).map(this::assemble);
+    /**
+     * Result of {@link #buildMe}: the assembled DTO plus the list of
+     * sub-sections that degraded during assembly. {@code MeResource}
+     * threads the degraded list into {@code ApiMeta.degradedSections}.
+     */
+    public record MeBuildResult(MeDto me, List<String> degradedSections) {}
+
+    /**
+     * Result of {@link #buildMePlans}: the lazy plans DTO plus the
+     * degraded section list. Same envelope shape as {@link MeBuildResult}
+     * so {@code MeResource} can pipe both through {@code ApiMeta} the
+     * same way.
+     */
+    public record MePlansBuildResult(MePlansDto plans, List<String> degradedSections) {}
+
+    /**
+     * Assemble the consolidated /me payload. The outer {@code @Transactional}
+     * is intentionally absent: each sub-fetch runs in its own REQUIRES_NEW
+     * read-only tx via {@link MeSubfetchService}, so one bad row no longer
+     * leaves the outer transaction marked rollback-only and poisons the
+     * remaining sub-fetches. Section names that degraded land in the
+     * returned {@link MeBuildResult#degradedSections}.
+     */
+    public Optional<MeBuildResult> buildMe(String firebaseUid) {
+        return buildMe(firebaseUid, Optional.empty());
+    }
+
+    /**
+     * Variant accepting an optional public-profile lookup key. When
+     * present, MeService folds a {@link PublicProfileDto} into
+     * {@link MeDto#profilePreview()} so the FE PublicProfilePage can
+     * render on cold boot without a second round trip — per audit
+     * BE-12 / P2-15. {@code profileLookup} accepts either a user id
+     * (UUID) or an email; viewer-relationship / privacy gating runs
+     * the same as {@code GET /api/users/profile/{idOrEmail}} because
+     * we delegate to {@link UserInfoService#getPublicProfile}. Lookup
+     * failures degrade silently (profilePreview stays null) so a
+     * malformed key never sinks the rest of /me.
+     */
+    public Optional<MeBuildResult> buildMe(String firebaseUid, Optional<String> profileLookup) {
+        MeBuildContext.begin();
+        try {
+            Optional<UserInfo> userOpt = loadUser(firebaseUid);
+            Optional<MeDto> me = userOpt.map(u -> assemble(u, profileLookup));
+            List<String> degraded = MeBuildContext.drain();
+            return me.map(dto -> new MeBuildResult(dto, degraded));
+        } finally {
+            // Defensive: assemble() above already drains, but if loadUser
+            // returned empty we never drained — clear the thread-local so
+            // it doesn't leak across pooled threads.
+            MeBuildContext.drain();
+        }
     }
 
     /** Lazy plans payload — only fetched when {@code me/plans/*} pages need it. */
-    @Transactional(readOnly = true)
-    public Optional<MePlansDto> buildMePlans(String firebaseUid) {
-        return loadUser(firebaseUid).map(this::assemblePlans);
+    public Optional<MePlansBuildResult> buildMePlans(String firebaseUid) {
+        MeBuildContext.begin();
+        try {
+            Optional<MePlansDto> plans = loadUser(firebaseUid).map(this::assemblePlans);
+            List<String> degraded = MeBuildContext.drain();
+            return plans.map(dto -> new MePlansBuildResult(dto, degraded));
+        } finally {
+            MeBuildContext.drain();
+        }
     }
 
     /**
@@ -121,6 +185,10 @@ public class MeService {
     }
 
     private MeDto assemble(UserInfo user) {
+        return assemble(user, Optional.empty());
+    }
+
+    private MeDto assemble(UserInfo user, Optional<String> profileLookup) {
         String email = Optional.ofNullable(user.getUserEmail())
                 .map(String::trim).map(String::toLowerCase).orElse("");
         String logCtx = "uid=" + user.getFirebaseUid() + " email=" + email;
@@ -296,6 +364,21 @@ public class MeService {
                         .orElse(null),
                 null);
 
+        // Opt-in public-profile preview (audit BE-12 / P2-15). Only
+        // populated when the caller passed {@code ?profile=<idOrEmail>}.
+        // Delegates to UserInfoService.getPublicProfile so the viewer-
+        // relationship + block + privacy-gate semantics match the
+        // dedicated profile endpoint exactly. Wrapped in safeGet so a
+        // bad lookup key never sinks the rest of /me — degraded section
+        // surfaces as "profilePreview" in ApiMeta.
+        PublicProfileDto profilePreview = profileLookup
+                .filter(s -> s != null && !s.isBlank())
+                .map(lookup -> safeGet(
+                        "profilePreview", logCtx,
+                        () -> userInfoService.getPublicProfile(lookup, email).orElse(null),
+                        null))
+                .orElse(null);
+
         return new MeDto(
                 toProfile(user),
                 householdDto,
@@ -303,6 +386,7 @@ public class MeService {
                 new GroupsDto(managed, joined),
                 readiness,
                 activeActivationId,
+                profilePreview,
                 new MetaDto(Instant.now(), DTO_VERSION)
         );
     }
@@ -344,24 +428,28 @@ public class MeService {
      * view needs (contacts with phone/medical, meal menu, meeting-place notes,
      * shelter details) plus the household's identity + demographics, rather
      * than the lossy summaries in MePlansDto. Member-gated at the resource.
+     *
+     * <p>Uses {@link #safeGetInline} (in-tx fallback, no REQUIRES_NEW) so
+     * the {@code confirmHouseholdPlan} write path sees its just-saved
+     * {@code planLastConfirmedAt} when it re-renders the document.</p>
      */
     @Transactional(readOnly = true)
     public HouseholdPlanDto buildHouseholdPlanDocument(String householdId) {
         String logCtx = "household=" + householdId + " plan-doc";
 
-        Group g = safeGet("hh.group", logCtx,
+        Group g = safeGetInline("hh.group", logCtx,
                 () -> groupRepo.findByGroupId(householdId).orElse(null), null);
-        Demographic demographic = safeGet("hh.demographic", logCtx,
+        Demographic demographic = safeGetInline("hh.demographic", logCtx,
                 () -> demographicRepo.findFirstByHouseholdIdOrderByIdDesc(householdId).orElse(null), null);
-        MealPlanData mealPlan = safeGet("hh.mealPlan", logCtx,
+        MealPlanData mealPlan = safeGetInline("hh.mealPlan", logCtx,
                 () -> mealPlanDataRepo.findFirstByHouseholdId(householdId).orElse(null), null);
-        List<EvacuationPlan> evacPlans = safeGet("hh.evacPlans", logCtx,
+        List<EvacuationPlan> evacPlans = safeGetInline("hh.evacPlans", logCtx,
                 () -> evacuationPlanRepo.findByHouseholdId(householdId), List.of());
-        List<MeetingPlace> meetingPlaces = safeGet("hh.meetingPlaces", logCtx,
+        List<MeetingPlace> meetingPlaces = safeGetInline("hh.meetingPlaces", logCtx,
                 () -> meetingPlaceRepo.findByHouseholdId(householdId), List.of());
-        List<OriginLocation> originLocations = safeGet("hh.originLocations", logCtx,
+        List<OriginLocation> originLocations = safeGetInline("hh.originLocations", logCtx,
                 () -> originLocationRepo.findByHouseholdId(householdId), List.of());
-        List<EmergencyContactGroup> contactGroups = safeGet("hh.contactGroups", logCtx,
+        List<EmergencyContactGroup> contactGroups = safeGetInline("hh.contactGroups", logCtx,
                 () -> emergencyContactGroupRepo.findByHouseholdId(householdId), List.of());
 
         return new HouseholdPlanDto(
@@ -402,14 +490,46 @@ public class MeService {
         return buildHouseholdPlanDocument(householdId);
     }
 
-    /** Run a repo call; on any exception, log and return {@code fallback}. */
+    /**
+     * Run a repo call inside its own REQUIRES_NEW read-only transaction
+     * (via {@link MeSubfetchService}). On any exception, the failing
+     * section is recorded in {@link MeBuildContext} so the FE can render
+     * a per-section retry affordance, then the caller-provided
+     * {@code fallback} is returned so the rest of /me still ships.
+     *
+     * <p>The per-call tx boundary is what lets one bad sub-fetch fail
+     * without poisoning the rest of the build — a Hibernate exception
+     * marks ONLY the inner tx rollback-only, and the next sub-fetch
+     * opens a clean one.</p>
+     */
     private <T> T safeGet(String step, String logCtx, Supplier<T> op, T fallback) {
+        try {
+            T result = subfetch.runReadOnly(op);
+            return result == null ? fallback : result;
+        } catch (Exception e) {
+            log.warn("MeService: sub-fetch [{}] failed ({}). Using fallback. cause={}",
+                    step, logCtx, e.getMessage());
+            MeBuildContext.markDegraded(step);
+            return fallback;
+        }
+    }
+
+    /**
+     * In-transaction safeGet variant used by paths that rely on seeing
+     * uncommitted writes from the surrounding {@code @Transactional}
+     * scope (e.g. {@code confirmHouseholdPlan} re-rendering after it
+     * stamps {@code planLastConfirmedAt}). No REQUIRES_NEW boundary —
+     * the supplier runs in whatever tx context the caller is in.
+     * Same degraded-section bookkeeping otherwise.
+     */
+    private <T> T safeGetInline(String step, String logCtx, Supplier<T> op, T fallback) {
         try {
             T result = op.get();
             return result == null ? fallback : result;
         } catch (Exception e) {
             log.warn("MeService: sub-fetch [{}] failed ({}). Using fallback. cause={}",
                     step, logCtx, e.getMessage());
+            MeBuildContext.markDegraded(step);
             return fallback;
         }
     }
@@ -418,6 +538,8 @@ public class MeService {
         SelfStatusDto status = new SelfStatusDto(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated()
         );
+        String rawAvatar = u.getProfileImageUrl();
+        String rawCover = u.getCoverImageUrl();
         return new ProfileDto(
                 u.getId(),
                 u.getFirebaseUid(),
@@ -429,7 +551,7 @@ public class MeService {
                 u.getAddress(),
                 u.getLatitude(),
                 u.getLongitude(),
-                u.getProfileImageURL(),
+                DtoImages.avatar(rawAvatar),
                 u.getSubscription(),
                 status,
                 u.getLastActiveAt(),
@@ -439,7 +561,7 @@ public class MeService {
                 u.getOnboardingLocationEnabledAt(),
                 u.getOnboardingNotificationsEnabledAt(),
                 u.getBio(),
-                u.getCoverImageUrl(),
+                DtoImages.cover(rawCover),
                 u.getProfileVisibility(),
                 u.getSearchable(),
                 parseAssessmentSummary(u),
@@ -449,8 +571,20 @@ public class MeService {
                 // state shape predictable).
                 u.getGroupLocationSharing() == null
                         ? java.util.Map.of()
-                        : new java.util.HashMap<>(u.getGroupLocationSharing())
+                        : new java.util.HashMap<>(u.getGroupLocationSharing()),
+                hasImage(rawAvatar),
+                hasImage(rawCover)
         );
+    }
+
+    /**
+     * Existence check for {@code hasProfileImage} / {@code hasCoverImage}
+     * on {@link ProfileDto}. Computed off the raw column value (not the
+     * normalized URL) so the boolean and the URL agree by construction —
+     * see audit BE-03 / P1-2.
+     */
+    private static boolean hasImage(String raw) {
+        return raw != null && !raw.isBlank() && PublicCdn.toObjectKey(raw) != null;
     }
 
     private Map<String, Object> parseAssessmentSummary(UserInfo u) {
@@ -611,7 +745,7 @@ public class MeService {
         for (String e : g.getMemberEmails()) {
             if (e == null) continue;
             UserInfo u = profiles.get(e.toLowerCase());
-            if (u != null) out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), u.getProfileImageURL()));
+            if (u != null) out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), DtoImages.avatar(u.getProfileImageUrl())));
             if (out.size() >= 4) break;
         }
         return out;

@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.dto;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.util.PublicCdn;
 
 import java.time.Instant;
 import java.util.List;
@@ -72,7 +73,15 @@ public record PublicProfileDto(
         // Block trumps everything: when either party has blocked the
         // other, the resource layer returns 404 and this DTO never
         // ships, so visible=false here only ever means a privacy gate.
-        boolean visible
+        boolean visible,
+        // Deterministic existence flags computed from the raw column
+        // value BEFORE DtoImages normalization (audit BE-03 / P1-2).
+        // True iff the raw column was non-blank AND resolved to a
+        // usable R2 object key. The FE uses these to gate <SafeImage>
+        // rendering vs the deterministic empty-hero fallback without
+        // having to wait for an image load/error to know what to draw.
+        boolean hasProfileImage,
+        boolean hasCoverImage
 ) {
 
     /**
@@ -119,13 +128,15 @@ public record PublicProfileDto(
             List<PublicPostSummary> posts,
             String viewerRelationship
     ) {
+        String rawAvatar = u.getProfileImageUrl();
+        String rawCover = u.getCoverImageUrl();
         return new PublicProfileDto(
                 u.getId(),
                 u.getUserEmail(),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                u.getProfileImageURL(),
-                u.getCoverImageUrl(),
+                DtoImages.avatar(rawAvatar),
+                DtoImages.cover(rawCover),
                 u.getBio(),
                 u.isVerifiedPublisher(),
                 u.getVerifiedPublisherKind(),
@@ -138,7 +149,9 @@ public record PublicProfileDto(
                 groups,
                 posts,
                 viewerRelationship,
-                /* visible */ true
+                /* visible */ true,
+                hasImage(rawAvatar),
+                hasImage(rawCover)
         );
     }
 
@@ -154,12 +167,13 @@ public record PublicProfileDto(
      * not leak that data to a non-permitted viewer.</p>
      */
     public static PublicProfileDto stub(UserInfo u, String viewerRelationship) {
+        String rawAvatar = u.getProfileImageUrl();
         return new PublicProfileDto(
                 u.getId(),
                 u.getUserEmail(),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                u.getProfileImageURL(),
+                DtoImages.avatar(rawAvatar),
                 /* coverImageUrl */ null,
                 /* bio */ null,
                 u.isVerifiedPublisher(),
@@ -173,7 +187,21 @@ public record PublicProfileDto(
                 /* groups */ List.of(),
                 /* posts */ List.of(),
                 viewerRelationship,
-                /* visible */ false
+                /* visible */ false,
+                hasImage(rawAvatar),
+                /* hasCoverImage */ false
         );
+    }
+
+    /**
+     * Existence check for the {@code hasProfileImage} / {@code hasCoverImage}
+     * booleans. True iff the raw column value is non-blank AND
+     * {@link PublicCdn#toObjectKey} can extract a usable R2 object key
+     * from it (i.e. the FE will receive a renderable URL from
+     * {@link DtoImages}). Computed off the raw value, not the normalized
+     * URL, so the boolean and the URL agree by construction.
+     */
+    private static boolean hasImage(String raw) {
+        return raw != null && !raw.isBlank() && PublicCdn.toObjectKey(raw) != null;
     }
 }

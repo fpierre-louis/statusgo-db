@@ -35,7 +35,7 @@ public class AskSearchHitDto {
     private String authorEmail;
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     /** Best-fit deep link for the FE to navigate on tap. */
     private String href;

@@ -1,11 +1,14 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.GroupPost;
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostPageDto;
 import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.service.GroupPostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.web.Idempotent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,7 +31,8 @@ public class GroupPostResource {
     private GroupPostService postService;
 
     @PostMapping(value = "", consumes = { "multipart/form-data" })
-    public ResponseEntity<GroupPostDto> createPost(
+    @Idempotent
+    public ResponseEntity<ApiResponse<GroupPostDto>> createPost(
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
             @RequestParam("groupName") String groupName,
@@ -48,13 +52,16 @@ public class GroupPostResource {
         postDto.setMentions(mentions);
 
         GroupPostDto saved = postService.createPost(postDto, author);
-        return ResponseEntity.status(201).body(saved);
+        return ResponseEntity.status(201).body(ApiResponse.ok(saved, ApiMeta.now()));
     }
 
+    // Reads below wrapped in {@link ApiResponse} per P2-3 (audit BE-02 /
+    // BE-15). FE axios interceptor unwraps response.data to the inner
+    // payload so existing callers are unchanged.
     @GetMapping("/group/{groupId}")
-    public List<GroupPostDto> getPostsByGroupId(@PathVariable String groupId) {
+    public ResponseEntity<ApiResponse<List<GroupPostDto>>> getPostsByGroupId(@PathVariable String groupId) {
         AuthUtils.requireAuthenticatedEmail();
-        return postService.getPostsByGroupIdDto(groupId);
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdDto(groupId), ApiMeta.now()));
     }
 
     /**
@@ -83,40 +90,42 @@ public class GroupPostResource {
      * </pre>
      */
     @GetMapping("/group/{groupId}/page")
-    public GroupPostPageDto getPostsByGroupIdPage(
+    public ResponseEntity<ApiResponse<GroupPostPageDto>> getPostsByGroupIdPage(
             @PathVariable String groupId,
             @RequestParam(value = "before", required = false) Long before,
             @RequestParam(value = "limit", required = false) Integer limit
     ) {
         AuthUtils.requireAuthenticatedEmail();
-        return postService.getPostsByGroupIdPage(groupId, before, limit);
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdPage(groupId, before, limit), ApiMeta.now()));
     }
 
     @GetMapping("/since")
-    public List<GroupPostDto> getPostsSince(
+    public ResponseEntity<ApiResponse<List<GroupPostDto>>> getPostsSince(
             @RequestParam String groupId,
             @RequestParam String sinceIso
     ) {
         AuthUtils.requireAuthenticatedEmail();
-        return postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso));
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso)), ApiMeta.now()));
     }
 
     @GetMapping("/groups/latest")
-    public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(
+    public ResponseEntity<ApiResponse<Map<String, GroupPostSummaryDto>>> getLatestPostsForGroups(
             @RequestParam("groupIds") List<String> groupIds) {
         AuthUtils.requireAuthenticatedEmail();
-        return postService.getLatestPostsForGroups(groupIds);
+        return ResponseEntity.ok(ApiResponse.ok(postService.getLatestPostsForGroups(groupIds), ApiMeta.now()));
     }
 
     @GetMapping("/{postId}")
-    public ResponseEntity<GroupPostDto> getPostById(@PathVariable Long postId) {
+    public ResponseEntity<ApiResponse<GroupPostDto>> getPostById(@PathVariable Long postId) {
         AuthUtils.requireAuthenticatedEmail();
         Optional<GroupPostDto> postOpt = postService.getPostDtoById(postId);
-        return postOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        return postOpt
+                .map(dto -> ResponseEntity.ok(ApiResponse.ok(dto, ApiMeta.now())))
+                .orElseGet(() -> ResponseEntity.status(404).<ApiResponse<GroupPostDto>>build());
     }
 
     @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
-    public ResponseEntity<GroupPost> updatePost(
+    public ResponseEntity<ApiResponse<GroupPost>> updatePost(
             @PathVariable Long postId,
             @RequestParam("content") String content,
             @RequestParam("groupId") String groupId,
@@ -129,12 +138,12 @@ public class GroupPostResource {
         String actor = AuthUtils.requireAuthenticatedEmail();
 
         Optional<GroupPost> postOpt = postService.getPostById(postId);
-        if (postOpt.isEmpty()) return ResponseEntity.notFound().build();
+        if (postOpt.isEmpty()) return ResponseEntity.status(404).<ApiResponse<GroupPost>>build();
 
         GroupPost post = postOpt.get();
 
         if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor)) {
-            return ResponseEntity.status(403).build();
+            return ResponseEntity.status(403).<ApiResponse<GroupPost>>build();
         }
 
         post.setContent(content);
@@ -155,7 +164,7 @@ public class GroupPostResource {
         }
 
         GroupPost updatedPost = postService.updatePost(post, actor);
-        return ResponseEntity.ok(updatedPost);
+        return ResponseEntity.ok(ApiResponse.ok(updatedPost, ApiMeta.now()));
     }
 
     @DeleteMapping("/{postId}")
@@ -175,10 +184,10 @@ public class GroupPostResource {
      * pin instantly.
      */
     @PostMapping("/{postId}/pin")
-    public ResponseEntity<GroupPostDto> pinPost(@PathVariable Long postId) {
+    public ResponseEntity<ApiResponse<GroupPostDto>> pinPost(@PathVariable Long postId) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         try {
-            return ResponseEntity.ok(postService.pinPost(postId, actor));
+            return ResponseEntity.ok(ApiResponse.ok(postService.pinPost(postId, actor), ApiMeta.now()));
         } catch (SecurityException se) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN, se.getMessage());
@@ -192,10 +201,10 @@ public class GroupPostResource {
      * the pin chip on the next render.
      */
     @DeleteMapping("/{postId}/pin")
-    public ResponseEntity<GroupPostDto> unpinPost(@PathVariable Long postId) {
+    public ResponseEntity<ApiResponse<GroupPostDto>> unpinPost(@PathVariable Long postId) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         try {
-            return ResponseEntity.ok(postService.unpinPost(postId, actor));
+            return ResponseEntity.ok(ApiResponse.ok(postService.unpinPost(postId, actor), ApiMeta.now()));
         } catch (SecurityException se) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN, se.getMessage());

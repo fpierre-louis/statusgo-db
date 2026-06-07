@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.Group;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,14 +13,33 @@ import java.util.Optional;
 @Repository
 public interface GroupRepo extends JpaRepository<Group, String> {
 
+    // Audit P2-7 / BE-09: Group's three email ElementCollections are
+    // LAZY by default. The lookup paths that historically relied on
+    // the EAGER fan-out (admin/member email -> Group rows whose
+    // downstream code walks all three lists) keep their previous
+    // payload by declaring an @EntityGraph that join-fetches the
+    // collections back in a single round trip. Without the graph,
+    // these methods would hit 1 + 3N fan-out from per-Group lazy
+    // collection inits (or LazyInitializationException outside a tx).
+    @EntityGraph(attributePaths = {"adminEmails", "memberEmails", "pendingMemberEmails"})
     @Query("SELECT g FROM Group g JOIN g.adminEmails a WHERE LOWER(a) = LOWER(:email)")
     List<Group> findByAdminEmail(@Param("email") String email);
 
     // Authoritative lookup for "groups this user belongs to" — reads the
     // Group side (member_emails) directly rather than relying on the
     // denormalized UserInfo.joinedGroupIDs cache. Case-insensitive.
+    @EntityGraph(attributePaths = {"adminEmails", "memberEmails", "pendingMemberEmails"})
     @Query("SELECT g FROM Group g JOIN g.memberEmails m WHERE LOWER(m) = LOWER(:email)")
     List<Group> findByMemberEmail(@Param("email") String email);
+
+    // Pending-member lookup — same rationale as findByMemberEmail.
+    // Used by surfaces that need to know "which groups has this user
+    // requested to join" (account deletion / discover privacy / etc).
+    // Pre-LAZY, callers leaned on the EAGER fan-out from generic
+    // findByGroupId/findAll; this gives them an explicit fetch path.
+    @EntityGraph(attributePaths = {"adminEmails", "memberEmails", "pendingMemberEmails"})
+    @Query("SELECT g FROM Group g JOIN g.pendingMemberEmails p WHERE LOWER(p) = LOWER(:email)")
+    List<Group> findByPendingMemberEmail(@Param("email") String email);
 
     // ✅ For UUID-based lookup by public groupId
     Optional<Group> findByGroupId(String groupId);

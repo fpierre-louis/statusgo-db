@@ -3,6 +3,9 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -10,6 +13,8 @@ import java.util.Optional;
 
 @Service
 public class DemographicService {
+
+    private static final Logger log = LoggerFactory.getLogger(DemographicService.class);
 
     private final DemographicRepo demographicRepository;
     private final HouseholdResolver householdResolver;
@@ -42,7 +47,7 @@ public class DemographicService {
             row.setPets(demographic.getPets());
             row.setHouseholdId(targetHh);
             if (row.getOwnerEmail() == null) row.setOwnerEmail(currentUserEmail);
-            return demographicRepository.save(row);
+            return saveIdempotent(row, currentUserEmail, targetHh);
         }
 
         Optional<Demographic> existing = demographicRepository.findByOwnerEmailIgnoreCase(currentUserEmail);
@@ -60,13 +65,34 @@ public class DemographicService {
             if (updated.getHouseholdId() == null) {
                 updated.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
             }
-            return demographicRepository.save(updated);
+            return saveIdempotent(updated, currentUserEmail, updated.getHouseholdId());
         }
 
         if (demographic.getHouseholdId() == null) {
             demographic.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
         }
-        return demographicRepository.save(demographic);
+        return saveIdempotent(demographic, currentUserEmail, demographic.getHouseholdId());
+    }
+
+    /**
+     * Persist the demographic row, treating a UNIQUE-constraint clash on
+     * {@code uk_demographic_owner_household} / {@code uk_demographic_owner_no_household}
+     * (V5 migration) as idempotent success — re-fetch the winning row and return
+     * it. Closes the race window where two concurrent saveDemographic calls both
+     * see "no existing row" and both insert. Falls through to rethrow when the
+     * row truly cannot be located afterward (would indicate a schema drift).
+     */
+    private Demographic saveIdempotent(Demographic row, String ownerEmail, String householdId) {
+        try {
+            return demographicRepository.save(row);
+        } catch (DataIntegrityViolationException ex) {
+            log.info("demographic upsert lost a race for owner={} household={}; returning the winner",
+                    ownerEmail, householdId);
+            Optional<Demographic> winner = householdId == null
+                    ? demographicRepository.findByOwnerEmailIgnoreCase(ownerEmail)
+                    : demographicRepository.findFirstByHouseholdIdOrderByIdDesc(householdId);
+            return winner.orElseThrow(() -> ex);
+        }
     }
 
     public List<Demographic> getAllDemographics() {

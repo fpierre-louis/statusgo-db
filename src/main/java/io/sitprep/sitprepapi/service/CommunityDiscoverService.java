@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.MemberAvatar;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.NearbyGroup;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.Place;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
@@ -300,7 +301,7 @@ public class CommunityDiscoverService {
         for (String e : emails) {
             UserInfo u = profiles.get(e);
             if (u == null) continue;
-            out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), u.getProfileImageURL()));
+            out.add(new MemberAvatar(u.getId(), u.getUserFirstName(), DtoImages.avatar(u.getProfileImageUrl())));
         }
         return out;
     }

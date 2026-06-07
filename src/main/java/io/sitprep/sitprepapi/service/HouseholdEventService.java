@@ -400,7 +400,7 @@ public class HouseholdEventService {
             HouseholdEvent e = roster.get(i);
             UserInfo u = userByEmail.get(e.getActorEmail());
             String name = u == null ? null : u.getUserFirstName();
-            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageURL());
+            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageUrl());
             String mood = extractMood(e.getPayloadJson());
             completions.add(new WeeklyCheckInSummaryDto.Completion(
                     e.getActorEmail(), name, img, e.getAt(), mood
@@ -536,7 +536,7 @@ public class HouseholdEventService {
             int streak = computeStreakWeeks(householdId, email, now, tz);
             UserInfo u = userByEmail.get(email);
             String name = u == null ? null : u.getUserFirstName();
-            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageURL());
+            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageUrl());
             WeeklyCheckInDigestDto.MemberStreak row = new WeeklyCheckInDigestDto.MemberStreak(
                     email, name, img, streak, checkedInThisWeek.contains(email)
             );
@@ -676,7 +676,7 @@ public class HouseholdEventService {
         UserInfo actor = e.getActorEmail() == null
                 ? null : userByEmail.get(e.getActorEmail().toLowerCase(Locale.ROOT));
         String actorName = actor == null ? null : actor.getUserFirstName();
-        String actorImg = actor == null ? null : PublicCdn.toPublicUrl(actor.getProfileImageURL());
+        String actorImg = actor == null ? null : PublicCdn.toPublicUrl(actor.getProfileImageUrl());
 
         Map<String, Object> payload;
         if (e.getPayloadJson() == null || e.getPayloadJson().isBlank()) {

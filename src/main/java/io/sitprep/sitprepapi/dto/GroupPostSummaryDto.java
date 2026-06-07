@@ -15,7 +15,7 @@ public class GroupPostSummaryDto {
     private String author;                 // email
     private String authorFirstName;
     private String authorLastName;
-    private String authorProfileImageURL;
+    private String authorProfileImageUrl;
 
     private String content;
     private Instant timestamp;

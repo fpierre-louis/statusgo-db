@@ -151,7 +151,7 @@ public class AlertDispatchService {
             u.setUserLastName("");
             // Avatar lives in the public bundle — sitprep-images CDN domain.
             // Falls back to hashed initials if the URL 404s on the FE side.
-            u.setProfileImageURL("https://sitprepimages.com/system/sitprep-avatar.png");
+            u.setProfileImageUrl("https://sitprepimages.com/system/sitprep-avatar.png");
             userInfoRepo.save(u);
             log.info("AlertDispatch: seeded system user {}", SYSTEM_EMAIL);
         } catch (Exception e) {

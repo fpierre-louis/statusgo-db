@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.repo.*;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -240,7 +241,17 @@ public class PlanActivationService {
         ack.setLng(req.lng());
         ack.setAckedAt(Instant.now());
 
-        PlanActivationAck saved = ackRepo.save(ack);
+        // Fast double-tap can race the upsert: thread A reads (miss), thread B reads (miss),
+        // both INSERT, second hits the (activation_id, lower(recipient_email)) unique constraint.
+        // Treat the duplicate as success — their ack is already recorded — and re-read the row.
+        PlanActivationAck saved;
+        try {
+            saved = ackRepo.save(ack);
+        } catch (DataIntegrityViolationException dive) {
+            saved = ackRepo
+                    .findByActivationIdAndRecipientEmailIgnoreCase(activationId, recipientEmail)
+                    .orElseThrow(() -> dive); // DIVE without an existing row is a real error
+        }
         AckDto dto = toAckDto(saved);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
