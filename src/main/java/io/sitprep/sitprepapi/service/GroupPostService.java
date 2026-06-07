@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.GroupReadState;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
 import io.sitprep.sitprepapi.dto.GroupPostPageDto;
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
@@ -385,7 +386,10 @@ public class GroupPostService {
             if (u != null) {
                 dto.setAuthorFirstName(u.getUserFirstName());
                 dto.setAuthorLastName(u.getUserLastName());
-                dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
+                // DtoImages.avatar normalizes the raw column value — legacy
+                // URLs return null so the FE renders the initials fallback
+                // instead of a broken-image glyph.
+                dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             }
             dto.setContent(p.getContent());
             dto.setTimestamp(p.getTimestamp());

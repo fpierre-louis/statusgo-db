@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommentPreviewDto;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.PostCommentDto;
 import io.sitprep.sitprepapi.repo.PostCommentRepo;
@@ -390,7 +391,11 @@ public class PostCommentService {
             UserInfo u = email == null ? null : profilesByEmail.get(email);
             String first = u != null ? u.getUserFirstName()
                     : (email != null ? email.split("@")[0] : "Neighbor");
-            String avatarUrl = u != null ? u.getProfileImageUrl() : null;
+            // DtoImages.avatar normalizes the raw column value through PublicCdn
+            // — legacy Firebase URLs, stale R2 keys, signed S3 URLs all return
+            // null so the wire contract guarantees the FE either renders the
+            // initials fallback OR a resolved https URL on the R2 base.
+            String avatarUrl = u != null ? DtoImages.avatar(u.getProfileImageUrl()) : null;
 
             // Strip the "> Replying to ...:" quote prefix so the preview
             // shows the actual reply text, not the quoted header. Then

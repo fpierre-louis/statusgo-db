@@ -607,6 +607,21 @@ public class UserInfoService {
         }
     }
 
+    /**
+     * Legacy field-name aliases — old clients (App Store builds shipped before
+     * the profileImageURL -> profileImageUrl canonicalization in P3-5) PATCH
+     * with the uppercase URL spelling. Reflection can't find a field named
+     * {@code profileImageURL} so the field was silently dropped, leaving the
+     * client convinced the update succeeded while the DB stayed unchanged.
+     * Normalize the incoming key BEFORE the reflection lookup so both shapes
+     * work. Mirror any future renames here until we can require a min app
+     * version.
+     */
+    private static final Map<String, String> LEGACY_FIELD_ALIASES = Map.of(
+            "profileImageURL", "profileImageUrl",
+            "coverImageURL", "coverImageUrl"
+    );
+
     @Transactional
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
         UserInfo userInfo = userInfoRepo.findById(id)
@@ -616,8 +631,9 @@ public class UserInfoService {
         // after a successful save when (and only when) it actually changed.
         String oldUserStatus = userInfo.getUserStatus();
 
-        updates.forEach((key, value) -> {
-            if (key == null || value == null) return;
+        updates.forEach((rawKey, value) -> {
+            if (rawKey == null || value == null) return;
+            String key = LEGACY_FIELD_ALIASES.getOrDefault(rawKey, rawKey);
             if (Set.of("id", "userEmail").contains(key)) return;
 
             if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;

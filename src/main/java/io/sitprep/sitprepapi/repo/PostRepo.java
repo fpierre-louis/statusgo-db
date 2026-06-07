@@ -93,11 +93,18 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                            @Param("completedAt") Instant completedAt,
                            @Param("forbidden") Set<PostStatus> forbidden);
 
+    // Cancel also clears the claim metadata (claimedByGroupId / claimedByEmail
+    // / claimedAt). Pre-fix: cancelled tasks kept the previous claimer's
+    // identity, so DTOs / analytics / notifications showed a cancelled task as
+    // still claimed by group X. Mirrors transitionReopen's NULL-out below.
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
            UPDATE Post p
-              SET p.status = :next
+              SET p.status            = :next,
+                  p.claimedByGroupId  = NULL,
+                  p.claimedByEmail    = NULL,
+                  p.claimedAt         = NULL
             WHERE p.id = :id
               AND p.status <> :forbidden
            """)
