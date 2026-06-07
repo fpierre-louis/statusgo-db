@@ -45,11 +45,17 @@ spring:
       ddl-auto: ${JPA_DDL_AUTO:validate}
     open-in-view: false
     show-sql: ${JPA_SHOW_SQL:false}
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    # database-platform removed — Hibernate 6 auto-detects from the JDBC URL
+    # and warns when set explicitly (HHH90000025). One less property to drift.
     properties:
       hibernate:
         format_sql: ${HIBERNATE_FORMAT_SQL:false}
-        default_batch_fetch_size: 50
+        # Trimmed 50 -> 25 (2026-06-07) to reduce memory footprint on the
+        # 512 MB Heroku dyno (R14 ceiling). Each batch entry caches one
+        # extra entity per association in the persistence context. 25 keeps
+        # the N+1 mitigation meaningful (saves 25x round trips) without
+        # bloating the L1 cache. Bump back to 50+ when dyno tier rises.
+        default_batch_fetch_size: 25
 
   # --- FLYWAY (schema migration / DDL drift gate) ---
   # Landed 2026-06-05 (P0-7 in docs/audit/RACE_AUDIT_GAMEPLAN.md). Existing
