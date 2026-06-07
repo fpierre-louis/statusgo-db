@@ -7,10 +7,21 @@ spring:
     import: "optional:classpath:application-local.yml"
 
   # --- DATASOURCE CONFIGURATION (PostgreSQL) ---
+  # JDBC_DATABASE_* env vars are REQUIRED. There is intentionally no
+  # default — the previous defaults pointed at production RDS, so any
+  # local/CI run that forgot to set env vars silently hit prod (and the
+  # credentials lived in git history). Local development sets these in
+  # application-local.yml (gitignored, auto-imported via spring.config
+  # above). Heroku injects them from the Postgres addon.
+  #
+  # If you see "Failed to determine a suitable driver class" or
+  # "Property 'spring.datasource.url' is required but missing", set
+  # the three env vars (or copy application-local.example.yml ->
+  # application-local.yml and fill in your local DB).
   datasource:
-    url: ${JDBC_DATABASE_URL:jdbc:postgresql://cav90t0tlkv4jb.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/decphbihs89i7j}
-    username: ${JDBC_DATABASE_USERNAME:ud96qhmmahggsm}
-    password: ${JDBC_DATABASE_PASSWORD:pdd5cb3091269be84f7af868bb733d17177edb69ce5bd436882d22d7e0947e037}
+    url: ${JDBC_DATABASE_URL}
+    username: ${JDBC_DATABASE_USERNAME}
+    password: ${JDBC_DATABASE_PASSWORD}
     driver-class-name: org.postgresql.Driver
     # Hikari + Postgres timeouts — audit P1-12.
     # 20s statement_timeout, 30s idle_in_transaction, 20 max pool.
