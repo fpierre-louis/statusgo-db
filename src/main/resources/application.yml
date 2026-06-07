@@ -24,9 +24,13 @@ spring:
     password: ${JDBC_DATABASE_PASSWORD}
     driver-class-name: org.postgresql.Driver
     # Hikari + Postgres timeouts — audit P1-12.
-    # 20s statement_timeout, 30s idle_in_transaction, 20 max pool.
+    # statement_timeout=20s, idle_in_transaction=30s.
+    # Pool max reverted from 20 -> 10 (2026-06-07): the bump to 20 pushed the
+    # Heroku dyno over the 512 MB R14 ceiling under normal traffic. 10 is the
+    # pre-audit value and stays within memory budget; raise again only when
+    # the dyno tier is bumped.
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX:20}
+      maximum-pool-size: ${DB_POOL_MAX:10}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: ${DB_POOL_CONN_TIMEOUT_MS:30000}
       idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:600000}

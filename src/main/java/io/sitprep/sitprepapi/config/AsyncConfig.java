@@ -24,12 +24,16 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableAsync
 public class AsyncConfig {
 
+    // Pool sizes sized for the 512 MB Heroku Basic dyno: each idle thread
+    // costs ~512 KB stack. core=2, max=8, queue=100 gives meaningful burst
+    // headroom without pushing past R14 (the 2026-06-07 deploy hit 605M with
+    // max=16). Bump these in tandem with Hikari pool when the dyno tier rises.
     @Bean(name = "taskExecutor")
     public Executor taskExecutor() {
         ThreadPoolTaskExecutor e = new ThreadPoolTaskExecutor();
-        e.setCorePoolSize(4);
-        e.setMaxPoolSize(16);
-        e.setQueueCapacity(200);
+        e.setCorePoolSize(2);
+        e.setMaxPoolSize(8);
+        e.setQueueCapacity(100);
         e.setThreadNamePrefix("sitprep-async-");
         e.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         e.initialize();

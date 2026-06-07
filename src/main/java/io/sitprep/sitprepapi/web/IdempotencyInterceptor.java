@@ -13,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExecutionChain;
@@ -192,7 +191,14 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
         return null;
     }
 
-    @Transactional
+    // No @Transactional here — adding it triggers Spring CGLib proxying of
+    // this OncePerRequestFilter subclass. CGLib can't proxy the filter's
+    // final init() method, so the generated subclass is instantiated without
+    // GenericFilterBean's logger field being set, and the first init() call
+    // NPEs ("Cannot invoke ... isDebugEnabled() because this.logger is null").
+    // Spring Data JPA's SimpleJpaRepository.save() is already @Transactional,
+    // so a bare repo.save() opens its own short tx — exactly what we want for
+    // the idempotency cache insert (independent of the controller's tx).
     protected void persist(String caller, String endpoint, String key,
                            int status, byte[] body) {
         // Normalize through Jackson when possible so the stored shape is
