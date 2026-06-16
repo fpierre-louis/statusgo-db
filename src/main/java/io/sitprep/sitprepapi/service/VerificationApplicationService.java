@@ -116,9 +116,18 @@ public class VerificationApplicationService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Verification application not found"));
         VerificationApplication.Status next = parseStatus(req == null ? null : req.status());
+        VerificationApplication.Status prev = app.getStatus();
         if (next == VerificationApplication.Status.DRAFT || next == VerificationApplication.Status.SUBMITTED) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Reviewer status must be IN_REVIEW, NEEDS_INFO, APPROVED, or REJECTED");
+                    "Reviewer status must be IN_REVIEW, NEEDS_INFO, APPROVED, REJECTED, or PROVISIONED");
+        }
+        // Provisioning is the handoff AFTER the stamp is granted — only an
+        // already-approved application can be marked provisioned.
+        if (next == VerificationApplication.Status.PROVISIONED
+                && prev != VerificationApplication.Status.APPROVED
+                && prev != VerificationApplication.Status.PROVISIONED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only an approved application can be marked provisioned");
         }
 
         app.setStatus(next);
@@ -143,8 +152,8 @@ public class VerificationApplicationService {
             String temporaryEventAddress = trim(req == null ? null : req.publisherTemporaryEventAddress(), 400);
             boolean emergencyPostingEnabled = Boolean.TRUE.equals(
                     req == null ? null : req.emergencyPostingEnabled());
+            Group group = findGroup(app.getGroupId());
             if (emergencyPostingEnabled) {
-                Group group = findGroup(app.getGroupId());
                 int authorizedAdmins = authorizedAdminCount(group);
                 if (authorizedAdmins < 2) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -162,10 +171,29 @@ public class VerificationApplicationService {
                     emergencyPostingEnabled,
                     app.getGroupId()
             );
+            // Phase 5: stamp the agency's jurisdiction on the group (this review
+            // path is super-admin token-gated) so it can send geo-targeted alerts.
+            if (group != null) {
+                List<String> jzips = req == null ? null : req.jurisdictionZips();
+                if (jzips != null) {
+                    group.setJurisdictionZips(jzips.stream()
+                            .filter(z -> z != null && !z.isBlank())
+                            .map(String::trim)
+                            .distinct()
+                            .toList());
+                }
+                String jtype = trim(req == null ? null : req.jurisdictionType(), 24);
+                if (jtype != null) group.setJurisdictionType(jtype.toLowerCase(Locale.ROOT));
+                groupRepo.save(group);
+            }
             app.setPublisherServiceArea(serviceArea);
             app.setPublisherPermanentAddress(permanentAddress);
             app.setPublisherTemporaryEventAddress(temporaryEventAddress);
             app.setEmergencyPostingEnabled(emergencyPostingEnabled);
+        } else if (next == VerificationApplication.Status.PROVISIONED) {
+            // Preserve the granted publisher fields (set at APPROVED) — only
+            // stamp the handoff moment.
+            app.setProvisionedAt(Instant.now());
         } else {
             app.setApprovedPublisherEmail(null);
             app.setVerifiedKind(null);

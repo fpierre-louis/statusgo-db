@@ -30,7 +30,11 @@ public class VerificationApplication {
         IN_REVIEW,
         NEEDS_INFO,
         APPROVED,
-        REJECTED
+        REJECTED,
+        // Terminal handoff state (Phase 5 Slice B): the stamp is granted at
+        // APPROVED; PROVISIONED means the agency workspace is configured +
+        // handed off. Stored as a string, so no DB enum/CHECK change.
+        PROVISIONED
     }
 
     @Id
@@ -115,6 +119,7 @@ public class VerificationApplication {
 
     private Instant submittedAt;
     private Instant reviewedAt;
+    private Instant provisionedAt;
 
     @PrePersist
     void onCreate() {

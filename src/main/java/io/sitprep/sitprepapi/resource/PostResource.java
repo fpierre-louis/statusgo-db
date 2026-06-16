@@ -128,6 +128,15 @@ public class PostResource {
         return ResponseEntity.ok(ApiResponse.ok(tasks.getConditions(lat, lng), ApiMeta.now()));
     }
 
+    // Phase 5 Slice E — the verified agency (if any) whose jurisdiction
+    // includes the viewer's current zip. Drives the community co-sign;
+    // data is null when the viewer isn't in any agency's jurisdiction.
+    @GetMapping("/api/community/local-agency")
+    public ResponseEntity<ApiResponse<PostService.LocalAgencyDto>> localAgency() {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.localAgencyForViewer(viewer), ApiMeta.now()));
+    }
+
     @GetMapping("/api/me/posts")
     public ResponseEntity<ApiResponse<List<PostDto>>> listMine(
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role

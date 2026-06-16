@@ -225,6 +225,17 @@ public class UserInfo {
     private Instant lastKnownLocationAt;
 
     /**
+     * Cached full postcode (5-digit US zip) reverse-geocoded from
+     * {@link #lastKnownLat}/{@link #lastKnownLng} (Phase 5 Slice C). Powers
+     * O(1) jurisdiction matching for agency geo-alerts — recipients are
+     * found by {@code lastKnownZip IN (agency.jurisdictionZips)} instead of
+     * a Haversine scan per send. Refreshed on the location ping only when
+     * it's null or the position moved meaningfully (bounds Nominatim calls).
+     */
+    @Column(name = "last_known_zip", length = 12)
+    private String lastKnownZip;
+
+    /**
      * Per-group location sharing preference. Map of {@code groupId} →
      * sharing mode (one of {@code "always"}, {@code "check-in-only"},
      * {@code "never"}). The household feed gates {@code lastKnownLat/Lng}

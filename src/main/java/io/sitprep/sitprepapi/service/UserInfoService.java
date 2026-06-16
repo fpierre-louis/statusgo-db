@@ -40,6 +40,7 @@ public class UserInfoService {
     private final BlockService blockService;
     private final ObjectMapper objectMapper;
     private final WebSocketMessageSender ws;
+    private final NominatimGeocodeService geocode;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
@@ -49,7 +50,8 @@ public class UserInfoService {
                            FollowService followService,
                            BlockService blockService,
                            ObjectMapper objectMapper,
-                           WebSocketMessageSender ws) {
+                           WebSocketMessageSender ws,
+                           NominatimGeocodeService geocode) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
@@ -58,6 +60,7 @@ public class UserInfoService {
         this.blockService = blockService;
         this.objectMapper = objectMapper;
         this.ws = ws;
+        this.geocode = geocode;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -425,6 +428,12 @@ public class UserInfoService {
                 .orElseGet(HashMap::new);
     }
 
+    // ~0.03° ≈ 2mi in either axis — past this we re-resolve the zip.
+    private static boolean movedMeaningfully(Double prevLat, Double prevLng, double lat, double lng) {
+        if (prevLat == null || prevLng == null) return true;
+        return Math.abs(prevLat - lat) > 0.03 || Math.abs(prevLng - lng) > 0.03;
+    }
+
     /**
      * Presence-location ping handler. Updates {@code lastKnownLat/Lng} +
      * {@code lastKnownLocationAt} on the user identified by email. Silently
@@ -435,9 +444,25 @@ public class UserInfoService {
         if (email == null || email.isBlank() || lat == null || lng == null) return;
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
             Instant updatedAt = Instant.now();
+            Double prevLat = u.getLastKnownLat();
+            Double prevLng = u.getLastKnownLng();
             u.setLastKnownLat(lat);
             u.setLastKnownLng(lng);
             u.setLastKnownLocationAt(updatedAt);
+            // Refresh the cached jurisdiction zip only when we don't have one
+            // yet or the position moved meaningfully (~2mi) — bounds Nominatim
+            // calls (it also caches internally). Best-effort: a failure leaves
+            // the previous zip untouched.
+            if (u.getLastKnownZip() == null || movedMeaningfully(prevLat, prevLng, lat, lng)) {
+                try {
+                    NominatimGeocodeService.Place p = geocode.reverse(lat, lng);
+                    if (p != null && p.postcode() != null && !p.postcode().isBlank()) {
+                        u.setLastKnownZip(p.postcode().trim());
+                    }
+                } catch (Exception ignore) {
+                    // leave existing zip
+                }
+            }
             UserInfo saved = userInfoRepo.save(u);
 
             final String frameEmail = saved.getUserEmail() == null

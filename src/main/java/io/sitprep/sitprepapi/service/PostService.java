@@ -1004,6 +1004,26 @@ public class PostService {
         return new ArrayList<>(byId.values());
     }
 
+    public record LocalAgencyDto(String groupId, String name, String logoImageUrl, String jurisdictionType) {}
+
+    /**
+     * The verified agency (if any) whose claimed jurisdiction includes the
+     * viewer's current cached zip — powers the in-jurisdiction community
+     * co-sign (Phase 5 Slice E). Null when the viewer has no cached zip or
+     * isn't standing in any agency's jurisdiction.
+     */
+    @Transactional(readOnly = true)
+    public LocalAgencyDto localAgencyForViewer(String email) {
+        if (email == null || email.isBlank()) return null;
+        UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(email.trim()).orElse(null);
+        String zip = u == null ? null : u.getLastKnownZip();
+        if (zip == null || zip.isBlank()) return null;
+        List<Group> matches = groupRepo.findByJurisdictionZip(zip.trim());
+        if (matches == null || matches.isEmpty()) return null;
+        Group g = matches.get(0);
+        return new LocalAgencyDto(g.getGroupId(), g.getGroupName(), g.getLogoImageUrl(), g.getJurisdictionType());
+    }
+
     public record Condition(String label, Object value, String unit, String status) {}
     public record ConditionsDto(Condition temp, Condition wind, Condition air, Condition power, boolean mocked) {}
 

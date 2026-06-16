@@ -8,7 +8,7 @@ import java.util.Optional;
 
 public interface HouseholdRitualRepo extends JpaRepository<HouseholdRitual, Long> {
 
-    List<HouseholdRitual> findByHouseholdId(String householdId);
+    List<HouseholdRitual> findByHouseholdId(String householdId);git add
 
     /**
      * The single-of-kind lookup the FE relies on for "does this

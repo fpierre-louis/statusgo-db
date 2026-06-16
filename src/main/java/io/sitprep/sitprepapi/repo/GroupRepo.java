@@ -45,6 +45,15 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     Optional<Group> findByGroupId(String groupId);
 
     /**
+     * Verified-agency groups whose claimed jurisdiction includes this zip
+     * (Phase 5 Slice E) — powers the in-jurisdiction community co-sign. Only
+     * super-admin provisioning sets jurisdiction zips, so a match IS a
+     * verified agency.
+     */
+    @Query("SELECT g FROM Group g JOIN g.jurisdictionZips z WHERE z = :zip ORDER BY g.groupName ASC")
+    List<Group> findByJurisdictionZip(@Param("zip") String zip);
+
+    /**
      * Case-insensitive uniqueness check for the group-create flows.
      * Replaces the FE pattern of pulling the entire groups table on
      * every keystroke and filtering in memory. Returns true when at

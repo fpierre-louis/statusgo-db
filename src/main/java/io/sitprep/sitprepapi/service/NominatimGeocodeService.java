@@ -45,7 +45,8 @@ public class NominatimGeocodeService {
      * subtitle. Falls back to {@code city} on the consumer side when null.</p>
      */
     public record Place(String neighborhood, String city, String region,
-                        String state, String country, String zipBucket) {
+                        String state, String country, String zipBucket,
+                        String postcode) {
 
         /**
          * Best-available short label for "where this is", in the order:
@@ -141,7 +142,8 @@ public class NominatimGeocodeService {
                             trimOrNull(region),
                             trimOrNull(state),
                             trimOrNull(country),
-                            zipBucket
+                            zipBucket,
+                            postcode
                     );
                     ttl = TTL_OK_MS;
                 }

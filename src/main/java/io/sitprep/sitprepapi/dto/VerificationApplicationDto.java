@@ -36,7 +36,8 @@ public record VerificationApplicationDto(
         Instant createdAt,
         Instant updatedAt,
         Instant submittedAt,
-        Instant reviewedAt
+        Instant reviewedAt,
+        Instant provisionedAt
 ) {
     public static VerificationApplicationDto from(VerificationApplication app, Group group) {
         return new VerificationApplicationDto(
@@ -70,7 +71,8 @@ public record VerificationApplicationDto(
                 app.getCreatedAt(),
                 app.getUpdatedAt(),
                 app.getSubmittedAt(),
-                app.getReviewedAt()
+                app.getReviewedAt(),
+                app.getProvisionedAt()
         );
     }
 

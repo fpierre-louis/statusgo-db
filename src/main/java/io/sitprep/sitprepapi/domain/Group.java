@@ -169,6 +169,27 @@ public class Group {
     private String websiteUrl;
 
     /**
+     * Phase 5 jurisdiction model (Slice C). For a verified agency group: the
+     * set of US zips the agency is authorized to geo-target. Set during
+     * super-admin provisioning; an agency alert may only target zips IN this
+     * set. Empty/null for non-agency groups. Explicit @CollectionTable +
+     * join column to match every other Group collection (and dodge the
+     * Hibernate physical-table-name collection-naming trap).
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "group_jurisdiction_zips", joinColumns = @JoinColumn(name = "group_id"))
+    @Column(name = "zip", length = 12)
+    private List<String> jurisdictionZips;
+
+    /** city | county | state | public-safety | utility | other — display + gating. */
+    @Column(name = "jurisdiction_type", length = 24)
+    private String jurisdictionType;
+
+    /** Non-agency org service radius (miles) for community-feed reach. Null default. */
+    @Column(name = "service_area_radius")
+    private Double serviceAreaRadius;
+
+    /**
      * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
      * {@code stripeCustomerId} is the group's Stripe Customer (the
      * billing account); {@code stripeSubscriptionId} the active org-

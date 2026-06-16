@@ -68,6 +68,12 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
      */
     List<UserInfo> findByVerifiedPublisherTrue();
 
+    // Geo-alert recipients (Phase 5 Slice C): users whose cached jurisdiction
+    // zip is in the agency's claimed set, seen recently. The send path drops
+    // tokenless users via NotificationService.
+    List<UserInfo> findByLastKnownZipInAndLastKnownLocationAtAfter(
+            java.util.Collection<String> zips, Instant since);
+
     Optional<UserInfo> findFirstByVerifiedPublisherGroupIdIgnoreCase(String groupId);
 
     /**
