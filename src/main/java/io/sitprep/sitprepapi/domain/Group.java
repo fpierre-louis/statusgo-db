@@ -156,6 +156,19 @@ public class Group {
     private String logoImageUrl;
 
     /**
+     * Business-only profile fields (Phase 5 Slice A). Populated by the
+     * group-creation wizard when {@code groupType == "Business"}; null for
+     * every other type. Drive the BusinessAboutCard on the group page —
+     * a differentiated profile unlocked purely by the type choice, NOT by
+     * verification (verification/claim is agency-only). Additive, nullable.
+     */
+    @Column(name = "business_category", length = 64)
+    private String businessCategory;
+
+    @Column(name = "website_url", length = 512)
+    private String websiteUrl;
+
+    /**
      * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
      * {@code stripeCustomerId} is the group's Stripe Customer (the
      * billing account); {@code stripeSubscriptionId} the active org-

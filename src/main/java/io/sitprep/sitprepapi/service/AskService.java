@@ -637,7 +637,7 @@ public class AskService {
             if (u != null) {
                 h.setAuthorFirstName(u.getUserFirstName());
                 h.setAuthorLastName(u.getUserLastName());
-                h.setAuthorProfileImageUrl(u.getProfileImageUrl());
+                h.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             }
         }
         return hits;
@@ -767,7 +767,7 @@ public class AskService {
         if (u == null) return;
         setFirst.accept(dto, u.getUserFirstName());
         setLast.accept(dto, u.getUserLastName());
-        setImg.accept(dto, u.getProfileImageUrl());
+        setImg.accept(dto, DtoImages.avatar(u.getProfileImageUrl()));
     }
 
     private static String snippet(String body) {

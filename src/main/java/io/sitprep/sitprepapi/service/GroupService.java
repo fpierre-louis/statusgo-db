@@ -7,6 +7,7 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.GroupAlertFrame;
 import io.sitprep.sitprepapi.dto.GroupMembershipFrame;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
@@ -290,7 +291,7 @@ public class GroupService {
                     key,
                     u == null ? null : u.getUserFirstName(),
                     u == null ? null : u.getUserLastName(),
-                    u == null ? null : u.getProfileImageUrl(),
+                    u == null ? null : DtoImages.avatar(u.getProfileImageUrl()),
                     status,
                     statusAt,
                     accounted
@@ -593,7 +594,7 @@ public class GroupService {
                     "Welcome to " + group.getGroupName() + "!",
                     msg,
                     "User",
-                    user.getProfileImageUrl() != null ? user.getProfileImageUrl() : "/images/default-user-icon.png",
+                    DtoImages.avatar(user.getProfileImageUrl()),
                     Set.of(token),
                     "new_member",
                     group.getGroupId(),
@@ -627,7 +628,7 @@ public class GroupService {
                         "Hi " + admin.getUserFirstName() + "👋",
                         msg,
                         "Admin",
-                        newUser.getProfileImageUrl() != null ? newUser.getProfileImageUrl() : "/images/default-user-icon.png",
+                        DtoImages.avatar(newUser.getProfileImageUrl()),
                         Set.of(token),
                         "new_member",
                         group.getGroupId(),

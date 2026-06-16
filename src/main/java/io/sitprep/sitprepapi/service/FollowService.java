@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
@@ -146,7 +147,7 @@ public class FollowService {
             Optional<UserInfo> actorOpt = userInfoRepo.findByUserEmailIgnoreCase(followerEmail);
             UserInfo actor = actorOpt.orElse(null);
             String actorName = displayName(actor, followerEmail);
-            String actorIcon = actor != null ? actor.getProfileImageUrl() : null;
+            String actorIcon = actor != null ? DtoImages.avatar(actor.getProfileImageUrl()) : null;
             String actorIdentifier = profileIdentifier(actor, followerEmail);
             String actorUserId = actor != null ? actor.getId() : null;
 
@@ -221,7 +222,7 @@ public class FollowService {
             Optional<UserInfo> accepterOpt = userInfoRepo.findByUserEmailIgnoreCase(accepter);
             UserInfo accepterUser = accepterOpt.orElse(null);
             String accepterName = displayName(accepterUser, accepter);
-            String accepterIcon = accepterUser != null ? accepterUser.getProfileImageUrl() : null;
+            String accepterIcon = accepterUser != null ? DtoImages.avatar(accepterUser.getProfileImageUrl()) : null;
             String accepterIdentifier = profileIdentifier(accepterUser, accepter);
             String accepterUserId = accepterUser != null ? accepterUser.getId() : null;
 

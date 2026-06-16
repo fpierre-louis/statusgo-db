@@ -1,7 +1,14 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.CivicCategory;
+import io.sitprep.sitprepapi.constant.CivicStatus;
+import io.sitprep.sitprepapi.constant.OfficialTier;
 import io.sitprep.sitprepapi.constant.PostKind;
+import io.sitprep.sitprepapi.domain.AskBookmark;
 import io.sitprep.sitprepapi.domain.Follow;
+import io.sitprep.sitprepapi.domain.PostConfirm;
+import io.sitprep.sitprepapi.repo.AskBookmarkRepo;
+import io.sitprep.sitprepapi.repo.PostConfirmRepo;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -72,6 +79,8 @@ public class PostService {
     private final StorageService storage;
     private final GroupRepo groupRepo;
     private final PublisherPublishAuditService publisherPublishAuditService;
+    private final PostConfirmRepo postConfirmRepo;
+    private final AskBookmarkRepo askBookmarkRepo;
 
     public record PostSharePreview(
             String title,
@@ -89,7 +98,9 @@ public class PostService {
                        PostCommentService commentService,
                        StorageService storage,
                        GroupRepo groupRepo,
-                       PublisherPublishAuditService publisherPublishAuditService) {
+                       PublisherPublishAuditService publisherPublishAuditService,
+                       PostConfirmRepo postConfirmRepo,
+                       AskBookmarkRepo askBookmarkRepo) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -102,6 +113,8 @@ public class PostService {
         this.storage = storage;
         this.groupRepo = groupRepo;
         this.publisherPublishAuditService = publisherPublishAuditService;
+        this.postConfirmRepo = postConfirmRepo;
+        this.askBookmarkRepo = askBookmarkRepo;
     }
 
     /**
@@ -322,10 +335,35 @@ public class PostService {
         // amortization model as reactions/counts above.
         Map<Long, io.sitprep.sitprepapi.dto.CommentPreviewDto> latestPreviews =
                 commentService.loadLatestPreviewsByPostIds(ids);
+
+        // Community-redesign folds: first-class confirms + saved viewer state
+        // + tagged-agency display name. Each is one batched query.
+        Map<Long, Long> confirmCounts = postConfirmRepo.findByPostIdIn(ids).stream()
+                .collect(Collectors.groupingBy(PostConfirm::getPostId, Collectors.counting()));
+        Set<Long> viewerConfirmed = (viewerEmail == null || viewerEmail.isBlank())
+                ? Set.of()
+                : new HashSet<>(postConfirmRepo.findPostIdsWhereViewerConfirmed(ids, viewerEmail));
+        Set<String> savedKeys = (viewerEmail == null || viewerEmail.isBlank())
+                ? Set.of()
+                : askBookmarkRepo.findUserBookmarksIn(viewerEmail, "post",
+                        ids.stream().map(String::valueOf).toList())
+                    .stream().map(AskBookmark::getTargetKey).collect(Collectors.toSet());
+        List<String> agencyIds = dtos.stream()
+                .map(d -> d.community() == null ? null : d.community().taggedAgency())
+                .filter(Objects::nonNull)
+                .map(PostDto.CommunityExtras.TaggedAgency::id)
+                .filter(Objects::nonNull).distinct().toList();
+        Map<String, Group> agencyById = new HashMap<>();
+        if (!agencyIds.isEmpty()) {
+            for (Group g : groupRepo.findAllById(agencyIds)) {
+                if (g != null && g.getGroupId() != null) agencyById.put(g.getGroupId(), g);
+            }
+        }
+
         return dtos.stream()
                 .map(d -> {
                     if (d.id() == null) return d;
-                    return d.withEngagement(
+                    PostDto out = d.withEngagement(
                             thankSummary.countFor(d.id()),
                             thankSummary.viewerThankedTask(d.id()),
                             commentCounts.getOrDefault(d.id(), 0)
@@ -335,6 +373,19 @@ public class PostService {
                     ).withLatestComment(
                             latestPreviews.get(d.id())
                     );
+                    PostDto.CommunityExtras ce = out.community();
+                    if (ce != null) {
+                        ce = ce.withConfirms(
+                                confirmCounts.getOrDefault(d.id(), 0L).intValue(),
+                                viewerConfirmed.contains(d.id())
+                        ).withSaved(savedKeys.contains(String.valueOf(d.id())));
+                        if (ce.taggedAgency() != null) {
+                            Group g = agencyById.get(ce.taggedAgency().id());
+                            if (g != null) ce = ce.withAgencyIdentity(g.getGroupName(), true);
+                        }
+                        out = out.withCommunity(ce);
+                    }
+                    return out;
                 })
                 .collect(Collectors.toList());
     }
@@ -471,6 +522,10 @@ public class PostService {
             }
         }
 
+        // Community-redesign per-type fields (official / news / civic-report).
+        // @RequestBody binds the raw columns; this authorizes + defaults them.
+        applyCommunityTypeFields(t, incoming, requesterEmail);
+
         // Reverse-geocode to populate zipBucket (community-feed pre-filter)
         // and placeLabel (Nextdoor-style "{neighborhood} · {time}" subtitle
         // on feed cards). Safe to skip on group-scope tasks since the
@@ -497,6 +552,154 @@ public class PostService {
         // the post card with the right author header.
         dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(dto)))).get(0);
         publisherPublishAuditService.recordCommunityPost(saved, requesterEmail);
+        broadcastAfterCommit(dto);
+        return dto;
+    }
+
+    /**
+     * Authorize + default the community-redesign per-type fields on create.
+     * Official + news are gated to verified publishers; civic reports are
+     * stamped REPORTED and must tag an existing agency group.
+     */
+    private void applyCommunityTypeFields(Post t, Post incoming, String actorEmail) {
+        String kind = t.getKind();
+        if ("official".equals(kind)) {
+            UserInfo author = userInfoRepo.findByUserEmail(actorEmail.trim().toLowerCase()).orElse(null);
+            if (author == null || !author.isVerifiedPublisherEmergencyPostingEnabled()) {
+                throw new IllegalArgumentException("Only verified emergency publishers can post official alerts");
+            }
+            String tier = incoming.getOfficialTier() == null ? null : incoming.getOfficialTier().trim().toLowerCase();
+            if (!OfficialTier.isValid(tier)) {
+                throw new IllegalArgumentException("officialTier must be one of " + OfficialTier.ALLOWED_WIRE_VALUES);
+            }
+            t.setOfficialTier(tier);
+            if (OfficialTier.EMERGENCY.wire().equals(tier) || incoming.getPinnedUntil() != null) {
+                t.setPinnedAt(Instant.now());
+                t.setPinnedBy(actorEmail.trim().toLowerCase());
+                t.setPinnedUntil(incoming.getPinnedUntil());
+            }
+        } else if ("news".equals(kind)) {
+            UserInfo author = userInfoRepo.findByUserEmail(actorEmail.trim().toLowerCase()).orElse(null);
+            if (author == null || !author.isVerifiedPublisher()) {
+                throw new IllegalArgumentException("Only verified publishers can post news");
+            }
+            t.setSourceName(blankToNull(incoming.getSourceName()));
+            t.setSourceUrl(blankToNull(incoming.getSourceUrl()));
+            t.setReadMinutes(incoming.getReadMinutes());
+        } else if ("civic-report".equals(kind)) {
+            String cat = incoming.getCivicCategory() == null ? null : incoming.getCivicCategory().trim().toLowerCase();
+            if (!CivicCategory.isValid(cat)) {
+                throw new IllegalArgumentException("civicCategory must be one of " + CivicCategory.ALLOWED_WIRE_VALUES);
+            }
+            String agencyId = blankToNull(incoming.getTaggedAgencyGroupId());
+            if (agencyId == null) {
+                throw new IllegalArgumentException("civic-report requires a taggedAgencyGroupId");
+            }
+            Group agency = groupRepo.findByGroupId(agencyId)
+                    .orElseThrow(() -> new IllegalArgumentException("taggedAgencyGroupId references an unknown group"));
+            // Must be a VERIFIED agency (a verified publisher linked to this group)
+            // — keeps the feed-card "verified" badge honest and stops a crafted
+            // request from tagging an arbitrary group. Mirrors listAgencies.
+            if (userInfoRepo.findFirstByVerifiedPublisherGroupIdIgnoreCase(agency.getGroupId()).isEmpty()) {
+                throw new IllegalArgumentException("taggedAgencyGroupId must reference a verified agency");
+            }
+            t.setCivicCategory(cat);
+            t.setTaggedAgencyGroupId(agency.getGroupId());
+            t.setCivicStatus(CivicStatus.REPORTED.wire());
+        }
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    // ---------------------------------------------------------------------
+    // Community-redesign engagement + civic lifecycle
+    // ---------------------------------------------------------------------
+
+    /** Result of a confirm toggle — the fresh count + the viewer's new state. */
+    public record ConfirmResult(int confirmsCount, boolean viewerConfirmed) {}
+
+    @Transactional
+    public ConfirmResult addConfirm(Long postId, String email) {
+        if (!taskRepo.existsById(postId)) throw new IllegalArgumentException("unknown post");
+        String e = email.trim().toLowerCase();
+        if (postConfirmRepo.findByPostIdAndUserEmailIgnoreCase(postId, e).isEmpty()) {
+            try {
+                PostConfirm c = new PostConfirm();
+                c.setPostId(postId);
+                c.setUserEmail(e);
+                // saveAndFlush so a concurrent-insert unique violation surfaces
+                // HERE (caught below) rather than poisoning the commit with a 500.
+                postConfirmRepo.saveAndFlush(c);
+            } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+                // A racing confirm for the same (post,user) already landed — idempotent success.
+            }
+        }
+        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), true);
+    }
+
+    @Transactional
+    public ConfirmResult removeConfirm(Long postId, String email) {
+        postConfirmRepo.deleteByPostAndUser(postId, email.trim().toLowerCase());
+        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), false);
+    }
+
+    /** Toggle a feed-post bookmark, reusing the generic AskBookmark table (target_type="post"). */
+    @Transactional
+    public boolean toggleSave(Long postId, String email, boolean save) {
+        if (!taskRepo.existsById(postId)) throw new IllegalArgumentException("unknown post");
+        String e = email.trim().toLowerCase();
+        String key = String.valueOf(postId);
+        if (save) {
+            if (askBookmarkRepo.findByUserEmailAndTargetTypeAndTargetKey(e, "post", key).isEmpty()) {
+                AskBookmark b = new AskBookmark();
+                b.setUserEmail(e);
+                b.setTargetType("post");
+                b.setTargetKey(key);
+                askBookmarkRepo.save(b);
+            }
+            return true;
+        }
+        askBookmarkRepo.deleteByUserEmailAndTargetTypeAndTargetKey(e, "post", key);
+        return false;
+    }
+
+    /** Agency-only forward advance of a civic-report's status (+ optional note). */
+    @Transactional
+    public PostDto updateCivicStatus(Long postId, String newStatus, String note, String actorEmail) {
+        Post t = taskRepo.findById(postId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown post"));
+        if (t.getCivicStatus() == null) {
+            throw new IllegalArgumentException("not a civic report");
+        }
+        CivicStatus from = CivicStatus.fromWire(t.getCivicStatus());
+        CivicStatus to = CivicStatus.fromWire(newStatus == null ? null : newStatus.trim().toLowerCase());
+        if (to == null) throw new IllegalArgumentException("invalid civic status");
+        if (!CivicStatus.canAdvanceTo(from, to)) {
+            throw new IllegalStateException("cannot move civic status " + from + " -> " + to);
+        }
+        Group agency = groupRepo.findByGroupId(t.getTaggedAgencyGroupId())
+                .orElseThrow(() -> new IllegalArgumentException("tagged agency missing"));
+        String me = actorEmail.trim().toLowerCase();
+        boolean owner = agency.getOwnerEmail() != null && agency.getOwnerEmail().equalsIgnoreCase(me);
+        boolean admin = agency.getAdminEmails() != null && agency.getAdminEmails().stream()
+                .anyMatch(x -> x != null && x.equalsIgnoreCase(me));
+        if (!owner && !admin) {
+            throw new IllegalArgumentException("Only the tagged agency's admins can update civic status");
+        }
+        t.setCivicStatus(to.wire());
+        if (note != null && !note.isBlank()) {
+            String n = note.trim();
+            t.setAgencyNote(n.length() > 280 ? n.substring(0, 280) : n); // column cap
+        }
+        Instant now = Instant.now();
+        if (to == CivicStatus.ACKNOWLEDGED) t.setCivicAckedAt(now);
+        else if (to == CivicStatus.SCHEDULED) t.setScheduledFor(now);
+        else if (to == CivicStatus.RESOLVED) t.setResolvedAt(now);
+        Post saved = taskRepo.save(t);
+        PostDto dto = withEngagement(
+                withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(saved))))), me).get(0);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -531,6 +734,24 @@ public class PostService {
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
     }
 
+    /**
+     * Public-profile feed slice: community-scope posts authored by the
+     * profile owner, newest first. Uses the same enrichment pipeline as
+     * {@link #discoverCommunity(double, double, double, Set, String, int)}
+     * so profile cards and community cards receive the same DTO anatomy.
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> listPublicProfilePosts(String requesterEmail, String viewerEmail, int limit) {
+        if (requesterEmail == null || requesterEmail.isBlank()) return List.of();
+        int cap = limit <= 0 ? 10 : Math.min(limit, 50);
+        List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(requesterEmail).stream()
+                .filter(t -> t.getGroupId() == null)
+                .limit(cap)
+                .map(PostDto::fromEntity)
+                .collect(Collectors.toList());
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail);
+    }
+
     @Transactional(readOnly = true)
     public List<PostDto> listClaimedBy(String email) {
         if (email == null || email.isBlank()) return List.of();
@@ -561,6 +782,18 @@ public class PostService {
     @Transactional(readOnly = true)
     public List<PostDto> discoverCommunity(double lat, double lng, double radiusKm,
                                            Set<PostStatus> statuses, String viewerEmail) {
+        return discoverCommunity(lat, lng, radiusKm, statuses, viewerEmail, 0, 50);
+    }
+
+    /**
+     * Paged variant — tier ranking (official &gt; civic &gt; news &gt;
+     * neighbor &gt; sponsored, layered on the relevance score) + offset/limit
+     * windowing. {@code limit} is capped at 50 per page.
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> discoverCommunity(double lat, double lng, double radiusKm,
+                                           Set<PostStatus> statuses, String viewerEmail,
+                                           int offset, int limit) {
         Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : statuses;
 
@@ -639,7 +872,14 @@ public class PostService {
         // null distance still sorts last (community-wide rows belong after
         // all geo-tagged ones) — Double.MAX_VALUE as the distance penalty
         // makes the score so negative they fall to the end naturally.
-        within.sort((a, b) -> Double.compare(communityScore(b), communityScore(a)));
+        // Tier first (official > civic > news > neighbor > sponsored),
+        // then the relevance score within a tier — so official/crisis
+        // content rises above organic without losing proximity ranking.
+        within.sort((a, b) -> {
+            int ta = communityTier(a), tb = communityTier(b);
+            if (ta != tb) return Integer.compare(ta, tb);
+            return Double.compare(communityScore(b), communityScore(a));
+        });
 
         // Follow-source tail by recency — most-recent follow post first.
         // Null createdAt sorts last so legacy rows don't dominate.
@@ -701,8 +941,87 @@ public class PostService {
         // them — just past position 9.
         List<PostDto> balanced = applyKindBalance(filtered);
 
-        List<PostDto> capped = balanced.size() > 50 ? balanced.subList(0, 50) : balanced;
+        // Offset/limit window (cursor pagination). limit capped at 50/page.
+        int from = Math.max(0, offset);
+        int size = (limit <= 0) ? 50 : Math.min(limit, 50);
+        List<PostDto> capped = from >= balanced.size()
+                ? List.of()
+                : balanced.subList(from, Math.min(balanced.size(), from + size));
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(capped))), viewerEmail);
+    }
+
+    /** Feed-ranking tier: 0 emergency → 6 sponsored. Lower ranks higher. */
+    private int communityTier(PostDto d) {
+        PostDto.CommunityExtras c = d.community();
+        String type = (c == null || c.feedItemType() == null) ? "neighbor" : c.feedItemType();
+        switch (type) {
+            case "official":
+                String tier = c.officialTier();
+                if ("emergency".equals(tier)) return 0;
+                if ("advisory".equals(tier)) return 1;
+                return 2;
+            case "civic_report": return 3;
+            case "news": return 4;
+            case "sponsored": return 6;
+            default: return 5;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Agencies (civic tag targets) + conditions bar
+    // ---------------------------------------------------------------------
+
+    public record AgencyDto(String id, String name, String kind, boolean verified, String jurisdictionLabel) {}
+
+    /**
+     * Verified-agency tag targets for civic reports. Sourced from verified
+     * publishers linked to a group; best-effort zip match against the
+     * publisher's service-area label (returns all when zip is blank).
+     */
+    @Transactional(readOnly = true)
+    public List<AgencyDto> listAgencies(String zip) {
+        String z = (zip == null || zip.isBlank()) ? null : zip.trim().toLowerCase();
+        List<UserInfo> pubs = userInfoRepo.findByVerifiedPublisherTrue();
+        List<String> gids = pubs.stream()
+                .map(UserInfo::getVerifiedPublisherGroupId)
+                .filter(g -> g != null && !g.isBlank())
+                .distinct().toList();
+        Map<String, Group> groups = new HashMap<>();
+        for (Group g : groupRepo.findAllById(gids)) {
+            if (g != null && g.getGroupId() != null) groups.put(g.getGroupId(), g);
+        }
+        Map<String, AgencyDto> byId = new LinkedHashMap<>();
+        for (UserInfo p : pubs) {
+            String gid = p.getVerifiedPublisherGroupId();
+            if (gid == null || gid.isBlank()) continue;
+            Group g = groups.get(gid);
+            if (g == null) continue;
+            String area = p.getVerifiedPublisherServiceArea();
+            if (z != null && (area == null || !area.toLowerCase().contains(z))) continue;
+            byId.putIfAbsent(g.getGroupId(),
+                    new AgencyDto(g.getGroupId(), g.getGroupName(), p.getVerifiedPublisherKind(), true, area));
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    public record Condition(String label, Object value, String unit, String status) {}
+    public record ConditionsDto(Condition temp, Condition wind, Condition air, Condition power, boolean mocked) {}
+
+    /**
+     * Conditions bar (temp / wind / air / power). v1 returns static meters:
+     * live NWS-current + AirNow values are fetched FE-side via emergencyApis
+     * per the contract, and power has no outage source yet (always "On").
+     * The endpoint exists so the FE can switch to a server proxy later
+     * without a contract change. {@code mocked=true} signals placeholder data.
+     */
+    @Transactional(readOnly = true)
+    public ConditionsDto getConditions(double lat, double lng) {
+        return new ConditionsDto(
+                new Condition("Temp", null, "°", "muted"),
+                new Condition("Wind", null, "mph", "muted"),
+                new Condition("Air", null, "AQI", "muted"),
+                new Condition("Power", "On", null, "green"),
+                true);
     }
 
     // ---------------------------------------------------------------------
@@ -847,7 +1166,13 @@ public class PostService {
         if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
         if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
         Post saved = taskRepo.save(t);
-        PostDto dto = PostDto.fromEntity(saved);
+        // Enrich the same way every other mutation path does
+        // (refetchAndBroadcast / createPost). A bare fromEntity here shipped a
+        // null author (requesterFirstName/lastName/profileImageUrl/authorType
+        // all null) in both the HTTP response AND the STOMP frame, so editing a
+        // post blanked its author + verified badge in the live feed until the
+        // next full refetch. Mirror the canonical fold.
+        PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(saved))))).get(0);
         broadcastAfterCommit(dto);
         if (!removedKeys.isEmpty()) {
             final List<String> toFree = removedKeys;

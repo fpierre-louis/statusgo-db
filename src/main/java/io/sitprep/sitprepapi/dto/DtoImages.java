@@ -5,35 +5,45 @@ import io.sitprep.sitprepapi.util.PublicCdn;
 import java.net.URI;
 
 /**
- * Strict image-URL resolver for DTO build sites.
+ * Image-URL resolver for DTO build sites.
  *
- * <p>DTOs ship one of three things to the browser:
+ * <p>Backend owns image filtering/canonicalization. DTOs ship one canonical
+ * display field ({@code profileImageUrl}, {@code coverImageUrl}, etc.) that is
+ * either directly browser-loadable or {@code null}; the frontend should just
+ * pass that value to its image component.
+ *
+ * <p>Accepted input:
  * <ol>
- *   <li>A fully-resolved {@code https://} URL on the configured R2 public base — pass through.</li>
- *   <li>A bare R2 object key — normalize via {@link PublicCdn#toPublicUrl(String)}.</li>
- *   <li>Anything else (legacy Firebase URL, signed S3 URL, {@code data:} URI, blank) — drop to {@code null}.</li>
+ *   <li>{@code http://}, {@code https://}, or protocol-relative image URLs
+ *       (provider photos such as Google/Facebook and SitPrep CDN uploads).</li>
+ *   <li>Legacy bare R2 object keys, normalized via {@link PublicCdn#toPublicUrl(String)}.</li>
  * </ol>
  *
- * <p>This is intentionally stricter than {@link PublicCdn}: {@code PublicCdn} will salvage keys out of
- * {@code *.r2.dev} / {@code r2.cloudflarestorage.com} URLs and will pass {@code data:}/{@code blob:} through.
- * For DTO payloads we want a hard guarantee that the FE either receives a usable
- * {@code https://<r2-public-base>/<key>} URL or nothing at all — no stale Firebase canaries, no signed URLs
- * that will 403 the moment they expire, no opaque legacy strings the {@code <img>} tag can't resolve.
- *
- * <p>See audit BE-01 in {@code docs/audit/RACE_AUDIT_GAMEPLAN.md}.
+ * <p>Blank values, opaque schemes ({@code data:}, {@code blob:}, {@code file:}),
+ * malformed strings, and traversal-ish keys resolve to {@code null}.
  */
 public final class DtoImages {
 
     private DtoImages() {}
 
-    /** Resolve a raw avatar value into a public R2 URL, or {@code null} if it can't be safely resolved. */
+    /** Resolve a stored avatar value into a URL the browser can load (or {@code null} if blank). */
     public static String avatar(String raw) {
         return resolve(raw);
     }
 
-    /** Resolve a raw cover value into a public R2 URL, or {@code null} if it can't be safely resolved. */
+    /** Resolve a stored cover value into a URL the browser can load (or {@code null} if blank). */
     public static String cover(String raw) {
         return resolve(raw);
+    }
+
+    /**
+     * True iff {@link #avatar}/{@link #cover} would resolve this raw value to a
+     * non-null URL. Use this for {@code hasProfileImage} / {@code hasCoverImage}
+     * flags so the boolean and the shipped URL agree <em>by construction</em> —
+     * one resolver, one answer.
+     */
+    public static boolean isPresent(String raw) {
+        return resolve(raw) != null;
     }
 
     private static String resolve(String raw) {
@@ -43,46 +53,48 @@ public final class DtoImages {
 
         String lower = s.toLowerCase();
 
-        // Reject opaque non-http payloads outright (data:, blob:, file:).
-        if (lower.startsWith("data:") || lower.startsWith("blob:") || lower.startsWith("file:")) {
+        if (lower.startsWith("data:")
+                || lower.startsWith("blob:")
+                || lower.startsWith("file:")
+                || lower.startsWith("javascript:")) {
             return null;
         }
 
-        String base = PublicCdn.baseUrl();
+        if (lower.startsWith("//")) {
+            return "https:" + s;
+        }
 
-        // Already a URL on our configured R2 public base — pass through unchanged.
-        if (s.equals(base) || s.startsWith(base + "/")) {
+        // Absolute provider/CDN URL — pass through after URI validation.
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            if (!isHttpUrl(s)) return null;
             return s;
         }
 
-        // Any other http(s) URL is legacy (Firebase, signed S3, r2.dev, etc.) — drop it.
-        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("//")) {
-            return null;
-        }
-
-        // Bare key — must be a plausible R2 object key (no scheme, no traversal, no host-looking content).
         if (!looksLikeBareKey(s)) return null;
 
         String normalized = PublicCdn.toPublicUrl(s);
-        if (normalized == null) return null;
-
-        // Defensive: only return if normalization landed on the configured base.
-        if (normalized.equals(base) || normalized.startsWith(base + "/")) {
-            return normalized;
-        }
-        return null;
+        return normalized != null && isHttpUrl(normalized) ? normalized : null;
     }
 
-    private static boolean looksLikeBareKey(String s) {
-        if (s.contains("..")) return false;
-        // Reject anything that parses as having a scheme or authority.
+    private static boolean isHttpUrl(String value) {
         try {
-            URI u = URI.create(s);
-            if (u.getScheme() != null) return false;
-            if (u.getHost() != null) return false;
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    && uri.getHost() != null
+                    && !uri.getHost().isBlank();
         } catch (IllegalArgumentException e) {
             return false;
         }
-        return true;
+    }
+
+    private static boolean looksLikeBareKey(String value) {
+        if (value.contains("..")) return false;
+        try {
+            URI uri = URI.create(value);
+            return uri.getScheme() == null && uri.getHost() == null;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }

@@ -202,8 +202,94 @@ public record PostDto(
          * parents. This keeps feed/detail cards one-response shaped:
          * the FE can render the quoted card without an N+1 lookup.
          */
-        ParentPostPreview parentPost
+        ParentPostPreview parentPost,
+        /**
+         * Community-redesign per-type fields (feedItemType discriminator,
+         * official tier, civic lifecycle + tagged agency, news source,
+         * confirms + saved viewer state). One nested record so the FE
+         * keys card chrome off {@code community.feedItemType} and each
+         * existing PostDto constructor site threads a single extra arg.
+         */
+        CommunityExtras community
 ) {
+
+    /** Per-type community-feed fields — see {@link #community}. */
+    public record CommunityExtras(
+            String feedItemType,          // official | civic_report | news | neighbor | sponsored
+            String officialTier,          // emergency | advisory | notice (official only)
+            String civicCategory,         // pothole | streetlight | debris | water | other
+            String civicStatus,           // reported | acknowledged | scheduled | resolved
+            TaggedAgency taggedAgency,    // civic_report only; null otherwise
+            NewsSource source,            // news only; null otherwise
+            Integer readMinutes,          // news only
+            int confirmsCount,
+            boolean viewerConfirmed,
+            boolean viewerSaved
+    ) {
+        public record TaggedAgency(String id, String name, boolean verified, String note) {}
+        public record NewsSource(String name, String url) {}
+
+        static CommunityExtras fromEntity(Post t) {
+            TaggedAgency agency = isBlank(t.getTaggedAgencyGroupId()) ? null
+                    : new TaggedAgency(t.getTaggedAgencyGroupId(), null, false, trim(t.getAgencyNote()));
+            NewsSource source = (isBlank(t.getSourceName()) && isBlank(t.getSourceUrl())) ? null
+                    : new NewsSource(trim(t.getSourceName()), trim(t.getSourceUrl()));
+            return new CommunityExtras(
+                    feedItemType(t), trim(t.getOfficialTier()),
+                    trim(t.getCivicCategory()), trim(t.getCivicStatus()),
+                    agency, source, t.getReadMinutes(),
+                    0, false, false);
+        }
+
+        /** Derived discriminator the FE renders card chrome from. */
+        static String feedItemType(Post t) {
+            if (t.isSponsored()) return "sponsored";
+            String kind = t.getKind();
+            if (t.getCivicStatus() != null || "civic-report".equals(kind)) return "civic_report";
+            if ("news".equals(kind)) return "news";
+            if ("official".equals(kind) || !isBlank(t.getOfficialTier())) return "official";
+            return "neighbor";
+        }
+
+        public CommunityExtras withConfirms(int count, boolean viewer) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, count, viewer, viewerSaved);
+        }
+
+        public CommunityExtras withSaved(boolean saved) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved);
+        }
+
+        /** Fold the tagged agency's display name + verified flag (Group lookup). */
+        public CommunityExtras withAgencyIdentity(String name, boolean verified) {
+            if (taggedAgency == null) return this;
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
+                    source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved);
+        }
+
+        private static boolean isBlank(String s) { return s == null || s.isBlank(); }
+    }
+
+    /** Returns a copy with the community extras replaced. */
+    public PostDto withCommunity(CommunityExtras c) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis, latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail, parentPost, c);
+    }
 
     public record ParentPostPreview(
             Long id,
@@ -231,7 +317,7 @@ public record PostDto(
                     t.getRequesterEmail(),
                     author == null ? null : author.getUserFirstName(),
                     author == null ? null : author.getUserLastName(),
-                    author == null ? null : author.getProfileImageUrl(),
+                    author == null ? null : DtoImages.avatar(author.getProfileImageUrl()),
                     t.getTitle(),
                     t.getDescription(),
                     t.getKind(),
@@ -309,7 +395,8 @@ public record PostDto(
                 /* authoredAsGroupName */ null,
                 /* authoredAsGroupType */ null,
                 t.getAssigneeEmail(),
-                /* parentPost */ null
+                /* parentPost */ null,
+                CommunityExtras.fromEntity(t)
         );
     }
 
@@ -341,7 +428,8 @@ public record PostDto(
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -349,12 +437,12 @@ public record PostDto(
      * Returns a copy of this DTO with author profile fields populated
      * from {@code u}. Used by {@code PostService.discoverCommunity}
      * after a batch UserInfo lookup. Profile-image key is converted to
-     * a public CDN URL via {@link PublicCdn#toPublicUrl} so the FE just
-     * sets {@code <img src=...>}.
+     * the strict DTO avatar URL shape so the FE renders either a public
+     * CDN URL or its standard no-avatar fallback.
      */
     public PostDto withAuthor(UserInfo u) {
         if (u == null) return this;
-        String avatarUrl = u.getProfileImageUrl();  // already a URL on UserInfo
+        String avatarUrl = DtoImages.avatar(u.getProfileImageUrl());
         PublisherIdentity identity = publisherIdentity(u);
         return new PostDto(
                 id,
@@ -409,7 +497,8 @@ public record PostDto(
                 authoredAsGroupName,
                 authoredAsGroupType,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -436,7 +525,8 @@ public record PostDto(
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -466,7 +556,8 @@ public record PostDto(
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -493,7 +584,8 @@ public record PostDto(
                 preview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -536,7 +628,8 @@ public record PostDto(
                 latestCommentPreview,
                 authoredAsGroupId, name, type,
                 assigneeEmail,
-                parentPost
+                parentPost,
+                community
         );
     }
 
@@ -561,7 +654,8 @@ public record PostDto(
                 latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
-                preview
+                preview,
+                community
         );
     }
 

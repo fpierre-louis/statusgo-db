@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdEvent;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInDigestDto;
 import io.sitprep.sitprepapi.dto.WeeklyCheckInResultDto;
@@ -13,7 +14,6 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdEventRepo;
 import io.sitprep.sitprepapi.repo.HouseholdRitualRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -400,7 +400,7 @@ public class HouseholdEventService {
             HouseholdEvent e = roster.get(i);
             UserInfo u = userByEmail.get(e.getActorEmail());
             String name = u == null ? null : u.getUserFirstName();
-            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageUrl());
+            String img = u == null ? null : DtoImages.avatar(u.getProfileImageUrl());
             String mood = extractMood(e.getPayloadJson());
             completions.add(new WeeklyCheckInSummaryDto.Completion(
                     e.getActorEmail(), name, img, e.getAt(), mood
@@ -536,7 +536,7 @@ public class HouseholdEventService {
             int streak = computeStreakWeeks(householdId, email, now, tz);
             UserInfo u = userByEmail.get(email);
             String name = u == null ? null : u.getUserFirstName();
-            String img = u == null ? null : PublicCdn.toPublicUrl(u.getProfileImageUrl());
+            String img = u == null ? null : DtoImages.avatar(u.getProfileImageUrl());
             WeeklyCheckInDigestDto.MemberStreak row = new WeeklyCheckInDigestDto.MemberStreak(
                     email, name, img, streak, checkedInThisWeek.contains(email)
             );
@@ -676,7 +676,7 @@ public class HouseholdEventService {
         UserInfo actor = e.getActorEmail() == null
                 ? null : userByEmail.get(e.getActorEmail().toLowerCase(Locale.ROOT));
         String actorName = actor == null ? null : actor.getUserFirstName();
-        String actorImg = actor == null ? null : PublicCdn.toPublicUrl(actor.getProfileImageUrl());
+        String actorImg = actor == null ? null : DtoImages.avatar(actor.getProfileImageUrl());
 
         Map<String, Object> payload;
         if (e.getPayloadJson() == null || e.getPayloadJson().isBlank()) {

@@ -47,13 +47,24 @@ public class GroupPost {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    // Pinned explicitly to the existing collection tables. Without this,
+    // Hibernate 6's JPA-compliant implicit naming derives the collection
+    // table from this entity's PHYSICAL table name ("post" — set by the
+    // Phase-3b GroupPost→post rename), i.e. it would expect "post_tags"
+    // (join "post_id") instead of the real "group_post_tags" (join
+    // "group_post_id"), failing ddl-auto=validate on boot. Explicit
+    // mapping → no migration, matches the tables that actually exist.
     @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "group_post_tags", joinColumns = @JoinColumn(name = "group_post_id"))
+    @Column(name = "tags")
     @OrderColumn(name = "ord")
     private List<String> tags = new ArrayList<>();
 
     private int commentsCount = 0;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "group_post_mentions", joinColumns = @JoinColumn(name = "group_post_id"))
+    @Column(name = "mentions")
     @OrderColumn(name = "ord")
     private List<String> mentions = new ArrayList<>();
 

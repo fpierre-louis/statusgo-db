@@ -328,14 +328,9 @@ public record MeDto(
             String quietTimezone
     ) {}
 
-    /**
-     * A single member's avatar for the circle-card member stack.
-     * {@code userId} is the stable opaque identifier the FE routes to
-     * {@code /profile/:userId} (added 2026-06-03) — never the email,
-     * which is private to the group's own members. Null tolerated for
-     * legacy back-compat (the FE skips the profile tap when absent).
-     */
-    public record MemberAvatar(String userId, String firstName, String profileImageUrl) {}
+    // MemberAvatar (the circle-card member-stack identity) is now the shared
+    // top-level io.sitprep.sitprepapi.dto.MemberAvatar — same package, so the
+    // unqualified references above still resolve. Unified 2026-06-11.
 
     public record ReadinessDto(
             int percentComplete,

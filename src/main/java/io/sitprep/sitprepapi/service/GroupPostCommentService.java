@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.GroupPostComment;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.repo.GroupPostCommentRepo;
@@ -408,7 +409,7 @@ public class GroupPostCommentService {
             if (u != null) {
                 d.setAuthorFirstName(u.getUserFirstName());
                 d.setAuthorLastName(u.getUserLastName());
-                d.setAuthorProfileImageUrl(u.getProfileImageUrl());
+                d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             }
         }
         return d;
@@ -419,7 +420,7 @@ public class GroupPostCommentService {
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
             d.setAuthorLastName(u.getUserLastName());
-            d.setAuthorProfileImageUrl(u.getProfileImageUrl());
+            d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
         });
     }
 

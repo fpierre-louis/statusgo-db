@@ -93,7 +93,9 @@ public class PostResource {
             @RequestParam("lat") Double lat,
             @RequestParam("lng") Double lng,
             @RequestParam(value = "radiusKm", required = false, defaultValue = "10") double radiusKm,
-            @RequestParam(value = "status", required = false) List<PostStatus> statuses
+            @RequestParam(value = "status", required = false) List<PostStatus> statuses,
+            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
+            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
     ) {
         // Viewer identity feeds the follow-source merge in the service —
         // out-of-radius posts authored by emails the viewer follows
@@ -102,8 +104,28 @@ public class PostResource {
         String viewer = AuthUtils.requireAuthenticatedEmail();
         Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : EnumSet.copyOf(statuses);
-        return ResponseEntity.ok(ApiResponse.ok(
-                tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer), ApiMeta.now()));
+        List<PostDto> page = tasks.discoverCommunity(lat, lng, radiusKm, wanted, viewer, offset, limit);
+        // A full page implies there may be more — surface the next offset as
+        // a header so the array body stays back-compat (older FE ignores it).
+        int effLimit = limit <= 0 ? 50 : Math.min(limit, 50);
+        ResponseEntity.BodyBuilder rb = ResponseEntity.ok();
+        if (page.size() == effLimit) rb.header("X-Next-Cursor", String.valueOf(offset + effLimit));
+        return rb.body(ApiResponse.ok(page, ApiMeta.now()));
+    }
+
+    @GetMapping("/api/agencies")
+    public ResponseEntity<ApiResponse<List<PostService.AgencyDto>>> agencies(
+            @RequestParam(value = "zip", required = false) String zip) {
+        AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.listAgencies(zip), ApiMeta.now()));
+    }
+
+    @GetMapping("/api/community/conditions")
+    public ResponseEntity<ApiResponse<PostService.ConditionsDto>> conditions(
+            @RequestParam("lat") double lat,
+            @RequestParam("lng") double lng) {
+        AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.getConditions(lat, lng), ApiMeta.now()));
     }
 
     @GetMapping("/api/me/posts")
@@ -249,6 +271,45 @@ public class PostResource {
     }
 
     public record PromoteRequest(Integer days) {}
+
+    // -----------------------------------------------------------------
+    // Community redesign — confirms / save / civic status
+    // -----------------------------------------------------------------
+
+    @PostMapping("/api/posts/{id}/confirms")
+    public ResponseEntity<ApiResponse<PostService.ConfirmResult>> addConfirm(@PathVariable Long id) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.addConfirm(id, me), ApiMeta.now()));
+    }
+
+    @DeleteMapping("/api/posts/{id}/confirms")
+    public ResponseEntity<ApiResponse<PostService.ConfirmResult>> removeConfirm(@PathVariable Long id) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.removeConfirm(id, me), ApiMeta.now()));
+    }
+
+    @PostMapping("/api/posts/{id}/save")
+    public ResponseEntity<ApiResponse<SaveResult>> save(@PathVariable Long id) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(new SaveResult(tasks.toggleSave(id, me, true)), ApiMeta.now()));
+    }
+
+    @DeleteMapping("/api/posts/{id}/save")
+    public ResponseEntity<ApiResponse<SaveResult>> unsave(@PathVariable Long id) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(new SaveResult(tasks.toggleSave(id, me, false)), ApiMeta.now()));
+    }
+
+    @PatchMapping("/api/posts/{id}/civic-status")
+    public ResponseEntity<ApiResponse<PostDto>> civicStatus(@PathVariable Long id,
+                                                            @RequestBody CivicStatusRequest req) {
+        String me = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.updateCivicStatus(id, req.status(), req.note(), me), ApiMeta.now()));
+    }
+
+    public record SaveResult(boolean viewerSaved) {}
+    public record CivicStatusRequest(String status, String note) {}
 
     // -----------------------------------------------------------------
     // Authorization helpers

@@ -3,7 +3,6 @@ package io.sitprep.sitprepapi.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.MemberLocationFrame;
@@ -11,9 +10,7 @@ import io.sitprep.sitprepapi.dto.MemberStatusFrame;
 import io.sitprep.sitprepapi.dto.ProfileSummaryDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -38,7 +35,7 @@ public class UserInfoService {
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
     private final GroupRepo groupRepo;
-    private final PostRepo taskRepo;
+    private final PostService postService;
     private final FollowService followService;
     private final BlockService blockService;
     private final ObjectMapper objectMapper;
@@ -48,7 +45,7 @@ public class UserInfoService {
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
                            GroupRepo groupRepo,
-                           PostRepo taskRepo,
+                           PostService postService,
                            FollowService followService,
                            BlockService blockService,
                            ObjectMapper objectMapper,
@@ -56,7 +53,7 @@ public class UserInfoService {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
-        this.taskRepo = taskRepo;
+        this.postService = postService;
         this.followService = followService;
         this.blockService = blockService;
         this.objectMapper = objectMapper;
@@ -157,36 +154,16 @@ public class UserInfoService {
                 ))
                 .collect(Collectors.toList());
 
-        // Public posts — community-scope Tasks (groupId == null) the
-        // user authored, newest first, capped at 10. Group-scope posts
-        // (GroupPost entity) stay group-internal.
-        List<Post> tasks = email == null ? List.of()
-                : taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email);
-        List<PublicProfileDto.PublicPostSummary> postSummaries = tasks.stream()
-                .filter(t -> t.getGroupId() == null)
-                .limit(10)
-                .map(t -> {
-                    String firstImageUrl = null;
-                    List<String> keys = t.getImageKeys();
-                    if (keys != null && !keys.isEmpty()) {
-                        firstImageUrl = PublicCdn.toPublicUrl(keys.get(0));
-                    }
-                    return new PublicProfileDto.PublicPostSummary(
-                            t.getId(),
-                            t.getTitle(),
-                            t.getKind(),
-                            t.getDescription(),
-                            firstImageUrl,
-                            t.getStatus() == null ? null : t.getStatus().name(),
-                            t.getCreatedAt()
-                    );
-                })
-                .collect(Collectors.toList());
+        // Public posts — community-scope posts the user authored,
+        // newest first, capped at 10. Shape is the same PostDto used
+        // by CommunityFeed, including author avatar/name, imageUrls,
+        // reactions, comment preview, repost preview, and group
+        // attribution where present.
+        var postSummaries = postService.listPublicProfilePosts(email, viewerEmail, 10);
 
-        // postCount is the FULL community-post count, not the truncated
-        // list — so the trust row reads honestly even when the FE
-        // paginates the visible cards.
-        int postCount = (int) tasks.stream().filter(t -> t.getGroupId() == null).count();
+        // postCount reflects the profile feed slice currently shipped
+        // on this one-response endpoint.
+        int postCount = postSummaries.size();
 
         // Follow counts — surfaced as the Following/Followers tappable
         // pair on the FE profile header, both routing into
@@ -607,21 +584,6 @@ public class UserInfoService {
         }
     }
 
-    /**
-     * Legacy field-name aliases — old clients (App Store builds shipped before
-     * the profileImageURL -> profileImageUrl canonicalization in P3-5) PATCH
-     * with the uppercase URL spelling. Reflection can't find a field named
-     * {@code profileImageURL} so the field was silently dropped, leaving the
-     * client convinced the update succeeded while the DB stayed unchanged.
-     * Normalize the incoming key BEFORE the reflection lookup so both shapes
-     * work. Mirror any future renames here until we can require a min app
-     * version.
-     */
-    private static final Map<String, String> LEGACY_FIELD_ALIASES = Map.of(
-            "profileImageURL", "profileImageUrl",
-            "coverImageURL", "coverImageUrl"
-    );
-
     @Transactional
     public UserInfo patchUserById(String id, Map<String, Object> updates) {
         UserInfo userInfo = userInfoRepo.findById(id)
@@ -633,7 +595,7 @@ public class UserInfoService {
 
         updates.forEach((rawKey, value) -> {
             if (rawKey == null || value == null) return;
-            String key = LEGACY_FIELD_ALIASES.getOrDefault(rawKey, rawKey);
+            String key = rawKey;
             if (Set.of("id", "userEmail").contains(key)) return;
 
             if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;

@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdInviteRequest;
 import io.sitprep.sitprepapi.domain.HouseholdInviteRequest.Status;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.HouseholdInviteRequestDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdInviteRequestRepo;
@@ -261,11 +262,11 @@ public class HouseholdInviteRequestService {
                 row.getRequesterEmail(),
                 requester == null ? null : requester.getUserFirstName(),
                 requester == null ? null : requester.getUserLastName(),
-                requester == null ? null : requester.getProfileImageUrl(),
+                requester == null ? null : DtoImages.avatar(requester.getProfileImageUrl()),
                 row.getCandidateEmail(),
                 candidate == null ? null : candidate.getUserFirstName(),
                 candidate == null ? null : candidate.getUserLastName(),
-                candidate == null ? null : candidate.getProfileImageUrl(),
+                candidate == null ? null : DtoImages.avatar(candidate.getProfileImageUrl()),
                 row.getCreatedAt(),
                 row.getResolvedAt(),
                 row.getResolverEmail()

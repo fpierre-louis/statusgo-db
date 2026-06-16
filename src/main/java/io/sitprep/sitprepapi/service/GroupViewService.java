@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto.*;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
@@ -154,7 +155,7 @@ public class GroupViewService {
                 normalize(u.getUserEmail()),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                u.getProfileImageUrl(),
+                DtoImages.avatar(u.getProfileImageUrl()),
                 status,
                 u.getLastActiveAt(),
                 lat, lng, locAt
@@ -194,7 +195,7 @@ public class GroupViewService {
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
+            dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
         }
         dto.setContent(p.getContent());
         dto.setTimestamp(p.getTimestamp());

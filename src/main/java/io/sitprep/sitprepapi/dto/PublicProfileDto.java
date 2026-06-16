@@ -1,7 +1,6 @@
 package io.sitprep.sitprepapi.dto;
 
 import io.sitprep.sitprepapi.domain.UserInfo;
-import io.sitprep.sitprepapi.util.PublicCdn;
 
 import java.time.Instant;
 import java.util.List;
@@ -54,9 +53,10 @@ public record PublicProfileDto(
         // Public groups they're a member of (Household-type excluded —
         // households are personal, not a public trust signal).
         List<PublicGroupSummary> groups,
-        // Public posts they've authored, newest first. Capped at 10 to
-        // keep the payload lean; FE paginates the rest if/when needed.
-        List<PublicPostSummary> posts,
+        // Public community-feed posts they've authored, newest first.
+        // Same DTO shape used by CommunityFeed so the profile page can
+        // render the exact same card anatomy without reshaping.
+        List<PostDto> posts,
         // Viewer's relationship to this profile, resolved server-side
         // from the verified caller email. Drives the Follow button
         // state on the FE per docs/PROFILE_AND_FOLLOW.md step 3.
@@ -74,12 +74,10 @@ public record PublicProfileDto(
         // other, the resource layer returns 404 and this DTO never
         // ships, so visible=false here only ever means a privacy gate.
         boolean visible,
-        // Deterministic existence flags computed from the raw column
-        // value BEFORE DtoImages normalization (audit BE-03 / P1-2).
-        // True iff the raw column was non-blank AND resolved to a
-        // usable R2 object key. The FE uses these to gate <SafeImage>
-        // rendering vs the deterministic empty-hero fallback without
-        // having to wait for an image load/error to know what to draw.
+        // Deterministic existence flags computed from the saved column
+        // values. Public profile identity sends saved URLs directly;
+        // these flags simply say whether the corresponding saved value
+        // exists.
         boolean hasProfileImage,
         boolean hasCoverImage
 ) {
@@ -98,22 +96,6 @@ public record PublicProfileDto(
     ) {}
 
     /**
-     * GroupPost summary surfaced on a public profile. Mirrors the community
-     * feed card's minimum shape — title, kind, status, first image,
-     * truncated description. {@code id} keys the link to the full post
-     * surface ({@code /posts/{id}} or whatever the FE picks).
-     */
-    public record PublicPostSummary(
-            Long id,
-            String title,
-            String kind,
-            String description,
-            String imageUrl,
-            String status,
-            Instant createdAt
-    ) {}
-
-    /**
      * Build the basic identity slice from a {@link UserInfo}. Caller must
      * supply the derived collections + counts via the canonical
      * constructor; this is a small convenience for the resource layer.
@@ -125,7 +107,7 @@ public record PublicProfileDto(
             long followingCount,
             long followerCount,
             List<PublicGroupSummary> groups,
-            List<PublicPostSummary> posts,
+            List<PostDto> posts,
             String viewerRelationship
     ) {
         String rawAvatar = u.getProfileImageUrl();
@@ -135,8 +117,8 @@ public record PublicProfileDto(
                 u.getUserEmail(),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                DtoImages.avatar(rawAvatar),
-                DtoImages.cover(rawCover),
+                savedUrl(rawAvatar),
+                savedUrl(rawCover),
                 u.getBio(),
                 u.isVerifiedPublisher(),
                 u.getVerifiedPublisherKind(),
@@ -150,8 +132,8 @@ public record PublicProfileDto(
                 posts,
                 viewerRelationship,
                 /* visible */ true,
-                hasImage(rawAvatar),
-                hasImage(rawCover)
+                hasSavedUrl(rawAvatar),
+                hasSavedUrl(rawCover)
         );
     }
 
@@ -173,7 +155,7 @@ public record PublicProfileDto(
                 u.getUserEmail(),
                 u.getUserFirstName(),
                 u.getUserLastName(),
-                DtoImages.avatar(rawAvatar),
+                savedUrl(rawAvatar),
                 /* coverImageUrl */ null,
                 /* bio */ null,
                 u.isVerifiedPublisher(),
@@ -188,20 +170,18 @@ public record PublicProfileDto(
                 /* posts */ List.of(),
                 viewerRelationship,
                 /* visible */ false,
-                hasImage(rawAvatar),
+                hasSavedUrl(rawAvatar),
                 /* hasCoverImage */ false
         );
     }
 
-    /**
-     * Existence check for the {@code hasProfileImage} / {@code hasCoverImage}
-     * booleans. True iff the raw column value is non-blank AND
-     * {@link PublicCdn#toObjectKey} can extract a usable R2 object key
-     * from it (i.e. the FE will receive a renderable URL from
-     * {@link DtoImages}). Computed off the raw value, not the normalized
-     * URL, so the boolean and the URL agree by construction.
-     */
-    private static boolean hasImage(String raw) {
-        return raw != null && !raw.isBlank() && PublicCdn.toObjectKey(raw) != null;
+    private static String savedUrl(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private static boolean hasSavedUrl(String raw) {
+        return savedUrl(raw) != null;
     }
 }

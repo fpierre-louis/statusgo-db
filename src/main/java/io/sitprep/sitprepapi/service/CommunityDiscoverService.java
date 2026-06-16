@@ -3,7 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
-import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.MemberAvatar;
+import io.sitprep.sitprepapi.dto.MemberAvatar;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.NearbyGroup;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto.Place;
 import io.sitprep.sitprepapi.dto.DtoImages;

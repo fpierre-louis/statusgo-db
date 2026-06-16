@@ -51,6 +51,29 @@ public enum PostKind {
     MARKETPLACE("marketplace"),
 
     /**
+     * Verified-agency official post. Carries an {@code officialTier}
+     * (emergency | advisory | notice) and may be pinned within radius.
+     * Create-path gated to verified emergency publishers. Community
+     * redesign — see {@code docs/design_handoff_community/backend/CONTRACT.md}.
+     */
+    OFFICIAL("official"),
+
+    /**
+     * Resident infrastructure report (pothole, downed line, flooding)
+     * that tags a verified agency and carries a {@code civicStatus}
+     * lifecycle (reported → acknowledged → scheduled → resolved). Body +
+     * category, no separate headline (so {@link #requiresTitle()} is false).
+     */
+    CIVIC_REPORT("civic-report"),
+
+    /**
+     * Verified newsroom/publisher local-news card — carries a source
+     * name + outbound URL + estimated read time. Create-path gated to
+     * the newsroom flavor of VerifiedPublisher.
+     */
+    NEWS("news"),
+
+    /**
      * Personal preparedness task. Phase 1 Week 2 of the
      * {@code BUSINESS_MODEL.md} roadmap — the consolidated personal
      * task list at {@code /me/tasks}. Always {@code groupId=null}
@@ -122,6 +145,8 @@ public enum PostKind {
         switch (this) {
             case POST:
             case TIP:
+            case CIVIC_REPORT:
+                // Body + category, no separate headline.
                 return false;
             case TASK:
                 // Personal tasks always have a title (e.g. "Refill water"

@@ -440,7 +440,7 @@ public class PostCommentService {
             if (u != null) {
                 d.setAuthorFirstName(u.getUserFirstName());
                 d.setAuthorLastName(u.getUserLastName());
-                d.setAuthorProfileImageUrl(u.getProfileImageUrl());
+                d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             }
         }
         return d;
@@ -451,7 +451,7 @@ public class PostCommentService {
         userInfoRepo.findByUserEmail(d.getAuthor()).ifPresent(u -> {
             d.setAuthorFirstName(u.getUserFirstName());
             d.setAuthorLastName(u.getUserLastName());
-            d.setAuthorProfileImageUrl(u.getProfileImageUrl());
+            d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
         });
     }
 

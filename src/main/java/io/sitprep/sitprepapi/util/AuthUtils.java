@@ -33,6 +33,20 @@ public final class AuthUtils {
     }
 
     /**
+     * Returns the SSO provider photo (the token's {@code picture} claim) for
+     * the current request, or null. Used to one-time-backfill the stored
+     * avatar when a user has none yet — see {@code MeService.buildMe}.
+     */
+    public static String getCurrentProviderPicture() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) return null;
+        if (auth.getDetails() instanceof FirebaseAuthenticationDetails fad) {
+            return fad.getProviderPicture();
+        }
+        return null;
+    }
+
+    /**
      * Returns the verified email from the token when present, else the
      * supplied fallback. Transitional helper: resources accept an actor in
      * the request body/params during the auth rollout; when enforcement

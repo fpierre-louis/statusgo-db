@@ -7,10 +7,10 @@ import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.HouseholdPlanDto;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MeDto.*;
+import io.sitprep.sitprepapi.dto.MemberAvatar;
 import io.sitprep.sitprepapi.dto.MePlansDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.*;
-import io.sitprep.sitprepapi.util.PublicCdn;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -142,6 +142,7 @@ public class MeService {
         MeBuildContext.begin();
         try {
             Optional<UserInfo> userOpt = loadUser(firebaseUid);
+            userOpt.ifPresent(this::backfillProviderImageIfMissing);
             Optional<MeDto> me = userOpt.map(u -> assemble(u, profileLookup));
             List<String> degraded = MeBuildContext.drain();
             return me.map(dto -> new MeBuildResult(dto, degraded));
@@ -181,6 +182,36 @@ public class MeService {
             log.error("MeService: user lookup failed uid={} cause={}",
                     firebaseUid, e.getMessage(), e);
             return Optional.empty();
+        }
+    }
+
+    /**
+     * One-time SSO avatar backfill, done SYNCHRONOUSLY on the /api/me read so
+     * the very first dashboard load already carries the provider photo. This
+     * is what kills the "photo flashes for a second, then reverts to initials"
+     * bug: that was the cached snapshot painting a good URL, then a fresh
+     * /api/me coming back with a BLANK profileImageUrl (because an async
+     * backfill hadn't committed yet) and overwriting it. Doing it inline here
+     * means the column — and therefore the response — is never blank when the
+     * token carries a photo.
+     *
+     * <p>When the user has no stored image AND the verified token carries a
+     * provider photo (Google/Apple/Facebook → the `picture` claim), persist it
+     * so the backend is the single source of truth. Blank-guarded: it NEVER
+     * overwrites a photo the user uploaded in edit mode. Best-effort — a write
+     * failure just means initials this load, never a 500.</p>
+     */
+    private void backfillProviderImageIfMissing(UserInfo user) {
+        try {
+            String current = user.getProfileImageUrl();
+            if (current != null && !current.isBlank()) return;
+            String picture = io.sitprep.sitprepapi.util.AuthUtils.getCurrentProviderPicture();
+            if (picture == null || picture.isBlank()) return;
+            user.setProfileImageUrl(picture.trim());
+            userInfoRepo.save(user);
+        } catch (Exception e) {
+            log.debug("MeService: provider-image backfill skipped uid={} cause={}",
+                    user.getFirebaseUid(), e.getMessage());
         }
     }
 
@@ -572,19 +603,9 @@ public class MeService {
                 u.getGroupLocationSharing() == null
                         ? java.util.Map.of()
                         : new java.util.HashMap<>(u.getGroupLocationSharing()),
-                hasImage(rawAvatar),
-                hasImage(rawCover)
+                DtoImages.isPresent(rawAvatar),
+                DtoImages.isPresent(rawCover)
         );
-    }
-
-    /**
-     * Existence check for {@code hasProfileImage} / {@code hasCoverImage}
-     * on {@link ProfileDto}. Computed off the raw column value (not the
-     * normalized URL) so the boolean and the URL agree by construction —
-     * see audit BE-03 / P1-2.
-     */
-    private static boolean hasImage(String raw) {
-        return raw != null && !raw.isBlank() && PublicCdn.toObjectKey(raw) != null;
     }
 
     private Map<String, Object> parseAssessmentSummary(UserInfo u) {

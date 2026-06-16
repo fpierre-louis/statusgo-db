@@ -37,7 +37,8 @@ import java.util.Set;
                 @Index(name = "idx_task_group_status", columnList = "group_id,status"),
                 @Index(name = "idx_task_zip_status", columnList = "zip_bucket,status"),
                 @Index(name = "idx_task_requester", columnList = "requester_email"),
-                @Index(name = "idx_task_claimer", columnList = "claimed_by_email")
+                @Index(name = "idx_task_claimer", columnList = "claimed_by_email"),
+                @Index(name = "idx_task_tagged_agency", columnList = "tagged_agency_group_id,civic_status")
         }
 )
 public class Post {
@@ -317,6 +318,64 @@ public class Post {
      */
     @Column(name = "payment_methods_json", columnDefinition = "TEXT")
     private String paymentMethodsJson;
+
+    // -----------------------------------------------------------------
+    // Community redesign — official / civic-report / news fields.
+    // Contract: docs/design_handoff_community/backend/CONTRACT.md.
+    // All nullable + additive; meaningful only on the matching feed-item
+    // type. The FE derives feedItemType from (kind + authorType +
+    // sponsored + civicStatus); these columns carry the per-type data.
+    // -----------------------------------------------------------------
+
+    /** official posts only — emergency | advisory | notice (OfficialTier wire). */
+    @Column(name = "official_tier", length = 16)
+    private String officialTier;
+
+    /** Author-controlled pin (official posts). Mirrors GroupPost pin columns. */
+    @Column(name = "pinned_at")
+    private Instant pinnedAt;
+
+    @Column(name = "pinned_by", length = 128)
+    private String pinnedBy;
+
+    /** Emergency pin auto-expiry — the design's expiresAt. Null = no expiry. */
+    @Column(name = "pinned_until")
+    private Instant pinnedUntil;
+
+    /** civic_report only — reported|acknowledged|scheduled|resolved (CivicStatus wire). */
+    @Column(name = "civic_status", length = 16)
+    private String civicStatus;
+
+    /** civic_report only — pothole|streetlight|debris|water|other (CivicCategory wire). */
+    @Column(name = "civic_category", length = 16)
+    private String civicCategory;
+
+    /** The verified-agency group responsible for the civic report (group publicId). */
+    @Column(name = "tagged_agency_group_id", length = 64)
+    private String taggedAgencyGroupId;
+
+    /** Latest agency note on the civic card ("Acknowledged · work order #2287"). */
+    @Column(name = "agency_note", length = 280)
+    private String agencyNote;
+
+    @Column(name = "civic_acked_at")
+    private Instant civicAckedAt;
+
+    @Column(name = "scheduled_for")
+    private Instant scheduledFor;
+
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
+
+    /** news only — outlet name / outbound URL / estimated read time (minutes). */
+    @Column(name = "source_name", length = 120)
+    private String sourceName;
+
+    @Column(name = "source_url", length = 512)
+    private String sourceUrl;
+
+    @Column(name = "read_minutes")
+    private Integer readMinutes;
 
     @PrePersist
     void onCreate() {

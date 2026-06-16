@@ -59,11 +59,15 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
                 if (email != null && !email.isBlank()) {
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                             email.toLowerCase(), null, Collections.emptyList());
-                    auth.setDetails(new FirebaseAuthenticationDetails(request, uid));
+                    auth.setDetails(new FirebaseAuthenticationDetails(request, uid, decoded.getPicture()));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                     // Bump UserInfo.lastActiveAt for presence — throttled to
                     // ~5 min/user inside the service so write pressure is bounded.
                     if (lastActivityService != null) lastActivityService.touch(email);
+                    // (The SSO provider photo from decoded.getPicture() rides on
+                    // the auth details above and is backfilled synchronously in
+                    // MeService.buildMe — the one place that guarantees /api/me
+                    // returns it on the first load, no async race.)
                 }
             } catch (FirebaseAuthException e) {
                 // Invalid / expired / revoked token — don't reject, just log

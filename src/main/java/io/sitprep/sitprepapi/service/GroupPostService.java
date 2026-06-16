@@ -450,7 +450,7 @@ public class GroupPostService {
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
+            dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
         });
         return dto;
     }
@@ -463,7 +463,7 @@ public class GroupPostService {
         if (u != null) {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
-            dto.setAuthorProfileImageUrl(u.getProfileImageUrl());
+            dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
         }
         return dto;
     }

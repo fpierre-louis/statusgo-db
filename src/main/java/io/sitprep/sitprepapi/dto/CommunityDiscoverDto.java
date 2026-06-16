@@ -123,20 +123,10 @@ public record CommunityDiscoverDto(
         public static final int MUTUAL_PREVIEW_LIMIT = 4;
     }
 
-    /**
-     * Lightweight identity for the mutual face stack. Same shape as
-     * {@code MeDto.MemberAvatar}; kept independent here so the two
-     * DTOs stay decoupled (NearbyGroup may add fields the Me-side
-     * stack doesn't care about, like
-     * {@code lastActiveAt}, without dragging the other surface).
-     *
-     * <p>{@code userId} is the stable opaque identifier the FE routes
-     * to {@code /profile/:userId} (added 2026-06-03). Never the email
-     * on this DTO — community-discover is a privacy-sensitive surface
-     * that doesn't leak member emails to strangers. Null tolerated
-     * for back-compat; FE skips the profile tap when absent.</p>
-     */
-    public record MemberAvatar(String userId, String firstName, String profileImageUrl) {}
+    // The mutual face-stack identity is now the shared top-level
+    // io.sitprep.sitprepapi.dto.MemberAvatar — same package, so the
+    // unqualified `MemberAvatar` references above still resolve. Unified
+    // 2026-06-11 (was a verbatim copy of the Me-side record).
 
     public record MetaDto(
             Instant generatedAt,
