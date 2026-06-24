@@ -27,15 +27,18 @@ public class PublisherPublishAuditService {
     private final UserInfoRepo userInfoRepo;
     private final GroupRepo groupRepo;
     private final PublisherPublishRateLimiter rateLimiter;
+    private final AdminAuditLogService adminAuditLogService;
 
     public PublisherPublishAuditService(PublisherPublishAuditRepo auditRepo,
                                         UserInfoRepo userInfoRepo,
                                         GroupRepo groupRepo,
-                                        PublisherPublishRateLimiter rateLimiter) {
+                                        PublisherPublishRateLimiter rateLimiter,
+                                        AdminAuditLogService adminAuditLogService) {
         this.auditRepo = auditRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.rateLimiter = rateLimiter;
+        this.adminAuditLogService = adminAuditLogService;
     }
 
     public void requirePublisherPostAllowed(String groupId,
@@ -119,11 +122,20 @@ public class PublisherPublishAuditService {
                         "Publisher review row not found"));
         PublisherPublishAudit.ReviewStatus status =
                 parseReviewStatus(req == null ? null : req.status(), false);
+        PublisherPublishAudit.ReviewStatus previous = row.getReviewStatus();
         row.setReviewStatus(status);
         row.setReviewerEmail(normalize(reviewerEmail));
         row.setReviewerNotes(trim(req == null ? null : req.reviewerNotes(), 1000));
         row.setReviewedAt(Instant.now());
-        return PublisherPublishAuditDto.from(auditRepo.save(row));
+        PublisherPublishAudit saved = auditRepo.save(row);
+        adminAuditLogService.record(
+                reviewerEmail,
+                "REVIEWED_PUBLISHER_POST",
+                "publisher-review",
+                String.valueOf(saved.getId()),
+                "status " + previous + " -> " + status + "; post="
+                        + saved.getPostTable() + "#" + saved.getPostId());
+        return PublisherPublishAuditDto.from(saved);
     }
 
     private void save(String eventType,

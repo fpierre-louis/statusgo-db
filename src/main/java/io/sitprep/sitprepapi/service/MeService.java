@@ -59,6 +59,7 @@ public class MeService {
     private final io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo;
     private final MeSubfetchService subfetch;
     private final UserInfoService userInfoService;
+    private final PlatformAccessService platformAccessService;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -78,6 +79,7 @@ public class MeService {
             io.sitprep.sitprepapi.repo.HouseholdRitualRepo householdRitualRepo,
             MeSubfetchService subfetch,
             UserInfoService userInfoService,
+            PlatformAccessService platformAccessService,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -96,6 +98,7 @@ public class MeService {
         this.householdRitualRepo = householdRitualRepo;
         this.subfetch = subfetch;
         this.userInfoService = userInfoService;
+        this.platformAccessService = platformAccessService;
         this.objectMapper = objectMapper;
     }
 
@@ -242,15 +245,26 @@ public class MeService {
 
         // Authoritative membership lookup: read from the Group side, not the
         // denormalized UserInfo.managedGroupIDs/joinedGroupIDs cache. That
-        // cache can drift; Group.adminEmails/memberEmails are source of truth.
+        // cache can drift; Group.ownerEmail/adminEmails/memberEmails are source
+        // of truth. ownerEmail matters for agencies created before the owner
+        // signs in for the first time.
+        List<Group> ownerGroupList = safeGet("groupRepo.findByOwnerEmailIgnoreCase", logCtx,
+                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByOwnerEmailIgnoreCase(email),
+                List.of());
         List<Group> adminGroupList = safeGet("groupRepo.findByAdminEmail", logCtx,
                 () -> email.isBlank() ? List.<Group>of() : groupRepo.findByAdminEmail(email),
                 List.of());
         List<Group> memberGroupList = safeGet("groupRepo.findByMemberEmail", logCtx,
                 () -> email.isBlank() ? List.<Group>of() : groupRepo.findByMemberEmail(email),
                 List.of());
+        List<Group> pendingGroupList = safeGet("groupRepo.findByPendingMemberEmail", logCtx,
+                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByPendingMemberEmail(email),
+                List.of());
 
         Map<String, Group> groupsById = new LinkedHashMap<>();
+        for (Group g : ownerGroupList) {
+            if (g != null && g.getGroupId() != null) groupsById.putIfAbsent(g.getGroupId(), g);
+        }
         for (Group g : adminGroupList) {
             if (g != null && g.getGroupId() != null) groupsById.putIfAbsent(g.getGroupId(), g);
         }
@@ -357,6 +371,7 @@ public class MeService {
 
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
+        List<GroupSummary> pending = new ArrayList<>();
         for (Group g : groupsById.values()) {
             // Households live in their own "Your households" section, never in
             // the circles lists.
@@ -366,6 +381,11 @@ public class MeService {
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
             else joined.add(summary);
+        }
+        for (Group g : pendingGroupList) {
+            if (g == null || g.getGroupId() == null || groupsById.containsKey(g.getGroupId())) continue;
+            if ("Household".equalsIgnoreCase(g.getGroupType())) continue;
+            pending.add(toPendingGroupSummary(g));
         }
 
         // Per-household summaries for the "Your households" section.
@@ -409,12 +429,16 @@ public class MeService {
                         () -> userInfoService.getPublicProfile(lookup, email).orElse(null),
                         null))
                 .orElse(null);
+        List<String> platformPermissions = email.isBlank() ? List.of() : safeGet(
+                "platformPermissions", logCtx,
+                () -> platformAccessService.resolve(email).permissionNames(),
+                List.of());
 
         return new MeDto(
-                toProfile(user),
+                toProfile(user, platformPermissions),
                 householdDto,
                 households,
-                new GroupsDto(managed, joined),
+                new GroupsDto(managed, joined, pending),
                 readiness,
                 activeActivationId,
                 profilePreview,
@@ -565,12 +589,18 @@ public class MeService {
         }
     }
 
-    private ProfileDto toProfile(UserInfo u) {
+    private ProfileDto toProfile(UserInfo u, List<String> platformPermissions) {
         SelfStatusDto status = new SelfStatusDto(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated()
         );
         String rawAvatar = u.getProfileImageUrl();
         String rawCover = u.getCoverImageUrl();
+        boolean promotionActive = u.getSubscriptionOverridePackage() != null
+                && u.getSubscriptionOverrideExpiresAt() != null
+                && u.getSubscriptionOverrideExpiresAt().isAfter(Instant.now());
+        String effectiveSubscriptionPackage = promotionActive
+                ? u.getSubscriptionOverridePackage()
+                : u.getSubscriptionPackage();
         return new ProfileDto(
                 u.getId(),
                 u.getFirebaseUid(),
@@ -584,6 +614,9 @@ public class MeService {
                 u.getLongitude(),
                 DtoImages.avatar(rawAvatar),
                 u.getSubscription(),
+                u.getSubscriptionPackage(),
+                effectiveSubscriptionPackage,
+                promotionActive ? u.getSubscriptionOverrideExpiresAt() : null,
                 status,
                 u.getLastActiveAt(),
                 u.getLastAssessmentAt(),
@@ -603,6 +636,7 @@ public class MeService {
                 u.getGroupLocationSharing() == null
                         ? java.util.Map.of()
                         : new java.util.HashMap<>(u.getGroupLocationSharing()),
+                platformPermissions == null ? java.util.List.of() : platformPermissions,
                 DtoImages.isPresent(rawAvatar),
                 DtoImages.isPresent(rawCover)
         );
@@ -738,6 +772,7 @@ public class MeService {
                 role,
                 g.getAlert(),
                 g.getActiveHazardType(),
+                g.isAgencyAuthorized(),
                 g.getUpdatedAt(),
                 previewFor(g, profiles),
                 unreadCountFor(g, readMap),
@@ -746,6 +781,30 @@ public class MeService {
                 pref == null ? null : pref.getQuietStart(),
                 pref == null ? null : pref.getQuietEnd(),
                 pref == null ? null : pref.getQuietTimezone()
+        );
+    }
+
+    private GroupSummary toPendingGroupSummary(Group g) {
+        int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
+        int pendingCount = g.getPendingMemberEmails() == null ? 0 : g.getPendingMemberEmails().size();
+        return new GroupSummary(
+                g.getGroupId(),
+                g.getGroupName(),
+                g.getGroupType(),
+                memberCount,
+                pendingCount,
+                "pending",
+                g.getAlert(),
+                g.getActiveHazardType(),
+                g.isAgencyAuthorized(),
+                g.getUpdatedAt(),
+                List.of(),
+                0,
+                g.getUpdatedAt() == null ? g.getCreatedAt() : g.getUpdatedAt(),
+                null,
+                null,
+                null,
+                null
         );
     }
 

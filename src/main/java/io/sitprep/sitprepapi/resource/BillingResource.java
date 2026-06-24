@@ -5,6 +5,7 @@ import com.stripe.exception.StripeException;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlanTier;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.dto.BillingAccountStatusDto;
 import io.sitprep.sitprepapi.service.BillingService;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -57,12 +58,22 @@ public class BillingResource {
         try {
             String url = billing.createCheckoutSession(group, tier, caller);
             return ResponseEntity.ok(Map.of("url", url));
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (StripeException e) {
             log.error("Stripe checkout failed for group {}", group.getGroupId(), e);
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Stripe error");
         }
+    }
+
+    /** Owner-safe billing state for the plan sheet. No Stripe ids or secrets. */
+    @GetMapping("/status")
+    public ResponseEntity<BillingAccountStatusDto> status(@RequestParam String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Group group = requireOwner(groupId, caller);
+        return ResponseEntity.ok(billing.accountStatus(group));
     }
 
     /** Open the Customer Portal. Body: {@code {"groupId": "..."}}. */
@@ -92,7 +103,9 @@ public class BillingResource {
             @RequestBody String payload,
             @RequestHeader(value = "Stripe-Signature", required = false) String signature) {
         try {
-            billing.handleWebhook(payload, signature);
+            BillingService.WebhookReceipt receipt = billing.handleWebhook(payload, signature);
+            log.info("Stripe webhook receipt event={} type={} status={} duplicate={}",
+                    receipt.eventId(), receipt.eventType(), receipt.status(), receipt.duplicate());
             return ResponseEntity.ok("ok");
         } catch (SignatureVerificationException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bad Stripe signature");

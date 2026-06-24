@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
@@ -9,11 +10,12 @@ import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.dto.UpdateSelfStatusRequest;
 import io.sitprep.sitprepapi.service.AccountDeletionService;
 import io.sitprep.sitprepapi.service.AccountDeletionService.OwnedGroupsBlockingException;
+import io.sitprep.sitprepapi.service.AdminAuditLogService;
 import io.sitprep.sitprepapi.service.BlockService;
 import io.sitprep.sitprepapi.service.FollowService;
+import io.sitprep.sitprepapi.service.PlatformAccessService;
 import io.sitprep.sitprepapi.service.UserInfoService;
 import io.sitprep.sitprepapi.util.AuthUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -45,60 +47,45 @@ public class UserInfoResource {
     private final AccountDeletionService accountDeletionService;
     private final FollowService followService;
     private final BlockService blockService;
-    private final String adminToken;
+    private final PlatformAccessService platformAccessService;
+    private final AdminAuditLogService adminAuditLogService;
 
     public UserInfoResource(UserInfoService userInfoService,
                             AccountDeletionService accountDeletionService,
                             FollowService followService,
                             BlockService blockService,
-                            @Value("${app.admin.token:}") String adminToken) {
+                            PlatformAccessService platformAccessService,
+                            AdminAuditLogService adminAuditLogService) {
         this.userInfoService = userInfoService;
         this.accountDeletionService = accountDeletionService;
         this.followService = followService;
         this.blockService = blockService;
-        this.adminToken = adminToken == null ? "" : adminToken.trim();
+        this.platformAccessService = platformAccessService;
+        this.adminAuditLogService = adminAuditLogService;
     }
 
     /**
      * Admin-only — dump every {@link UserInfo} row. This is PII-heavy
      * (emails, phones, addresses, last-known locations), so it is gated
-     * by the shared admin secret, NOT an ordinary signed-in token —
-     * every beta tester holds one of those.
+     * by platform RBAC (VIEW_PII) or the break-glass admin token.
      *
      * <p>Postman: add a header {@code X-Sitprep-Admin-Token: <value>}
-     * matching the server's {@code APP_ADMIN_TOKEN} env var. When that
-     * var is unset the endpoint fails closed (503) rather than open.</p>
+     * matching the server's {@code APP_ADMIN_TOKEN} env var, or call as
+     * a signed-in platform super admin.</p>
      */
     @GetMapping
     public ResponseEntity<List<UserInfo>> getAllUsers(
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
     ) {
-        requireAdmin(token);
+        var access = platformAccessService.resolveForRequest(AuthUtils.getCurrentUserEmail(), token);
+        access.require(PlatformPermission.VIEW_PII);
+        adminAuditLogService.record(
+                access.auditActorEmail(),
+                "VIEWED_PII",
+                "userinfo",
+                "all",
+                "viewed all user info rows");
         return ResponseEntity.ok(userInfoService.getAllUsers());
-    }
-
-    private void requireAdmin(String token) {
-        if (adminToken.isEmpty()) {
-            // No admin token configured → endpoint is disabled. Fail
-            // closed rather than open a gap.
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Admin endpoints disabled (APP_ADMIN_TOKEN not set)");
-        }
-        if (token == null || !constantTimeEquals(token, adminToken)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "Admin token required");
-        }
-    }
-
-    /** Constant-time string compare to avoid timing oracles on token check. */
-    private static boolean constantTimeEquals(String a, String b) {
-        if (a == null || b == null) return false;
-        if (a.length() != b.length()) return false;
-        int diff = 0;
-        for (int i = 0; i < a.length(); i++) {
-            diff |= a.charAt(i) ^ b.charAt(i);
-        }
-        return diff == 0;
     }
 
     @GetMapping("/{id}")

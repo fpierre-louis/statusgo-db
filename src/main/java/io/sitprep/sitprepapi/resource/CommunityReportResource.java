@@ -1,11 +1,12 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.dto.CommunityReportDto;
 import io.sitprep.sitprepapi.dto.CreateCommunityReportRequest;
 import io.sitprep.sitprepapi.dto.ReviewCommunityReportRequest;
+import io.sitprep.sitprepapi.service.PlatformAccessService;
 import io.sitprep.sitprepapi.service.CommunityReportService;
 import io.sitprep.sitprepapi.util.AuthUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -24,12 +24,12 @@ import java.util.List;
 public class CommunityReportResource {
 
     private final CommunityReportService service;
-    private final String adminToken;
+    private final PlatformAccessService platformAccessService;
 
     public CommunityReportResource(CommunityReportService service,
-                                   @Value("${app.admin.token:}") String adminToken) {
+                                   PlatformAccessService platformAccessService) {
         this.service = service;
-        this.adminToken = adminToken == null ? "" : adminToken.trim();
+        this.platformAccessService = platformAccessService;
     }
 
     @PostMapping("/api/community/reports")
@@ -43,7 +43,8 @@ public class CommunityReportResource {
             @RequestParam(value = "status", required = false, defaultValue = "PENDING") String status,
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
     ) {
-        requireAdmin(token);
+        var access = platformAccessService.resolveForRequest(AuthUtils.getCurrentUserEmail(), token);
+        access.require(PlatformPermission.MODERATE_REPORTS);
         return ResponseEntity.ok(service.listReports(status));
     }
 
@@ -53,28 +54,8 @@ public class CommunityReportResource {
             @RequestBody ReviewCommunityReportRequest req,
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
     ) {
-        requireAdmin(token);
-        return ResponseEntity.ok(service.review(id, req, "admin-token"));
-    }
-
-    private void requireAdmin(String token) {
-        if (adminToken.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Admin endpoints disabled (APP_ADMIN_TOKEN not set)");
-        }
-        if (token == null || !constantTimeEquals(token, adminToken)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "Admin token required");
-        }
-    }
-
-    private static boolean constantTimeEquals(String a, String b) {
-        if (a == null || b == null) return false;
-        if (a.length() != b.length()) return false;
-        int diff = 0;
-        for (int i = 0; i < a.length(); i++) {
-            diff |= a.charAt(i) ^ b.charAt(i);
-        }
-        return diff == 0;
+        var access = platformAccessService.resolveForRequest(AuthUtils.getCurrentUserEmail(), token);
+        access.require(PlatformPermission.MODERATE_REPORTS);
+        return ResponseEntity.ok(service.review(id, req, access.auditActorEmail()));
     }
 }

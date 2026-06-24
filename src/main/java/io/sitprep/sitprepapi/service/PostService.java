@@ -79,6 +79,7 @@ public class PostService {
     private final StorageService storage;
     private final GroupRepo groupRepo;
     private final PublisherPublishAuditService publisherPublishAuditService;
+    private final AgencyAuthorizationService agencyAuthorizationService;
     private final PostConfirmRepo postConfirmRepo;
     private final AskBookmarkRepo askBookmarkRepo;
 
@@ -99,6 +100,7 @@ public class PostService {
                        StorageService storage,
                        GroupRepo groupRepo,
                        PublisherPublishAuditService publisherPublishAuditService,
+                       AgencyAuthorizationService agencyAuthorizationService,
                        PostConfirmRepo postConfirmRepo,
                        AskBookmarkRepo askBookmarkRepo) {
         this.taskRepo = taskRepo;
@@ -113,6 +115,7 @@ public class PostService {
         this.storage = storage;
         this.groupRepo = groupRepo;
         this.publisherPublishAuditService = publisherPublishAuditService;
+        this.agencyAuthorizationService = agencyAuthorizationService;
         this.postConfirmRepo = postConfirmRepo;
         this.askBookmarkRepo = askBookmarkRepo;
     }
@@ -526,6 +529,11 @@ public class PostService {
         // @RequestBody binds the raw columns; this authorizes + defaults them.
         applyCommunityTypeFields(t, incoming, requesterEmail);
 
+        // Civic-report → work-order linkage (Phase 5 Slice H). When an agency
+        // admin issues a work order off a civic report, link it back and
+        // acknowledge the still-new report.
+        applyWorkOrderSourceLink(t, incoming, requesterEmail);
+
         // Reverse-geocode to populate zipBucket (community-feed pre-filter)
         // and placeLabel (Nextdoor-style "{neighborhood} · {time}" subtitle
         // on feed cards). Safe to skip on group-scope tasks since the
@@ -564,9 +572,22 @@ public class PostService {
     private void applyCommunityTypeFields(Post t, Post incoming, String actorEmail) {
         String kind = t.getKind();
         if ("official".equals(kind)) {
-            UserInfo author = userInfoRepo.findByUserEmail(actorEmail.trim().toLowerCase()).orElse(null);
-            if (author == null || !author.isVerifiedPublisherEmergencyPostingEnabled()) {
-                throw new IllegalArgumentException("Only verified emergency publishers can post official alerts");
+            String agencyId = blankToNull(t.getAuthoredAsGroupId());
+            if (agencyId != null) {
+                Group agency = groupRepo.findByGroupId(agencyId)
+                        .orElseThrow(() -> new IllegalArgumentException("authoredAsGroupId references an unknown agency"));
+                agencyAuthorizationService.requireAgencyPostingAllowed(agency, actorEmail);
+                if (t.getLatitude() == null && agency.getJurisdictionLat() != null) {
+                    t.setLatitude(agency.getJurisdictionLat());
+                }
+                if (t.getLongitude() == null && agency.getJurisdictionLng() != null) {
+                    t.setLongitude(agency.getJurisdictionLng());
+                }
+            } else {
+                UserInfo author = userInfoRepo.findByUserEmail(actorEmail.trim().toLowerCase()).orElse(null);
+                if (author == null || !author.isVerifiedPublisherEmergencyPostingEnabled()) {
+                    throw new IllegalArgumentException("Only verified emergency publishers can post official alerts");
+                }
             }
             String tier = incoming.getOfficialTier() == null ? null : incoming.getOfficialTier().trim().toLowerCase();
             if (!OfficialTier.isValid(tier)) {
@@ -606,6 +627,43 @@ public class PostService {
             t.setCivicCategory(cat);
             t.setTaggedAgencyGroupId(agency.getGroupId());
             t.setCivicStatus(CivicStatus.REPORTED.wire());
+        }
+    }
+
+    /**
+     * Link an agency work order back to the civic report that prompted it
+     * (Phase 5 Slice H). Authorization is checked against the report's
+     * tagged agency — NOT the work order's groupId — because create does
+     * not (today) verify group-admin for kind="task". Only that agency's
+     * owner/admins may link, which also keeps the auto-acknowledge honest.
+     * Creating the work order acknowledges a still-"reported" card; later
+     * lifecycle states (scheduled/resolved) are never regressed.
+     */
+    private void applyWorkOrderSourceLink(Post t, Post incoming, String actorEmail) {
+        Long sourceId = incoming.getSourcePostId();
+        if (sourceId == null) return;
+        Post source = taskRepo.findById(sourceId).orElse(null);
+        if (source == null
+                || source.getCivicStatus() == null
+                || source.getTaggedAgencyGroupId() == null) {
+            return; // only civic-report sources are linkable
+        }
+        Group agency = groupRepo.findByGroupId(source.getTaggedAgencyGroupId()).orElse(null);
+        String me = actorEmail.trim().toLowerCase();
+        boolean authorized = agency != null && (
+                (agency.getOwnerEmail() != null && agency.getOwnerEmail().equalsIgnoreCase(me))
+                        || (agency.getAdminEmails() != null && agency.getAdminEmails().stream()
+                        .anyMatch(x -> x != null && x.equalsIgnoreCase(me))));
+        if (!authorized) return; // never link a stranger's task to a report
+
+        t.setSourcePostId(sourceId);
+        if (CivicStatus.fromWire(source.getCivicStatus()) == CivicStatus.REPORTED) {
+            source.setCivicStatus(CivicStatus.ACKNOWLEDGED.wire());
+            source.setCivicAckedAt(Instant.now());
+            if (source.getAgencyNote() == null || source.getAgencyNote().isBlank()) {
+                source.setAgencyNote("Work order created");
+            }
+            taskRepo.save(source);
         }
     }
 

@@ -116,6 +116,20 @@ server:
 app:
   jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
   jwtExpirationMs: ${APP_JWT_EXPIRATION_MS:86400000}
+  frontend-base-url: ${APP_FRONTEND_BASE_URL:https://sitprep.app}
+  admin:
+    bootstrap-super-admins: ${APP_ADMIN_BOOTSTRAP_SUPER_ADMINS:francisd.plouis@gmail.com}
+
+# --- STRIPE (organization subscriptions) ---
+# A missing key keeps billing dormant without blocking application startup.
+# Agency and Premium Agency remain sales-led; only Group and Business use
+# self-serve Checkout prices.
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  price:
+    group: ${STRIPE_PRICE_GROUP:}
+    business: ${STRIPE_PRICE_BUSINESS:}
 
 # --- SENTRY (crash reporting) ---
 # When SENTRY_DSN is unset, the starter is a no-op at runtime — no

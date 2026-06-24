@@ -157,6 +157,26 @@ public class UserInfo {
     private Instant dateSubscribed;
 
     /**
+     * Admin-managed, time-boxed personal access bypass for gifts, pilots,
+     * demos, and promotions. This is intentionally separate from Stripe
+     * subscription fields so support can tell paid vs. granted access apart.
+     */
+    @Column(name = "subscription_override_package", length = 64)
+    private String subscriptionOverridePackage;
+
+    @Column(name = "subscription_override_expires_at")
+    private Instant subscriptionOverrideExpiresAt;
+
+    @Column(name = "subscription_override_reason", length = 500)
+    private String subscriptionOverrideReason;
+
+    @Column(name = "subscription_override_by", length = 320)
+    private String subscriptionOverrideBy;
+
+    @Column(name = "subscription_override_at")
+    private Instant subscriptionOverrideAt;
+
+    /**
      * When this user last hit any authenticated endpoint. Updated by
      * {@link io.sitprep.sitprepapi.service.LastActivityService} from the
      * Firebase auth filter, throttled to ~5 min/user so write pressure

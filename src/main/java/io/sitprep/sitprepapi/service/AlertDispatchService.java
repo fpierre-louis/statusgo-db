@@ -13,6 +13,7 @@ import io.sitprep.sitprepapi.repo.AlertPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.NominatimGeocodeService.Place;
+import io.sitprep.sitprepapi.util.GeoUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -80,9 +81,6 @@ public class AlertDispatchService {
 
     /** Safety cap on a single alert's push fan-out. */
     private static final int MAX_PUSH_RECIPIENTS = 500;
-
-    /** Great-circle earth radius — matches the other geo services. */
-    private static final double EARTH_RADIUS_KM = 6371.0088;
 
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
@@ -504,7 +502,7 @@ public class AlertDispatchService {
                 break;
             }
             if (u.getLastKnownLat() == null || u.getLastKnownLng() == null) continue;
-            double distKm = haversineKm(alertLat, alertLng,
+            double distKm = GeoUtil.haversineKm(alertLat, alertLng,
                     u.getLastKnownLat(), u.getLastKnownLng());
             if (distKm <= SEVERE_PUSH_RADIUS_KM) nearby.add(u);
         }
@@ -540,16 +538,6 @@ public class AlertDispatchService {
         if (s == null) return "";
         String t = s.trim();
         return t.length() <= max ? t : t.substring(0, Math.max(0, max - 1)).trim() + "…";
-    }
-
-    /** Great-circle distance in km. Same EARTH_RADIUS as the other geo services. */
-    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLng = Math.toRadians(lng2 - lng1);
-        double s = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        return EARTH_RADIUS_KM * 2 * Math.asin(Math.min(1.0, Math.sqrt(s)));
     }
 
     private String lookupZipBucket(double lat, double lng) {

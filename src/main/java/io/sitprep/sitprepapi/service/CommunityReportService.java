@@ -24,13 +24,16 @@ public class CommunityReportService {
     private final CommunityReportRepo reportRepo;
     private final PostRepo postRepo;
     private final PostCommentRepo commentRepo;
+    private final AdminAuditLogService adminAuditLogService;
 
     public CommunityReportService(CommunityReportRepo reportRepo,
                                   PostRepo postRepo,
-                                  PostCommentRepo commentRepo) {
+                                  PostCommentRepo commentRepo,
+                                  AdminAuditLogService adminAuditLogService) {
         this.reportRepo = reportRepo;
         this.postRepo = postRepo;
         this.commentRepo = commentRepo;
+        this.adminAuditLogService = adminAuditLogService;
     }
 
     @Transactional
@@ -81,11 +84,21 @@ public class CommunityReportService {
     public CommunityReportDto review(Long id, ReviewCommunityReportRequest req, String reviewerEmail) {
         CommunityReport row = reportRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
-        row.setStatus(parseReviewStatus(req == null ? null : req.status(), false));
+        CommunityReport.ReviewStatus previous = row.getStatus();
+        CommunityReport.ReviewStatus next = parseReviewStatus(req == null ? null : req.status(), false);
+        row.setStatus(next);
         row.setReviewerEmail(normalize(reviewerEmail));
         row.setReviewerNotes(trim(req == null ? null : req.reviewerNotes(), 1000));
         row.setReviewedAt(Instant.now());
-        return CommunityReportDto.from(reportRepo.save(row));
+        CommunityReport saved = reportRepo.save(row);
+        adminAuditLogService.record(
+                reviewerEmail,
+                "REVIEWED_REPORT",
+                "report",
+                String.valueOf(saved.getId()),
+                "status " + previous + " -> " + next
+                        + "; target=" + saved.getTargetType() + "#" + saved.getTargetId());
+        return CommunityReportDto.from(saved);
     }
 
     private static CommunityReport.TargetType parseTargetType(String raw) {

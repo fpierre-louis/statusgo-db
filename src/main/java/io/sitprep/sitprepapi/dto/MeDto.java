@@ -65,6 +65,9 @@ public record MeDto(
             String longitude,
             String profileImageUrl,
             String subscription,
+            String subscriptionPackage,
+            String effectiveSubscriptionPackage,
+            Instant subscriptionOverrideExpiresAt,
             SelfStatusDto selfStatus,
             /** Last time this user hit any authenticated endpoint. Null if never. */
             Instant lastActiveAt,
@@ -115,6 +118,11 @@ public record MeDto(
              * {@code PATCH /userinfo/me/group-location-sharing}.
              */
             Map<String, String> groupLocationSharing,
+            /**
+             * Effective platform-console permissions for this user's email.
+             * UI-gating only; backend admin endpoints re-check each permission.
+             */
+            List<String> platformPermissions,
             /**
              * Deterministic existence flags computed BEFORE DtoImages
              * normalization (audit BE-03 / P1-2). True iff the raw column
@@ -250,7 +258,8 @@ public record MeDto(
 
     public record GroupsDto(
             List<GroupSummary> managed,
-            List<GroupSummary> joined
+            List<GroupSummary> joined,
+            List<GroupSummary> pending
     ) {}
 
     public record GroupSummary(
@@ -269,6 +278,12 @@ public record MeDto(
              * keyword-matching the alert headline.
              */
             String activeHazardType,
+            /**
+             * True when this group has been stamped as an authorized agency.
+             * Lets the client route agency owners/admins into the agency
+             * workspace without inspecting backend-only rosters.
+             */
+            boolean agencyAuthorized,
             /**
              * Group record's audit timestamp — bumped on group-field
              * edits (name, alert toggled, etc.). Retained for legacy

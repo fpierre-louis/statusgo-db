@@ -377,6 +377,15 @@ public class Post {
     @Column(name = "read_minutes")
     private Integer readMinutes;
 
+    /**
+     * For an agency work order (kind="task") created from a civic report,
+     * the source civic-report post id (Phase 5 Slice H). Null otherwise —
+     * this is what links the operational work order back to the public
+     * card that prompted it.
+     */
+    @Column(name = "source_post_id")
+    private Long sourcePostId;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();

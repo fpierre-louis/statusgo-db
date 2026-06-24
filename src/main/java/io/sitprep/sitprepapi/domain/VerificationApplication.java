@@ -41,11 +41,23 @@ public class VerificationApplication {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 80)
+    @Column(length = 80)
     private String groupId;
 
     @Column(nullable = false, length = 160)
     private String applicantEmail;
+
+    @Column(length = 320)
+    private String submitterEmail;
+
+    @Column(length = 400)
+    private String statedJurisdiction;
+
+    @Column(length = 16)
+    private String source = "REQUEST";
+
+    @Column(length = 320)
+    private String assignedConsultantEmail;
 
     @Column(length = 64)
     private String accountType;
@@ -108,8 +120,20 @@ public class VerificationApplication {
     @Column(length = 400)
     private String publisherTemporaryEventAddress;
 
+    @Column(name = "logo_image_url", length = 1024)
+    private String logoImageUrl;
+
     @Column(columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean emergencyPostingEnabled = false;
+
+    @Column(name = "draft_lat")
+    private Double draftLat;
+
+    @Column(name = "draft_lng")
+    private Double draftLng;
+
+    @Column(name = "draft_radius_mi")
+    private Double draftRadiusMiles;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -127,6 +151,7 @@ public class VerificationApplication {
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
         if (status == null) status = Status.DRAFT;
+        if (source == null || source.isBlank()) source = "REQUEST";
     }
 
     @PreUpdate

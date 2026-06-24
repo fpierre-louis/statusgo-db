@@ -41,8 +41,18 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     @Query("SELECT g FROM Group g JOIN g.pendingMemberEmails p WHERE LOWER(p) = LOWER(:email)")
     List<Group> findByPendingMemberEmail(@Param("email") String email);
 
+    // Agency ownership can exist before the owner has a UserInfo row. Treat
+    // ownerEmail as a first-class group association so a later signup with
+    // that email immediately sees the agency workspace.
+    @EntityGraph(attributePaths = {"adminEmails", "memberEmails", "pendingMemberEmails"})
+    List<Group> findByOwnerEmailIgnoreCase(String ownerEmail);
+
     // ✅ For UUID-based lookup by public groupId
     Optional<Group> findByGroupId(String groupId);
+
+    Optional<Group> findByStripeCustomerId(String stripeCustomerId);
+
+    Optional<Group> findByStripeSubscriptionId(String stripeSubscriptionId);
 
     /**
      * Verified-agency groups whose claimed jurisdiction includes this zip
@@ -52,6 +62,9 @@ public interface GroupRepo extends JpaRepository<Group, String> {
      */
     @Query("SELECT g FROM Group g JOIN g.jurisdictionZips z WHERE z = :zip ORDER BY g.groupName ASC")
     List<Group> findByJurisdictionZip(@Param("zip") String zip);
+
+    @Query("SELECT g FROM Group g WHERE g.agencyAuthorized = true ORDER BY LOWER(g.groupName) ASC")
+    List<Group> findAuthorizedAgencies();
 
     /**
      * Case-insensitive uniqueness check for the group-create flows.

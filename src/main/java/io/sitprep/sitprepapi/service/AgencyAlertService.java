@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.AgencyAlert;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
@@ -12,7 +11,6 @@ import io.sitprep.sitprepapi.dto.SendAgencyAlertRequest;
 import io.sitprep.sitprepapi.repo.AgencyAlertRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
-import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -49,18 +47,18 @@ public class AgencyAlertService {
     private final GroupRepo groupRepo;
     private final AgencyAlertRepo agencyAlertRepo;
     private final PostRepo postRepo;
-    private final UserInfoRepo userInfoRepo;
+    private final AgencyAuthorizationService agencyAuthorizationService;
     private final NotificationService notificationService;
 
     public AgencyAlertService(GroupRepo groupRepo,
                               AgencyAlertRepo agencyAlertRepo,
                               PostRepo postRepo,
-                              UserInfoRepo userInfoRepo,
+                              AgencyAuthorizationService agencyAuthorizationService,
                               NotificationService notificationService) {
         this.groupRepo = groupRepo;
         this.agencyAlertRepo = agencyAlertRepo;
         this.postRepo = postRepo;
-        this.userInfoRepo = userInfoRepo;
+        this.agencyAuthorizationService = agencyAuthorizationService;
         this.notificationService = notificationService;
     }
 
@@ -69,36 +67,30 @@ public class AgencyAlertService {
         Group group = groupRepo.findByGroupId(groupId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
 
-        // Authority — never trust the client. Caller must be owner/admin AND
-        // the group must hold a claimed jurisdiction (set only by super-admin
-        // provisioning). Having jurisdiction IS the agency-send authorization.
-        if (!GroupRole.fromGroup(group, callerEmail).isAtLeastAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group admin or owner role required");
-        }
+        agencyAuthorizationService.requireAgencyPostingAllowed(group, callerEmail);
+
         Set<String> jurisdiction = new LinkedHashSet<>();
         if (group.getJurisdictionZips() != null) {
             for (String z : group.getJurisdictionZips()) {
                 if (z != null && !z.isBlank()) jurisdiction.add(z.trim());
             }
         }
-        if (jurisdiction.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "This group has no claimed jurisdiction — not authorized to send agency alerts");
-        }
 
-        // Clamp the requested zips to the jurisdiction (can't blast zips you
-        // don't own); empty request ⇒ the full jurisdiction.
+        // Radius-authorized agencies ignore the legacy zip selector. Zip-only
+        // agencies keep the old clamping behavior.
         List<String> targetZips = new ArrayList<>();
-        List<String> requested = (req == null || req.affectedZips() == null) ? List.of() : req.affectedZips();
-        if (requested.isEmpty()) {
-            targetZips.addAll(jurisdiction);
-        } else {
-            Set<String> seen = new LinkedHashSet<>();
-            for (String z : requested) {
-                String t = z == null ? "" : z.trim();
-                if (jurisdiction.contains(t) && seen.add(t)) targetZips.add(t);
+        if (!agencyAuthorizationService.hasGeo(group)) {
+            List<String> requested = (req == null || req.affectedZips() == null) ? List.of() : req.affectedZips();
+            if (requested.isEmpty()) {
+                targetZips.addAll(jurisdiction);
+            } else {
+                Set<String> seen = new LinkedHashSet<>();
+                for (String z : requested) {
+                    String t = z == null ? "" : z.trim();
+                    if (jurisdiction.contains(t) && seen.add(t)) targetZips.add(t);
+                }
+                if (targetZips.isEmpty()) targetZips.addAll(jurisdiction);
             }
-            if (targetZips.isEmpty()) targetZips.addAll(jurisdiction);
         }
 
         String title = trim(req == null ? null : req.title(), 200);
@@ -143,15 +135,13 @@ public class AgencyAlertService {
         post.setDescription(body == null ? "" : body);
         post.setStatus(PostStatus.OPEN);
         post.setPriority(PostPriority.URGENT);
-        post.setLatitude(parseDouble(group.getLatitude()));
-        post.setLongitude(parseDouble(group.getLongitude()));
+        post.setLatitude(group.getJurisdictionLat() == null ? parseDouble(group.getLatitude()) : group.getJurisdictionLat());
+        post.setLongitude(group.getJurisdictionLng() == null ? parseDouble(group.getLongitude()) : group.getJurisdictionLng());
         Post savedPost = postRepo.save(post);
 
-        // Recipients — indexed zip lookup, bounded by recency (stale-location
-        // guard). The notification layer drops tokenless users.
+        // Recipients — radius when provisioned, legacy zip lookup otherwise.
         Instant since = Instant.now().minus(RECENCY_DAYS, ChronoUnit.DAYS);
-        List<UserInfo> recipients = userInfoRepo
-                .findByLastKnownZipInAndLastKnownLocationAtAfter(targetZips, since);
+        List<UserInfo> recipients = agencyAuthorizationService.recipients(group, since);
 
         String pushTitle = title != null ? title : ("Alert from " + safe(group.getGroupName()));
         notificationService.sendHazardAlertBatch(

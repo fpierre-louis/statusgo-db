@@ -189,6 +189,19 @@ public class Group {
     @Column(name = "service_area_radius")
     private Double serviceAreaRadius;
 
+    @Column(name = "jurisdiction_lat")
+    private Double jurisdictionLat;
+
+    @Column(name = "jurisdiction_lng")
+    private Double jurisdictionLng;
+
+    /** Authorized agency targeting radius in miles. Null until provisioned. */
+    @Column(name = "jurisdiction_radius_mi")
+    private Double jurisdictionRadiusMiles;
+
+    @Column(name = "agency_authorized", columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean agencyAuthorized = false;
+
     /**
      * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
      * {@code stripeCustomerId} is the group's Stripe Customer (the
@@ -207,6 +220,26 @@ public class Group {
 
     @Column(name = "subscription_status")
     private String subscriptionStatus;
+
+    /**
+     * Admin-managed, time-boxed access bypass for pilots, gifts, demos,
+     * and promotions. Stripe remains the source of truth for paid
+     * subscriptions; these fields describe an explicit console override.
+     */
+    @Column(name = "subscription_override_tier", length = 64)
+    private String subscriptionOverrideTier;
+
+    @Column(name = "subscription_override_expires_at")
+    private Instant subscriptionOverrideExpiresAt;
+
+    @Column(name = "subscription_override_reason", length = 500)
+    private String subscriptionOverrideReason;
+
+    @Column(name = "subscription_override_by", length = 320)
+    private String subscriptionOverrideBy;
+
+    @Column(name = "subscription_override_at")
+    private Instant subscriptionOverrideAt;
 
     /**
      * Timestamp the household plan was most recently <i>confirmed as current</i>

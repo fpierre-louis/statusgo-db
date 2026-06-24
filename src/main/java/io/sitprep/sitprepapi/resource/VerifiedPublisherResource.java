@@ -1,8 +1,9 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.dto.VerifiedPublisherDto;
+import io.sitprep.sitprepapi.service.PlatformAccessService;
 import io.sitprep.sitprepapi.service.VerifiedPublisherService;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,10 +11,10 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import io.sitprep.sitprepapi.util.AuthUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -40,12 +41,12 @@ import java.util.Map;
 public class VerifiedPublisherResource {
 
     private final VerifiedPublisherService service;
-    private final String adminToken;
+    private final PlatformAccessService platformAccessService;
 
     public VerifiedPublisherResource(VerifiedPublisherService service,
-                                     @Value("${app.admin.token:}") String adminToken) {
+                                     PlatformAccessService platformAccessService) {
         this.service = service;
-        this.adminToken = adminToken == null ? "" : adminToken.trim();
+        this.platformAccessService = platformAccessService;
     }
 
     @GetMapping("/api/verified-publishers")
@@ -78,37 +79,11 @@ public class VerifiedPublisherResource {
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
     ) {
-        requireAdmin(token);
+        var access = platformAccessService.resolveForRequest(AuthUtils.getCurrentUserEmail(), token);
+        access.require(PlatformPermission.MANAGE_PUBLISHERS);
         boolean verified = Boolean.TRUE.equals(body.get("verified"));
         String kind = body.get("kind") instanceof String s ? s : null;
-        // adminEmail is logged from the token caller; for v1 we don't
-        // resolve it to a UserInfo, since the token is just a shared
-        // secret. Future: real admin identities + audit-log row.
-        VerifiedPublisherDto out = service.setVerified(email, verified, kind, "admin-token");
+        VerifiedPublisherDto out = service.setVerified(email, verified, kind, access.auditActorEmail());
         return ResponseEntity.ok(out);
-    }
-
-    private void requireAdmin(String token) {
-        if (adminToken.isEmpty()) {
-            // No admin token configured → endpoint is disabled. Fail
-            // closed rather than open a gap.
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Admin endpoints disabled (APP_ADMIN_TOKEN not set)");
-        }
-        if (token == null || !constantTimeEquals(token, adminToken)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "Admin token required");
-        }
-    }
-
-    /** Constant-time string compare to avoid timing oracles on token check. */
-    private static boolean constantTimeEquals(String a, String b) {
-        if (a == null || b == null) return false;
-        if (a.length() != b.length()) return false;
-        int diff = 0;
-        for (int i = 0; i < a.length(); i++) {
-            diff |= a.charAt(i) ^ b.charAt(i);
-        }
-        return diff == 0;
     }
 }

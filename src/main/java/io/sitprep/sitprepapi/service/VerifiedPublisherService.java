@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.VerifiedPublisherDto;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.GeoUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -39,9 +41,6 @@ public class VerifiedPublisherService {
 
     private static final Logger log = LoggerFactory.getLogger(VerifiedPublisherService.class);
 
-    /** Mean Earth radius in km — matches PostService / AlertModeService. */
-    private static final double EARTH_RADIUS_KM = 6371.0088;
-
     /**
      * Authorized verified-publisher kinds. Lowercased. New kinds get
      * added here; the column is free-form length 32 so the schema
@@ -61,9 +60,12 @@ public class VerifiedPublisherService {
     );
 
     private final UserInfoRepo userInfoRepo;
+    private final AdminAuditLogService adminAuditLogService;
 
-    public VerifiedPublisherService(UserInfoRepo userInfoRepo) {
+    public VerifiedPublisherService(UserInfoRepo userInfoRepo,
+                                    AdminAuditLogService adminAuditLogService) {
         this.userInfoRepo = userInfoRepo;
+        this.adminAuditLogService = adminAuditLogService;
     }
 
     /**
@@ -85,7 +87,7 @@ public class VerifiedPublisherService {
             Double pubLat = parseDoubleOrNull(u.getLatitude());
             Double pubLng = parseDoubleOrNull(u.getLongitude());
             if (pubLat == null || pubLng == null) continue;
-            double d = haversineKm(lat, lng, pubLat, pubLng);
+            double d = GeoUtil.haversineKm(lat, lng, pubLat, pubLng);
             if (d > radiusKm) continue;
             within.add(VerifiedPublisherDto.fromEntity(u, roundKm(d)));
         }
@@ -130,15 +132,84 @@ public class VerifiedPublisherService {
                                             String temporaryEventAddress,
                                             boolean emergencyPostingEnabled,
                                             String groupId) {
-        UserInfo u = userInfoRepo.findByUserEmail(userEmail)
+        UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(userEmail)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
+        return applyVerification(
+                u,
+                userEmail,
+                verified,
+                kind,
+                adminEmail,
+                serviceArea,
+                permanentAddress,
+                temporaryEventAddress,
+                emergencyPostingEnabled,
+                groupId);
+    }
+
+    /**
+     * Agency authorization can happen before the named agency contact has
+     * created an app account. In that case the agency group is still the
+     * source of truth, and the UserInfo publisher stamp is deferred until the
+     * user exists. Manual publisher verification should keep using
+     * {@link #setVerified} so a missing user remains visible to the operator.
+     */
+    @Transactional
+    public boolean setVerifiedIfUserExists(String userEmail,
+                                           boolean verified,
+                                           String kind,
+                                           String adminEmail,
+                                           String serviceArea,
+                                           String permanentAddress,
+                                           String temporaryEventAddress,
+                                           boolean emergencyPostingEnabled,
+                                           String groupId) {
+        Optional<UserInfo> user = userInfoRepo.findByUserEmailIgnoreCase(userEmail);
+        if (user.isEmpty()) {
+            if (verified) {
+                String k = requireKind(kind);
+                adminAuditLogService.record(
+                        adminEmail,
+                        "DEFERRED_VERIFIED_PUBLISHER",
+                        groupId == null || groupId.isBlank() ? "user" : "group",
+                        groupId == null || groupId.isBlank() ? normalizeEmail(userEmail) : groupId,
+                        "publisher " + normalizeEmail(userEmail)
+                                + " pending user account"
+                                + kindSuffix(k));
+                log.info("VerifiedPublisher: deferred {} -> true (kind={}) by {}; user account not found",
+                        userEmail, k, adminEmail);
+            }
+            return false;
+        }
+        applyVerification(
+                user.get(),
+                userEmail,
+                verified,
+                kind,
+                adminEmail,
+                serviceArea,
+                permanentAddress,
+                temporaryEventAddress,
+                emergencyPostingEnabled,
+                groupId);
+        return true;
+    }
+
+    private VerifiedPublisherDto applyVerification(UserInfo u,
+                                                   String userEmail,
+                                                   boolean verified,
+                                                   String kind,
+                                                   String adminEmail,
+                                                   String serviceArea,
+                                                   String permanentAddress,
+                                                   String temporaryEventAddress,
+                                                   boolean emergencyPostingEnabled,
+                                                   String groupId) {
+        boolean wasVerified = u.isVerifiedPublisher();
+        String oldKind = u.getVerifiedPublisherKind();
 
         if (verified) {
-            String k = (kind == null) ? null : kind.trim().toLowerCase();
-            if (k == null || k.isBlank() || !AUTHORIZED_KINDS.contains(k)) {
-                throw new IllegalArgumentException(
-                        "kind required and must be one of " + AUTHORIZED_KINDS);
-            }
+            String k = requireKind(kind);
             u.setVerifiedPublisher(true);
             u.setVerifiedPublisherKind(k);
             u.setVerifiedSince(Instant.now());
@@ -162,23 +233,20 @@ public class VerifiedPublisherService {
             log.info("VerifiedPublisher: {} → false by {}", userEmail, adminEmail);
         }
         userInfoRepo.save(u);
+        adminAuditLogService.record(
+                adminEmail,
+                verified ? "VERIFIED_PUBLISHER" : "REVOKED_PUBLISHER",
+                "user",
+                u.getId(),
+                "publisher " + normalizeEmail(userEmail)
+                        + " verified " + wasVerified + kindSuffix(oldKind)
+                        + " -> " + verified + kindSuffix(u.getVerifiedPublisherKind()));
         return VerifiedPublisherDto.fromEntity(u, null);
     }
 
     // -------------------------------------------------------------------
-    // Helpers (Haversine kept inline since the codebase's
-    // distance-rounding conventions live in PostService — copy is small
-    // enough not to justify extracting a util class).
+    // Helpers
     // -------------------------------------------------------------------
-
-    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLng = Math.toRadians(lng2 - lng1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                  * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(a));
-    }
 
     private static Double roundKm(double km) {
         return Math.round(km * 10.0) / 10.0;
@@ -200,5 +268,23 @@ public class VerifiedPublisherService {
         String value = raw.trim();
         if (value.isBlank()) return null;
         return value.length() <= max ? value : value.substring(0, max);
+    }
+
+    private static String requireKind(String kind) {
+        String k = (kind == null) ? null : kind.trim().toLowerCase();
+        if (k == null || k.isBlank() || !AUTHORIZED_KINDS.contains(k)) {
+            throw new IllegalArgumentException(
+                    "kind required and must be one of " + AUTHORIZED_KINDS);
+        }
+        return k;
+    }
+
+    private static String normalizeEmail(String raw) {
+        String value = trim(raw, 320);
+        return value == null ? "unknown" : value.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String kindSuffix(String kind) {
+        return kind == null || kind.isBlank() ? "" : " (" + kind + ")";
     }
 }

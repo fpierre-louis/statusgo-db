@@ -93,6 +93,17 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
            "AND u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL")
     List<UserInfo> findPushablesWithLocation();
 
+    @Query("SELECT u FROM UserInfo u " +
+           "WHERE u.lastKnownLat BETWEEN :latMin AND :latMax " +
+           "AND u.lastKnownLng BETWEEN :lngMin AND :lngMax " +
+           "AND u.lastKnownLocationAt > :since")
+    List<UserInfo> findInBoundingBox(
+            @Param("latMin") double latMin,
+            @Param("latMax") double latMax,
+            @Param("lngMin") double lngMin,
+            @Param("lngMax") double lngMax,
+            @Param("since") Instant since);
+
     /**
      * Guest accounts that have entered the expiry warning window and
      * have not yet received the one-time reminder push.
