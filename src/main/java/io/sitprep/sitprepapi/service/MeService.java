@@ -680,34 +680,34 @@ public class MeService {
         String weeklyCheckInTimezone = ritual
                 .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getTimezone)
                 .orElse(null);
-        // Challenge progress — bare map copy is safe (small, single
-        // household, FE consumes as a plain object). Defensive copy
-        // avoids leaking the persistence-context-managed collection
-        // out onto the wire.
-        //
-        // HOTFIX (2026-06-07): Group has 6 @ElementCollections, which
-        // exceeds Hibernate's single-SELECT bag-fetch budget — extras
-        // become secondary selects that need a live session to
-        // materialize. The Group entity was loaded inside the
-        // REQUIRES_NEW tx in safeGet(groupRepo.findBy*), so its session
-        // is already closed by the time we get here, and walking
-        // challengeProgress throws LazyInitializationException — which
-        // bubbled out of the assemble() call and 500'd /me, breaking
-        // login. Defensive try/catch + empty-map fallback so a stale
-        // session never sinks the whole /me payload. Followup (P2):
-        // hoist toHouseholdDto into a runReadOnly so the session is
-        // live, or split challengeProgress onto its own fetch.
-        java.util.Map<String, Boolean> challengeProgress;
-        try {
-            challengeProgress = g.getChallengeProgress() == null
-                    ? java.util.Map.of()
-                    : new java.util.HashMap<>(g.getChallengeProgress());
-        } catch (org.hibernate.LazyInitializationException lie) {
-            log.warn("MeService: challengeProgress LAZY init failed for household={} (session closed). Falling back to empty.",
-                    g.getGroupId());
-            MeBuildContext.markDegraded("household.challengeProgress");
-            challengeProgress = java.util.Map.of();
-        }
+        // Challenge progress — dedicated fetch inside a live read-only
+        // subfetch (P2 followup, done 2026-06-29). Group has 7
+        // @ElementCollections, which exceeds Hibernate's single-SELECT
+        // bag-fetch budget — the extras become secondary selects that
+        // need a live session to materialize. The `g` passed in here was
+        // loaded inside a REQUIRES_NEW tx in safeGet(groupRepo.findBy*),
+        // so its session is long closed; walking g.getChallengeProgress()
+        // threw LazyInitializationException on EVERY /me call (caught +
+        // empty fallback, but it spammed the log and the field shipped
+        // empty every time — challenge state never reached the wire).
+        // Re-fetch the household by id inside subfetch.runReadOnly so the
+        // collection initializes in an OPEN session; the map copy then
+        // detaches cleanly onto the DTO. One extra query for the base
+        // household only; failures still degrade to an empty map.
+        final String householdIdForChallenge = g.getGroupId();
+        java.util.Map<String, Boolean> challengeProgress = householdIdForChallenge == null
+                ? java.util.Map.of()
+                : safeGet("household.challengeProgress", "household=" + householdIdForChallenge,
+                        () -> {
+                            Group fresh = groupRepo.findByGroupId(householdIdForChallenge).orElse(null);
+                            if (fresh == null || fresh.getChallengeProgress() == null) {
+                                return java.util.Map.<String, Boolean>of();
+                            }
+                            // Touched inside the live read-only tx → the
+                            // secondary select runs; the copy detaches it.
+                            return new java.util.HashMap<>(fresh.getChallengeProgress());
+                        },
+                        java.util.Map.of());
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
