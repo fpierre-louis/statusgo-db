@@ -69,6 +69,19 @@ public class GroupPost {
     private List<String> mentions = new ArrayList<>();
 
     /**
+     * Optional shared location (message §D — "Share location" composer row).
+     * When both {@code latitude} and {@code longitude} are non-null the FE
+     * renders a static-map thumbnail that opens the coordinates on tap.
+     * {@code locationLabel} is an optional short place name (reverse-geocoded
+     * client-side or left null). Null on every non-location post.
+     */
+    private Double latitude;
+    private Double longitude;
+
+    @Column(name = "location_label")
+    private String locationLabel;
+
+    /**
      * When non-null, this post is pinned to the top of its group's feed.
      * Admins of the group toggle it via {@code POST/DELETE /api/group-posts/{id}/pin}.
      * Posts with {@code pinnedAt != null} sort to the top of

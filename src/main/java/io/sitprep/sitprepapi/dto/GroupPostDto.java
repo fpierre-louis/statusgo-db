@@ -48,6 +48,14 @@ public class GroupPostDto {
     private List<String> mentions;
     private int commentsCount;
 
+    /**
+     * Optional shared location (message §D). Both non-null → the FE renders a
+     * static-map thumbnail; {@code locationLabel} is an optional place name.
+     */
+    private Double latitude;
+    private Double longitude;
+    private String locationLabel;
+
     private String authorFirstName;
     private String authorLastName;
     private String authorProfileImageUrl;

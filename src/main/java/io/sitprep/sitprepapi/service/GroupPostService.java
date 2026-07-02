@@ -86,6 +86,9 @@ public class GroupPostService {
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
         post.setMentions(postDto.getMentions());
+        post.setLatitude(postDto.getLatitude());
+        post.setLongitude(postDto.getLongitude());
+        post.setLocationLabel(postDto.getLocationLabel());
         if (postDto.getImageKey() != null && !postDto.getImageKey().isBlank()) {
             post.setImageKey(postDto.getImageKey().trim());
         }
@@ -401,10 +404,29 @@ public class GroupPostService {
 
     private void notifyGroupMembersOfNewPost(GroupPost post) {
         groupRepo.findByGroupId(post.getGroupId()).ifPresentOrElse(group -> {
-            var recipientEmails = group.getMemberEmails() == null ? List.<String>of() :
-                    group.getMemberEmails().stream().filter(e -> !e.equalsIgnoreCase(post.getAuthor())).toList();
+            List<String> memberEmails = group.getMemberEmails() == null ? List.of() : group.getMemberEmails();
 
-            if (recipientEmails.isEmpty()) {
+            // Mentioned members who are actually in the group (mentions of
+            // non-members / manual members are display-only, never notified)
+            // and aren't the author. These get a distinct "mentioned you" push
+            // INSTEAD of the generic post push, so they aren't double-notified.
+            Set<String> memberEmailsLower = memberEmails.stream()
+                    .filter(Objects::nonNull).map(e -> e.trim().toLowerCase()).collect(Collectors.toSet());
+            Set<String> mentionedLower = (post.getMentions() == null ? List.<String>of() : post.getMentions()).stream()
+                    .filter(Objects::nonNull).map(e -> e.trim().toLowerCase())
+                    .filter(e -> !e.isBlank())
+                    .filter(memberEmailsLower::contains)
+                    .filter(e -> !e.equalsIgnoreCase(post.getAuthor()))
+                    .collect(Collectors.toSet());
+
+            // Generic recipients: every member except the author and anyone who
+            // got a targeted mention push.
+            var recipientEmails = memberEmails.stream()
+                    .filter(e -> !e.equalsIgnoreCase(post.getAuthor()))
+                    .filter(e -> !mentionedLower.contains(e.trim().toLowerCase()))
+                    .toList();
+
+            if (recipientEmails.isEmpty() && mentionedLower.isEmpty()) {
                 logger.warn("No recipients for group {}", group.getGroupName());
                 return;
             }
@@ -425,7 +447,9 @@ public class GroupPostService {
             String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
             String targetUrl = baseTargetUrl + "?postId=" + post.getId();
 
-            List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
+            List<UserInfo> users = recipientEmails.isEmpty()
+                    ? List.of()
+                    : userInfoRepo.findByUserEmailIn(recipientEmails);
             for (UserInfo user : users) {
                 // Mute-aware variant: when the recipient has muted
                 // this circle, FCM + STOMP banner are skipped (an
@@ -441,7 +465,28 @@ public class GroupPostService {
                 );
             }
 
-            logger.info("GroupPost notification sent for '{}' to {} members.", group.getGroupName(), users.size());
+            // Targeted "mentioned you" push — same delivery path (still mute-
+            // aware; an inbox row is written even when muted) but a distinct
+            // type + body so the FE can style it and the count is separable.
+            if (!mentionedLower.isEmpty()) {
+                String mentionBody = String.format("%s mentioned you in %s: '%s'",
+                        authorFirst, group.getGroupName(), snippet);
+                List<UserInfo> mentionedUsers = userInfoRepo.findByUserEmailIn(new ArrayList<>(mentionedLower));
+                for (UserInfo user : mentionedUsers) {
+                    notificationService.deliverPresenceAwareForGroup(
+                            user.getUserEmail(), title, mentionBody, authorFirst, authorProfile,
+                            "mention_notification", post.getGroupId(), targetUrl, String.valueOf(post.getId()),
+                            user.getFcmtoken(),
+                            post.getGroupId(),
+                            /* categoryOverride */ null,
+                            actorUserId
+                    );
+                }
+                logger.info("GroupPost mention notification sent for '{}' to {} member(s).",
+                        group.getGroupName(), mentionedUsers.size());
+            }
+
+            logger.info("GroupPost notification sent for '{}' to {} member(s).", group.getGroupName(), users.size());
         }, () -> logger.warn("Group with ID {} not found (notify)", post.getGroupId()));
     }
 
@@ -485,6 +530,9 @@ public class GroupPostService {
         dto.setReactions(reactions != null ? reactions : new HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
         dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
+        dto.setLatitude(post.getLatitude());
+        dto.setLongitude(post.getLongitude());
+        dto.setLocationLabel(post.getLocationLabel());
         dto.setCommentsCount(post.getCommentsCount());
         // Pin metadata — denormalize the pinner's first name when set so
         // the FE can render "📌 Pinned by Alice" without a per-card

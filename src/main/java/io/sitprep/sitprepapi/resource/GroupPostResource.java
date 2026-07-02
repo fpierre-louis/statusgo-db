@@ -38,7 +38,10 @@ public class GroupPostResource {
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "mentions", required = false) List<String> mentions
+            @RequestParam(value = "mentions", required = false) List<String> mentions,
+            @RequestParam(value = "latitude", required = false) Double latitude,
+            @RequestParam(value = "longitude", required = false) Double longitude,
+            @RequestParam(value = "locationLabel", required = false) String locationLabel
     ) {
         String author = AuthUtils.requireAuthenticatedEmail();
 
@@ -50,6 +53,9 @@ public class GroupPostResource {
         postDto.setImageKey(imageKey);
         postDto.setTags(tags);
         postDto.setMentions(mentions);
+        postDto.setLatitude(latitude);
+        postDto.setLongitude(longitude);
+        postDto.setLocationLabel(locationLabel);
 
         GroupPostDto saved = postService.createPost(postDto, author);
         return ResponseEntity.status(201).body(ApiResponse.ok(saved, ApiMeta.now()));
