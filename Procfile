@@ -1,1 +1,1 @@
-web: java $JAVA_OPTS -Xmx256m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=48m -Dserver.port=$PORT -jar target/sitprepapi-0.0.1-SNAPSHOT.jar
+web: java $JAVA_OPTS -Xmx256m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=48m -XX:ReservedCodeCacheSize=96m -XX:MaxDirectMemorySize=64m -XX:+UseSerialGC -Dserver.tomcat.threads.max=50 -Dserver.port=$PORT -jar target/sitprepapi-0.0.1-SNAPSHOT.jar
