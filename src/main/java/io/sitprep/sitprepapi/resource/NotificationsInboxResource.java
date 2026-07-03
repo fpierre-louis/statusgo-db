@@ -1,8 +1,8 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
+import io.sitprep.sitprepapi.dto.NotificationInboxRowDto;
 import io.sitprep.sitprepapi.service.NotificationInboxService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -44,7 +44,7 @@ public class NotificationsInboxResource {
     // FE axios interceptor unwraps response.data transparently so existing
     // callers see the same payloads as before.
     @GetMapping
-    public ResponseEntity<ApiResponse<List<NotificationLog>>> page(
+    public ResponseEntity<ApiResponse<List<NotificationInboxRowDto>>> page(
             @RequestParam(value = "since", required = false) String sinceStr,
             @RequestParam(value = "before", required = false) String beforeStr,
             @RequestParam(value = "limit", required = false) Integer limit
@@ -52,7 +52,11 @@ public class NotificationsInboxResource {
         String email = AuthUtils.requireAuthenticatedEmail();
         Instant since = parseInstantOrNull(sinceStr);
         Instant before = parseInstantOrNull(beforeStr);
-        return ResponseEntity.ok(ApiResponse.ok(inbox.page(email, since, before, limit), ApiMeta.now()));
+        List<NotificationInboxRowDto> rows = inbox.page(email, since, before, limit)
+                .stream()
+                .map(NotificationInboxRowDto::from)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.ok(rows, ApiMeta.now()));
     }
 
     /**

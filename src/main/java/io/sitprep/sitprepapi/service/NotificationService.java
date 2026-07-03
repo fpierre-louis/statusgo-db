@@ -145,6 +145,24 @@ public class NotificationService {
                             Lane lane,
                             Category category,
                             String actorUserId) {
+        saveLogRow(recipientEmail, notificationType, token, title, body,
+                referenceId, targetUrl, /* additionalData */ null,
+                success, errorMessage, lane, category, actorUserId);
+    }
+
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            String additionalData,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -153,6 +171,7 @@ public class NotificationService {
                 body,
                 referenceId,
                 targetUrl,
+                additionalData,
                 Instant.now(),
                 success,
                 errorMessage
@@ -245,8 +264,10 @@ public class NotificationService {
         m.put("body", n.getBody());
         m.put("referenceId", n.getReferenceId());
         m.put("targetUrl", n.getTargetUrl());
+        m.put("additionalData", n.getAdditionalData());
         m.put("timestamp", n.getTimestamp());
         m.put("readAt", n.getReadAt());
+        m.put("type", n.getType());
         m.put("lane", n.getLane());
         m.put("category", n.getCategory());
         m.put("errorMessage", n.getErrorMessage());
@@ -392,7 +413,7 @@ public class NotificationService {
                         : "Quiet hours active (group=" + groupIdForMuteCheck + ")";
                 try {
                     saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
-                            title, body, referenceId, targetUrl,
+                            title, body, referenceId, targetUrl, additionalData,
                             /* success */ false,
                             /* error */ reason,
                             Lane.B, categoryOverride != null
@@ -525,7 +546,7 @@ public class NotificationService {
         // the log row so the inbox surface picks it up on next app open.
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
-                    title, body, referenceId, targetUrl,
+                    title, body, referenceId, targetUrl, additionalData,
                     /* success */ false,
                     /* error */ "Lane B (silent inbox)",
                     lane, catEnum, actorUserId);
@@ -537,7 +558,7 @@ public class NotificationService {
         if (recipientFcmTokenOrNull == null || recipientFcmTokenOrNull.isEmpty()) {
             logger.info("No FCM token for user {}, logging only.", recipientEmail);
             saveLogRow(recipientEmail, notificationType, null,
-                    title, body, referenceId, targetUrl,
+                    title, body, referenceId, targetUrl, additionalData,
                     false, "No token", lane, catEnum, actorUserId);
             return;
         }
@@ -566,6 +587,7 @@ public class NotificationService {
             apsBuilder.putCustomData("notificationType", safe(notificationType));
             apsBuilder.putCustomData("referenceId", safe(referenceId));
             apsBuilder.putCustomData("targetUrl", safe(targetUrl));
+            apsBuilder.putCustomData("additionalData", safe(additionalData));
             apsBuilder.putCustomData("title", safe(title));
             apsBuilder.putCustomData("body", safe(body));
             apsBuilder.putCustomData("channelId", safe(channelId));
@@ -616,7 +638,7 @@ public class NotificationService {
             logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
         } finally {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
-                    title, body, referenceId, targetUrl,
+                    title, body, referenceId, targetUrl, additionalData,
                     success, errorMessage, lane, catEnum, actorUserId);
         }
     }
@@ -669,7 +691,7 @@ public class NotificationService {
         // Lane B = silent inbox: skip FCM, write log row.
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, null,
-                    title, body, referenceId, targetUrl,
+                    title, body, referenceId, targetUrl, additionalData,
                     false, "Lane B (silent inbox)",
                     lane, catEnum, actorUserId);
             return;
@@ -681,7 +703,7 @@ public class NotificationService {
         if (tokens == null || tokens.isEmpty()) {
             logger.info("No tokens for {}, skipping FCM.", recipientEmail);
             saveLogRow(recipientEmail, notificationType, null,
-                    title, body, referenceId, targetUrl,
+                    title, body, referenceId, targetUrl, additionalData,
                     false, "No tokens provided",
                     lane, catEnum, actorUserId);
             return;
@@ -715,6 +737,7 @@ public class NotificationService {
                 apsBuilder.putCustomData("notificationType", safe(notificationType));
                 apsBuilder.putCustomData("referenceId", safe(referenceId));
                 apsBuilder.putCustomData("targetUrl", safe(targetUrl));
+                apsBuilder.putCustomData("additionalData", safe(additionalData));
                 apsBuilder.putCustomData("title", safe(title));
                 apsBuilder.putCustomData("body", safe(body));
                 apsBuilder.putCustomData("channelId", safe(channelId));
@@ -757,7 +780,7 @@ public class NotificationService {
                 logger.error("❌ Unexpected FCM error for {}: {}", recipientEmail, errorMessage, e);
             } finally {
                 saveLogRow(recipientEmail, notificationType, token,
-                        title, body, referenceId, targetUrl,
+                        title, body, referenceId, targetUrl, additionalData,
                         success, errorMessage, lane, catEnum, actorUserId);
             }
         }

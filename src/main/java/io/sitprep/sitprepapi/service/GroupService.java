@@ -10,16 +10,19 @@ import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.GroupAlertFrame;
 import io.sitprep.sitprepapi.dto.GroupMembershipFrame;
+import io.sitprep.sitprepapi.dto.GroupMembershipActionResultDto;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.GroupNotificationRecipients;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.*;
@@ -729,20 +732,33 @@ public class GroupService {
 
     @Transactional
     public Group approveMember(String groupId, String email) {
+        approveMemberAction(groupId, email);
+        return getGroupByPublicId(groupId);
+    }
+
+    @Transactional
+    public GroupMembershipActionResultDto approveMemberAction(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
         requireAdminOrOwner(g); // now a no-op; frontend enforces
+        String normalizedEmail = normalizeActionEmail(email);
 
         List<String> members = safeList(g.getMemberEmails());
         List<String> pending = safeList(g.getPendingMemberEmails());
 
         // null-safe removal of pending email
-        pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+        boolean wasPending = pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(normalizedEmail));
 
         // null-safe membership check
         boolean alreadyMember = members.stream()
-                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(normalizedEmail));
+        if (!wasPending && alreadyMember) {
+            return membershipResult("APPROVE", "ALREADY_MEMBER", g, normalizedEmail);
+        }
+        if (!wasPending) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No pending request for email");
+        }
         if (!alreadyMember) {
-            members.add(email);
+            members.add(normalizedEmail);
         }
 
         g.setMemberEmails(members);
@@ -751,7 +767,7 @@ public class GroupService {
         g.setUpdatedAt(Instant.now());
 
         // sync user.joinedGroupIDs
-        userInfoRepo.findByUserEmail(email).ifPresent(u -> {
+        userInfoRepo.findByUserEmail(normalizedEmail).ifPresent(u -> {
             Set<String> updated = addToSet(u.getJoinedGroupIDs(), groupId);
             u.setJoinedGroupIDs(updated);
             userInfoRepo.save(u);
@@ -762,25 +778,78 @@ public class GroupService {
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",
-                    email,
-                    GroupRole.fromGroup(saved, email).wire(),
+                    normalizedEmail,
+                    GroupRole.fromGroup(saved, normalizedEmail).wire(),
                     saved.getUpdatedAt());
         }
-        return saved;
+        return membershipResult(
+                "APPROVE",
+                alreadyMember ? "ALREADY_MEMBER" : "APPROVED",
+                saved,
+                normalizedEmail
+        );
     }
 
     @Transactional
     public Group rejectPendingMember(String groupId, String email) {
+        rejectPendingMemberAction(groupId, email);
+        return getGroupByPublicId(groupId);
+    }
+
+    @Transactional
+    public GroupMembershipActionResultDto rejectPendingMemberAction(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
         requireAdminOrOwner(g); // no-op
+        String normalizedEmail = normalizeActionEmail(email);
 
         List<String> pending = safeList(g.getPendingMemberEmails());
         // null-safe removal
-        pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+        boolean wasPending = pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(normalizedEmail));
 
-        g.setPendingMemberEmails(pending);
-        g.setUpdatedAt(Instant.now());
-        return groupRepo.save(g);
+        Group saved = g;
+        if (wasPending) {
+            g.setPendingMemberEmails(pending);
+            g.setUpdatedAt(Instant.now());
+            saved = groupRepo.save(g);
+        }
+        return membershipResult(
+                "REJECT",
+                wasPending ? "REJECTED" : "NOT_PENDING",
+                saved,
+                normalizedEmail
+        );
+    }
+
+    private static String normalizeActionEmail(String email) {
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email required");
+        }
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.contains("@")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Valid email required");
+        }
+        return normalized;
+    }
+
+    private static GroupMembershipActionResultDto membershipResult(
+            String action,
+            String status,
+            Group group,
+            String email
+    ) {
+        int memberCount = group.getMemberEmails() == null ? 0 : group.getMemberEmails().size();
+        int pendingCount = group.getPendingMemberEmails() == null ? 0 : group.getPendingMemberEmails().size();
+        return new GroupMembershipActionResultDto(
+                true,
+                action,
+                status,
+                group.getGroupId(),
+                email,
+                GroupRole.fromGroup(group, email).wire(),
+                memberCount,
+                pendingCount,
+                group.getUpdatedAt()
+        );
     }
 
     @Transactional

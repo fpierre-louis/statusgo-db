@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.dto.EmailRequest;
+import io.sitprep.sitprepapi.dto.GroupMembershipActionResultDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -222,15 +223,15 @@ public class GroupResource {
     }
 
     @PostMapping("/{groupId}/members/approve")
-    public ResponseEntity<Group> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<GroupMembershipActionResultDto> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.approveMember(groupId, req.email()));
+        return ResponseEntity.ok(groupService.approveMemberAction(groupId, req.email()));
     }
 
     @PostMapping("/{groupId}/members/reject")
-    public ResponseEntity<Group> rejectPending(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<GroupMembershipActionResultDto> rejectPending(@PathVariable String groupId, @RequestBody EmailRequest req) {
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.rejectPendingMember(groupId, req.email()));
+        return ResponseEntity.ok(groupService.rejectPendingMemberAction(groupId, req.email()));
     }
 
     @PostMapping("/{groupId}/members/remove")

@@ -54,6 +54,9 @@ public class NotificationLog {
     // deep link the client should navigate to
     private String targetUrl;
 
+    @Column(name = "additional_data", columnDefinition = "TEXT")
+    private String additionalData;
+
     private Instant timestamp;
 
     // FCM result; true if FCM call succeeded (not relevant for socket-only logs)
@@ -124,6 +127,7 @@ public class NotificationLog {
                            String body,
                            String referenceId,
                            String targetUrl,
+                           String additionalData,
                            Instant timestamp,
                            boolean success,
                            String errorMessage) {
@@ -134,6 +138,7 @@ public class NotificationLog {
         this.body = body;
         this.referenceId = referenceId;
         this.targetUrl = targetUrl;
+        this.additionalData = additionalData;
         this.timestamp = timestamp;
         this.success = success;
         this.errorMessage = errorMessage;

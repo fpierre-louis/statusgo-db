@@ -446,6 +446,7 @@ CREATE TABLE IF NOT EXISTS notification_log (
     body            VARCHAR(255),
     reference_id    VARCHAR(255),
     target_url      VARCHAR(255),
+    additional_data TEXT,
     timestamp       TIMESTAMP,
     success         BOOLEAN NOT NULL DEFAULT FALSE,
     error_message   VARCHAR(255),
