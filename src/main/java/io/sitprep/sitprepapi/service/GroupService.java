@@ -777,6 +777,7 @@ public class GroupService {
                     normalizedEmail,
                     GroupRole.fromGroup(saved, normalizedEmail).wire(),
                     saved.getUpdatedAt());
+            notifyApprovedMemberAfterCommit(saved, normalizedEmail);
         }
         return membershipResult(
                 "APPROVE",
@@ -846,6 +847,39 @@ public class GroupService {
                 pendingCount,
                 group.getUpdatedAt()
         );
+    }
+
+    private void notifyApprovedMemberAfterCommit(Group group, String email) {
+        if (group == null || email == null || email.isBlank()) return;
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+        String groupName = group.getGroupName() == null || group.getGroupName().isBlank()
+                ? "your group"
+                : group.getGroupName();
+        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                UserInfo recipient = userInfoRepo.findByUserEmailIgnoreCase(normalizedEmail).orElse(null);
+                String firstName = recipient == null ? "" : nullToEmpty(recipient.getUserFirstName()).trim();
+                String greeting = firstName.isBlank() ? "You're in" : firstName + ", you're in";
+                notificationService.deliverPresenceAware(
+                        normalizedEmail,
+                        "You're approved",
+                        greeting + " " + groupName + ". You can now open the group and join the conversation.",
+                        groupName,
+                        null,
+                        "new_member",
+                        group.getGroupId(),
+                        targetUrl,
+                        null,
+                        recipient == null ? null : recipient.getFcmtoken()
+                );
+            }
+        });
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     @Transactional
