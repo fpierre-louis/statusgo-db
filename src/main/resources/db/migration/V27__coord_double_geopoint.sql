@@ -1,10 +1,17 @@
--- V26 — Coordinate columns: varchar (String) -> double precision.
+-- V27 — Coordinate columns: varchar (String) -> double precision.
 --
 -- Backs the new GeoPoint embeddable on Group + UserInfo (Database Phase of
 -- docs/MAP_REBUILD_PLAN.md). Hibernate runs with ddl-auto=validate, so this
 -- migration and the matching entity type change MUST ship in the same deploy —
 -- Flyway applies this as the first step of boot, then Hibernate validates the
 -- (now double precision) columns against the GeoPoint mapping.
+--
+-- NOTE: originally authored as V26; renumbered to V27 to resolve a version
+-- collision with V26__notification_log_additional_data.sql (introduced
+-- concurrently in b58621f). The entity change shipped in the V26-labelled
+-- commit but this migration did not run then, so prod sat with double-typed
+-- entities over varchar columns until this V27 applied. Idempotent-safe: the
+-- columns are still varchar when this runs.
 --
 -- SAFETY / REVERSIBILITY
 --   * Before touching the live columns we copy the raw text into
