@@ -135,8 +135,8 @@ public class AgencyAlertService {
         post.setDescription(body == null ? "" : body);
         post.setStatus(PostStatus.OPEN);
         post.setPriority(PostPriority.URGENT);
-        post.setLatitude(group.getJurisdictionLat() == null ? parseDouble(group.getLatitude()) : group.getJurisdictionLat());
-        post.setLongitude(group.getJurisdictionLng() == null ? parseDouble(group.getLongitude()) : group.getJurisdictionLng());
+        post.setLatitude(group.getJurisdictionLat() == null ? group.getLatitude() : group.getJurisdictionLat());
+        post.setLongitude(group.getJurisdictionLng() == null ? group.getLongitude() : group.getJurisdictionLng());
         Post savedPost = postRepo.save(post);
 
         // Recipients — radius when provisioned, legacy zip lookup otherwise.
@@ -175,14 +175,6 @@ public class AgencyAlertService {
         return TIERS.contains(v) ? v : "advisory";
     }
 
-    private static Double parseDouble(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        try {
-            return Double.parseDouble(raw.trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 
     private static String trim(String raw, int max) {
         if (raw == null) return null;

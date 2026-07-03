@@ -42,20 +42,9 @@ public record VerifiedPublisherDto(
                 u.getVerifiedPublisherTemporaryEventAddress(),
                 u.isVerifiedPublisherEmergencyPostingEnabled(),
                 u.getVerifiedPublisherGroupId(),
-                parseDoubleOrNull(u.getLatitude()),
-                parseDoubleOrNull(u.getLongitude()),
+                u.getLatitude(),
+                u.getLongitude(),
                 distanceKm
         );
-    }
-
-    /**
-     * UserInfo stores lat/lng as String columns (legacy schema). Parse
-     * to Double here so the wire shape is numeric, which matches what
-     * every FE consumer expects.
-     */
-    private static Double parseDoubleOrNull(String s) {
-        if (s == null || s.isBlank()) return null;
-        try { return Double.parseDouble(s.trim()); }
-        catch (NumberFormatException e) { return null; }
     }
 }

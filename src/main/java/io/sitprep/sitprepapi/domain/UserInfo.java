@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -64,11 +65,17 @@ public class UserInfo {
     @Column(name = "address")
     private String address;
 
-    @Column(name = "longitude")
-    private String longitude;
-
-    @Column(name = "latitude")
-    private String latitude;
+    /**
+     * Home-address coordinate — migrated from two {@code String} columns to a
+     * {@link GeoPoint} embeddable (double precision) in Flyway V26, mapping
+     * onto the existing {@code latitude}/{@code longitude} columns. Distinct
+     * from {@link #lastKnownLat}/{@link #lastKnownLng} (live device location).
+     * {@code @JsonIgnore} plus the delegating scalar accessors at the bottom of
+     * this class preserve the JSON wire contract, so no FE/DTO change is needed.
+     */
+    @Embedded
+    @JsonIgnore
+    private GeoPoint homeLocation;
 
     @Column(name = "user_status")
     private String userStatus;
@@ -368,4 +375,30 @@ public class UserInfo {
     @Column(name = "profile_visibility", length = 32, nullable = false,
             columnDefinition = "varchar(32) NOT NULL DEFAULT 'circles'")
     private String profileVisibility = "circles";
+
+    // -----------------------------------------------------------------
+    // Home-coordinate accessors — delegate to the embedded GeoPoint so the
+    // scalar "latitude"/"longitude" JSON contract and every existing call site
+    // keep working unchanged after the V26 String -> Double migration. Lombok's
+    // @Getter/@Setter do not generate these (there is no latitude/longitude
+    // field). NOTE: these are the HOME coords; live location stays on
+    // lastKnownLat/lastKnownLng.
+    // -----------------------------------------------------------------
+    public Double getLatitude() {
+        return homeLocation == null ? null : homeLocation.getLat();
+    }
+
+    public Double getLongitude() {
+        return homeLocation == null ? null : homeLocation.getLng();
+    }
+
+    public void setLatitude(Double latitude) {
+        if (homeLocation == null) homeLocation = new GeoPoint();
+        homeLocation.setLat(latitude);
+    }
+
+    public void setLongitude(Double longitude) {
+        if (homeLocation == null) homeLocation = new GeoPoint();
+        homeLocation.setLng(longitude);
+    }
 }

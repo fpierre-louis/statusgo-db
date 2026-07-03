@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.dto.MemberAvatar;
 import io.sitprep.sitprepapi.dto.MePlansDto;
 import io.sitprep.sitprepapi.dto.PublicProfileDto;
 import io.sitprep.sitprepapi.repo.*;
+import io.sitprep.sitprepapi.util.Geo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -511,8 +512,8 @@ public class MeService {
                 householdId,
                 g == null ? null : g.getGroupName(),
                 g == null ? null : g.getAddress(),
-                g == null ? null : g.getLatitude(),
-                g == null ? null : g.getLongitude(),
+                g == null ? null : Geo.str(g.getLatitude()),
+                g == null ? null : Geo.str(g.getLongitude()),
                 g == null ? null : g.getZipCode(),
                 demographic,
                 meetingPlaces,
@@ -610,8 +611,8 @@ public class MeService {
                 u.getTitle(),
                 u.getPhone(),
                 u.getAddress(),
-                u.getLatitude(),
-                u.getLongitude(),
+                Geo.str(u.getLatitude()),
+                Geo.str(u.getLongitude()),
                 DtoImages.avatar(rawAvatar),
                 u.getSubscription(),
                 u.getSubscriptionPackage(),
@@ -712,8 +713,8 @@ public class MeService {
                 g.getGroupId(),
                 g.getGroupName(),
                 g.getAddress(),
-                g.getLatitude(),
-                g.getLongitude(),
+                Geo.str(g.getLatitude()),
+                Geo.str(g.getLongitude()),
                 g.getZipCode(),
                 memberCount,
                 adminCount,

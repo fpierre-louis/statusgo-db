@@ -139,8 +139,8 @@ public class AdminAgencyService {
         group.setJurisdictionLat(lat);
         group.setJurisdictionLng(lng);
         group.setJurisdictionRadiusMiles(radiusMiles);
-        group.setLatitude(String.valueOf(lat));
-        group.setLongitude(String.valueOf(lng));
+        group.setLatitude(lat);
+        group.setLongitude(lng);
     }
 
     private static String defaultCode(String name, String groupId) {

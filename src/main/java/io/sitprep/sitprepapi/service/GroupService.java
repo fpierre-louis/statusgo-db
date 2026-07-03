@@ -361,8 +361,8 @@ public class GroupService {
             status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING;
         }
 
-        Double lat = parseCoord(group.getLatitude());
-        Double lng = parseCoord(group.getLongitude());
+        Double lat = group.getLatitude();
+        Double lng = group.getLongitude();
         int adminCount = group.getAdminEmails() == null ? 0 : group.getAdminEmails().size();
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
@@ -395,10 +395,6 @@ public class GroupService {
         return false;
     }
 
-    private static Double parseCoord(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        try { return Double.parseDouble(raw.trim()); } catch (NumberFormatException e) { return null; }
-    }
 
     @Transactional
     public Group updateGroupByPublicId(String groupId, Group groupDetails) {

@@ -84,8 +84,8 @@ public class VerifiedPublisherService {
             // schema). Parse defensively here — bad/empty values just
             // exclude the publisher from the radius result rather than
             // crash the whole call.
-            Double pubLat = parseDoubleOrNull(u.getLatitude());
-            Double pubLng = parseDoubleOrNull(u.getLongitude());
+            Double pubLat = u.getLatitude();
+            Double pubLng = u.getLongitude();
             if (pubLat == null || pubLng == null) continue;
             double d = GeoUtil.haversineKm(lat, lng, pubLat, pubLng);
             if (d > radiusKm) continue;
@@ -250,17 +250,6 @@ public class VerifiedPublisherService {
 
     private static Double roundKm(double km) {
         return Math.round(km * 10.0) / 10.0;
-    }
-
-    /**
-     * UserInfo stores lat/lng as String columns (legacy schema). Parse
-     * defensively — bad/empty values return null so the caller just
-     * excludes the publisher from the result rather than crashing.
-     */
-    private static Double parseDoubleOrNull(String s) {
-        if (s == null || s.isBlank()) return null;
-        try { return Double.parseDouble(s.trim()); }
-        catch (NumberFormatException e) { return null; }
     }
 
     private static String trim(String raw, int max) {

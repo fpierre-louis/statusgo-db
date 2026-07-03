@@ -10,6 +10,7 @@ import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.Geo;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +79,7 @@ public class CommunityDiscoverService {
 
         List<Group> publicGroups = groupRepo.findAll().stream()
                 .filter(g -> "public".equalsIgnoreCase(safe(g.getPrivacy())))
-                .filter(g -> isParseable(g.getLatitude()) && isParseable(g.getLongitude()))
+                .filter(g -> g.getLatitude() != null && g.getLongitude() != null)
                 .toList();
 
         // Pre-compute the radius hits before doing any owner / activity
@@ -88,8 +89,8 @@ public class CommunityDiscoverService {
         List<Group> withinRadiusGroups = new ArrayList<>();
         Map<String, Double> distanceByGroupId = new HashMap<>();
         for (Group g : publicGroups) {
-            double gLat = parseOrNaN(g.getLatitude());
-            double gLng = parseOrNaN(g.getLongitude());
+            double gLat = g.getLatitude();  // non-null by the coord filter above
+            double gLng = g.getLongitude();
             double d = GeoUtil.haversineKm(lat, lng, gLat, gLng);
             if (d > radiusKm) continue;
             boolean viewerIsMember = isViewerInGroup(g, normalizedViewer);
@@ -217,8 +218,8 @@ public class CommunityDiscoverService {
                 g.getDescription(),
                 memberCount,
                 roundKm(distanceKm),
-                g.getLatitude(),
-                g.getLongitude(),
+                Geo.str(g.getLatitude()),
+                Geo.str(g.getLongitude()),
                 g.getAddress(),
                 g.getZipCode(),
                 g.getAlert(),
@@ -413,24 +414,6 @@ public class CommunityDiscoverService {
     private static double roundKm(double km) {
         // 1 decimal — "2.3 km" reads cleaner than "2.347…"
         return Math.round(km * 10.0) / 10.0;
-    }
-
-    private static boolean isParseable(String s) {
-        if (s == null || s.isBlank()) return false;
-        try {
-            double d = Double.parseDouble(s.trim());
-            return Double.isFinite(d);
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
-
-    private static double parseOrNaN(String s) {
-        try {
-            return Double.parseDouble(s.trim());
-        } catch (Exception e) {
-            return Double.NaN;
-        }
     }
 
     private static String safe(String s) {

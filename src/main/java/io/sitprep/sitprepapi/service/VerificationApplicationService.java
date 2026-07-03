@@ -316,8 +316,8 @@ public class VerificationApplicationService {
                 group.setJurisdictionRadiusMiles(radiusMiles);
                 group.setLogoImageUrl(logoImageUrl);
                 group.setAgencyAuthorized(true);
-                group.setLatitude(String.valueOf(lat));
-                group.setLongitude(String.valueOf(lng));
+                group.setLatitude(lat);
+                group.setLongitude(lng);
                 addAdminIfAbsent(group, publisherEmail);
                 groupRepo.save(group);
             }

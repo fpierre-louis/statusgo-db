@@ -12,6 +12,7 @@ import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.Geo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -111,8 +112,8 @@ public class GroupViewService {
                 g.getGroupType(),
                 g.getDescription(),
                 g.getAddress(),
-                g.getLatitude(),
-                g.getLongitude(),
+                Geo.str(g.getLatitude()),
+                Geo.str(g.getLongitude()),
                 g.getZipCode(),
                 memberCount,
                 g.getAlert(),

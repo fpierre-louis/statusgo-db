@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -125,8 +126,20 @@ public class Group {
 
     private Instant updatedAt;
     private String address;
-    private String longitude;
-    private String latitude;
+
+    /**
+     * Home / anchor coordinate. Migrated from two {@code String} columns to a
+     * {@link GeoPoint} embeddable (double precision) in Flyway V26. The
+     * embeddable maps onto the existing {@code latitude}/{@code longitude}
+     * columns; {@code @JsonIgnore} plus the delegating scalar accessors at the
+     * bottom of this class keep the JSON wire contract byte-identical (scalar
+     * {@code "latitude"}/{@code "longitude"} keys), so no FE or DTO change is
+     * needed in this phase.
+     */
+    @Embedded
+    @JsonIgnore
+    private GeoPoint homeLocation;
+
     private String zipCode;
     private String ownerName;
     private String ownerEmail;
@@ -287,4 +300,27 @@ public class Group {
     @Column(name = "completed")
     private Map<String, Boolean> challengeProgress = new HashMap<>();
 
+    // -----------------------------------------------------------------
+    // Coordinate accessors — delegate to the embedded GeoPoint so the scalar
+    // "latitude"/"longitude" JSON contract and every existing call site keep
+    // working unchanged after the V26 String -> Double migration. Lombok's
+    // @Data does not generate these (there is no latitude/longitude field).
+    // -----------------------------------------------------------------
+    public Double getLatitude() {
+        return homeLocation == null ? null : homeLocation.getLat();
+    }
+
+    public Double getLongitude() {
+        return homeLocation == null ? null : homeLocation.getLng();
+    }
+
+    public void setLatitude(Double latitude) {
+        if (homeLocation == null) homeLocation = new GeoPoint();
+        homeLocation.setLat(latitude);
+    }
+
+    public void setLongitude(Double longitude) {
+        if (homeLocation == null) homeLocation = new GeoPoint();
+        homeLocation.setLng(longitude);
+    }
 }
