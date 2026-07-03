@@ -164,11 +164,21 @@ public class GroupViewService {
     }
 
     /**
-     * Mirrors the FE's {@code shouldShareLocation} helper. Defaults: a
-     * household defaults to {@code check-in-only}, anything else to
-     * {@code never}. {@code check-in-only} reveals location while the
-     * group's alert is Active; {@code never} hides it; {@code always}
-     * always reveals.
+     * Whether {@code u}'s live location is visible to this group right now.
+     *
+     * <p><b>"never" is an absolute opt-out</b> (locked 2026-07-02): a member who
+     * selects {@code never} stays hidden <b>even during an Active alert</b>.
+     * This deliberately protects users in extreme edge cases — e.g.
+     * domestic-violence survivors — who cannot risk their location being
+     * broadcast to a group under any circumstance. <b>Do NOT add an alert-time
+     * override that reveals {@code never}.</b> The FE copy on
+     * {@code MapVisibilityPage} is being updated to match (see the Front-End
+     * phase note in {@code docs/MAP_REBUILD_PLAN.md}).</p>
+     *
+     * <p>Defaults for an unset entry: household → {@code check-in-only},
+     * everything else → {@code never}. {@code always} always reveals;
+     * {@code check-in-only} reveals only while the group's alert is Active;
+     * {@code never} never reveals.</p>
      */
     private static boolean shouldShareLocation(UserInfo u, String groupId,
                                                String groupType, boolean alertActive) {
@@ -180,9 +190,9 @@ public class GroupViewService {
         }
         return switch (mode) {
             case SHARE_ALWAYS -> true;
-            case SHARE_NEVER -> false;
+            case SHARE_NEVER -> false;              // absolute — never overridden, even in an alert
             case SHARE_CHECK_IN_ONLY -> alertActive;
-            default -> false;
+            default -> false;                       // unknown mode: fail closed (hidden)
         };
     }
 
