@@ -117,7 +117,25 @@ public record CommunityDiscoverDto(
              * uses this to render the "active 12m ago" / "quiet · 4d"
              * activity dot on Discover cards.
              */
-            Instant lastActivityAt
+            Instant lastActivityAt,
+            /**
+             * True when this group is an OFFICIAL agency account — either
+             * explicitly provisioned ({@code Group.agencyAuthorized}) or a
+             * verified publisher whose kind is a public-safety / government
+             * office (Fire, Police, City/County/State, Emergency Management).
+             * The Community-map Discovery engine renders agencies with the
+             * civic (deep-teal) marker + verified badge and a "Follow" CTA,
+             * distinct from joinable public groups. Added 2026-07-03.
+             */
+            boolean agency,
+            /**
+             * The agency's owner-publisher userId, so the Community map's
+             * "Follow" CTA can follow the official account. Populated ONLY
+             * for {@link #agency} entries (the publisher identity of a public
+             * agency is itself public); null for ordinary public groups so
+             * their owner identity is never leaked to strangers.
+             */
+            String ownerUserId
     ) {
         /** How many mutual avatars we materialize per group. */
         public static final int MUTUAL_PREVIEW_LIMIT = 4;

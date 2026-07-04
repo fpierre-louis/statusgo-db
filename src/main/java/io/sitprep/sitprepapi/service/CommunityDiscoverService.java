@@ -132,12 +132,17 @@ public class CommunityDiscoverService {
                     : ownersByEmail.get(g.getOwnerEmail().toLowerCase());
             boolean verified = owner != null && owner.isVerifiedPublisher();
             String verifiedKind = verified ? owner.getVerifiedPublisherKind() : null;
+            boolean agency = isAgency(g, verified, verifiedKind);
+            // Owner-publisher identity is exposed ONLY for agencies (public
+            // officials meant to be followed) — never for ordinary groups.
+            String ownerUserId = agency && owner != null ? owner.getId() : null;
             int mutuals = countMutuals(g, mutualSet);
             List<MemberAvatar> mutualAvatars = buildMutualAvatars(
                     mutualEmailsByGroup.get(g.getGroupId()), mutualProfiles);
             Instant activity = lastActivityFor(g, latestPostMap);
             withinRadius.add(toNearbyGroup(g, d, viewerIsMember, viewerRole,
-                    verified, verifiedKind, mutuals, mutualAvatars, activity));
+                    verified, verifiedKind, mutuals, mutualAvatars, activity,
+                    agency, ownerUserId));
         }
 
         withinRadius.sort(Comparator.comparingDouble(NearbyGroup::distanceKm));
@@ -207,7 +212,8 @@ public class CommunityDiscoverService {
                                       String viewerRole,
                                       boolean verified, String verifiedKind,
                                       int mutuals, List<MemberAvatar> mutualMembers,
-                                      Instant lastActivityAt) {
+                                      Instant lastActivityAt,
+                                      boolean agency, String ownerUserId) {
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
@@ -230,8 +236,31 @@ public class CommunityDiscoverService {
                 verifiedKind,
                 mutuals,
                 mutualMembers == null ? List.of() : mutualMembers,
-                lastActivityAt
+                lastActivityAt,
+                agency,
+                ownerUserId
         );
+    }
+
+    /**
+     * Whether a discovered public group is an OFFICIAL agency — an explicitly
+     * provisioned agency (Group.agencyAuthorized, Phase 5) OR a verified
+     * publisher whose kind is a public-safety / government office. Agencies get
+     * the civic marker + "Follow" CTA on the Community map; everything else is a
+     * joinable public group.
+     */
+    private static final java.util.Set<String> AGENCY_KINDS = java.util.Set.of(
+            "government", "public_safety", "publicsafety", "fire", "police",
+            "law_enforcement", "ems", "emergency_management", "city", "county",
+            "state", "municipal", "agency");
+
+    private static boolean isAgency(Group g, boolean verified, String verifiedKind) {
+        if (g.isAgencyAuthorized()) return true;
+        if (verified && verifiedKind != null
+                && AGENCY_KINDS.contains(verifiedKind.trim().toLowerCase().replace('-', '_'))) {
+            return true;
+        }
+        return false;
     }
 
     /**

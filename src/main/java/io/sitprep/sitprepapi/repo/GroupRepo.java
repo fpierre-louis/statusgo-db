@@ -50,6 +50,24 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     // ✅ For UUID-based lookup by public groupId
     Optional<Group> findByGroupId(String groupId);
 
+    /**
+     * Community map (Phase 1): public groups whose home coordinate falls inside
+     * the viewport bounding box. Replaces the full-table
+     * {@code findAll().stream()} scan — the (latitude, longitude) composite
+     * index (Flyway V28) range-scans the box. `homeLocation.lat/lng` map to the
+     * physical latitude/longitude columns the index covers.
+     */
+    @Query("""
+        SELECT g FROM Group g
+         WHERE LOWER(g.privacy) = 'public'
+           AND g.homeLocation.lat BETWEEN :minLat AND :maxLat
+           AND g.homeLocation.lng BETWEEN :minLng AND :maxLng
+        """)
+    List<Group> findPublicInBounds(@Param("minLat") double minLat,
+                                   @Param("maxLat") double maxLat,
+                                   @Param("minLng") double minLng,
+                                   @Param("maxLng") double maxLng);
+
     Optional<Group> findByStripeCustomerId(String stripeCustomerId);
 
     Optional<Group> findByStripeSubscriptionId(String stripeSubscriptionId);

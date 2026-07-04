@@ -15,6 +15,28 @@ import java.util.Set;
 
 public interface PostRepo extends JpaRepository<Post, Long> {
 
+    /**
+     * Community map (Phase 1): mutual-aid Posts — community-scope
+     * ({@code groupId IS NULL}) offers/marketplace listings that are still
+     * available ({@code status}) and carry a coordinate inside the viewport
+     * box. The (latitude, longitude) composite index (Flyway V28) range-scans
+     * the box.
+     */
+    @Query("""
+        SELECT p FROM Post p
+         WHERE p.groupId IS NULL
+           AND p.status = :status
+           AND p.kind IN :kinds
+           AND p.latitude  BETWEEN :minLat AND :maxLat
+           AND p.longitude BETWEEN :minLng AND :maxLng
+        """)
+    List<Post> findAidInBounds(@Param("status") PostStatus status,
+                               @Param("kinds") Set<String> kinds,
+                               @Param("minLat") double minLat,
+                               @Param("maxLat") double maxLat,
+                               @Param("minLng") double minLng,
+                               @Param("maxLng") double maxLng);
+
     // ---------------------------------------------------------------------
     // Conditional status transitions (audit DB-03, C-3).
     //
