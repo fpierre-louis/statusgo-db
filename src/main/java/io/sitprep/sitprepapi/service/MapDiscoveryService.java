@@ -43,11 +43,14 @@ public class MapDiscoveryService {
     private final GroupRepo groupRepo;
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
+    private final ExternalPoiCacheService externalPois;
 
-    public MapDiscoveryService(GroupRepo groupRepo, PostRepo postRepo, UserInfoRepo userInfoRepo) {
+    public MapDiscoveryService(GroupRepo groupRepo, PostRepo postRepo, UserInfoRepo userInfoRepo,
+                               ExternalPoiCacheService externalPois) {
         this.groupRepo = groupRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
+        this.externalPois = externalPois;
     }
 
     // Verified-publisher kinds that mark an OFFICIAL agency. Mirrors the small
@@ -129,11 +132,22 @@ public class MapDiscoveryService {
             }
         }
 
-        // ── Phase 2 seam ────────────────────────────────────────────────
-        // External POIs (Overpass parks/amenities/food, FEMA shelters) will be
-        // fetched here through the tile-cached proxy and mapped to MapPoi with
-        // source "overpass"/"fema" + a required `attribution`, then merged into
-        // `pois` below. Held for Phase 2 per the game plan.
+        // ── External POIs (Phase 2): parks / schools / civic amenities ──
+        // Neighborhood band + only. Served from the tile cache with
+        // stale-while-revalidate (never blocks on Overpass). The cache returns
+        // the snapped-tile POIs (⊇ viewport); we filter to the actual box and
+        // assign this request's distance.
+        if (band >= 2) {
+            List<MapPoiDto> ext = externalPois.getPois(minLat, minLng, maxLat, maxLng);
+            boolean any = false;
+            for (MapPoiDto p : ext) {
+                if (p.lat() == null || p.lng() == null) continue;
+                if (p.lat() < minLat || p.lat() > maxLat || p.lng() < minLng || p.lng() > maxLng) continue;
+                pois.add(withDistance(p, round1(haversineKm(centerLat, centerLng, p.lat(), p.lng()))));
+                any = true;
+            }
+            if (any) sources.add("overpass");
+        }
 
         // Normalize → sort by distance → cap per band.
         pois.sort(Comparator.comparing(
@@ -214,6 +228,16 @@ public class MapDiscoveryService {
 
     private static double round1(double v) {
         return Math.round(v * 10.0) / 10.0;
+    }
+
+    /** Copy a MapPoi with distanceKm filled in (records are immutable). */
+    private static MapPoiDto withDistance(MapPoiDto p, Double distanceKm) {
+        return new MapPoiDto(
+                p.id(), p.family(), p.source(), p.name(),
+                p.lat(), p.lng(), distanceKm,
+                p.verified(), p.verifiedKind(), p.memberCount(), p.viewerRole(), p.ownerUserId(),
+                p.postId(), p.kind(), p.description(), p.placeLabel(),
+                p.category(), p.website(), p.externalMapUrl(), p.attribution());
     }
 
     /** Great-circle distance in kilometers. */
