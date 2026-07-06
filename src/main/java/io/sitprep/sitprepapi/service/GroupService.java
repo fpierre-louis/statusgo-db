@@ -546,29 +546,28 @@ public class GroupService {
 
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
-            if (token == null || token.isEmpty()) continue;
 
             for (String email : newPendingMemberEmails) {
-                UserInfo pending = userInfoRepo.findByUserEmail(email)
+                UserInfo pending = userInfoRepo.findByUserEmailIgnoreCase(email)
                         .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
-                notificationService.sendNotification(
+                notificationService.deliverPresenceAware(
+                        admin.getUserEmail(),
                         "Hi " + admin.getUserFirstName() + "👋",
                         "A new request from " + pending.getUserFirstName() + " " + pending.getUserLastName() +
                                 " is pending for your group, " + group.getGroupName() + ".",
                         "Admin",
                         "/images/admin-icon.png",
-                        Set.of(token),
                         "pending_member",
                         group.getGroupId(),
                         targetUrl,
                         // additionalData carries the pending requester's email so
                         // the iOS PENDING_MEMBER notification action buttons (Approve /
                         // Decline) can call approveMember(groupId, email) /
-                        // removeMember(groupId, email) directly. See
+                        // rejectPendingMember(groupId, email) directly. See
                         // src/shared/notifications/NotificationActionDispatcher.jsx.
                         pending.getUserEmail(),
-                        admin.getUserEmail()
+                        token
                 );
             }
         }
@@ -748,6 +747,7 @@ public class GroupService {
         boolean alreadyMember = members.stream()
                 .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(normalizedEmail));
         if (!wasPending && alreadyMember) {
+            syncJoinedGroup(normalizedEmail, groupId);
             return membershipResult("APPROVE", "ALREADY_MEMBER", g, normalizedEmail);
         }
         if (!wasPending) {
@@ -762,12 +762,7 @@ public class GroupService {
         g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
-        // sync user.joinedGroupIDs
-        userInfoRepo.findByUserEmail(normalizedEmail).ifPresent(u -> {
-            Set<String> updated = addToSet(u.getJoinedGroupIDs(), groupId);
-            u.setJoinedGroupIDs(updated);
-            userInfoRepo.save(u);
-        });
+        syncJoinedGroup(normalizedEmail, groupId);
 
         Group saved = groupRepo.save(g);
         if (!alreadyMember) {
@@ -847,6 +842,15 @@ public class GroupService {
                 pendingCount,
                 group.getUpdatedAt()
         );
+    }
+
+    private void syncJoinedGroup(String email, String groupId) {
+        if (email == null || email.isBlank() || groupId == null || groupId.isBlank()) return;
+        userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
+            Set<String> updated = addToSet(u.getJoinedGroupIDs(), groupId);
+            u.setJoinedGroupIDs(updated);
+            userInfoRepo.save(u);
+        });
     }
 
     private void notifyApprovedMemberAfterCommit(Group group, String email) {

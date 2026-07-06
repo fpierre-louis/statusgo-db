@@ -41,6 +41,7 @@ public class UserInfoService {
     private final ObjectMapper objectMapper;
     private final WebSocketMessageSender ws;
     private final NominatimGeocodeService geocode;
+    private final HouseholdProvisioningService householdProvisioning;
 
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
@@ -51,7 +52,8 @@ public class UserInfoService {
                            BlockService blockService,
                            ObjectMapper objectMapper,
                            WebSocketMessageSender ws,
-                           NominatimGeocodeService geocode) {
+                           NominatimGeocodeService geocode,
+                           HouseholdProvisioningService householdProvisioning) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
         this.groupRepo = groupRepo;
@@ -61,6 +63,7 @@ public class UserInfoService {
         this.objectMapper = objectMapper;
         this.ws = ws;
         this.geocode = geocode;
+        this.householdProvisioning = householdProvisioning;
     }
 
     public List<UserInfo> getAllUsers() { return userInfoRepo.findAll(); }
@@ -289,10 +292,15 @@ public class UserInfoService {
         return userInfoRepo.findByFirebaseUid(uid.trim());
     }
 
+    @Transactional
     public UserInfo createUser(UserInfo userInfo) {
         if (userInfo.getUserEmail() == null || userInfo.getUserEmail().isBlank())
             throw new IllegalArgumentException("userEmail is required");
-        return userInfoRepo.save(userInfo);
+        UserInfo saved = userInfoRepo.save(userInfo);
+        // Guarantee a base household on creation (the app anchors the dashboard
+        // + personal plan to it). No-op for guests. Joins this transaction.
+        householdProvisioning.ensureBaseHousehold(saved);
+        return saved;
     }
 
     public UserInfo updateUserById(String id, UserInfo incoming) {
@@ -761,7 +769,11 @@ public class UserInfoService {
         // doesn't carry them. applyPatch sets them only when present.
         applyPatch(created, patch);
         applyInitialSystemDefaults(created, patch);
-        return userInfoRepo.save(created);
+        UserInfo saved = userInfoRepo.save(created);
+        // Guarantee a base household on first sign-in (no-op for guests).
+        // Joins this @Transactional method so user + household are atomic.
+        householdProvisioning.ensureBaseHousehold(saved);
+        return saved;
     }
 
     private String fallbackGuestEmailForUid(String uid) {

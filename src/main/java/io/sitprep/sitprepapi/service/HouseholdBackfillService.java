@@ -3,7 +3,6 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
-import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.OriginLocation;
@@ -11,7 +10,6 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
-import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.MealPlanDataRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import io.sitprep.sitprepapi.repo.OriginLocationRepo;
@@ -20,39 +18,40 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
  * One-time, idempotent migration to the household-owned plan model
  * (docs/WIP_HOUSEHOLD_PLANS.md, Phase 1). Invoked on every boot by
- * {@code HouseholdBackfillRunner}, but cheap after the first successful
- * pass: each step queries only rows still missing the new column, so once
- * everything is backfilled the queries return empty and {@link #run()} is
- * a no-op.
+ * {@code HouseholdBackfillRunner}, but cheap after the first successful pass.
  *
  * <ol>
- *   <li>Every user without a {@code baseHouseholdId} gets one — their
- *   first existing {@code groupType="Household"} group, or a freshly
- *   auto-created personal household (so "every plan has a household"
- *   always holds).</li>
+ *   <li>Every user without a {@code baseHouseholdId} gets one — delegated to
+ *   {@link HouseholdProvisioningService#ensureBaseHousehold}.</li>
  *   <li>Every plan row without a {@code householdId} inherits its author's
  *   base household.</li>
  * </ol>
  *
- * <p>DELETE this class + the runner once the migration is universally
- * applied and the create/save paths set {@code householdId} directly
- * (Phase 2).</p>
+ * <p><b>Per-user isolation (2026-07-02):</b> base assignment runs each user in
+ * its OWN {@code REQUIRES_NEW} transaction. Previously the whole pass was a
+ * single transaction, so ONE user whose household data throws on load (e.g. a
+ * corrupt group) rolled the ENTIRE pass back every boot — leaving every other
+ * user without a base too. Now a failing user is logged + skipped (retried next
+ * boot) while everyone else still gets their base.</p>
+ *
+ * <p>DELETE this class + the runner once the migration is universally applied
+ * and the create/save paths set {@code householdId} directly (Phase 2). Note
+ * the create paths ALREADY call {@code ensureBaseHousehold} on provisioning.</p>
  */
 @Service
 public class HouseholdBackfillService {
@@ -60,101 +59,90 @@ public class HouseholdBackfillService {
     private static final Logger log = LoggerFactory.getLogger(HouseholdBackfillService.class);
 
     private final UserInfoRepo userInfoRepo;
-    private final GroupRepo groupRepo;
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final OriginLocationRepo originLocationRepo;
     private final MealPlanDataRepo mealPlanDataRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final DemographicRepo demographicRepo;
+    private final HouseholdProvisioningService householdProvisioning;
+    private final PlatformTransactionManager txManager;
 
     public HouseholdBackfillService(
             UserInfoRepo userInfoRepo,
-            GroupRepo groupRepo,
             MeetingPlaceRepo meetingPlaceRepo,
             EvacuationPlanRepo evacuationPlanRepo,
             OriginLocationRepo originLocationRepo,
             MealPlanDataRepo mealPlanDataRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
-            DemographicRepo demographicRepo
+            DemographicRepo demographicRepo,
+            HouseholdProvisioningService householdProvisioning,
+            PlatformTransactionManager txManager
     ) {
         this.userInfoRepo = userInfoRepo;
-        this.groupRepo = groupRepo;
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.evacuationPlanRepo = evacuationPlanRepo;
         this.originLocationRepo = originLocationRepo;
         this.mealPlanDataRepo = mealPlanDataRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.demographicRepo = demographicRepo;
+        this.householdProvisioning = householdProvisioning;
+        this.txManager = txManager;
     }
 
-    @Transactional
+    // NOT @Transactional: each sub-step manages its own transaction boundary so
+    // one failure can't poison the others (see per-user isolation above).
     public void run() {
         int basesAssigned = assignBaseHouseholds();
-        int plansBackfilled = backfillPlanHouseholds();
+        int plansBackfilled = 0;
+        try {
+            plansBackfilled = backfillPlanHouseholds();
+        } catch (Exception e) {
+            log.warn("Household backfill: plan-householdId backfill failed (retries next boot): {}", e.getMessage());
+        }
         if (basesAssigned > 0 || plansBackfilled > 0) {
             log.info("Household backfill: {} base household(s) assigned, {} plan row(s) backfilled.",
                     basesAssigned, plansBackfilled);
         }
     }
 
-    // ── Step 1: base household per user ────────────────────────────
+    // ── Step 1: base household per user (per-user REQUIRES_NEW, resilient) ──
     private int assignBaseHouseholds() {
-        List<UserInfo> needing = userInfoRepo.findByBaseHouseholdIdIsNull();
+        List<String> userIds = userInfoRepo.findByBaseHouseholdIdIsNull().stream()
+                .map(UserInfo::getId)
+                .filter(id -> id != null && !id.isBlank())
+                .toList();
+        if (userIds.isEmpty()) return 0;
+
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
         int n = 0;
-        for (UserInfo u : needing) {
-            String email = u.getUserEmail();
-            if (email == null || email.isBlank()) continue;
-            Group base = firstHousehold(email);
-            if (base == null) base = createPersonalHousehold(u, email);
-            if (base == null) continue;
-            u.setBaseHouseholdId(base.getGroupId());
-            // Keep the denormalized managed-id cache coherent.
-            if (u.getManagedGroupIDs() == null) u.setManagedGroupIDs(new HashSet<>());
-            u.getManagedGroupIDs().add(base.getGroupId());
-            userInfoRepo.save(u);
-            n++;
+        for (String id : userIds) {
+            try {
+                String assigned = tx.execute(status -> {
+                    UserInfo u = userInfoRepo.findById(id).orElse(null);
+                    return u == null ? null : householdProvisioning.ensureBaseHousehold(u);
+                });
+                if (assigned != null) n++;
+            } catch (Exception e) {
+                // One user's un-loadable household must NOT abort everyone
+                // else's base assignment. Skip + log; retried next boot.
+                log.warn("Household backfill: skipped user {} — base assignment failed: {}", id, e.getMessage());
+            }
         }
         return n;
     }
 
-    private Group firstHousehold(String email) {
-        return groupRepo.findByMemberEmail(email).stream()
-                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
-                .findFirst()
-                .orElse(null);
-    }
-
-    /** Mirrors the fields CreateHouseholdGroup.js sets for a new household. */
-    private Group createPersonalHousehold(UserInfo u, String email) {
-        Group g = new Group();
-        g.setGroupId(UUID.randomUUID().toString());
-        String first = u.getUserFirstName();
-        String last = u.getUserLastName();
-        // Family-name convention: prefer lastName (it's what "the Plouis household"
-        // sounds like when spoken). Fall back to firstName, then "My".
-        String stem;
-        if (last != null && !last.isBlank()) stem = last.trim() + "'s";
-        else if (first != null && !first.isBlank()) stem = first.trim() + "'s";
-        else stem = "My";
-        g.setGroupName(stem + " Household");
-        g.setGroupCode("HH-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
-        g.setGroupType("Household");
-        g.setPrivacy("Private");
-        g.setAlert("Not Active");
-        g.setOwnerEmail(email);
-        g.setOwnerName(((first == null ? "" : first) + " " + (last == null ? "" : last)).trim());
-        g.setAdminEmails(new ArrayList<>(List.of(email)));
-        g.setMemberEmails(new ArrayList<>(List.of(email)));
-        g.setMemberCount(1);
-        Instant now = Instant.now();
-        g.setCreatedAt(now);
-        g.setUpdatedAt(now);
-        return groupRepo.save(g);
-    }
-
-    // ── Step 2: householdId per plan row ───────────────────────────
+    // ── Step 2: householdId per plan row (own REQUIRES_NEW tx) ─────────────
     private int backfillPlanHouseholds() {
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        Integer result = tx.execute(status -> doBackfillPlanHouseholds());
+        return result == null ? 0 : result;
+    }
+
+    private int doBackfillPlanHouseholds() {
         List<MeetingPlace> mp = meetingPlaceRepo.findByHouseholdIdIsNull();
         List<EvacuationPlan> ev = evacuationPlanRepo.findByHouseholdIdIsNull();
         List<OriginLocation> ol = originLocationRepo.findByHouseholdIdIsNull();
