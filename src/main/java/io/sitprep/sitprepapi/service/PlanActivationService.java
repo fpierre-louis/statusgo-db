@@ -1,16 +1,19 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.*;
+import io.sitprep.sitprepapi.dto.MapPoiDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.*;
 import io.sitprep.sitprepapi.repo.*;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,10 +40,12 @@ public class PlanActivationService {
     private final UserInfoRepo userInfoRepo;
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final EvacuationPlanRepo evacuationPlanRepo;
+    private final OriginLocationRepo originLocationRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final WebSocketMessageSender ws;
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
+    private final HouseholdAccessService householdAccess;
 
     public PlanActivationService(
             PlanActivationRepo activationRepo,
@@ -48,20 +53,24 @@ public class PlanActivationService {
             UserInfoRepo userInfoRepo,
             MeetingPlaceRepo meetingPlaceRepo,
             EvacuationPlanRepo evacuationPlanRepo,
+            OriginLocationRepo originLocationRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
             WebSocketMessageSender ws,
             GroupRepo groupRepo,
-            NotificationService notificationService
+            NotificationService notificationService,
+            HouseholdAccessService householdAccess
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
         this.userInfoRepo = userInfoRepo;
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.evacuationPlanRepo = evacuationPlanRepo;
+        this.originLocationRepo = originLocationRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.ws = ws;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
+        this.householdAccess = householdAccess;
     }
 
     // ---------------------------------------------------------------------
@@ -82,6 +91,16 @@ public class PlanActivationService {
             a.setOwnerUserId(u.getId());
             a.setOwnerName(joinName(u.getUserFirstName(), u.getUserLastName()));
         });
+
+        // SECURITY (IDOR guard): the referenced meeting place / evacuation plan
+        // must belong to the owner (or the owner's household). Meeting/evac ids
+        // are sequential @GeneratedValue(IDENTITY) Longs, so without this an
+        // authenticated attacker could activate a plan that references a VICTIM's
+        // id and then read the victim's shelter/meeting coordinates back through
+        // the activation-map endpoint (the map assembler resolves whatever id was
+        // stored). Reject cross-tenant references at the write boundary.
+        assertMeetingPlaceOwned(req.meetingPlaceId(), ownerEmail);
+        assertEvacPlanOwned(req.evacPlanId(), ownerEmail);
 
         a.setMeetingPlaceId(req.meetingPlaceId());
         a.setEvacPlanId(req.evacPlanId());
@@ -177,16 +196,180 @@ public class PlanActivationService {
     // Read
     // ---------------------------------------------------------------------
 
+    /**
+     * Audience-aware snapshot (SEC-3, docs/map/MAP_PRIVACY_AND_SECURITY_REVIEW.md).
+     * The AUTHENTICATED owner / household gets the full detail (ack roll-up with
+     * live coordinates + full emergency contacts). Any other caller — including a
+     * logged-out recipient on the shared link — gets the RECIPIENT view: the plan
+     * destinations they need, but NO other recipient's check-in (empty acks) and
+     * emergency contacts stripped to name/role/phone (no address / medical / email).
+     * This closes the legacy leak where any link holder saw every recipient's live
+     * location + full contact PII.
+     */
     @Transactional(readOnly = true)
-    public Optional<ActivationDetailDto> getActivation(String activationId) {
-        return activationRepo.findById(activationId).map(this::toDetailDto);
+    public Optional<ActivationDetailDto> getActivation(String activationId, String callerEmail) {
+        return activationRepo.findById(activationId)
+                .map(a -> isAuthorizedReader(a, callerEmail) ? toDetailDto(a) : toRecipientDetailDto(a));
     }
 
+    /**
+     * Full ack roll-up (every recipient's status + live coordinates) — OWNER /
+     * household ONLY. A recipient link holder is not the audience for other
+     * people's live locations. 404 unknown, 403 unauthorized.
+     */
     @Transactional(readOnly = true)
-    public List<AckDto> getAcks(String activationId) {
+    public List<AckDto> getAcks(String activationId, String callerEmail) {
+        PlanActivation a = activationRepo.findById(activationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Activation not found"));
+        if (!isAuthorizedReader(a, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Ack roll-up is owner-only");
+        }
         return ackRepo.findByActivationIdOrderByAckedAtAsc(activationId).stream()
                 .map(this::toAckDto)
                 .toList();
+    }
+
+    // ---------------------------------------------------------------------
+    // Map (deployed-plan emergency map — MapPoiDto; docs/map/MAP_API_CONTRACT.md)
+    // ---------------------------------------------------------------------
+
+    /**
+     * AUTHENTICATED owner / household view of a deployed plan as map points:
+     * meeting place + shelter/destination + the owner rally point + home origin.
+     * The caller must be a verified user who is the owner, a household co-member
+     * ({@link HouseholdAccessService#canReadPlanDataFor}), or an explicitly-
+     * targeted household recipient ({@code householdMemberIds}). 404 unknown,
+     * 410 expired, 403 unauthorized. Never returns ack coordinates or contact PII.
+     */
+    @Transactional(readOnly = true)
+    public List<MapPoiDto> getActivationMap(String activationId, String callerEmail) {
+        PlanActivation a = requireActiveActivation(activationId);
+        if (!isAuthorizedReader(a, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Plan is not shared with you");
+        }
+        return assembleMapPois(a, true);
+    }
+
+    /**
+     * PUBLIC (link-possession) recipient view — deliberately data-minimized to
+     * ONLY the destinations the recipient is directed to (meeting place +
+     * shelter). Excludes the owner's home/origin, every OTHER recipient's live
+     * check-in coordinates, and the emergency-contact PII that the legacy
+     * un-authed {@code GET /{id}} snapshot still exposes. This is the source the
+     * guest emergency map reads, so the shipped map never depends on that leaky
+     * snapshot. 404 unknown, 410 expired.
+     */
+    @Transactional(readOnly = true)
+    public List<MapPoiDto> getRecipientMap(String activationId) {
+        PlanActivation a = requireActiveActivation(activationId);
+        return assembleMapPois(a, false);
+    }
+
+    private PlanActivation requireActiveActivation(String activationId) {
+        PlanActivation a = activationRepo.findById(activationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Activation not found"));
+        if (Instant.now().isAfter(a.getExpiresAt())) {
+            throw new ActivationExpiredException(activationId);
+        }
+        return a;
+    }
+
+    private boolean isAuthorizedReader(PlanActivation a, String callerEmail) {
+        if (callerEmail == null) return false;
+        if (a.getOwnerEmail() != null && a.getOwnerEmail().equalsIgnoreCase(callerEmail)) return true;
+        if (householdAccess.canReadPlanDataFor(callerEmail, a.getOwnerEmail())) return true;
+        // Explicitly-targeted household recipient (by UserInfo id).
+        if (a.getHouseholdMemberIds() != null && !a.getHouseholdMemberIds().isEmpty()) {
+            String callerId = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
+                    .map(UserInfo::getId).orElse(null);
+            return callerId != null && a.getHouseholdMemberIds().contains(callerId);
+        }
+        return false;
+    }
+
+    /**
+     * Assemble the plan's map points. {@code includePrivate=false} yields the
+     * recipient-safe set (meeting + shelter only); {@code true} adds the owner
+     * rally point + home origin for the owner/household view. Non-finite
+     * coordinates are dropped.
+     */
+    private List<MapPoiDto> assembleMapPois(PlanActivation a, boolean includePrivate) {
+        List<MapPoiDto> pois = new ArrayList<>();
+
+        if (a.getMeetingPlaceId() != null) {
+            meetingPlaceRepo.findById(a.getMeetingPlaceId()).ifPresent(m -> {
+                if (finite(m.getLat(), m.getLng())) {
+                    pois.add(planPoi("activation:meeting:" + m.getId(), "amenity", "meetup",
+                            m.getName() != null ? m.getName() : "Meeting place",
+                            m.getLat(), m.getLng(), m.getAddress()));
+                }
+            });
+        }
+
+        if (a.getEvacPlanId() != null) {
+            evacuationPlanRepo.findById(a.getEvacPlanId()).ifPresent(e -> {
+                if (finite(e.getLat(), e.getLng())) {
+                    String name = e.getShelterName() != null ? e.getShelterName()
+                            : e.getDestination() != null ? e.getDestination() : "Shelter";
+                    pois.add(planPoi("activation:shelter:" + e.getId(), "shelter", "shelter-primary",
+                            name, e.getLat(), e.getLng(), e.getShelterAddress()));
+                }
+            });
+        }
+
+        if (includePrivate) {
+            if (finite(a.getLat(), a.getLng())) {
+                String ownerName = a.getOwnerName() != null ? a.getOwnerName() : "Owner";
+                pois.add(planPoi("activation:owner:" + a.getId(), "agency", "owner",
+                        ownerName + " location", a.getLat(), a.getLng(), null));
+            }
+            originLocationRepo.findByOwnerEmailIgnoreCase(a.getOwnerEmail()).stream()
+                    .filter(o -> finite(o.getLat(), o.getLng()))
+                    .findFirst()
+                    .ifPresent(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity", "origin",
+                            o.getName() != null ? o.getName() : "Starting point",
+                            o.getLat(), o.getLng(), o.getAddress())));
+        }
+
+        return pois;
+    }
+
+    /** One deployed-plan map point in the canonical MapPoiDto shape. */
+    private static MapPoiDto planPoi(String id, String family, String placeLabel,
+                                     String name, Double lat, Double lng, String address) {
+        return new MapPoiDto(
+                id, family, "proprietary:activation", name, lat, lng, null,
+                null, null, null, null, null,     // verified..ownerUserId
+                null, null, address, placeLabel,  // postId, kind, description(=address), placeLabel
+                null, null, null, null            // category, website, externalMapUrl, attribution
+        );
+    }
+
+    private static boolean finite(Double lat, Double lng) {
+        return lat != null && lng != null
+                && !lat.isNaN() && !lng.isNaN()
+                && !lat.isInfinite() && !lng.isInfinite();
+    }
+
+    // ── IDOR guards (activation-create) ──────────────────────────────────
+    private void assertMeetingPlaceOwned(Long meetingPlaceId, String ownerEmail) {
+        if (meetingPlaceId == null) return;
+        meetingPlaceRepo.findById(meetingPlaceId).ifPresent(mp -> {
+            if (!householdAccess.canReadPlanDataFor(ownerEmail, mp.getOwnerEmail())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Referenced meeting place does not belong to you");
+            }
+        });
+    }
+
+    private void assertEvacPlanOwned(Long evacPlanId, String ownerEmail) {
+        if (evacPlanId == null) return;
+        evacuationPlanRepo.findById(evacPlanId).ifPresent(ep -> {
+            if (!householdAccess.canReadPlanDataFor(ownerEmail, ep.getOwnerEmail())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Referenced evacuation plan does not belong to you");
+            }
+        });
     }
 
     // ---------------------------------------------------------------------
@@ -349,6 +532,54 @@ public class PlanActivationService {
                 c.getId(), c.getName(), c.getRole(), c.getPhone(), c.getEmail(),
                 c.getAddress(), c.getRadioChannel(), c.getMedicalInfo(),
                 c.getSubjectType(), c.getSubjectId(), c.getSubjectName()
+        );
+    }
+
+    /**
+     * Recipient-safe projection (SEC-3): the plan destinations, but acks empty
+     * (a link holder is not shown other recipients' status/live location) and
+     * emergency contacts stripped to name/role/phone (no address / medical /
+     * email / radio / subject PII).
+     */
+    private ActivationDetailDto toRecipientDetailDto(PlanActivation a) {
+        MeetingPlaceSnapshotDto mp = a.getMeetingPlaceId() == null ? null
+                : meetingPlaceRepo.findById(a.getMeetingPlaceId()).map(this::toMeetingPlaceSnapshot).orElse(null);
+        EvacuationPlanSnapshotDto ep = a.getEvacPlanId() == null ? null
+                : evacuationPlanRepo.findById(a.getEvacPlanId()).map(this::toEvacPlanSnapshot).orElse(null);
+
+        List<EmergencyContactGroupSnapshotDto> ecgs;
+        if (a.getContactGroupIds() == null || a.getContactGroupIds().isEmpty()) {
+            ecgs = List.of();
+        } else {
+            ecgs = emergencyContactGroupRepo.findAllById(a.getContactGroupIds()).stream()
+                    .map(this::toContactGroupSnapshotMinimal)
+                    .toList();
+        }
+
+        boolean closed = Instant.now().isAfter(a.getExpiresAt());
+        LocationDto location = (a.getLat() == null && a.getLng() == null)
+                ? null : new LocationDto(a.getLat(), a.getLng());
+
+        return new ActivationDetailDto(
+                a.getId(), a.getOwnerUserId(), a.getOwnerName(),
+                a.getActivatedAt(), a.getExpiresAt(), closed,
+                a.getMeetingMode(), a.getEvacMode(), a.getMessagePreview(),
+                location, mp, ep, ecgs,
+                List.of()   // acks — a recipient never sees the roll-up
+        );
+    }
+
+    private EmergencyContactGroupSnapshotDto toContactGroupSnapshotMinimal(EmergencyContactGroup g) {
+        List<EmergencyContactSnapshotDto> contacts = g.getContacts() == null ? List.of()
+                : g.getContacts().stream().map(this::toContactSnapshotMinimal).toList();
+        return new EmergencyContactGroupSnapshotDto(g.getId(), g.getName(), contacts);
+    }
+
+    /** Name / role / phone ONLY — drops address, email, radio, medical, subject PII. */
+    private EmergencyContactSnapshotDto toContactSnapshotMinimal(EmergencyContact c) {
+        return new EmergencyContactSnapshotDto(
+                c.getId(), c.getName(), c.getRole(), c.getPhone(),
+                null, null, null, null, null, null, null
         );
     }
 

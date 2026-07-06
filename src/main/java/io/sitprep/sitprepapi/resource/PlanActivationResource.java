@@ -1,5 +1,8 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.ApiMeta;
+import io.sitprep.sitprepapi.dto.ApiResponse;
+import io.sitprep.sitprepapi.dto.MapPoiDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.*;
 import io.sitprep.sitprepapi.service.AckRateLimiter;
 import io.sitprep.sitprepapi.service.PlanActivationService;
@@ -64,9 +67,42 @@ public class PlanActivationResource {
 
     @GetMapping("/{activationId}")
     public ResponseEntity<ActivationDetailDto> get(@PathVariable String activationId) {
-        return service.getActivation(activationId)
+        // Auth-OPTIONAL (SEC-3): the owner / household (verified token) gets the
+        // full snapshot; a logged-out recipient link holder gets the data-
+        // minimized recipient view. Actor is token-derived — never a body param.
+        String caller = AuthUtils.getCurrentUserEmail();
+        return service.getActivation(activationId, caller)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * AUTHENTICATED owner/household emergency-map payload (MapPoiDto[]) — the
+     * secured, server-shaped map for signed-in surfaces (owner dashboard "view
+     * active plan"). Requires a verified token; the service authorizes the
+     * caller against the activation owner (owner / household co-member /
+     * targeted recipient) and returns 403 otherwise, 404 unknown, 410 expired.
+     * This is the coordinate-bearing path the AuthUtils opt-in gap is closed on.
+     */
+    @GetMapping("/{activationId}/map")
+    public ResponseEntity<ApiResponse<List<MapPoiDto>>> ownerMap(@PathVariable String activationId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.getActivationMap(activationId, caller), ApiMeta.now()));
+    }
+
+    /**
+     * PUBLIC recipient emergency-map payload — link-possession (recipients may
+     * have no SitPrep account, matching the ack flow). Deliberately data-
+     * minimized to only the meeting place + shelter the recipient is directed
+     * to; it carries NO home/origin, NO other recipient's live location, and NO
+     * emergency-contact PII (unlike the legacy GET /{id} snapshot). The guest
+     * emergency map reads this so the shipped map never depends on that leak.
+     */
+    @GetMapping("/{activationId}/map-public")
+    public ResponseEntity<ApiResponse<List<MapPoiDto>>> recipientMap(@PathVariable String activationId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.getRecipientMap(activationId), ApiMeta.now()));
     }
 
     @PostMapping("/{activationId}/acks")
@@ -107,7 +143,11 @@ public class PlanActivationResource {
 
     @GetMapping("/{activationId}/acks")
     public ResponseEntity<List<AckDto>> listAcks(@PathVariable String activationId) {
-        return ResponseEntity.ok(service.getAcks(activationId));
+        // Owner-only roll-up (SEC-3): the service throws 403 for a non-owner /
+        // non-household caller and 404 for an unknown activation. A recipient
+        // link holder is not the audience for everyone's live check-in coords.
+        String caller = AuthUtils.getCurrentUserEmail();
+        return ResponseEntity.ok(service.getAcks(activationId, caller));
     }
 
     // -----------------------------
