@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.constant.CivicCategory;
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.constant.OfficialTier;
@@ -433,6 +434,7 @@ public class PostService {
         t.setDescription(incoming.getDescription());
         t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : PostStatus.OPEN);
         t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Post.PostPriority.MEDIUM);
+        GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
         t.setDueAt(incoming.getDueAt());

@@ -58,6 +58,21 @@ public final class GeoUtil {
                 && lng >= -180.0 && lng <= 180.0;
     }
 
+    /**
+     * Write-boundary guard for user-supplied coordinate pairs. A fully-null
+     * pair passes (optional-location writes; callers with mandatory coords
+     * null-check first). A half-null pair, non-finite value, or out-of-range
+     * value throws {@link IllegalArgumentException}, which
+     * {@code GlobalExceptionHandler} maps to 400 BAD_REQUEST.
+     */
+    public static void requireValidLatLng(Double lat, Double lng) {
+        if (lat == null && lng == null) return;
+        if (!validLatLng(lat, lng)) {
+            throw new IllegalArgumentException(
+                    "latitude must be within [-90, 90] and longitude within [-180, 180]");
+        }
+    }
+
     private static double normalizeLng(double lng) {
         double value = lng;
         while (value < -180.0) value += 360.0;

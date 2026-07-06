@@ -70,7 +70,12 @@ public class CommunityDiscoverService {
         if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)) {
             throw new IllegalArgumentException("lat and lng are required");
         }
+        GeoUtil.requireValidLatLng(lat, lng);
         if (radiusKm <= 0) radiusKm = 10.0;
+        // Cap the search radius — an arbitrarily large radius turns the
+        // Haversine filter into a full-table match and the response into a
+        // country dump. 500 km comfortably covers every legitimate feed view.
+        if (radiusKm > 500.0) radiusKm = 500.0;
 
         Place place = resolvePlace(lat, lng);
 
@@ -203,7 +208,9 @@ public class CommunityDiscoverService {
                     resolved.country(), resolved.zipBucket()
             );
         } catch (Exception e) {
-            log.warn("Reverse-geocode failed at lat={} lng={}: {}", lat, lng, e.getMessage());
+            // debug, not warn: exact coordinates are private data and don't
+            // belong in production logs (warn ships; debug is off in prod).
+            log.debug("Reverse-geocode failed at lat={} lng={}: {}", lat, lng, e.getMessage());
             return null;
         }
     }

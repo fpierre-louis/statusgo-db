@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.MapPoiDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.*;
@@ -42,6 +43,7 @@ public class PlanActivationService {
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final OriginLocationRepo originLocationRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
+    private final EmergencyContactRepo emergencyContactRepo;
     private final WebSocketMessageSender ws;
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
@@ -55,6 +57,7 @@ public class PlanActivationService {
             EvacuationPlanRepo evacuationPlanRepo,
             OriginLocationRepo originLocationRepo,
             EmergencyContactGroupRepo emergencyContactGroupRepo,
+            EmergencyContactRepo emergencyContactRepo,
             WebSocketMessageSender ws,
             GroupRepo groupRepo,
             NotificationService notificationService,
@@ -67,6 +70,7 @@ public class PlanActivationService {
         this.evacuationPlanRepo = evacuationPlanRepo;
         this.originLocationRepo = originLocationRepo;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
+        this.emergencyContactRepo = emergencyContactRepo;
         this.ws = ws;
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
@@ -109,6 +113,7 @@ public class PlanActivationService {
         a.setMessagePreview(req.messagePreview());
 
         if (req.location() != null) {
+            GeoUtil.requireValidLatLng(req.location().lat(), req.location().lng());
             a.setLat(req.location().lat());
             a.setLng(req.location().lng());
         }
@@ -405,6 +410,16 @@ public class PlanActivationService {
             throw new ActivationExpiredException(activationId);
         }
 
+        // This endpoint is un-authed (link possession), so the write boundary
+        // must not trust the payload: coordinates are bounds-checked, and when
+        // the owner targeted specific recipients, recipientEmail must resolve
+        // to one of them (owner included) — otherwise anyone holding a leaked
+        // link could inject a fake "I'm safe at X" for an arbitrary identity
+        // during a live emergency. Untargeted activations (bare share link,
+        // no recipient sets) keep the open link-possession contract.
+        GeoUtil.requireValidLatLng(req.lat(), req.lng());
+        requireRecipientAllowed(activation, recipientEmail);
+
         PlanActivationAck ack = ackRepo
                 .findByActivationIdAndRecipientEmailIgnoreCase(activationId, recipientEmail)
                 .orElseGet(PlanActivationAck::new);
@@ -450,6 +465,61 @@ public class PlanActivationService {
         });
 
         return dto;
+    }
+
+    /**
+     * When the activation carries targeted recipients, the acking identity
+     * must be one of them. 403 otherwise. Activations created with NO
+     * recipient sets (bare share links) accept any identity — the link is
+     * the audience there. Recipients resolve to emails via: the owner,
+     * targeted household members (UserInfo ids), directly-targeted
+     * emergency contacts, and every contact inside targeted contact
+     * groups. Contacts stored without an email (phone-only) cannot be
+     * matched and are effectively excluded from email acks.
+     */
+    private void requireRecipientAllowed(PlanActivation a, String recipientEmail) {
+        boolean targeted =
+                (a.getHouseholdMemberIds() != null && !a.getHouseholdMemberIds().isEmpty())
+                || (a.getContactIds() != null && !a.getContactIds().isEmpty())
+                || (a.getContactGroupIds() != null && !a.getContactGroupIds().isEmpty());
+        if (!targeted) return;
+
+        if (!resolveRecipientEmails(a).contains(recipientEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This plan was not shared with that recipient");
+        }
+    }
+
+    /** Lowercased email set the activation was addressed to (owner included). */
+    private Set<String> resolveRecipientEmails(PlanActivation a) {
+        Set<String> allowed = new HashSet<>();
+        if (a.getOwnerEmail() != null) allowed.add(a.getOwnerEmail().toLowerCase(Locale.ROOT));
+
+        if (a.getHouseholdMemberIds() != null && !a.getHouseholdMemberIds().isEmpty()) {
+            userInfoRepo.findAllById(a.getHouseholdMemberIds()).forEach(u -> {
+                if (u.getUserEmail() != null && !u.getUserEmail().isBlank()) {
+                    allowed.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT));
+                }
+            });
+        }
+        if (a.getContactIds() != null && !a.getContactIds().isEmpty()) {
+            emergencyContactRepo.findAllById(a.getContactIds()).forEach(c -> {
+                if (c.getEmail() != null && !c.getEmail().isBlank()) {
+                    allowed.add(c.getEmail().trim().toLowerCase(Locale.ROOT));
+                }
+            });
+        }
+        if (a.getContactGroupIds() != null && !a.getContactGroupIds().isEmpty()) {
+            emergencyContactGroupRepo.findAllById(a.getContactGroupIds()).forEach(g -> {
+                if (g.getContacts() == null) return;
+                g.getContacts().forEach(c -> {
+                    if (c.getEmail() != null && !c.getEmail().isBlank()) {
+                        allowed.add(c.getEmail().trim().toLowerCase(Locale.ROOT));
+                    }
+                });
+            });
+        }
+        return allowed;
     }
 
     // ---------------------------------------------------------------------

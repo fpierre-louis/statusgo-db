@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -64,9 +65,23 @@ public class MapDiscoveryService {
     // Community Post kinds that count as mutual aid on the map.
     private static final Set<String> AID_KINDS = Set.of("offer", "marketplace", "resource");
 
+    // Viewport sanity caps: a country-band view is legitimate, but an
+    // inverted, non-finite, or near-planet box is either abuse or an FE
+    // bug — reject with a clean 400 instead of range-scanning on it.
+    private static final double MAX_BBOX_LAT_SPAN_DEG = 60.0;
+    private static final double MAX_BBOX_LNG_SPAN_DEG = 120.0;
+
     public MapDiscoveryDto discover(double minLat, double minLng,
                                     double maxLat, double maxLng,
                                     int zoom, String viewerEmail) {
+        if (!GeoUtil.validLatLng(minLat, minLng) || !GeoUtil.validLatLng(maxLat, maxLng)
+                || minLat >= maxLat || minLng >= maxLng) {
+            throw new IllegalArgumentException("Invalid viewport bounding box");
+        }
+        if (maxLat - minLat > MAX_BBOX_LAT_SPAN_DEG
+                || maxLng - minLng > MAX_BBOX_LNG_SPAN_DEG) {
+            throw new IllegalArgumentException("Viewport bounding box is too large");
+        }
         double centerLat = (minLat + maxLat) / 2.0;
         double centerLng = (minLng + maxLng) / 2.0;
         int band = bandOf(zoom);

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -26,6 +27,7 @@ public class MeetingPlaceService {
     @Transactional
     public List<MeetingPlace> saveAllMeetingPlaces(List<MeetingPlace> meetingPlaces) {
         String ownerEmail = AuthUtils.getCurrentUserEmail();
+        meetingPlaces.forEach(p -> GeoUtil.requireValidLatLng(p.getLat(), p.getLng()));
 
         // Delete existing meeting places for the user
         meetingPlaceRepository.deleteByOwnerEmail(ownerEmail);
@@ -62,6 +64,7 @@ public class MeetingPlaceService {
                     existingPlace.setAddress(updatedPlace.getAddress());
                     existingPlace.setPhoneNumber(updatedPlace.getPhoneNumber());
                     existingPlace.setAdditionalInfo(updatedPlace.getAdditionalInfo());
+                    GeoUtil.requireValidLatLng(updatedPlace.getLat(), updatedPlace.getLng());
                     existingPlace.setLat(updatedPlace.getLat());
                     existingPlace.setLng(updatedPlace.getLng());
                     existingPlace.setDeploy(updatedPlace.isDeploy());
@@ -80,6 +83,7 @@ public class MeetingPlaceService {
 
     @Transactional
     public List<MeetingPlace> saveAllMeetingPlaces(String ownerEmail, List<MeetingPlace> places) {
+        places.forEach(p -> GeoUtil.requireValidLatLng(p.getLat(), p.getLng()));
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's meeting places + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
@@ -115,6 +119,7 @@ public class MeetingPlaceService {
      */
     @Transactional
     public MeetingPlace addMeetingPlace(MeetingPlace place) {
+        GeoUtil.requireValidLatLng(place.getLat(), place.getLng());
         if (place.getHouseholdId() == null) {
             String target = householdResolver.writableTargetHousehold(place.getOwnerEmail());
             place.setHouseholdId(target != null

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.ResourceListing;
 import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.dto.SubmitResourceRequest;
@@ -87,6 +88,7 @@ public class ResourceListingService {
         r.setCategory(normalizeCategory(req.category()));
         r.setAddress(trimOrNull(req.address()));
         r.setContact(trimOrNull(req.contact()));
+        GeoUtil.requireValidLatLng(req.latitude(), req.longitude());
         r.setLatitude(req.latitude());
         r.setLongitude(req.longitude());
         r.setSource(ResourceListing.Source.COMMUNITY);

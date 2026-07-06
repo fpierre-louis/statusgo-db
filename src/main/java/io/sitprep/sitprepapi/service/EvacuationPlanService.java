@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -24,6 +25,7 @@ public class EvacuationPlanService {
 
     @Transactional
     public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
+        evacuationPlans.forEach(p -> GeoUtil.requireValidLatLng(p.getLat(), p.getLng()));
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's evacuation plans + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
@@ -70,6 +72,7 @@ public class EvacuationPlanService {
      */
     @Transactional
     public EvacuationPlan addEvacuationPlan(EvacuationPlan plan) {
+        GeoUtil.requireValidLatLng(plan.getLat(), plan.getLng());
         if (plan.getHouseholdId() == null) {
             String target = householdResolver.writableTargetHousehold(plan.getOwnerEmail());
             plan.setHouseholdId(target != null

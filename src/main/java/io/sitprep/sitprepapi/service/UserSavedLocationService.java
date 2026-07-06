@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
 import io.sitprep.sitprepapi.service.NominatimGeocodeService.Place;
@@ -56,6 +57,11 @@ public class UserSavedLocationService {
         if (incoming.getOwnerEmail() == null || incoming.getOwnerEmail().isBlank()) {
             throw new IllegalArgumentException("ownerEmail is required");
         }
+        // Coords are NOT NULL columns on this entity — require a valid pair.
+        if (!GeoUtil.validLatLng(incoming.getLatitude(), incoming.getLongitude())) {
+            throw new IllegalArgumentException(
+                    "latitude must be within [-90, 90] and longitude within [-180, 180]");
+        }
         incoming.setOwnerEmail(incoming.getOwnerEmail().trim().toLowerCase());
 
         // Enforce single-home invariant: if this row claims home, demote any prior home.
@@ -82,6 +88,7 @@ public class UserSavedLocationService {
             throw new SecurityException("Cannot reassign saved location to a different owner.");
         }
 
+        GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         boolean coordsChanged = incoming.getLatitude() != null
                 && incoming.getLongitude() != null
                 && (!incoming.getLatitude().equals(existing.getLatitude())

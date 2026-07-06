@@ -45,6 +45,7 @@ class PlanActivationMapServiceTest {
     private EvacuationPlanRepo evacuationPlanRepo;
     private OriginLocationRepo originLocationRepo;
     private EmergencyContactGroupRepo emergencyContactGroupRepo;
+    private EmergencyContactRepo emergencyContactRepo;
     private WebSocketMessageSender ws;
     private GroupRepo groupRepo;
     private NotificationService notificationService;
@@ -63,13 +64,15 @@ class PlanActivationMapServiceTest {
         evacuationPlanRepo = mock(EvacuationPlanRepo.class);
         originLocationRepo = mock(OriginLocationRepo.class);
         emergencyContactGroupRepo = mock(EmergencyContactGroupRepo.class);
+        emergencyContactRepo = mock(EmergencyContactRepo.class);
         ws = mock(WebSocketMessageSender.class);
         groupRepo = mock(GroupRepo.class);
         notificationService = mock(NotificationService.class);
         householdAccess = mock(HouseholdAccessService.class);
         service = new PlanActivationService(activationRepo, ackRepo, userInfoRepo,
                 meetingPlaceRepo, evacuationPlanRepo, originLocationRepo,
-                emergencyContactGroupRepo, ws, groupRepo, notificationService, householdAccess);
+                emergencyContactGroupRepo, emergencyContactRepo, ws, groupRepo,
+                notificationService, householdAccess);
         // createActivation registers an afterCommit synchronization; activate one
         // so the success path doesn't throw "synchronization not active".
         TransactionSynchronizationManager.initSynchronization();

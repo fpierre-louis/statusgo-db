@@ -67,12 +67,16 @@ public class OverpassService {
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200) {
-                log.warn("Overpass non-200 ({}) for bbox {},{},{},{}", res.statusCode(), south, west, north, east);
+                // warn without the bbox (viewer-derived coordinates); the
+                // full box is available at debug for diagnosis.
+                log.warn("Overpass non-200 ({})", res.statusCode());
+                log.debug("Overpass non-200 ({}) for bbox {},{},{},{}", res.statusCode(), south, west, north, east);
                 return List.of();
             }
             return parse(res.body());
         } catch (Exception e) {
-            log.warn("Overpass fetch failed for bbox {},{},{},{}: {}", south, west, north, east, e.toString());
+            log.warn("Overpass fetch failed: {}", e.toString());
+            log.debug("Overpass fetch failed for bbox {},{},{},{}: {}", south, west, north, east, e.toString());
             return List.of();
         }
     }

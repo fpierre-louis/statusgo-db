@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.repo.OriginLocationRepo;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ public class OriginLocationService {
 
     // Save a single origin for a specific user
     public OriginLocation save(String ownerEmail, OriginLocation origin) {
+        GeoUtil.requireValidLatLng(origin.getLat(), origin.getLng());
         origin.setOwnerEmail(ownerEmail);
         if (origin.getHouseholdId() == null) {
             origin.setHouseholdId(householdResolver.baseHouseholdIdFor(ownerEmail));
@@ -41,6 +43,7 @@ public class OriginLocationService {
             throw new RuntimeException("Unauthorized: Owner email mismatch");
         }
 
+        GeoUtil.requireValidLatLng(origin.getLat(), origin.getLng());
         origin.setId(id);
         origin.setOwnerEmail(ownerEmail);
         // Incoming payload has no householdId; preserve the existing row's
@@ -65,6 +68,7 @@ public class OriginLocationService {
 
     // Save all origins for a given user (replaces all)
     public List<OriginLocation> saveAll(String ownerEmail, List<OriginLocation> origins) {
+        origins.forEach(o -> GeoUtil.requireValidLatLng(o.getLat(), o.getLng()));
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's origins + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);

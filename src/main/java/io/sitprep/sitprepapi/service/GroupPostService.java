@@ -1,7 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.GroupReadState;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -22,7 +24,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -77,6 +81,8 @@ public class GroupPostService {
         if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
             throw new SecurityException("User not authorized to create a post for another user.");
         }
+        requireGroupMembership(postDto.getGroupId(), actorEmail);
+        GeoUtil.requireValidLatLng(postDto.getLatitude(), postDto.getLongitude());
 
         GroupPost post = new GroupPost();
         post.setAuthor(postDto.getAuthor());
@@ -124,6 +130,40 @@ public class GroupPostService {
     @Transactional
     public GroupPostDto createPostFromDto(GroupPostDto postDto, String actorEmail) {
         return createPost(postDto, actorEmail);
+    }
+
+    /**
+     * Group-post writes require actual membership: owner, admin, or member —
+     * pending members and strangers are rejected. Closes the gap where any
+     * signed-in user could post (including share-location posts with
+     * coordinates) into an arbitrary {@code groupId}. 400 on unknown group,
+     * 403 on non-membership; covers both the REST and WS create paths.
+     */
+    private void requireGroupMembership(String groupId, String actorEmail) {
+        if (groupId == null || groupId.isBlank()) {
+            throw new IllegalArgumentException("groupId is required");
+        }
+        Group group = groupRepo.findByGroupId(groupId.trim())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "groupId references an unknown group"));
+        if (!isMemberOf(group, actorEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You are not a member of this group");
+        }
+    }
+
+    private static boolean isMemberOf(Group group, String email) {
+        if (email == null || email.isBlank()) return false;
+        if (group.getOwnerEmail() != null && group.getOwnerEmail().equalsIgnoreCase(email)) {
+            return true;
+        }
+        return containsIgnoreCase(group.getAdminEmails(), email)
+                || containsIgnoreCase(group.getMemberEmails(), email);
+    }
+
+    private static boolean containsIgnoreCase(Collection<String> emails, String email) {
+        return emails != null && emails.stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(email));
     }
 
     @Transactional

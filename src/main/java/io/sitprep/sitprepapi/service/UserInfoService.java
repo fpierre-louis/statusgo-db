@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
@@ -450,6 +451,7 @@ public class UserInfoService {
     @Transactional
     public void updateLastKnownLocationByEmail(String email, Double lat, Double lng) {
         if (email == null || email.isBlank() || lat == null || lng == null) return;
+        GeoUtil.requireValidLatLng(lat, lng);
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
             Instant updatedAt = Instant.now();
             Double prevLat = u.getLastKnownLat();
