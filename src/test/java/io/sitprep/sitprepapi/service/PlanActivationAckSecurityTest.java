@@ -156,6 +156,23 @@ class PlanActivationAckSecurityTest {
     }
 
     @Test
+    void contactGroupsOnlyActivation_staysUntargeted_householdAndGuestsCanAck() {
+        // The FE's real payload: it auto-attaches every saved contact group
+        // so the recipient view can render its "Key contacts" card. That
+        // must NOT narrow the ack audience (2026-07-07 fix) — household
+        // co-members (never in householdMemberIds) and guest device-id
+        // identities ack via link possession, exactly as the activation
+        // push invites them to.
+        PlanActivation a = activation();
+        a.getContactGroupIds().add(7L);
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+
+        assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("spouse@x.com", 33.75, -84.39)));
+        assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("guest-abc123", null, null)));
+        verify(ackRepo, times(2)).save(any(PlanActivationAck.class));
+    }
+
+    @Test
     void outOfBoundsCoordinatesRejectedWith400() {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(activation()));
 

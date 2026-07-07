@@ -470,18 +470,25 @@ public class PlanActivationService {
     /**
      * When the activation carries targeted recipients, the acking identity
      * must be one of them. 403 otherwise. Activations created with NO
-     * recipient sets (bare share links) accept any identity — the link is
-     * the audience there. Recipients resolve to emails via: the owner,
-     * targeted household members (UserInfo ids), directly-targeted
+     * explicit recipient targeting (bare share links) accept any identity —
+     * the link is the audience there. Recipients resolve to emails via: the
+     * owner, targeted household members (UserInfo ids), directly-targeted
      * emergency contacts, and every contact inside targeted contact
      * groups. Contacts stored without an email (phone-only) cannot be
      * matched and are effectively excluded from email acks.
+     *
+     * IMPORTANT (2026-07-07): contactGroupIds do NOT flip an activation to
+     * "targeted". The FE auto-attaches every saved contact group so the
+     * recipient view can render its "Key contacts" card — treating them as
+     * targeting 403-blocked household co-members (the FE never sends
+     * householdMemberIds) and every guest device-id identity: the exact
+     * people the activation push tells to check in. Targeting is explicit —
+     * householdMemberIds / contactIds only.
      */
     private void requireRecipientAllowed(PlanActivation a, String recipientEmail) {
         boolean targeted =
                 (a.getHouseholdMemberIds() != null && !a.getHouseholdMemberIds().isEmpty())
-                || (a.getContactIds() != null && !a.getContactIds().isEmpty())
-                || (a.getContactGroupIds() != null && !a.getContactGroupIds().isEmpty());
+                || (a.getContactIds() != null && !a.getContactIds().isEmpty());
         if (!targeted) return;
 
         if (!resolveRecipientEmails(a).contains(recipientEmail)) {
