@@ -279,6 +279,23 @@ public class PlanActivationService {
         return a;
     }
 
+    /**
+     * WS SUBSCRIBE gate (SEC follow-up 2026-07-07): may {@code callerEmail}
+     * stream this activation's ack frames? The acks topic carries recipient
+     * PII + live coordinates, so it mirrors the REST acks endpoint's
+     * owner/household/targeted-member authorization ({@link #isAuthorizedReader})
+     * instead of the link-possession contract. Missing activations deny;
+     * expiry is not checked here (an expired stream just goes quiet — the
+     * sweep hard-deletes it later, after which this denies).
+     */
+    @Transactional(readOnly = true)
+    public boolean canReadActivationAcks(String activationId, String callerEmail) {
+        if (activationId == null || callerEmail == null || callerEmail.isBlank()) return false;
+        return activationRepo.findById(activationId)
+                .map(a -> isAuthorizedReader(a, callerEmail.trim().toLowerCase(Locale.ROOT)))
+                .orElse(false);
+    }
+
     private boolean isAuthorizedReader(PlanActivation a, String callerEmail) {
         if (callerEmail == null) return false;
         if (a.getOwnerEmail() != null && a.getOwnerEmail().equalsIgnoreCase(callerEmail)) return true;

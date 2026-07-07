@@ -191,4 +191,33 @@ class PlanActivationAckSecurityTest {
 
         assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("anyone@x.com", null, null)));
     }
+
+    @Test
+    void canReadActivationAcks_ownerAllowed_strangersAndUnknownActivationsDenied() {
+        // WS SUBSCRIBE gate (2026-07-07): the acks stream carries recipient
+        // PII + live coordinates, so it follows the owner/household/targeted
+        // reader authorization — NOT the link-possession ack contract.
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(activation()));
+
+        assertTrue(service.canReadActivationAcks(ACT_ID, OWNER));
+        assertTrue(service.canReadActivationAcks(ACT_ID, OWNER.toUpperCase()));
+        assertFalse(service.canReadActivationAcks(ACT_ID, ATTACKER));
+        assertFalse(service.canReadActivationAcks(ACT_ID, null));
+        assertFalse(service.canReadActivationAcks("missing-activation", OWNER));
+    }
+
+    @Test
+    void canReadActivationAcks_targetedHouseholdMemberAllowed() {
+        PlanActivation targeted = targetedActivation();
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(targeted));
+        // isAuthorizedReader resolves the CALLER's UserInfo id (reverse
+        // lookup) — override the setUp default empty stub for the member.
+        UserInfo member = new UserInfo();
+        member.setId("u-2");
+        member.setUserEmail(TARGETED_MEMBER);
+        when(userInfoRepo.findByUserEmailIgnoreCase(TARGETED_MEMBER)).thenReturn(Optional.of(member));
+
+        assertTrue(service.canReadActivationAcks(ACT_ID, TARGETED_MEMBER));
+        assertFalse(service.canReadActivationAcks(ACT_ID, ATTACKER));
+    }
 }
