@@ -224,7 +224,12 @@ public record PostDto(
             Integer readMinutes,          // news only
             int confirmsCount,
             boolean viewerConfirmed,
-            boolean viewerSaved
+            boolean viewerSaved,
+            // True while this post is pinned to the top of the feed (a
+            // severe/emergency alert or an author-pinned official) — for
+            // 24h from pinnedAt, or until pinnedUntil. Drives the FE
+            // "Pinned by your area" strip. Replaces the old top alert band.
+            boolean pinned
     ) {
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -234,11 +239,14 @@ public record PostDto(
                     : new TaggedAgency(t.getTaggedAgencyGroupId(), null, false, trim(t.getAgencyNote()));
             NewsSource source = (isBlank(t.getSourceName()) && isBlank(t.getSourceUrl())) ? null
                     : new NewsSource(trim(t.getSourceName()), trim(t.getSourceUrl()));
+            Instant now = Instant.now();
+            boolean pinned = (t.getPinnedAt() != null && t.getPinnedAt().isAfter(now.minusSeconds(86_400)))
+                    || (t.getPinnedUntil() != null && t.getPinnedUntil().isAfter(now));
             return new CommunityExtras(
                     feedItemType(t), trim(t.getOfficialTier()),
                     trim(t.getCivicCategory()), trim(t.getCivicStatus()),
                     agency, source, t.getReadMinutes(),
-                    0, false, false);
+                    0, false, false, pinned);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -253,12 +261,12 @@ public record PostDto(
 
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
-                    taggedAgency, source, readMinutes, count, viewer, viewerSaved);
+                    taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
-                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved);
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -266,7 +274,12 @@ public record PostDto(
             if (taggedAgency == null) return this;
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
-                    source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved);
+                    source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned);
+        }
+
+        public CommunityExtras withPinned(boolean p) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }

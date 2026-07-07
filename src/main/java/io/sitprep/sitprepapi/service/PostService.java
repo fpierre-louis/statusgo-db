@@ -970,9 +970,24 @@ public class PostService {
                 .filter(d -> d.createdAt() != null && d.createdAt().isAfter(pinCutoff))
                 .max(Comparator.comparing(PostDto::createdAt));
         if (pinned.isPresent()) {
-            PostDto p = pinned.get();
-            merged.removeIf(d -> Objects.equals(d.id(), p.id()));
-            merged.add(0, p);
+            PostDto raw = pinned.get();
+            // Flag it pinned so the FE renders the "Pinned by your area"
+            // strip — this post is what replaced the old top alert band.
+            final PostDto pin = raw.community() != null
+                    ? raw.withCommunity(raw.community().withPinned(true))
+                    : raw;
+            merged.removeIf(d -> Objects.equals(d.id(), pin.id()));
+            // Pin the fresh alert-update BELOW all government/agency official
+            // content (tiers 0–2: emergency / advisory / notice) so it leads
+            // the ORGANIC content without inverting the "government always
+            // surfaces above community" rule. Previously pinned to absolute
+            // position 0, which could put a neighbor-authored alert-update
+            // above a tier-0 emergency official.
+            int insertAt = 0;
+            while (insertAt < merged.size() && communityTier(merged.get(insertAt)) <= 2) {
+                insertAt++;
+            }
+            merged.add(insertAt, pin);
         }
 
         // Apply mode-aware sponsored suppression BEFORE the cap-50 trim
