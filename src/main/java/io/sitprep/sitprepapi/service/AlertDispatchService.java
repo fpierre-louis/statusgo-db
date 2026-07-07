@@ -384,6 +384,11 @@ public class AlertDispatchService {
 
     private Post buildAutoPostTask(NormalizedAlert a, DispatchTemplate tpl, double[] coord) {
         Post t = new Post();
+        // Dispatched severe/extreme alerts are alert-update posts so the
+        // community feed pins the freshest one to the top (~24h, or until a
+        // newer alert replaces it) and renders the "Pinned by your area"
+        // strip — replacing the old sticky top alert band.
+        t.setKind("alert-update");
         // Title and body filled from the template, with simple slot
         // substitution. {name} pulls from headline; {mag}/{distance}
         // are USGS-specific (parsed from headline).

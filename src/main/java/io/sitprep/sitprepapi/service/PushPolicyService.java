@@ -196,7 +196,7 @@ public class PushPolicyService {
                  GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG,
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
-                 CHECK_IN_REQUEST, CHECK_IN_REVIEW -> Lane.A;
+                 CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -317,6 +317,14 @@ public class PushPolicyService {
          * list because it should respect quiet hours.
          */
         CHECK_IN_REVIEW,
+        /**
+         * A direct message from another user (1:1 DM thread). Lane A —
+         * a personal message is interruptive by messenger convention —
+         * but NOT critical-bypass: a DM is not life-safety, so quiet
+         * hours hold. Presence-aware delivery means an in-app recipient
+         * gets the banner + STOMP frame instead of a push.
+         */
+        DIRECT_MESSAGE,
 
         // Lane B — silent inbox
         NWS_MINOR,

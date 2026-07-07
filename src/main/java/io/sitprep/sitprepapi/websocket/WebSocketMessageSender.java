@@ -47,6 +47,19 @@ public class WebSocketMessageSender {
         this.messagingTemplate = messagingTemplate;
     }
 
+    // --- Direct messages ---
+    /**
+     * Push a new DM frame to one participant's personal topic
+     * ({@code /topic/dm/{email}}, lowercase identity email). Callers
+     * broadcast to both participants so the sender's other devices
+     * stay in sync too.
+     */
+    public void sendDmMessage(String participantEmail, Object frame) {
+        if (participantEmail == null || participantEmail.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/dm/" + participantEmail.trim().toLowerCase(), frame);
+    }
+
     // --- Posts ---
     public void sendNewGroupPost(String groupId, GroupPostDto dto) {
         messagingTemplate.convertAndSend("/topic/group-posts/" + groupId, dto);
