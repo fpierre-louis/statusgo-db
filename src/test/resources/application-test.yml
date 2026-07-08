@@ -7,6 +7,18 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+    hikari:
+      # Override the base config's Postgres-only init SQL
+      # ("SET statement_timeout = '20s'") — H2 can't parse the duration
+      # string and fails connection acquisition. A trivial no-op keeps the
+      # smoke test on H2 without the Postgres session settings.
+      connection-init-sql: "SELECT 1"
+  # Flyway migrations are hand-written Postgres SQL (partial indexes,
+  # BIGSERIAL, etc.) that don't all run under H2. For the context-loads
+  # smoke test we let Hibernate build the schema from the entities
+  # (ddl-auto=create-drop) instead of replaying migrations.
+  flyway:
+    enabled: false
   jpa:
     hibernate:
       # Fresh schema per test JVM — H2 :mem drops on close anyway.

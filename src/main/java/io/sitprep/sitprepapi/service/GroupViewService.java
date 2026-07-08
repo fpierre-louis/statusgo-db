@@ -90,6 +90,10 @@ public class GroupViewService {
                 .map(p -> toPostSummary(p, byEmail))
                 .toList();
 
+        StatusRollup rollup = computeRollup(
+                memberEmails, byEmail, manualMembers, accompaniments,
+                alertActive, g.getUpdatedAt());
+
         return new GroupMemberViewDto(
                 toGroupInfo(g),
                 resolveViewerRole(g, viewerEmail),
@@ -98,8 +102,74 @@ public class GroupViewService {
                 accompaniments,
                 recentPosts,
                 pinnedPosts,
+                rollup,
                 new MetaDto(Instant.now(), DTO_VERSION)
         );
+    }
+
+    /**
+     * Accountability rollup — the single source of truth for "N of M
+     * accounted for" (Thin-Client Refactor Phase 1). Replaces the
+     * client-side tallies formerly duplicated in {@code useHouseholdData.counts}
+     * and {@code HouseholdCrisisPanel}. Semantics mirror the canonical
+     * {@code useHouseholdData.counts} exactly, so the board's numbers do not
+     * shift on cutover:
+     *
+     * <ul>
+     *   <li><b>Real members:</b> freshness-clamped — while the group's alert
+     *       is Active, a status last updated before the alert start
+     *       ({@code updatedAt}) is treated as NO RESPONSE. SAFE / HELP /
+     *       INJURED bucket to their counts; anything else (incl. blank /
+     *       stale / unknown) is noResponse.</li>
+     *   <li><b>Manual members</b> (dependents without accounts): accounted
+     *       (safe) only when an adult has claimed them via a "with me"
+     *       accompaniment; otherwise noResponse.</li>
+     * </ul>
+     *
+     * <p>Anchor note: this uses {@code group.updatedAt} to match the FE hook
+     * exactly. {@code GroupService.buildCheckInRollup} (the org check-in path)
+     * uses {@code alertActivatedAt ?? updatedAt}; reconciling the two onto the
+     * more-correct {@code alertActivatedAt} anchor is a documented follow-up
+     * (they agree whenever the alert flip was the last edit, the common case).</p>
+     */
+    private StatusRollup computeRollup(List<String> memberEmails,
+                                       Map<String, UserInfo> byEmail,
+                                       List<HouseholdManualMemberDto> manualMembers,
+                                       List<HouseholdAccompanimentDto> accompaniments,
+                                       boolean alertActive,
+                                       Instant updatedAt) {
+        long startMs = (alertActive && updatedAt != null) ? updatedAt.toEpochMilli() : 0L;
+        int safe = 0, help = 0, injured = 0, noResponse = 0, total = 0;
+
+        for (String email : memberEmails) {
+            total++;
+            UserInfo u = byEmail.get(normalize(email));
+            Instant statusAt = u == null ? null : u.getUserStatusLastUpdated();
+            long updatedMs = statusAt == null ? 0L : statusAt.toEpochMilli();
+            boolean fresh = startMs == 0L || updatedMs >= startMs;
+            String raw = u == null ? null : u.getUserStatus();
+            String v = (fresh && raw != null && !raw.isBlank())
+                    ? raw.trim().toUpperCase(Locale.ROOT) : "NO RESPONSE";
+            switch (v) {
+                case "SAFE" -> safe++;
+                case "HELP" -> help++;
+                case "INJURED" -> injured++;
+                default -> noResponse++;
+            }
+        }
+
+        for (HouseholdManualMemberDto m : manualMembers) {
+            total++;
+            boolean claimed = accompaniments.stream().anyMatch(a ->
+                    a.accompaniedRef() != null
+                            && "manual".equals(a.accompaniedRef().kind())
+                            && m.id() != null
+                            && m.id().equals(a.accompaniedRef().id()));
+            if (claimed) safe++;
+            else noResponse++;
+        }
+
+        return new StatusRollup(total, safe + help + injured, safe, help, injured, noResponse);
     }
 
     private GroupInfo toGroupInfo(Group g) {

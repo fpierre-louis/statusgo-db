@@ -28,6 +28,19 @@ public record GroupMemberViewDto(
          * Cardinality is small in practice (admins typically pin 0-3).
          */
         List<GroupPostSummaryDto> pinnedPosts,
+        /**
+         * Server-computed accountability rollup — the single source of truth
+         * for the "N of M accounted for" metric (Thin-Client Refactor Phase 1).
+         * Replaces the client-side tallies that were duplicated (and drifting)
+         * across {@code useHouseholdData.counts} and {@code HouseholdCrisisPanel}.
+         *
+         * <p>Semantics match the canonical FE {@code useHouseholdData.counts}:
+         * real members are freshness-clamped (a status older than the alert
+         * start is treated as NO RESPONSE while the group's alert is Active);
+         * manual members (dependents without accounts) count as accounted only
+         * when an adult has claimed them via a "with me" accompaniment.</p>
+         */
+        StatusRollup rollup,
         MetaDto meta
 ) {
 
@@ -72,6 +85,20 @@ public record GroupMemberViewDto(
             String value,
             String color,
             Instant updatedAt
+    ) {}
+
+    /**
+     * Accountability rollup. {@code total} = real members + manual members;
+     * {@code accounted} = safe + help + injured; {@code noResponse} =
+     * total − accounted (unreached members + unclaimed dependents).
+     */
+    public record StatusRollup(
+            int total,
+            int accounted,
+            int safe,
+            int help,
+            int injured,
+            int noResponse
     ) {}
 
     public record MetaDto(

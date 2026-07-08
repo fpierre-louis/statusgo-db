@@ -616,8 +616,32 @@ public class PlanActivationService {
                 ep,
                 ecgs,
                 goBags,
-                acks
+                acks,
+                computeAckRollup(acks)
         );
+    }
+
+    /**
+     * Reduce the ack list to a status rollup — mirrors the FE reduce in
+     * {@code OwnerAckRollup} (safe / help / pickup, everything else "other").
+     * The live board recomputes this over the STOMP-streamed list; this is
+     * the authoritative snapshot for non-live consumers.
+     */
+    private static AckRollupDto computeAckRollup(List<AckDto> acks) {
+        if (acks == null || acks.isEmpty()) {
+            return new AckRollupDto(0, 0, 0, 0, 0);
+        }
+        int safe = 0, help = 0, pickup = 0, other = 0;
+        for (AckDto a : acks) {
+            String k = a.status() == null ? "" : a.status().trim().toLowerCase(Locale.ROOT);
+            switch (k) {
+                case "safe" -> safe++;
+                case "help" -> help++;
+                case "pickup" -> pickup++;
+                default -> other++;
+            }
+        }
+        return new AckRollupDto(acks.size(), safe, help, pickup, other);
     }
 
     private MeetingPlaceSnapshotDto toMeetingPlaceSnapshot(MeetingPlace m) {
@@ -680,7 +704,8 @@ public class PlanActivationService {
                 a.getMeetingMode(), a.getEvacMode(), a.getMessagePreview(),
                 location, mp, ep, ecgs,
                 List.of(),  // goBags — a link holder never sees bag storage locations
-                List.of()   // acks — a recipient never sees the roll-up
+                List.of(),  // acks — a recipient never sees the roll-up
+                null        // ackRollup — owner/household audience only
         );
     }
 

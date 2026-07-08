@@ -72,7 +72,25 @@ public final class PlanActivationDtos {
              * links — this is a crisis surface.
              */
             List<GoBagSnapshotDto> goBags,
-            List<AckDto> acks
+            List<AckDto> acks,
+            /**
+             * Server-computed ack rollup (Thin-Client Refactor Phase 1) — the
+             * authoritative snapshot of "who has responded", for consumers that
+             * want the summary without subscribing to the live STOMP ack stream
+             * (owner home badge, notifications, future surfaces). The live
+             * Responses board still reduces the streamed list client-side.
+             * Owner/household audience only; null in the recipient projection.
+             */
+            AckRollupDto ackRollup
+    ) {}
+
+    public record AckRollupDto(
+            /** Total acks received. There is no intended-recipient denominator. */
+            int replies,
+            int safe,
+            int help,
+            int pickup,
+            int other
     ) {}
 
     public record GoBagSnapshotDto(
