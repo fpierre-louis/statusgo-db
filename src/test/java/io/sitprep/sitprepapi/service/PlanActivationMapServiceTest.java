@@ -72,7 +72,8 @@ class PlanActivationMapServiceTest {
         service = new PlanActivationService(activationRepo, ackRepo, userInfoRepo,
                 meetingPlaceRepo, evacuationPlanRepo, originLocationRepo,
                 emergencyContactGroupRepo, emergencyContactRepo, ws, groupRepo,
-                notificationService, householdAccess);
+                notificationService, householdAccess,
+                mock(HouseholdResolver.class), mock(GoBagService.class));
         // createActivation registers an afterCommit synchronization; activate one
         // so the success path doesn't throw "synchronization not active".
         TransactionSynchronizationManager.initSynchronization();

@@ -61,7 +61,8 @@ class PlanActivationAckSecurityTest {
                 mock(OriginLocationRepo.class), emergencyContactGroupRepo,
                 emergencyContactRepo, mock(WebSocketMessageSender.class),
                 mock(GroupRepo.class), mock(NotificationService.class),
-                mock(HouseholdAccessService.class));
+                mock(HouseholdAccessService.class),
+                mock(HouseholdResolver.class), mock(GoBagService.class));
         TransactionSynchronizationManager.initSynchronization();
 
         // Common happy-path stubs for the upsert.
