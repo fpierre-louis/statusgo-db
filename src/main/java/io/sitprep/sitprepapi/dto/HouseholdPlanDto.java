@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.OriginLocation;
+import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +35,12 @@ public record HouseholdPlanDto(
         List<OriginLocation> originLocations,
         MealPlanData mealPlan,
         List<EmergencyContactGroup> contactGroups,
+        /**
+         * Lossy go-bag summaries (name / kind / storage / packed / expiring)
+         * so the plan-tab surface renders the household's bags without a
+         * second fetch. Full item lists come from {@code /api/households/{id}/go-bags}.
+         */
+        List<GoBagSummaryDto> goBags,
         /**
          * §3 of docs/HOME_HOUSEHOLD_BEHAVIORAL_DESIGN.md — timestamp the
          * household plan was most recently confirmed as current (distinct

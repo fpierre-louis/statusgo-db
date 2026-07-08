@@ -48,6 +48,8 @@ public class PlanActivationService {
     private final GroupRepo groupRepo;
     private final NotificationService notificationService;
     private final HouseholdAccessService householdAccess;
+    private final HouseholdResolver householdResolver;
+    private final GoBagService goBagService;
 
     public PlanActivationService(
             PlanActivationRepo activationRepo,
@@ -61,7 +63,9 @@ public class PlanActivationService {
             WebSocketMessageSender ws,
             GroupRepo groupRepo,
             NotificationService notificationService,
-            HouseholdAccessService householdAccess
+            HouseholdAccessService householdAccess,
+            HouseholdResolver householdResolver,
+            GoBagService goBagService
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
@@ -75,6 +79,8 @@ public class PlanActivationService {
         this.groupRepo = groupRepo;
         this.notificationService = notificationService;
         this.householdAccess = householdAccess;
+        this.householdResolver = householdResolver;
+        this.goBagService = goBagService;
     }
 
     // ---------------------------------------------------------------------
@@ -582,6 +588,19 @@ public class PlanActivationService {
         LocationDto location = (a.getLat() == null && a.getLng() == null)
                 ? null : new LocationDto(a.getLat(), a.getLng());
 
+        // "Grab before you go" — household audience only. Resolve the owner's
+        // base household and attach its go-bag snapshots. Best-effort: a bad
+        // lookup must not sink the whole detail read.
+        List<GoBagSnapshotDto> goBags = List.of();
+        try {
+            String householdId = householdResolver.baseHouseholdIdFor(a.getOwnerEmail());
+            if (householdId != null) {
+                goBags = goBagService.snapshotsForHousehold(householdId);
+            }
+        } catch (Exception e) {
+            log.warn("activation {} go-bag snapshot failed: {}", a.getId(), e.getMessage());
+        }
+
         return new ActivationDetailDto(
                 a.getId(),
                 a.getOwnerUserId(),
@@ -596,6 +615,7 @@ public class PlanActivationService {
                 mp,
                 ep,
                 ecgs,
+                goBags,
                 acks
         );
     }
@@ -659,6 +679,7 @@ public class PlanActivationService {
                 a.getActivatedAt(), a.getExpiresAt(), closed,
                 a.getMeetingMode(), a.getEvacMode(), a.getMessagePreview(),
                 location, mp, ep, ecgs,
+                List.of(),  // goBags — a link holder never sees bag storage locations
                 List.of()   // acks — a recipient never sees the roll-up
         );
     }

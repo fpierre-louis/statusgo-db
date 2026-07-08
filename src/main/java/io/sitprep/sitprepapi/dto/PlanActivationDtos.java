@@ -64,7 +64,25 @@ public final class PlanActivationDtos {
             MeetingPlaceSnapshotDto meetingPlace,
             EvacuationPlanSnapshotDto evacPlan,
             List<EmergencyContactGroupSnapshotDto> emergencyContactGroups,
+            /**
+             * "Grab before you go" — household go bags + their storage
+             * location + packed/expired rollup. HOUSEHOLD-AUDIENCE ONLY;
+             * always {@code List.of()} in the recipient projection (a bag's
+             * storage location is not shared with link holders). No product
+             * links — this is a crisis surface.
+             */
+            List<GoBagSnapshotDto> goBags,
             List<AckDto> acks
+    ) {}
+
+    public record GoBagSnapshotDto(
+            String bagName,
+            String storageLabel,
+            String kind,
+            int itemsPacked,
+            int itemsTotal,
+            int expiredCount,
+            List<String> topUnpackedP0
     ) {}
 
     public record AckDto(

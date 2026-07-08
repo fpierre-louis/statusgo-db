@@ -61,6 +61,7 @@ public class MeService {
     private final MeSubfetchService subfetch;
     private final UserInfoService userInfoService;
     private final PlatformAccessService platformAccessService;
+    private final GoBagService goBagService;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -81,6 +82,7 @@ public class MeService {
             MeSubfetchService subfetch,
             UserInfoService userInfoService,
             PlatformAccessService platformAccessService,
+            GoBagService goBagService,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -100,6 +102,7 @@ public class MeService {
         this.subfetch = subfetch;
         this.userInfoService = userInfoService;
         this.platformAccessService = platformAccessService;
+        this.goBagService = goBagService;
         this.objectMapper = objectMapper;
     }
 
@@ -507,6 +510,9 @@ public class MeService {
                 () -> originLocationRepo.findByHouseholdId(householdId), List.of());
         List<EmergencyContactGroup> contactGroups = safeGetInline("hh.contactGroups", logCtx,
                 () -> emergencyContactGroupRepo.findByHouseholdId(householdId), List.of());
+        List<io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto> goBags =
+                safeGetInline("hh.goBags", logCtx,
+                        () -> goBagService.summariesForHousehold(householdId), List.of());
 
         return new HouseholdPlanDto(
                 householdId,
@@ -521,6 +527,7 @@ public class MeService {
                 originLocations,
                 mealPlan,
                 contactGroups,
+                goBags,
                 g == null ? null : g.getPlanLastConfirmedAt()
         );
     }
