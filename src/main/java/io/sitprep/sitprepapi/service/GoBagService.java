@@ -150,16 +150,22 @@ public class GoBagService {
         bag.setLng(req.lng());
         bag.setStrategy(normalizedStrategy(req.strategy()));
         bag.setPremadeKitLabel(trimToNull(req.premadeKitLabel()));
-        bagRepo.save(bag);
+        // Use the SAVE RETURN VALUE, not the passed-in instance: these entities
+        // have a client-assigned String @Id, so Spring Data treats them as
+        // non-new and save() does a merge(), firing @PrePersist (createdAt/
+        // updatedAt) on a managed COPY. The original stays detached with null
+        // timestamps — reading them downstream (toDto sorts items by createdAt)
+        // NPE'd and 500'd the POST /go-bags request.
+        GoBag saved = bagRepo.save(bag);
 
         List<GoBagItem> items = List.of();
         if (req.seedItems()) {
-            items = seedMissingItems(bag,
+            items = seedMissingItems(saved,
                     recommendations.recommendForHousehold(householdId,
                             req.seniorNeeds(), req.medicalNeeds()),
                     req.expirySeeds(), List.of());
         }
-        return toDto(bag, items);
+        return toDto(saved, items);
     }
 
     @Transactional
@@ -225,8 +231,9 @@ public class GoBagService {
         item.setUnit(trimToNull(req.unit()));
         item.setExpiresOn(parseDate(req.expiresOn()));
         item.setNotes(trimToNull(req.notes()));
-        itemRepo.save(item);
-        return toItemDto(item);
+        // Return the managed instance (client-assigned @Id → save() merges,
+        // firing @PrePersist on the copy, not this detached original).
+        return toItemDto(itemRepo.save(item));
     }
 
     @Transactional
@@ -299,9 +306,13 @@ public class GoBagService {
             }
             created.add(item);
         }
-        if (!created.isEmpty()) itemRepo.saveAll(created);
+        // saveAll RETURNS the managed copies (with @PrePersist timestamps);
+        // the `created` originals stay detached with null createdAt. Return
+        // the saved instances so toDto's createdAt sort has real values.
+        List<GoBagItem> savedCreated = created.isEmpty()
+                ? List.of() : itemRepo.saveAll(created);
         List<GoBagItem> all = new ArrayList<>(existing);
-        all.addAll(created);
+        all.addAll(savedCreated);
         return all;
     }
 
@@ -320,7 +331,8 @@ public class GoBagService {
         LocalDate soonHorizon = today.plusDays(GoBagRecommendationService.EXPIRY_WARNING_DAYS);
         List<GoBagItem> items = rawItems.stream()
                 .sorted(Comparator.comparingInt(GoBagItem::getPriority)
-                        .thenComparing(GoBagItem::getCreatedAt))
+                        .thenComparing(GoBagItem::getCreatedAt,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
 
         int packed = (int) items.stream().filter(GoBagService::isPacked).count();
