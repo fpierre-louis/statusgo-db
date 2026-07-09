@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 import java.util.Objects;
 
 @Entity
@@ -30,12 +31,32 @@ public class EvacuationPlan {
     private String travelMode;  // ✅ Added
     private String shelterInfo; // ✅ Added
 
+    // Evacuation route semantics (V35). primaryRouteNotes is a BASELINE readiness
+    // signal; alternateRouteNotes + offlineMapSaved are ADVANCED (never lower the
+    // baseline score). lastPracticedAt is plumbed for a future drill hook.
+    private String primaryRouteNotes;
+    private String alternateRouteNotes;
+    private boolean offlineMapSaved;
+    private Instant lastPracticedAt;
+
     // Getters and Setters
     public String getTravelMode() { return travelMode; }
     public void setTravelMode(String travelMode) { this.travelMode = travelMode; }
 
     public String getShelterInfo() { return shelterInfo; }
     public void setShelterInfo(String shelterInfo) { this.shelterInfo = shelterInfo; }
+
+    public String getPrimaryRouteNotes() { return primaryRouteNotes; }
+    public void setPrimaryRouteNotes(String primaryRouteNotes) { this.primaryRouteNotes = primaryRouteNotes; }
+
+    public String getAlternateRouteNotes() { return alternateRouteNotes; }
+    public void setAlternateRouteNotes(String alternateRouteNotes) { this.alternateRouteNotes = alternateRouteNotes; }
+
+    public boolean isOfflineMapSaved() { return offlineMapSaved; }
+    public void setOfflineMapSaved(boolean offlineMapSaved) { this.offlineMapSaved = offlineMapSaved; }
+
+    public Instant getLastPracticedAt() { return lastPracticedAt; }
+    public void setLastPracticedAt(Instant lastPracticedAt) { this.lastPracticedAt = lastPracticedAt; }
 
     public Long getId() {
         return id;

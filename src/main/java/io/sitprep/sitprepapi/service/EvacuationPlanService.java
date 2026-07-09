@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
+import io.sitprep.sitprepapi.dto.RouteNotesDto;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.stereotype.Service;
@@ -63,6 +64,50 @@ public class EvacuationPlanService {
 
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
         return evacuationPlanRepo.findByOwnerEmail(ownerEmail);
+    }
+
+    /**
+     * NON-DESTRUCTIVE route-notes update (SYSTEM_TRAPS T-17). Loads the
+     * household's EXISTING evacuation plans and updates ONLY the route fields
+     * (primary/alternate route notes, offline-map flag, and — when provided —
+     * last-practiced), then {@code saveAll()} which issues an UPDATE per row
+     * (the ids exist). It NEVER deletes, so — unlike {@link #saveAllEvacuationPlans}
+     * — a wizard "Routes &amp; maps" save cannot wipe destinations, shelters, or
+     * coordinates, even if the client sends only the route fields (or its prior
+     * read failed). If the household has no plan yet, one minimal route-only plan
+     * is created. Mirrors the household resolution of the bulk save.
+     */
+    @Transactional
+    public List<EvacuationPlan> updateRouteNotes(String ownerEmail, RouteNotesDto notes) {
+        String target = householdResolver.writableTargetHousehold(ownerEmail);
+        List<EvacuationPlan> plans = target != null
+                ? evacuationPlanRepo.findByHouseholdId(target)
+                : evacuationPlanRepo.findByOwnerEmail(ownerEmail);
+
+        if (plans.isEmpty()) {
+            EvacuationPlan p = new EvacuationPlan();
+            p.setOwnerEmail(ownerEmail);
+            p.setName("Evacuation Plan A");
+            p.setHouseholdId(target != null ? target : householdResolver.baseHouseholdIdFor(ownerEmail));
+            applyRouteNotes(p, notes);
+            List<EvacuationPlan> saved = List.of(evacuationPlanRepo.save(p));
+            activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+            return saved;
+        }
+
+        plans.forEach(p -> applyRouteNotes(p, notes));
+        List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(plans); // UPDATE by id — everything else preserved
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+        return saved;
+    }
+
+    private static void applyRouteNotes(EvacuationPlan p, RouteNotesDto notes) {
+        p.setPrimaryRouteNotes(notes.primaryRouteNotes());
+        p.setAlternateRouteNotes(notes.alternateRouteNotes());
+        p.setOfflineMapSaved(notes.offlineMapSaved());
+        // Only overwrite last-practiced when the caller sends it (the wizard doesn't),
+        // so a routes save never clobbers a future drill-hook timestamp.
+        if (notes.lastPracticedAt() != null) p.setLastPracticedAt(notes.lastPracticedAt());
     }
 
     /**

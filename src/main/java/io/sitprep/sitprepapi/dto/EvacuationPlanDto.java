@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.dto;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -32,6 +33,12 @@ public record EvacuationPlanDto(
         Double lng,
         String travelMode,
         String shelterInfo,
+        // Evacuation route semantics (V35). primaryRouteNotes = BASELINE;
+        // alternateRouteNotes + offlineMapSaved = ADVANCED (never affect baseline).
+        String primaryRouteNotes,
+        String alternateRouteNotes,
+        boolean offlineMapSaved,
+        Instant lastPracticedAt,
         List<GoBagSummaryDto> goBags
 ) {
     public static EvacuationPlanDto from(EvacuationPlan e, List<GoBagSummaryDto> goBags) {
@@ -48,6 +55,10 @@ public record EvacuationPlanDto(
                 e.getLng(),
                 e.getTravelMode(),
                 e.getShelterInfo(),
+                e.getPrimaryRouteNotes(),
+                e.getAlternateRouteNotes(),
+                e.isOfflineMapSaved(),
+                e.getLastPracticedAt(),
                 goBags == null ? List.of() : goBags);
     }
 }

@@ -15,6 +15,7 @@ import io.sitprep.sitprepapi.dto.ReadinessDtos.PulseDto;
 import io.sitprep.sitprepapi.dto.ReadinessDtos.PulsePillarDto;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
+import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,19 +61,22 @@ public class HouseholdReadinessService {
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final UserSavedLocationService savedLocationService;
     private final RiskProfileService riskProfileService;
+    private final EvacuationPlanRepo evacuationPlanRepo;
 
     public HouseholdReadinessService(HouseholdManualMemberService manualMemberService,
                                      HouseholdAccompanimentService accompanimentService,
                                      EmergencyContactGroupRepo emergencyContactGroupRepo,
                                      MeetingPlaceRepo meetingPlaceRepo,
                                      UserSavedLocationService savedLocationService,
-                                     RiskProfileService riskProfileService) {
+                                     RiskProfileService riskProfileService,
+                                     EvacuationPlanRepo evacuationPlanRepo) {
         this.manualMemberService = manualMemberService;
         this.accompanimentService = accompanimentService;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.savedLocationService = savedLocationService;
         this.riskProfileService = riskProfileService;
+        this.evacuationPlanRepo = evacuationPlanRepo;
     }
 
     // ---------------------------------------------------------------------
@@ -111,7 +115,11 @@ public class HouseholdReadinessService {
                 : manualMemberService.list(household.getGroupId()).size();
 
         Integer suppliesLive = pillarPct(counts == null ? null : counts.supplies(), MIN_SUPPLIES);
-        Integer planLive = pillarPct(counts == null ? null : counts.plan(), MIN_PLAN);
+        // BASELINE (V35): a set primary evacuation route is a required part of the
+        // Evacuation Plan pillar. Blended in here so both /api/me and the group
+        // dashboard (both call pulseFor) reflect it in one place.
+        boolean hasPrimaryRoute = hasPrimaryEvacuationRoute(household);
+        Integer planLive = planPillarPct(counts == null ? null : counts.plan(), hasPrimaryRoute);
         Integer practiceLive = pillarPct(counts == null ? null : counts.practice(), MIN_PRACTICE);
         Integer familyLive = pillarPct(counts == null ? null : counts.family(), MIN_FAMILY);
 
@@ -131,7 +139,8 @@ public class HouseholdReadinessService {
                 new PulsePillarDto("plan",
                         alertActive ? 100 : (planLive != null ? planLive : 0),
                         alertActive ? "Active right now"
-                                : hint(counts == null ? null : counts.plan(), MIN_PLAN, "No plan tasks yet")),
+                                : !hasPrimaryRoute ? "Set your primary evacuation route"
+                                : hint(counts == null ? null : counts.plan(), MIN_PLAN, "Primary route set")),
                 new PulsePillarDto("practice",
                         practiceLive != null ? practiceLive : 0,
                         hint(counts == null ? null : counts.practice(), MIN_PRACTICE, "Not practiced yet")),
@@ -154,6 +163,28 @@ public class HouseholdReadinessService {
         if (added == 0) return null; // no tasks for this pillar → caller scores it 0
         int denom = Math.max(added, Math.max(recommendedMin, 1));
         return Math.min(100, (int) Math.round((c.completed() * 100.0) / denom));
+    }
+
+    /**
+     * Evacuation Plan pillar = task progress blended with the BASELINE requirement
+     * that the household has a set primary evacuation route. The primary route is
+     * one always-required, always-present unit: the household can't reach 100%
+     * without it, and setting it earns baseline credit even with zero plan tasks.
+     * Always returns a value (never null) because the primary-route unit is always
+     * counted.
+     */
+    static Integer planPillarPct(PillarCounts c, boolean hasPrimaryRoute) {
+        int added = (c == null ? 0 : c.added()) + 1;                 // +1 required: primary route
+        int completed = (c == null ? 0 : c.completed()) + (hasPrimaryRoute ? 1 : 0);
+        int denom = Math.max(added, MIN_PLAN);
+        return Math.min(100, (int) Math.round((completed * 100.0) / denom));
+    }
+
+    /** True when any of the household's evacuation plans has non-blank primary route notes. */
+    private boolean hasPrimaryEvacuationRoute(Group household) {
+        if (household == null || household.getGroupId() == null) return false;
+        return evacuationPlanRepo.findByHouseholdId(household.getGroupId()).stream()
+                .anyMatch(p -> p.getPrimaryRouteNotes() != null && !p.getPrimaryRouteNotes().isBlank());
     }
 
     private static String hint(PillarCounts c, int recommendedMin, String fallback) {

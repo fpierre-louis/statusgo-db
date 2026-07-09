@@ -105,14 +105,27 @@ class HouseholdReadinessServiceTest {
     void pulse_countsFormula_usesRecommendedMinDenominator() {
         PillarRollup counts = new PillarRollup(
                 new PillarCounts(1, 1),   // supplies: 1/max(1,5) = 20 (not 100!)
-                new PillarCounts(5, 3),   // plan: 3/5 = 60
+                new PillarCounts(5, 3),   // plan: (3+0)/max(5+1,5) = 50 — null household ⇒ no
+                                          // primary route, so the +1 required route unit is unmet (V35).
                 new PillarCounts(0, 0),   // practice: no tasks → 0 (no soft default)
                 new PillarCounts(6, 6));  // family: 6/6 = 100
         PulseDto p = engine.pulseFor(counts, null);
         assertThat(p.pillars()).extracting(x -> x.pct())
-                .containsExactly(20, 60, 0, 100);
+                .containsExactly(20, 50, 0, 100);
         assertThat(p.pillars().get(0).hint()).isEqualTo("1 of 5 done");
-        assertThat(p.overall()).isEqualTo(45); // round(180/4)
+        assertThat(p.overall()).isEqualTo(43); // round((20+50+0+100)/4) = round(42.5)
+    }
+
+    @Test
+    void planPillar_primaryRouteIsARequiredBaselineUnit() {
+        // WITH a primary route the +1 required unit is satisfied, so the same
+        // tasks score higher than WITHOUT it — the route is a baseline requirement.
+        assertThat(HouseholdReadinessService.planPillarPct(new PillarCounts(5, 3), true)).isEqualTo(67);  // (3+1)/(5+1)
+        assertThat(HouseholdReadinessService.planPillarPct(new PillarCounts(5, 3), false)).isEqualTo(50); // 3/(5+1)
+        // A set primary route alone (no plan tasks) earns baseline credit.
+        assertThat(HouseholdReadinessService.planPillarPct(null, true)).isEqualTo(20);  // 1/max(1,5)
+        // Nothing set → 0 (no soft floor).
+        assertThat(HouseholdReadinessService.planPillarPct(null, false)).isZero();
     }
 
     @Test

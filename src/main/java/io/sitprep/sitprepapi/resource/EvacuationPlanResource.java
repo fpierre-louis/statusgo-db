@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.dto.EvacuationPlanDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
+import io.sitprep.sitprepapi.dto.RouteNotesDto;
 import io.sitprep.sitprepapi.service.EvacuationPlanService;
 import io.sitprep.sitprepapi.service.GoBagService;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
@@ -76,6 +77,9 @@ public class EvacuationPlanResource {
             plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
             plan.setTravelMode((String) data.get("travelMode"));
             plan.setShelterInfo((String) data.get("shelterInfo"));
+            plan.setPrimaryRouteNotes((String) data.get("primaryRouteNotes"));
+            plan.setAlternateRouteNotes((String) data.get("alternateRouteNotes"));
+            plan.setOfflineMapSaved(Boolean.TRUE.equals(data.get("offlineMapSaved")));
             return plan;
         }).collect(Collectors.toList());
 
@@ -107,6 +111,9 @@ public class EvacuationPlanResource {
         plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
         plan.setTravelMode((String) data.get("travelMode"));
         plan.setShelterInfo((String) data.get("shelterInfo"));
+        plan.setPrimaryRouteNotes((String) data.get("primaryRouteNotes"));
+        plan.setAlternateRouteNotes((String) data.get("alternateRouteNotes"));
+        plan.setOfflineMapSaved(Boolean.TRUE.equals(data.get("offlineMapSaved")));
         return ResponseEntity.ok(EvacuationPlanDto.from(
                 evacuationPlanService.addEvacuationPlan(plan), goBagsFor(ownerEmail)));
     }
@@ -126,6 +133,21 @@ public class EvacuationPlanResource {
         access.requireCanReadPlanDataFor(caller, ownerEmail);
         List<GoBagSummaryDto> goBags = goBagsFor(ownerEmail);
         return ResponseEntity.ok(evacuationPlanService.getEvacuationPlansByOwner(ownerEmail)
+                .stream().map(p -> EvacuationPlanDto.from(p, goBags)).toList());
+    }
+
+    /**
+     * NON-DESTRUCTIVE route-notes update. Merges ONLY the route fields onto the
+     * caller's household's existing evacuation plans, preserving every other field
+     * (destinations, shelters, coordinates, travel modes). The wizard's "Routes &amp;
+     * maps" step uses this instead of the destructive delete-and-replace /bulk
+     * save, so a save — even after a failed read — can never wipe shelter data (T-17).
+     */
+    @PatchMapping("/routes")
+    public ResponseEntity<List<EvacuationPlanDto>> updateRouteNotes(@RequestBody RouteNotesDto notes) {
+        String ownerEmail = AuthUtils.requireAuthenticatedEmail();
+        List<GoBagSummaryDto> goBags = goBagsFor(ownerEmail);
+        return ResponseEntity.ok(evacuationPlanService.updateRouteNotes(ownerEmail, notes)
                 .stream().map(p -> EvacuationPlanDto.from(p, goBags)).toList());
     }
 }
