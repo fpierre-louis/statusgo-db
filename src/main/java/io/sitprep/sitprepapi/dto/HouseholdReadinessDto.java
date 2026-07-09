@@ -53,4 +53,13 @@ public class HouseholdReadinessDto {
      * the Phase 3 hardened DTO contracts.
      */
     private ReadinessDtos.CommsReadinessDto comms;
+
+    /**
+     * Location-Based Risk profile (Phase 1 MVP): resolved location basis,
+     * identified regional hazards, and the risk-adjusted requirements appended
+     * on top of the national baseline. When location is unknown it still ships
+     * (basis {@code unknown}) with a top-priority "set your home location" CTA.
+     * Null only when there is no household to anchor.
+     */
+    private RiskProfileDtos.RiskProfileDto riskProfile;
 }

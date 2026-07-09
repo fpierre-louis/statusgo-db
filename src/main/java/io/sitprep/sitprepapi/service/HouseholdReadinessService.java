@@ -59,17 +59,20 @@ public class HouseholdReadinessService {
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final UserSavedLocationService savedLocationService;
+    private final RiskProfileService riskProfileService;
 
     public HouseholdReadinessService(HouseholdManualMemberService manualMemberService,
                                      HouseholdAccompanimentService accompanimentService,
                                      EmergencyContactGroupRepo emergencyContactGroupRepo,
                                      MeetingPlaceRepo meetingPlaceRepo,
-                                     UserSavedLocationService savedLocationService) {
+                                     UserSavedLocationService savedLocationService,
+                                     RiskProfileService riskProfileService) {
         this.manualMemberService = manualMemberService;
         this.accompanimentService = accompanimentService;
         this.emergencyContactGroupRepo = emergencyContactGroupRepo;
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.savedLocationService = savedLocationService;
+        this.riskProfileService = riskProfileService;
     }
 
     // ---------------------------------------------------------------------
@@ -190,6 +193,10 @@ public class HouseholdReadinessService {
         dto.setDominantStatus(dominantStatus);
         dto.setComms(comms);
         dto.setPulse(pulse);
+        // Location-Based Risk (Phase 1 MVP): resolve home location → regional
+        // hazards + risk-adjusted requirements. Non-null household always yields
+        // a profile (basis "unknown" + a set-location CTA when no location).
+        dto.setRiskProfile(household != null ? riskProfileService.resolveFor(household) : null);
 
         List<PillarScoreDto> scores = pillarScoresFor(pulse, comms);
         dto.setPillarScores(scores);
