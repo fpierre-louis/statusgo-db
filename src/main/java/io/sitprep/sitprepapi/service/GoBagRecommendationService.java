@@ -130,6 +130,16 @@ public class GoBagRecommendationService {
         return Optional.ofNullable(TEMPLATE_BY_KEY.get(itemKey));
     }
 
+    /**
+     * All baseline go-bag checklist item keys (unmodifiable view). Exposed so the
+     * At-Home Stockpile decoupling guard can assert the two keyspaces stay disjoint
+     * from BOTH sides — a go-bag key must never collide with a {@code stockpile-*}
+     * key. See {@code HomeStockpileServiceTest} + SYSTEM_TRAPS_AND_PATTERNS T-15.
+     */
+    public static java.util.Set<String> templateItemKeys() {
+        return TEMPLATE_BY_KEY.keySet();
+    }
+
     private static boolean applies(TemplateItem t, Ctx c) {
         String w = t.appliesWhen();
         if (w == null) return true;
