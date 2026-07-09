@@ -21,6 +21,9 @@ public class EmergencyContact {
     private String email;
     private String address;
     private String role;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "contact_type", nullable = false, length = 32)
+    private EmergencyContactType contactType = EmergencyContactType.OTHER;
     private String medicalInfo;
     private String radioChannel;
 

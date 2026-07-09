@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
+import io.sitprep.sitprepapi.domain.MeetingPlaceTier;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.dto.MeetingPlaceDto;
 import io.sitprep.sitprepapi.service.MeetingPlaceService;
@@ -10,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -49,6 +51,7 @@ public class MeetingPlaceResource {
             place.setAddress((String) data.get("address"));
             place.setPhoneNumber((String) data.get("phoneNumber"));
             place.setTierKey((String) data.get("tierKey"));
+            place.setMeetingTier(parseMeetingTier(data.get("meetingTier"), place.getTierKey()));
             place.setAdditionalInfo((String) data.get("additionalInfo"));
             place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
             place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
@@ -76,6 +79,7 @@ public class MeetingPlaceResource {
         place.setPhoneNumber((String) data.get("phoneNumber"));
         place.setAdditionalInfo((String) data.get("additionalInfo"));
         place.setTierKey((String) data.get("tierKey"));
+        place.setMeetingTier(parseMeetingTier(data.get("meetingTier"), place.getTierKey()));
         place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
         place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
         place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
@@ -132,5 +136,16 @@ public class MeetingPlaceResource {
         UserSavedLocation h = home.get();
         if (h.getLatitude() == null || h.getLongitude() == null) return null;
         return new double[]{h.getLatitude(), h.getLongitude()};
+    }
+
+    private static MeetingPlaceTier parseMeetingTier(Object raw, String tierKey) {
+        if (raw instanceof String s && !s.isBlank()) {
+            try {
+                return MeetingPlaceTier.valueOf(s.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // Fall through to legacy tierKey inference.
+            }
+        }
+        return MeetingPlaceService.inferMeetingTier(tierKey);
     }
 }

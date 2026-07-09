@@ -351,21 +351,37 @@ public record MeDto(
             int percentComplete,
             List<ReadinessStep> steps,
             /**
-             * Per-pillar personal-task rollup. Phase 1 of BUSINESS_MODEL.md —
-             * drives the My Readiness card on /home. Populated by
-             * MeService from the user's Post rows where kind="task" and
-             * groupId=null, grouped by their "pillar:X" tag.
-             *
-             * <p>The FE computes the displayed percent using
-             * {@code completed / max(added, recommendedMin)} so a user
-             * who's added one task and completed it doesn't read as
-             * "100% Supplies." Denominator math lives FE-side where
-             * the template catalog also lives — BE just counts.</p>
-             *
-             * <p>Stays null on the legacy MeDto shape so old FE builds
-             * don't break.</p>
+             * Per-pillar personal-task rollup (raw counts). Kept for the FE's
+             * optimistic-mirror paths (MyTasksPage live celebration math);
+             * the authoritative displayed percents now ship on {@code pulse}.
              */
-            PillarRollup pillars
+            PillarRollup pillars,
+            /**
+             * Global Readiness Engine output (Phase 1.3 executed): fully
+             * computed pillar percents + hints + overall + tier. The FE
+             * renders this verbatim — the {@code completed/max(added,min)}
+             * formula moved server-side ({@code HouseholdReadinessService}).
+             * Null only on degraded payloads.
+             */
+            io.sitprep.sitprepapi.dto.ReadinessDtos.PulseDto pulse,
+            /**
+             * Communications/Contacts pillar evaluation — actionable gaps
+             * (out-of-area contact, missing phone numbers, meeting-place
+             * tiers) + server-authored recommendations.
+             */
+            io.sitprep.sitprepapi.dto.ReadinessDtos.CommsReadinessDto comms,
+            /**
+             * Dominant status of the user's base household, derived from the
+             * Phase 1 accountability rollup (StatusRollups.dominantStatus):
+             * UNKNOWN | INJURED | HELP | CHECK_IN | SAFE.
+             */
+            String householdDominantStatus,
+            /**
+             * Canonical Global Readiness Engine payload for dashboard rings
+             * and gaps. Frontend score displays should prefer this object
+             * over local readiness math.
+             */
+            HouseholdReadinessDto household
     ) {}
 
     public record ReadinessStep(

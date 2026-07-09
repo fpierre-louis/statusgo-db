@@ -25,6 +25,7 @@ public class GroupReadinessService {
     private final MealPlanDataRepo mealPlanDataRepo;
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final EmergencyContactGroupRepo emergencyContactGroupRepo;
+    private final HouseholdReadinessService readinessEngine;
 
     @Transactional(readOnly = true)
     public GroupReadinessSummaryDto buildReadinessSummary(String groupId) {
@@ -171,6 +172,21 @@ public class GroupReadinessService {
         List<HouseholdReadinessDto> householdDtos = new ArrayList<>();
         int totalHouseholdMembers = 0;
 
+        // ONE batched UserInfo fetch across every household's members so the
+        // engine's dominant-status derivation adds zero per-household status
+        // queries (T-12: batch the engine on fan-out surfaces).
+        List<String> allHouseholdEmails = householdGroups.stream()
+                .flatMap(g -> normalizeEmailList(g.getMemberEmails()).stream())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, UserInfo> statusByEmail = allHouseholdEmails.isEmpty()
+                ? Collections.emptyMap()
+                : userInfoRepo.findByUserEmailIn(allHouseholdEmails).stream()
+                        .collect(Collectors.toMap(
+                                u -> safeEmail(u.getUserEmail()),
+                                Function.identity(),
+                                (a, b) -> a));
+
         for (Group hg : householdGroups) {
             List<String> emails = normalizeEmailList(hg.getMemberEmails());
             int memberCount = emails.size();
@@ -223,8 +239,14 @@ public class GroupReadinessService {
             hDto.setMembersWithEmergencyContacts(withContacts);
             hDto.setFullyReadyMembers(fullyReady);
 
-            // We keep dominantStatus available, but your widget doesn't need it right now
-            hDto.setDominantStatus(null);
+            // Global Readiness Engine (Phase 1.3): dominant status from the
+            // SAME accountability rollup the member-view ships, + the
+            // comms-pillar gap evaluation for the household head.
+            hDto.setDominantStatus(readinessEngine.dominantStatusFor(hg, statusByEmail));
+            hDto.setComms(readinessEngine.commsFor(hg.getOwnerEmail()));
+            hDto.setPulse(readinessEngine.pulseFor(null, hg));
+            hDto.setPillarScores(readinessEngine.pillarScoresFor(hDto.getPulse(), hDto.getComms()));
+            hDto.setReadinessPercent(readinessEngine.overallFromPillarScores(hDto.getPillarScores()));
 
             householdDtos.add(hDto);
         }

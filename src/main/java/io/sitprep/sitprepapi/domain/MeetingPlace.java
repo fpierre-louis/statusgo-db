@@ -23,11 +23,14 @@ public class MeetingPlace {
     private String address;
     private String phoneNumber;
 
-    // Meeting-range identity (near_home / neighborhood / in_town /
-    // out_of_area). Persisted so the 4-range model survives a new device
-    // or cleared cache instead of being inferred from row order.
+    // UI display key for the meeting-place slot. The FEMA/Red Cross doctrine
+    // type that readiness evaluates lives in meetingTier below.
     @Column(nullable = true)
     private String tierKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "meeting_tier", nullable = false, length = 32)
+    private MeetingPlaceTier meetingTier = MeetingPlaceTier.OTHER;
 
     // Replace @Lob with a standard String
     @Column(length = 2048) // Optional: Set max length to a reasonable value
@@ -106,6 +109,14 @@ public class MeetingPlace {
 
     public void setTierKey(String tierKey) {
         this.tierKey = tierKey;
+    }
+
+    public MeetingPlaceTier getMeetingTier() {
+        return meetingTier;
+    }
+
+    public void setMeetingTier(MeetingPlaceTier meetingTier) {
+        this.meetingTier = meetingTier == null ? MeetingPlaceTier.OTHER : meetingTier;
     }
 
     public String getAdditionalInfo() {

@@ -62,6 +62,7 @@ public class MeService {
     private final UserInfoService userInfoService;
     private final PlatformAccessService platformAccessService;
     private final GoBagService goBagService;
+    private final HouseholdReadinessService readinessEngine;
     private final ObjectMapper objectMapper;
 
     public MeService(
@@ -83,6 +84,7 @@ public class MeService {
             UserInfoService userInfoService,
             PlatformAccessService platformAccessService,
             GoBagService goBagService,
+            HouseholdReadinessService readinessEngine,
             ObjectMapper objectMapper
     ) {
         this.userInfoRepo = userInfoRepo;
@@ -103,6 +105,7 @@ public class MeService {
         this.userInfoService = userInfoService;
         this.platformAccessService = platformAccessService;
         this.goBagService = goBagService;
+        this.readinessEngine = readinessEngine;
         this.objectMapper = objectMapper;
     }
 
@@ -404,7 +407,8 @@ public class MeService {
                 : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap);
 
         ReadinessDto readiness = computeReadiness(
-                user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email
+                user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email,
+                baseHousehold, profileMap
         );
 
         // Most recent non-expired activation owned by this user, if any.
@@ -911,7 +915,9 @@ public class MeService {
             boolean mealPlanDone,
             boolean evacDone,
             boolean contactsDone,
-            String email
+            String email,
+            Group baseHousehold,
+            Map<String, UserInfo> profileMap
     ) {
         boolean profileDone =
                 u.getUserFirstName() != null && !u.getUserFirstName().isBlank()
@@ -945,7 +951,24 @@ public class MeService {
                 () -> computePillarRollup(email),
                 null);
 
-        return new ReadinessDto(percent, steps, pillars);
+        // Global Readiness Engine (Phase 1.3 executed): the BE now ships the
+        // fully computed pulse (pillar percents + overall + tier — the
+        // formula formerly in useReadinessPulse.js), the comms-pillar gap
+        // evaluation, and the household dominant status derived from the
+        // Phase 1 accountability rollup. Each is safeGet-wrapped so a
+        // failure degrades that field to null without sinking /me.
+        final PillarRollup pillarsFinal = pillars;
+        var pulse = safeGet("readinessPulse", "email=" + email,
+                () -> readinessEngine.pulseFor(pillarsFinal, baseHousehold), null);
+        var comms = email.isBlank() ? null : safeGet("readinessComms", "email=" + email,
+                () -> readinessEngine.commsFor(email), null);
+        String dominant = baseHousehold == null ? null : safeGet(
+                "householdDominantStatus", "email=" + email,
+                () -> readinessEngine.dominantStatusFor(baseHousehold, profileMap), null);
+        var householdReadiness = safeGet("householdReadiness", "email=" + email,
+                () -> readinessEngine.assembleHouseholdReadiness(baseHousehold, pulse, comms, dominant), null);
+
+        return new ReadinessDto(percent, steps, pillars, pulse, comms, dominant, householdReadiness);
     }
 
     /**

@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.EmergencyContact;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
+import io.sitprep.sitprepapi.domain.EmergencyContactType;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,12 @@ public class EmergencyContactGroupService {
         return groupRepo.findById(id);
     }
 
+    private static void normalizeContact(EmergencyContact contact) {
+        if (contact.getContactType() == null) {
+            contact.setContactType(EmergencyContactType.OTHER);
+        }
+    }
+
     @Transactional
     public EmergencyContactGroup createGroup(EmergencyContactGroup group) {
         // MVP: require ownerEmail in body (since no JWT)
@@ -61,6 +68,7 @@ public class EmergencyContactGroupService {
         // Link children -> parent, ensure IDs for new rows are null
         for (EmergencyContact c : group.getContacts()) {
             c.setGroup(group);
+            normalizeContact(c);
             if (c.getId() != null && String.valueOf(c.getId()).startsWith("anon-")) {
                 c.setId(null);
             }
@@ -90,6 +98,7 @@ public class EmergencyContactGroupService {
         if (updatedGroup.getContacts() != null) {
             for (EmergencyContact c : updatedGroup.getContacts()) {
                 c.setGroup(existing);
+                normalizeContact(c);
                 // if client sent non-numeric temporary id (e.g., "anon-..."), force insert
                 try {
                     Long.parseLong(String.valueOf(c.getId()));

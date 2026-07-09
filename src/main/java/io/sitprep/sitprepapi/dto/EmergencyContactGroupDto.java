@@ -23,17 +23,18 @@ public record EmergencyContactGroupDto(
         return new EmergencyContactGroupDto(g.getId(), g.getName(), contacts);
     }
 
-    public record ContactDto(
-            Long id,
-            String name,
-            String phone,
-            String email,
-            String address,
-            String role,
-            String medicalInfo,
-            String radioChannel,
-            String subjectType,
-            String subjectId,
+	    public record ContactDto(
+	            Long id,
+	            String name,
+	            String phone,
+	            String email,
+	            String address,
+	            String role,
+	            String contactType,
+	            String medicalInfo,
+	            String radioChannel,
+	            String subjectType,
+	            String subjectId,
             String subjectName
     ) {
         public static ContactDto from(EmergencyContact c) {
@@ -41,12 +42,13 @@ public record EmergencyContactGroupDto(
                     c.getId(),
                     c.getName(),
                     c.getPhone(),
-                    c.getEmail(),
-                    c.getAddress(),
-                    c.getRole(),
-                    c.getMedicalInfo(),
-                    c.getRadioChannel(),
-                    c.getSubjectType(),
+	                    c.getEmail(),
+	                    c.getAddress(),
+	                    c.getRole(),
+	                    c.getContactType() == null ? "OTHER" : c.getContactType().name(),
+	                    c.getMedicalInfo(),
+	                    c.getRadioChannel(),
+	                    c.getSubjectType(),
                     c.getSubjectId(),
                     c.getSubjectName());
         }
