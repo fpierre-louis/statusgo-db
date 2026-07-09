@@ -1,13 +1,17 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MeetingPlace;
+import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.dto.MeetingPlaceDto;
 import io.sitprep.sitprepapi.service.MeetingPlaceService;
+import io.sitprep.sitprepapi.service.UserSavedLocationService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -16,9 +20,12 @@ import java.util.stream.Collectors;
 public class MeetingPlaceResource {
 
     private final MeetingPlaceService meetingPlaceService;
+    private final UserSavedLocationService savedLocationService;
 
-    public MeetingPlaceResource(MeetingPlaceService meetingPlaceService) {
+    public MeetingPlaceResource(MeetingPlaceService meetingPlaceService,
+                                UserSavedLocationService savedLocationService) {
         this.meetingPlaceService = meetingPlaceService;
+        this.savedLocationService = savedLocationService;
     }
 
     /**
@@ -26,7 +33,7 @@ public class MeetingPlaceResource {
      * Deletes all existing meeting places for the authenticated user and replaces them with the provided list.
      */
     @PostMapping("/bulk")
-    public ResponseEntity<List<MeetingPlace>> saveAllMeetingPlaces(@RequestBody Map<String, Object> requestData) {
+    public ResponseEntity<List<MeetingPlaceDto>> saveAllMeetingPlaces(@RequestBody Map<String, Object> requestData) {
         String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<Map<String, Object>> placesData = (List<Map<String, Object>>) requestData.get("meetingPlaces");
 
@@ -50,7 +57,7 @@ public class MeetingPlaceResource {
         }).collect(Collectors.toList());
 
         List<MeetingPlace> savedPlaces = meetingPlaceService.saveAllMeetingPlaces(ownerEmail, meetingPlaces);
-        return ResponseEntity.ok(savedPlaces);
+        return ResponseEntity.ok(toDtos(savedPlaces, ownerEmail));
     }
 
     /**
@@ -59,7 +66,7 @@ public class MeetingPlaceResource {
      * surface's "add another spot".
      */
     @PostMapping("/one")
-    public ResponseEntity<MeetingPlace> addOneMeetingPlace(@RequestBody Map<String, Object> data) {
+    public ResponseEntity<MeetingPlaceDto> addOneMeetingPlace(@RequestBody Map<String, Object> data) {
         String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         MeetingPlace place = new MeetingPlace();
         place.setOwnerEmail(ownerEmail);
@@ -72,14 +79,14 @@ public class MeetingPlaceResource {
         place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
         place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
         place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
-        return ResponseEntity.ok(meetingPlaceService.addMeetingPlace(place));
+        return ResponseEntity.ok(toDto(meetingPlaceService.addMeetingPlace(place), ownerEmail));
     }
 
     /**
      * Update a specific meeting place by ID.
      */
     @PutMapping("/{id}")
-    public ResponseEntity<MeetingPlace> updateMeetingPlace(
+    public ResponseEntity<MeetingPlaceDto> updateMeetingPlace(
             @PathVariable Long id,
             @RequestBody MeetingPlace meetingPlace
     ) {
@@ -87,16 +94,43 @@ public class MeetingPlaceResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         meetingPlace.setOwnerEmail(caller);
         MeetingPlace updatedPlace = meetingPlaceService.updateMeetingPlace(id, meetingPlace);
-        return ResponseEntity.ok(updatedPlace);
+        return ResponseEntity.ok(toDto(updatedPlace, caller));
     }
 
     /**
      * Retrieve all meeting places for the authenticated user.
      */
     @GetMapping
-    public ResponseEntity<List<MeetingPlace>> getMeetingPlacesByOwnerEmail() {
+    public ResponseEntity<List<MeetingPlaceDto>> getMeetingPlacesByOwnerEmail() {
         String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<MeetingPlace> meetingPlaces = meetingPlaceService.getMeetingPlacesByOwnerEmail(ownerEmail);
-        return ResponseEntity.ok(meetingPlaces);
+        return ResponseEntity.ok(toDtos(meetingPlaces, ownerEmail));
+    }
+
+    // --- DTO assembly -------------------------------------------------------
+    // Resolve the caller's home saved-location ONCE per request so the
+    // haversine distance / derivedTierKey can be computed for each place.
+
+    private List<MeetingPlaceDto> toDtos(List<MeetingPlace> places, String ownerEmail) {
+        double[] home = homeCoords(ownerEmail);
+        return places.stream()
+                .map(p -> MeetingPlaceDto.from(p, home == null ? null : home[0],
+                                                  home == null ? null : home[1]))
+                .toList();
+    }
+
+    private MeetingPlaceDto toDto(MeetingPlace place, String ownerEmail) {
+        double[] home = homeCoords(ownerEmail);
+        return MeetingPlaceDto.from(place, home == null ? null : home[0],
+                                           home == null ? null : home[1]);
+    }
+
+    /** {lat, lng} of the caller's home saved-location, or null when unset. */
+    private double[] homeCoords(String ownerEmail) {
+        Optional<UserSavedLocation> home = savedLocationService.homeFor(ownerEmail);
+        if (home.isEmpty()) return null;
+        UserSavedLocation h = home.get();
+        if (h.getLatitude() == null || h.getLongitude() == null) return null;
+        return new double[]{h.getLatitude(), h.getLongitude()};
     }
 }

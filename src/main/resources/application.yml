@@ -119,6 +119,11 @@ app:
   frontend-base-url: ${APP_FRONTEND_BASE_URL:https://sitprep.app}
   admin:
     bootstrap-super-admins: ${APP_ADMIN_BOOTSTRAP_SUPER_ADMINS:francisd.plouis@gmail.com}
+  commerce:
+    # Amazon Associates TRACKING ID appended to every server-built Amazon
+    # link (GoBagProductCatalog). Default baked so no env var is required;
+    # override per environment if the tag ever rotates.
+    amazon-associate-tag: ${APP_COMMERCE_AMAZON_ASSOCIATE_TAG:sitprep0f-20}
 
 # --- STRIPE (organization subscriptions) ---
 # A missing key keeps billing dormant without blocking application startup.

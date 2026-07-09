@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.dto.UserSavedLocationDto;
 import io.sitprep.sitprepapi.service.UserSavedLocationService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
@@ -32,33 +33,35 @@ public class UserSavedLocationResource {
     }
 
     @GetMapping
-    public List<UserSavedLocation> list() {
+    public List<UserSavedLocationDto> list() {
         // Verified-email only — query param not consulted. The frontend
         // doesn't need to pass ownerEmail anymore.
         String owner = AuthUtils.requireAuthenticatedEmail();
-        return service.listFor(owner);
+        return service.listFor(owner).stream().map(UserSavedLocationDto::from).toList();
     }
 
     @GetMapping("/home")
-    public ResponseEntity<UserSavedLocation> home() {
+    public ResponseEntity<UserSavedLocationDto> home() {
         String owner = AuthUtils.requireAuthenticatedEmail();
         Optional<UserSavedLocation> h = service.homeFor(owner);
-        return h.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        return h.map(UserSavedLocationDto::from)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping
-    public ResponseEntity<UserSavedLocation> create(@RequestBody UserSavedLocation incoming) {
+    public ResponseEntity<UserSavedLocationDto> create(@RequestBody UserSavedLocation incoming) {
         String owner = AuthUtils.requireAuthenticatedEmail();
         // Force ownerEmail to the verified caller. Anything in the body is
         // overridden so a signed-in attacker can't create entries under
         // another email.
         incoming.setOwnerEmail(owner);
         UserSavedLocation saved = service.create(incoming);
-        return ResponseEntity.status(201).body(saved);
+        return ResponseEntity.status(201).body(UserSavedLocationDto.from(saved));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<UserSavedLocation> update(
+    public ResponseEntity<UserSavedLocationDto> update(
             @PathVariable Long id,
             @RequestBody UserSavedLocation incoming
     ) {
@@ -68,7 +71,7 @@ public class UserSavedLocationResource {
         // "owner is immutable" guard still passes when the body omits it.
         incoming.setOwnerEmail(caller);
         UserSavedLocation saved = service.update(id, incoming);
-        return ResponseEntity.ok(saved);
+        return ResponseEntity.ok(UserSavedLocationDto.from(saved));
     }
 
     @DeleteMapping("/{id}")

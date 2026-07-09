@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Demographic;
+import io.sitprep.sitprepapi.dto.DemographicDto;
 import io.sitprep.sitprepapi.service.DemographicService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -20,29 +21,32 @@ public class DemographicResource {
     }
 
     @PostMapping
-    public ResponseEntity<Demographic> saveDemographic(@RequestBody Demographic demographic) {
+    public ResponseEntity<DemographicDto> saveDemographic(@RequestBody Demographic demographic) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         demographic.setOwnerEmail(caller); // override body — caller can only save their own
-        return ResponseEntity.ok(demographicService.saveDemographic(demographic));
+        return ResponseEntity.ok(DemographicDto.from(demographicService.saveDemographic(demographic)));
     }
 
     @GetMapping
-    public ResponseEntity<List<Demographic>> getAllDemographics() {
+    public ResponseEntity<List<DemographicDto>> getAllDemographics() {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(demographicService.getAllDemographics());
+        return ResponseEntity.ok(demographicService.getAllDemographics()
+                .stream().map(DemographicDto::from).toList());
     }
 
     @GetMapping("/owner")
-    public ResponseEntity<Demographic> getDemographicForCurrentUser() {
+    public ResponseEntity<DemographicDto> getDemographicForCurrentUser() {
         AuthUtils.requireAuthenticatedEmail();
         return demographicService.getDemographicForCurrentUser()
+                .map(DemographicDto::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/admin")
-    public ResponseEntity<List<Demographic>> getDemographicsByAdminEmail() {
+    public ResponseEntity<List<DemographicDto>> getDemographicsByAdminEmail() {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(demographicService.getDemographicsForCurrentAdmin());
+        return ResponseEntity.ok(demographicService.getDemographicsForCurrentAdmin()
+                .stream().map(DemographicDto::from).toList());
     }
 }

@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.OriginLocation;
+import io.sitprep.sitprepapi.dto.OriginLocationDto;
 import io.sitprep.sitprepapi.service.OriginLocationService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -26,10 +27,11 @@ public class OriginLocationResource {
      * Returns the verified caller's origin locations. ownerEmail param ignored.
      */
     @GetMapping
-    public ResponseEntity<List<OriginLocation>> getByOwner(
+    public ResponseEntity<List<OriginLocationDto>> getByOwner(
             @RequestParam(value = "ownerEmail", required = false) String ownerEmailIgnored) {
         String ownerEmail = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail));
+        return ResponseEntity.ok(originService.getByOwnerEmail(ownerEmail)
+                .stream().map(OriginLocationDto::from).toList());
     }
 
     /**
@@ -38,7 +40,7 @@ public class OriginLocationResource {
      * Body's ownerEmail (if present) is ignored.
      */
     @PostMapping("/bulk")
-    public ResponseEntity<List<OriginLocation>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
+    public ResponseEntity<List<OriginLocationDto>> saveAllOrigins(@RequestBody Map<String, Object> requestData) {
         String ownerEmail = AuthUtils.requireAuthenticatedEmail();
         List<Map<String, Object>> originData = (List<Map<String, Object>>) requestData.get("origins");
         if (originData == null) {
@@ -55,7 +57,8 @@ public class OriginLocationResource {
             return origin;
         }).collect(Collectors.toList());
 
-        return ResponseEntity.ok(originService.saveAll(ownerEmail, origins));
+        return ResponseEntity.ok(originService.saveAll(ownerEmail, origins)
+                .stream().map(OriginLocationDto::from).toList());
     }
 
     /**
@@ -64,12 +67,12 @@ public class OriginLocationResource {
      * ownerEmail (if present) is ignored.
      */
     @PutMapping("/{id}")
-    public ResponseEntity<OriginLocation> update(
+    public ResponseEntity<OriginLocationDto> update(
             @PathVariable Long id,
             @RequestParam(value = "ownerEmail", required = false) String ownerEmailIgnored,
             @RequestBody OriginLocation origin) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(originService.update(id, caller, origin));
+        return ResponseEntity.ok(OriginLocationDto.from(originService.update(id, caller, origin)));
     }
 
     /**

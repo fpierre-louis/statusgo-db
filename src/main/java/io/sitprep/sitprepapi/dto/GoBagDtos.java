@@ -13,10 +13,16 @@ import java.util.Map;
  *
  * <p>The wizard is BACKEND-DRIVEN: {@link RecommendationDto} carries the
  * fully personalized, demographic-scaled checklist + strategy meta, and the
- * React wizard is a display layer over it. Product identity ships as
- * {@code productKey} strings only — affiliate links/ASINs live in the
- * frontend {@code productRegistry} (single associate-tag source of truth),
- * so no commercial URL ever originates server-side.</p>
+ * React wizard is a display layer over it.</p>
+ *
+ * <p>COMMERCE (revised 2026-07-09, supersedes the v1 "no commercial URL
+ * server-side" stance): the server-side {@code GoBagProductCatalog} is now
+ * the canonical source of retailer links — {@link GoBagShoppingListDto} ships
+ * FINAL tagged URLs so the FE does zero filtering or URL construction. The
+ * wizard/item-sheet paths still read the FE {@code productRegistry} (deprecated
+ * for go-bag commerce; cutover is a scoped follow-up). Links are suppressed
+ * (nulled + flagged) in crisis contexts — active household check-in, deployed
+ * plan, or area alert/crisis mode.</p>
  */
 public final class GoBagDtos {
 
@@ -105,6 +111,8 @@ public final class GoBagDtos {
             // BE-computed rollups — the FE displays, it doesn't derive.
             int itemsPacked,
             int itemsTotal,
+            /** round(itemsPacked / itemsTotal × 100); 0 when empty. */
+            int completionPct,
             int p0Packed,
             int p0Total,
             LocalDate nextExpiryOn,
@@ -129,7 +137,7 @@ public final class GoBagDtos {
             boolean packed
     ) {}
 
-    /** Lossy summary for HouseholdPlanDto / plan-tab surfaces. */
+    /** Lossy summary for HouseholdPlanDto / plan-tab / evac-plan surfaces. */
     public record GoBagSummaryDto(
             String id,
             String name,
@@ -137,7 +145,61 @@ public final class GoBagDtos {
             String storageLabel,
             int itemsPacked,
             int itemsTotal,
+            /** round(itemsPacked / itemsTotal × 100); 0 when empty. */
+            int completionPct,
             int expiringSoonCount
+    ) {}
+
+    // -----------------------------
+    // Supply list (procurement engine — preparedness-completion framing)
+    // -----------------------------
+
+    /**
+     * "Complete this bag": everything still missing (or due for rotation)
+     * from one bag, with FINAL retailer URLs from {@code GoBagProductCatalog}.
+     * When {@code commerceSuppressed} the lists still ship (they double as
+     * grab/action guidance) but every URL is null — the FE renders
+     * "use what you have" framing instead of links.
+     */
+    public record GoBagShoppingListDto(
+            String bagId,
+            String bagName,
+            String storageLabel,
+            boolean commerceSuppressed,
+            /** null | household_checkin | deployed_plan | area_alert */
+            String suppressedReason,
+            /** Not fully packed — qtyRemaining to gather/buy. Priority-sorted. */
+            List<ShoppingItemDto> toBuy,
+            /** Fully packed but dated within 30d (or past). Expired first. */
+            List<ShoppingItemDto> toReplace,
+            SupplyCountsDto counts,
+            Instant generatedAt
+    ) {}
+
+    public record ShoppingItemDto(
+            String itemId,
+            String itemKey,
+            String label,
+            String category,
+            int priority,
+            /** toBuy: qtyRecommended − qtyPacked. toReplace: full qtyRecommended. */
+            int qtyRemaining,
+            String unit,
+            /** Rotation date driving a toReplace row; usually null on toBuy rows. */
+            LocalDate expiresOn,
+            boolean expired,
+            /** Catalog key, or null → a "gather at home" row (no links). */
+            String productKey,
+            /** Final tagged URL, or null (unmapped item OR commerce suppressed). */
+            String amazonUrl,
+            String walmartUrl
+    ) {}
+
+    public record SupplyCountsDto(
+            int toBuy,
+            int toReplace,
+            /** Rows with a catalog mapping (independent of suppression). */
+            int linkable
     ) {}
 
     // -----------------------------

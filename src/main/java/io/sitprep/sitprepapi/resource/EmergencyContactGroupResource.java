@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
+import io.sitprep.sitprepapi.dto.EmergencyContactGroupDto;
 import io.sitprep.sitprepapi.service.EmergencyContactGroupService;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -27,12 +28,12 @@ public class EmergencyContactGroupResource {
     }
 
     @GetMapping
-    public List<EmergencyContactGroup> getAllGroups() {
+    public List<EmergencyContactGroupDto> getAllGroups() {
         // Dump-all is admin-only conceptually. Require auth at minimum;
         // until a platform-admin role exists, any signed-in user can see
         // it (which is still better than fully open).
         AuthUtils.requireAuthenticatedEmail();
-        return groupService.getAllGroups();
+        return groupService.getAllGroups().stream().map(EmergencyContactGroupDto::from).toList();
     }
 
     /**
@@ -42,14 +43,15 @@ public class EmergencyContactGroupResource {
      * a household with them (or is the owner themselves). Otherwise 403.
      */
     @GetMapping("/owner")
-    public List<EmergencyContactGroup> getGroupsByOwnerEmail(@RequestParam String ownerEmail) {
+    public List<EmergencyContactGroupDto> getGroupsByOwnerEmail(@RequestParam String ownerEmail) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         access.requireCanReadPlanDataFor(caller, ownerEmail);
-        return groupService.getGroupsByOwnerEmail(ownerEmail);
+        return groupService.getGroupsByOwnerEmail(ownerEmail)
+                .stream().map(EmergencyContactGroupDto::from).toList();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<EmergencyContactGroup> getGroupById(@PathVariable Long id) {
+    public ResponseEntity<EmergencyContactGroupDto> getGroupById(@PathVariable Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         Optional<EmergencyContactGroup> opt = groupService.getGroupById(id);
         if (opt.isEmpty()) return ResponseEntity.notFound().build();
@@ -59,19 +61,19 @@ public class EmergencyContactGroupResource {
         if (!access.canReadPlanDataFor(caller, g.getOwnerEmail())) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(g);
+        return ResponseEntity.ok(EmergencyContactGroupDto.from(g));
     }
 
     @PostMapping
-    public ResponseEntity<EmergencyContactGroup> createGroup(@RequestBody EmergencyContactGroup group) {
+    public ResponseEntity<EmergencyContactGroupDto> createGroup(@RequestBody EmergencyContactGroup group) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         group.setOwnerEmail(caller); // override body
         EmergencyContactGroup saved = groupService.createGroup(group);
-        return ResponseEntity.ok(saved);
+        return ResponseEntity.ok(EmergencyContactGroupDto.from(saved));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<EmergencyContactGroup> updateGroup(
+    public ResponseEntity<EmergencyContactGroupDto> updateGroup(
             @PathVariable Long id,
             @RequestBody EmergencyContactGroup updatedGroup
     ) {
@@ -79,7 +81,7 @@ public class EmergencyContactGroupResource {
         ensureOwns(id, caller);
         updatedGroup.setOwnerEmail(caller); // owner is immutable
         EmergencyContactGroup saved = groupService.updateGroup(id, updatedGroup);
-        return ResponseEntity.ok(saved);
+        return ResponseEntity.ok(EmergencyContactGroupDto.from(saved));
     }
 
     @DeleteMapping("/{id}")

@@ -6,11 +6,13 @@ import io.sitprep.sitprepapi.dto.GoBagDtos.CreateGoBagRequest;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagItemDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.ItemPatchRequest;
+import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagShoppingListDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.RecommendationDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.SeedItemsRequest;
 import io.sitprep.sitprepapi.dto.GoBagDtos.UpdateGoBagRequest;
 import io.sitprep.sitprepapi.service.GoBagRecommendationService;
 import io.sitprep.sitprepapi.service.GoBagService;
+import io.sitprep.sitprepapi.service.GoBagSupplyListService;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.web.Idempotent;
@@ -36,13 +38,16 @@ public class GoBagResource {
 
     private final GoBagService goBagService;
     private final GoBagRecommendationService recommendationService;
+    private final GoBagSupplyListService supplyListService;
     private final HouseholdAccessService access;
 
     public GoBagResource(GoBagService goBagService,
                          GoBagRecommendationService recommendationService,
+                         GoBagSupplyListService supplyListService,
                          HouseholdAccessService access) {
         this.goBagService = goBagService;
         this.recommendationService = recommendationService;
+        this.supplyListService = supplyListService;
         this.access = access;
     }
 
@@ -71,6 +76,24 @@ public class GoBagResource {
         access.requireCanReadHousehold(caller, householdId);
         return ResponseEntity.ok(
                 recommendationService.recommendForHousehold(householdId, seniorNeeds, medicalNeeds));
+    }
+
+    /**
+     * "Complete this bag" — the server-computed supply list (missing +
+     * replace-soon items with FINAL retailer links, or suppressed in crisis
+     * contexts). Member-read gated like {@link #list}; the bag must belong to
+     * the path household (404 otherwise — don't leak cross-household bag ids).
+     */
+    @GetMapping("/api/households/{householdId}/go-bags/{bagId}/shopping-list")
+    public ResponseEntity<GoBagShoppingListDto> supplyList(@PathVariable String householdId,
+                                                           @PathVariable String bagId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        GoBag bag = goBagService.requireBag(bagId);
+        if (!householdId.equals(bag.getHouseholdId())) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(supplyListService.supplyList(bagId));
     }
 
     @PostMapping("/api/households/{householdId}/go-bags")

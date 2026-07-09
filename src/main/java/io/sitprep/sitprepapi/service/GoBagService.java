@@ -81,12 +81,13 @@ public class GoBagService {
                 .toList();
     }
 
-    /** Lossy summaries for {@code HouseholdPlanDto} / plan-tab surfaces. */
+    /** Lossy summaries for {@code HouseholdPlanDto} / plan-tab / evac surfaces. */
     @Transactional(readOnly = true)
     public List<GoBagSummaryDto> summariesForHousehold(String householdId) {
         return listForHousehold(householdId).stream()
                 .map(d -> new GoBagSummaryDto(d.id(), d.name(), d.kind(), d.storageLabel(),
-                        d.itemsPacked(), d.itemsTotal(), d.expiringSoonCount()))
+                        d.itemsPacked(), d.itemsTotal(), d.completionPct(),
+                        d.expiringSoonCount()))
                 .toList();
     }
 
@@ -346,12 +347,15 @@ public class GoBagService {
                 .filter(i -> i.getExpiresOn() != null && !i.getExpiresOn().isAfter(soonHorizon))
                 .count();
 
+        int completionPct = items.isEmpty()
+                ? 0 : (int) Math.round(packed * 100.0 / items.size());
+
         return new GoBagDto(
                 b.getId(), b.getHouseholdId(), b.getName(), b.getKind(),
                 b.getStorageLabel(), b.getLat(), b.getLng(), b.getStrategy(),
                 b.getPremadeKitLabel(),
                 items.stream().map(this::toItemDto).toList(),
-                packed, items.size(), p0Packed, p0Total,
+                packed, items.size(), completionPct, p0Packed, p0Total,
                 nextExpiry, expiringSoon, b.getUpdatedAt());
     }
 

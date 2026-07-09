@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MealPlanData;
+import io.sitprep.sitprepapi.dto.MealPlanDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -35,29 +36,30 @@ public class MealPlanDataResource {
      * them. Otherwise 403.
      */
     @GetMapping("/{ownerEmail}")
-    public ResponseEntity<MealPlanData> getByOwner(@PathVariable String ownerEmail) {
+    public ResponseEntity<MealPlanDto> getByOwner(@PathVariable String ownerEmail) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         access.requireCanReadPlanDataFor(caller, ownerEmail);
         return service.findByOwnerEmailCI(ownerEmail)
+                .map(MealPlanDto::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
     /** Admin/dev helper (optional) */
     @GetMapping
-    public List<MealPlanData> getAll() {
+    public List<MealPlanDto> getAll() {
         AuthUtils.requireAuthenticatedEmail();
         logger.info("Fetching all meal plans");
-        return service.getAllMealPlans();
+        return service.getAllMealPlans().stream().map(MealPlanDto::from).toList();
     }
 
     /** Idempotent create/update — owner is the verified caller. */
     @PostMapping
-    public ResponseEntity<MealPlanData> save(@RequestBody MealPlanData mealPlanData) {
+    public ResponseEntity<MealPlanDto> save(@RequestBody MealPlanData mealPlanData) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         mealPlanData.setOwnerEmail(caller);
         try {
-            return ResponseEntity.ok(service.upsert(mealPlanData));
+            return ResponseEntity.ok(MealPlanDto.from(service.upsert(mealPlanData)));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
@@ -65,12 +67,12 @@ public class MealPlanDataResource {
 
     /** Update by route email; must match the verified caller. 404 if none exists. */
     @PutMapping("/{ownerEmail}")
-    public ResponseEntity<MealPlanData> update(@PathVariable String ownerEmail,
-                                               @RequestBody MealPlanData mealPlanData) {
+    public ResponseEntity<MealPlanDto> update(@PathVariable String ownerEmail,
+                                              @RequestBody MealPlanData mealPlanData) {
         ensurePathOwnerIsCaller(ownerEmail);
         mealPlanData.setOwnerEmail(ownerEmail);
         try {
-            return ResponseEntity.ok(service.updateByOwnerEmail(ownerEmail, mealPlanData));
+            return ResponseEntity.ok(MealPlanDto.from(service.updateByOwnerEmail(ownerEmail, mealPlanData)));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
