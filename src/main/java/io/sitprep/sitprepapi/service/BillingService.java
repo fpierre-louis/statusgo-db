@@ -303,6 +303,9 @@ public class BillingService {
             g.setStripeCustomerId(session.getCustomer());
             g.setStripeSubscriptionId(session.getSubscription());
             g.setSubscriptionStatus("active");
+            // Seat cap = purchased quantity on the subscription line item.
+            Integer seats = seatsForSubscriptionId(session.getSubscription());
+            if (seats != null) g.setMaxSeats(seats);
             String tier = md.get("planTier");
             if (tier != null) g.setPlanTier(PlanTier.fromWire(tier).name());
             g.setUpdatedAt(Instant.now());
@@ -330,6 +333,10 @@ public class BillingService {
                 && ("active".equals(sub.getStatus()) || "trialing".equals(sub.getStatus()))) {
             g.setPlanTier(tier.name());
         }
+        // Seat cap follows the subscription quantity — owner adds/removes seats
+        // in the portal → subscription.updated → max_seats tracks it.
+        Integer seats = seatsOf(sub);
+        if (seats != null) g.setMaxSeats(seats);
         g.setUpdatedAt(Instant.now());
         groupRepo.save(g);
         log.info("Stripe: group {} subscription {} — status={}",
@@ -372,6 +379,10 @@ public class BillingService {
                 .map(group -> {
                     if (hasText(group.getStripeSubscriptionId())) {
                         group.setSubscriptionStatus("active");
+                        // A renewal after the owner added seats in the portal
+                        // should raise max_seats — refresh from the subscription.
+                        Integer seats = seatsForSubscriptionId(group.getStripeSubscriptionId());
+                        if (seats != null) group.setMaxSeats(seats);
                         group.setUpdatedAt(Instant.now());
                         groupRepo.save(group);
                     }
@@ -413,6 +424,28 @@ public class BillingService {
             String priceId = sub.getItems().getData().get(0).getPrice().getId();
             return tierForPriceId(priceId);
         } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Seat count = the subscription's first line-item quantity; null if unavailable. */
+    private Integer seatsOf(Subscription sub) {
+        try {
+            Long qty = sub.getItems().getData().get(0).getQuantity();
+            return qty == null ? null : qty.intValue();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Retrieve a subscription by id and read its seat quantity; null (leave unchanged) on failure. */
+    private Integer seatsForSubscriptionId(String subscriptionId) {
+        if (!hasText(subscriptionId)) return null;
+        try {
+            return seatsOf(Subscription.retrieve(subscriptionId));
+        } catch (Exception e) {
+            log.warn("Stripe: could not resolve seat quantity for subscription {}: {}",
+                    subscriptionId, e.getMessage());
             return null;
         }
     }

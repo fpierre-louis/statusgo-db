@@ -159,6 +159,15 @@ public class Group {
     private String planTier;
 
     /**
+     * Seat cap for paid B2B tiers (AGENCY / BUSINESS). Null / &le;0 means
+     * unlimited (FREE and legacy rows). Set by the Stripe webhook from the
+     * subscription line-item quantity; enforced on member add in GroupService.
+     * @Data generates get/setMaxSeats.
+     */
+    @Column(name = "max_seats")
+    private Integer maxSeats;
+
+    /**
      * Custom organization logo — a public image URL (Cloudflare R2).
      * Phase 4 of docs/BUSINESS_MODEL.md, the "co-branded page"
      * capability. When set, the group page renders this in place of

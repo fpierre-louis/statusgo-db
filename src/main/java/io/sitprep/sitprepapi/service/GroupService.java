@@ -700,6 +700,7 @@ public class GroupService {
         }
 
         // Public: instant-join.
+        assertSeatAvailable(g, email); // 409 if a paid seat cap is full
         List<String> members = safeList(g.getMemberEmails());
         members.add(email);
         g.setMemberEmails(members);
@@ -723,6 +724,27 @@ public class GroupService {
             if (s != null && s.equalsIgnoreCase(needle)) return true;
         }
         return false;
+    }
+
+    /**
+     * Enforce the paid-tier seat cap before a NEW member is added. Seats are
+     * written by the Stripe webhook from the subscription line-item quantity
+     * (AGENCY / BUSINESS). Null / &le;0 = unlimited (FREE / legacy rows).
+     * Re-adding an existing member consumes no new seat. Over-capacity throws
+     * 409 CONFLICT so the caller can surface "seats full — add seats in billing".
+     */
+    private void assertSeatAvailable(Group g, String newMemberEmail) {
+        Integer max = g.getMaxSeats();
+        if (max == null || max <= 0) return; // unlimited / unseated tier
+        List<String> members = g.getMemberEmails();
+        boolean alreadyMember = members != null && members.stream()
+                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(newMemberEmail));
+        if (alreadyMember) return; // already occupies a seat — re-add is a no-op
+        int current = members == null ? 0 : members.size();
+        if (current >= max) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This plan is at its seat limit (" + max + "). Add seats in billing to invite more people.");
+        }
     }
 
     @Transactional
@@ -754,6 +776,7 @@ public class GroupService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "No pending request for email");
         }
         if (!alreadyMember) {
+            assertSeatAvailable(g, normalizedEmail); // 409 if a paid seat cap is full
             members.add(normalizedEmail);
         }
 

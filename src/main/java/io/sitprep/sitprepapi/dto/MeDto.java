@@ -340,7 +340,21 @@ public record MeDto(
              * on save so the window follows the user when they travel
              * without a re-save.
              */
-            String quietTimezone
+            String quietTimezone,
+            /**
+             * Effective org plan tier (normalized PlanTier name: FREE / GROUP /
+             * BUSINESS / AGENCY / PREMIUM_AGENCY). Lets the FE gate agency-admin
+             * vs member surfaces straight from /api/me — combine with
+             * {@link #role} (owner/admin can invite; member consumes premium) —
+             * without an extra billing round-trip.
+             */
+            String planTier,
+            /**
+             * Paid-tier seat cap (from the Stripe line-item quantity), or null =
+             * unlimited (FREE / legacy). Pairs with {@link #memberCount} for the
+             * "N of M seats" readout and disabling invite when full.
+             */
+            Integer maxSeats
     ) {}
 
     // MemberAvatar (the circle-card member-stack identity) is now the shared

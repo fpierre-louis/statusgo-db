@@ -792,7 +792,9 @@ public class MeService {
                 g.getGroupId() == null ? null : muteMap.get(g.getGroupId()),
                 pref == null ? null : pref.getQuietStart(),
                 pref == null ? null : pref.getQuietEnd(),
-                pref == null ? null : pref.getQuietTimezone()
+                pref == null ? null : pref.getQuietTimezone(),
+                io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
+                g.getMaxSeats()
         );
     }
 
@@ -816,7 +818,9 @@ public class MeService {
                 null,
                 null,
                 null,
-                null
+                null,
+                io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
+                g.getMaxSeats()
         );
     }
 
