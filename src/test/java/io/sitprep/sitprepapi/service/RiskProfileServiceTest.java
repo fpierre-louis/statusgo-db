@@ -12,9 +12,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -28,9 +32,10 @@ class RiskProfileServiceTest {
 
     @Mock UserSavedLocationService savedLocationService;
     @Mock UserInfoRepo userInfoRepo;
+    @Mock AlertIngestService alertIngestService;
 
     private RiskProfileService service() {
-        return new RiskProfileService(savedLocationService, userInfoRepo);
+        return new RiskProfileService(savedLocationService, userInfoRepo, alertIngestService);
     }
 
     private static Group group(String zip) {
@@ -71,6 +76,53 @@ class RiskProfileServiceTest {
         assertThat(p.riskAdjustedRequirements()).allMatch(r -> "risk_added".equals(r.origin()));
         // Priority-sorted, earthquake (very_high) requirements ahead of wildfire.
         assertThat(p.riskAdjustedRequirements().get(0).hazard()).isEqualTo("earthquake");
+    }
+
+    // --- Live active-alert upgrade -------------------------------------
+
+    @Test
+    void activeSevereAlert_addsActiveAlert_andPriorityZeroUpgrade() {
+        UserSavedLocation home = savedHome("Oklahoma", "730");
+        home.setLatitude(35.46);
+        home.setLongitude(-97.51);
+        when(savedLocationService.homeFor("owner@x.com")).thenReturn(Optional.of(home));
+        AlertIngestService.NormalizedAlert alert = new AlertIngestService.NormalizedAlert(
+                "X1", "NWS", "Severe", "Tornado Warning for Oklahoma County",
+                "A tornado warning is in effect.", "Oklahoma County, OK",
+                "2026-07-09T21:00:00Z", "2026-07-09T21:30:00Z", Map.of("type", "Polygon"));
+        when(alertIngestService.getSnapshotForPoint(anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(new AlertIngestService.Snapshot(List.of(alert), Instant.EPOCH, Instant.EPOCH));
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        // Live alert surfaced, hazard inferred, backend-authored action attached.
+        assertThat(p.activeAlerts()).hasSize(1);
+        assertThat(p.activeAlerts().get(0).hazard()).isEqualTo("tornado");
+        assertThat(p.activeAlerts().get(0).severity()).isEqualTo("Severe");
+        assertThat(p.activeAlerts().get(0).instruction()).contains("Take cover");
+        // Priority-0 active_alert_upgraded requirement floats above every risk_added item.
+        RiskAdjustedRequirementDto top = p.riskAdjustedRequirements().get(0);
+        assertThat(top.origin()).isEqualTo("active_alert_upgraded");
+        assertThat(top.priority()).isZero();
+        assertThat(top.hazard()).isEqualTo("tornado");
+    }
+
+    @Test
+    void moderateAlert_isIgnored_asNotLifeThreatening() {
+        UserSavedLocation home = savedHome("Oklahoma", "730");
+        home.setLatitude(35.46);
+        home.setLongitude(-97.51);
+        when(savedLocationService.homeFor("owner@x.com")).thenReturn(Optional.of(home));
+        AlertIngestService.NormalizedAlert minor = new AlertIngestService.NormalizedAlert(
+                "X2", "NWS", "Moderate", "Wind Advisory", "Breezy afternoon.", "OK",
+                null, null, Map.of("type", "Polygon"));
+        when(alertIngestService.getSnapshotForPoint(anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(new AlertIngestService.Snapshot(List.of(minor), Instant.EPOCH, Instant.EPOCH));
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        assertThat(p.activeAlerts()).isEmpty();
+        assertThat(p.riskAdjustedRequirements()).noneMatch(r -> "active_alert_upgraded".equals(r.origin()));
     }
 
     // --- Precedence 2: household_zip (no saved home) --------------------

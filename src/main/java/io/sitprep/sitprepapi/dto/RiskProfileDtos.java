@@ -27,8 +27,17 @@ public final class RiskProfileDtos {
             String regionLabel,
             /** Identified recurring hazards for this location (empty when unknown/unmapped). */
             List<RiskDto> risks,
-            /** Baseline + risk-added checklist items, priority-sorted (top = 0). */
+            /** Baseline + risk-added + active-alert-upgraded checklist items, priority-sorted (top = 0). */
             List<RiskAdjustedRequirementDto> riskAdjustedRequirements,
+            /**
+             * LIVE hazard alerts (NWS/USGS) currently IN EFFECT near the home
+             * location — distinct from the recurring {@code risks} above ("you live
+             * in a hurricane zone" is a risk; "Tornado Warning until 5:00 PM" is an
+             * active alert). Severe/Extreme + location-verified only; empty when none
+             * or the location is unknown. Each also drives a priority-0
+             * {@code active_alert_upgraded} requirement in the list above.
+             */
+            List<ActiveAlertDto> activeAlerts,
             Instant generatedAt,
             /** Rule-catalog version marker (heuristic MVP). */
             String datasetVersion
@@ -54,7 +63,33 @@ public final class RiskProfileDtos {
             int priority,
             String cta,
             String route,
-            /** baseline | risk_added | location_prompt */
+            /** baseline | risk_added | location_prompt | active_alert_upgraded */
             String origin
+    ) {}
+
+    /**
+     * A LIVE hazard alert in effect near the home location (mirrors the ingest
+     * {@code NormalizedAlert} the /api/alerts feed already ships). The frontend is
+     * dumb: it renders the backend-authored headline, severity, area, and
+     * life-safety {@code instruction} verbatim.
+     */
+    public record ActiveAlertDto(
+            String id,
+            /** NWS | USGS | FEMA */
+            String source,
+            /** Extreme | Severe | Moderate | Minor (raw upstream string — no enum). */
+            String severity,
+            /** Inferred: tornado | hurricane | flood | wildfire | blizzard | extreme_heat | earthquake | other */
+            String hazard,
+            /** Backend-authored headline (verbatim from the alert). */
+            String headline,
+            /** Affected-area text, e.g. "Tarrant County, TX". */
+            String area,
+            /** Life-safety action to take NOW (backend-authored). */
+            String instruction,
+            /** ISO-8601 effective time (nullable). */
+            String startedAt,
+            /** ISO-8601 "in effect until" (nullable). */
+            String endsAt
     ) {}
 }

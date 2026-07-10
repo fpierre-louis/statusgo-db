@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.dto.RiskProfileDtos.ActiveAlertDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskAdjustedRequirementDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto;
@@ -46,13 +47,31 @@ public class RiskProfileService {
     static final String DATASET_VERSION = "mvp-static-heuristic-2026.07";
     private static final String SOURCE = "SitPrep MVP heuristic (state-level)";
 
+    /** Radius for "active alert near the home location" (miles) — matches the alert-mode cell radius. */
+    private static final double ALERT_RADIUS_MI = 50.0;
+    private static final int MAX_ACTIVE_ALERTS = 5;
+
+    /** Backend-authored, hazard-specific life-safety action for an ACTIVE alert. */
+    private static final Map<String, String> ALERT_ACTION = Map.of(
+            "tornado", "Take cover now in an interior room on the lowest floor, away from windows.",
+            "hurricane", "Follow evacuation orders now. If sheltering, move to an interior room away from windows.",
+            "flood", "Move to higher ground immediately. Never drive or walk through flood water.",
+            "wildfire", "Be ready to leave now — evacuate immediately if you feel unsafe or are told to go.",
+            "blizzard", "Stay indoors and off the roads. Keep heat and a backup source ready.",
+            "extreme_heat", "Move to a cool space, drink water, and check on vulnerable household members.",
+            "earthquake", "Drop, cover, and hold on. Move away from windows and expect aftershocks.",
+            "other", "Follow official guidance and monitor local alerts.");
+
     private final UserSavedLocationService savedLocationService;
     private final UserInfoRepo userInfoRepo;
+    private final AlertIngestService alertIngestService;
 
     public RiskProfileService(UserSavedLocationService savedLocationService,
-                              UserInfoRepo userInfoRepo) {
+                              UserInfoRepo userInfoRepo,
+                              AlertIngestService alertIngestService) {
         this.savedLocationService = savedLocationService;
         this.userInfoRepo = userInfoRepo;
+        this.alertIngestService = alertIngestService;
     }
 
     // ---------------------------------------------------------------------
@@ -63,32 +82,34 @@ public class RiskProfileService {
     public RiskProfileDto resolveFor(Group household) {
         if (household == null) return unknownProfile();
         String ownerEmail = household.getOwnerEmail();
+        boolean hasOwner = ownerEmail != null && !ownerEmail.isBlank();
+
+        // Resolve the owner's home + userinfo ONCE — reused for both the coarse
+        // state/zip basis and the fine lat/lng the live-alert lookup needs.
+        Optional<UserSavedLocation> home = hasOwner
+                ? savedLocationService.homeFor(ownerEmail) : Optional.empty();
+        UserInfo userInfo = hasOwner
+                ? userInfoRepo.findByUserEmailIgnoreCase(ownerEmail).orElse(null) : null;
+        double[] coords = resolveCoords(home.orElse(null), userInfo);
 
         // 1) UserSavedLocation (isHome) — richest, reverse-geocoded source.
-        if (ownerEmail != null && !ownerEmail.isBlank()) {
-            Optional<UserSavedLocation> home = savedLocationService.homeFor(ownerEmail);
-            if (home.isPresent()) {
-                UserSavedLocation s = home.get();
-                String code = stateCodeFromName(s.getState());
-                if (code == null) code = zipToStateCode(s.getZipBucket());
-                if (code != null || notBlank(s.getState()) || notBlank(s.getZipBucket())) {
-                    return build("saved_home", code, s.getState());
-                }
+        if (home.isPresent()) {
+            UserSavedLocation s = home.get();
+            String code = stateCodeFromName(s.getState());
+            if (code == null) code = zipToStateCode(s.getZipBucket());
+            if (code != null || notBlank(s.getState()) || notBlank(s.getZipBucket())) {
+                return build("saved_home", code, s.getState(), coords);
             }
         }
 
         // 2) Household zip.
         if (notBlank(household.getZipCode())) {
-            return build("household_zip", zipToStateCode(household.getZipCode()), null);
+            return build("household_zip", zipToStateCode(household.getZipCode()), null, coords);
         }
 
         // 3) Owner's last-known zip (live-location signal — lowest precedence).
-        if (ownerEmail != null && !ownerEmail.isBlank()) {
-            String lkz = userInfoRepo.findByUserEmailIgnoreCase(ownerEmail)
-                    .map(UserInfo::getLastKnownZip).orElse(null);
-            if (notBlank(lkz)) {
-                return build("last_known_zip", zipToStateCode(lkz), null);
-            }
+        if (userInfo != null && notBlank(userInfo.getLastKnownZip())) {
+            return build("last_known_zip", zipToStateCode(userInfo.getLastKnownZip()), null, coords);
         }
 
         // 4) Unknown.
@@ -99,7 +120,7 @@ public class RiskProfileService {
     // Rule engine
     // ---------------------------------------------------------------------
 
-    private RiskProfileDto build(String basis, String stateCode, String rawStateName) {
+    private RiskProfileDto build(String basis, String stateCode, String rawStateName, double[] coords) {
         String regionLabel = stateCode != null
                 ? STATE_CODE_TO_NAME.getOrDefault(stateCode, notBlank(rawStateName) ? rawStateName : "your area")
                 : (notBlank(rawStateName) ? rawStateName : "your area");
@@ -130,9 +151,22 @@ public class RiskProfileService {
                     }
                 });
 
+        // Live active alerts (NWS/USGS) near this location → priority-0 "act now"
+        // upgrades that float above every recurring risk_added item after the sort.
+        List<ActiveAlertDto> activeAlerts = activeAlertsFor(coords);
+        for (ActiveAlertDto a : activeAlerts) {
+            String key = "active_alert_" + a.hazard();
+            if (!seenReqKeys.add(key)) continue; // one upgrade per hazard type
+            reqs.add(new RiskAdjustedRequirementDto(
+                    key, a.hazard(),
+                    HAZARD_LABEL.getOrDefault(a.hazard(), "Hazard") + " alert in effect — act now",
+                    a.instruction(), 0, "Safety steps", "/ask", "active_alert_upgraded"));
+        }
+
         reqs.sort(Comparator.comparingInt(RiskAdjustedRequirementDto::priority));
         return new RiskProfileDto(basis, stateCode, regionLabel,
-                List.copyOf(risks), List.copyOf(reqs), Instant.now(), DATASET_VERSION);
+                List.copyOf(risks), List.copyOf(reqs), List.copyOf(activeAlerts),
+                Instant.now(), DATASET_VERSION);
     }
 
     private RiskProfileDto unknownProfile() {
@@ -143,7 +177,67 @@ public class RiskProfileService {
                         + "wildfires, winter storms — once we know your area.",
                 0, "Set home location", "/household", "location_prompt");
         return new RiskProfileDto("unknown", null, "your area",
-                List.of(), List.of(prompt), Instant.now(), DATASET_VERSION);
+                List.of(), List.of(prompt), List.of(), Instant.now(), DATASET_VERSION);
+    }
+
+    // ---------------------------------------------------------------------
+    // Live active-alert integration (NWS/USGS via the AlertIngestService cache)
+    // ---------------------------------------------------------------------
+
+    /** Best available coordinates for the alert lookup: saved home → last-known device location. */
+    private static double[] resolveCoords(UserSavedLocation home, UserInfo userInfo) {
+        if (home != null && home.getLatitude() != null && home.getLongitude() != null) {
+            return new double[]{home.getLatitude(), home.getLongitude()};
+        }
+        if (userInfo != null && userInfo.getLastKnownLat() != null && userInfo.getLastKnownLng() != null) {
+            return new double[]{userInfo.getLastKnownLat(), userInfo.getLastKnownLng()};
+        }
+        return null;
+    }
+
+    /**
+     * Active Severe/Extreme hazard alerts currently in effect within
+     * {@link #ALERT_RADIUS_MI} of the coordinates, from the in-memory ingest
+     * cache. Only geometry-bearing (location-verified) alerts are kept — this
+     * drops broad FEMA declarations that the point filter includes
+     * unconditionally, so an alert elsewhere can't upgrade this household.
+     */
+    private List<ActiveAlertDto> activeAlertsFor(double[] coords) {
+        if (coords == null) return List.of();
+        AlertIngestService.Snapshot snap =
+                alertIngestService.getSnapshotForPoint(coords[0], coords[1], ALERT_RADIUS_MI);
+        if (snap == null || snap.alerts() == null) return List.of();
+        return snap.alerts().stream()
+                .filter(a -> a.geometry() != null)           // location-verified only
+                .filter(a -> isSevereOrExtreme(a.severity()))
+                .limit(MAX_ACTIVE_ALERTS)
+                .map(RiskProfileService::toActiveAlert)
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isSevereOrExtreme(String severity) {
+        return "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
+    }
+
+    private static ActiveAlertDto toActiveAlert(AlertIngestService.NormalizedAlert a) {
+        String hazard = inferHazard(a);
+        return new ActiveAlertDto(a.id(), a.source(), a.severity(), hazard,
+                a.headline(), a.area(),
+                ALERT_ACTION.getOrDefault(hazard, ALERT_ACTION.get("other")),
+                a.startedAt(), a.endsAt());
+    }
+
+    /** Map an alert to a hazard key — USGS ⇒ earthquake, else headline keywords. */
+    private static String inferHazard(AlertIngestService.NormalizedAlert a) {
+        if ("USGS".equalsIgnoreCase(a.source())) return "earthquake";
+        String h = a.headline() == null ? "" : a.headline().toLowerCase(Locale.ROOT);
+        if (h.contains("tornado")) return "tornado";
+        if (h.contains("hurricane") || h.contains("tropical")) return "hurricane";
+        if (h.contains("flood")) return "flood";
+        if (h.contains("fire")) return "wildfire";
+        if (h.contains("blizzard") || h.contains("winter storm") || h.contains("ice storm")) return "blizzard";
+        if (h.contains("heat")) return "extreme_heat";
+        return "other";
     }
 
     // ---------------------------------------------------------------------
