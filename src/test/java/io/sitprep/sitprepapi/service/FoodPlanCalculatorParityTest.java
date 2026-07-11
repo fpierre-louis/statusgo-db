@@ -102,6 +102,58 @@ class FoodPlanCalculatorParityTest {
         assertThat(plan.items()).hasSize(10);
     }
 
+    /**
+     * Regression: the FE-saved per-menu {@code ingredients} map was empty (stale
+     * rows / cross-household edits / a save path that didn't run
+     * mapMealToIngredients), which used to drop EVERY meal item and collapse the
+     * list to just Water + pet/baby food. The calculator now derives ingredients
+     * from the saved meal NAMES, so a menu with meals-but-no-ingredients yields
+     * the SAME list as the ingredients-present baseline above.
+     */
+    @Test
+    void mealItems_present_when_ingredients_map_is_empty() {
+        String hh = "hh-food-" + UUID.randomUUID();
+
+        Demographic d = new Demographic();
+        d.setHouseholdId(hh);
+        d.setOwnerEmail("owner@x.com");
+        d.setAdults(2);
+        d.setKids(2);
+        demographicRepo.save(d);
+
+        MealPlan menu = new MealPlan();
+        menu.setMeals(Map.of(
+                "breakfast", "Cereal with Milk and Fruit",
+                "lunch", "Tuna and Crackers Combo",
+                "dinner", "Beef Stew and Crackers Combo",
+                "snack", "Granola Bar"));
+        // ingredients intentionally left as the default empty map — the bug repro.
+
+        MealPlanData mpd = new MealPlanData();
+        mpd.setHouseholdId(hh);
+        mpd.setOwnerEmail("owner@x.com");
+        PlanDuration pd = new PlanDuration();
+        pd.setQuantity(3);
+        pd.setUnit("Days");
+        mpd.setPlanDuration(pd);
+        mpd.setMealPlan(List.of(menu));
+        mealPlanDataRepo.save(mpd);
+
+        FoodPlanRecommendationDto plan = service.recommendForHousehold(hh);
+        Map<String, FoodPlanItemDto> byItem = plan.items().stream()
+                .collect(java.util.stream.Collectors.toMap(FoodPlanItemDto::item, i -> i));
+
+        // Meal items are present and match the ingredients-present baseline —
+        // deriving from meal names produces identical output.
+        assertRaw(byItem, "Cereal", 72.0);
+        assertRaw(byItem, "Milk", 72.0);
+        assertRaw(byItem, "Tuna", 45.0);
+        assertRaw(byItem, "Beef Stew", 72.0);
+        assertRaw(byItem, "Crackers", 108.0);
+        assertRaw(byItem, "Granola Bar", 9.0);
+        assertThat(plan.items()).hasSize(10);
+    }
+
     private static void assertRaw(Map<String, FoodPlanItemDto> byItem, String item, double expected) {
         assertThat(byItem).containsKey(item);
         assertThat(byItem.get(item).totalRaw()).as(item + " totalRaw").isEqualTo(expected);

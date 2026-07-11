@@ -28,6 +28,14 @@ public interface MealPlanDataRepo extends JpaRepository<MealPlanData, String> {
     boolean existsByOwnerEmailIgnoreCase(String ownerEmail);
 
     /**
+     * Household-scoped existence check. MealPlanData is one-per-household
+     * (household-owned since the ownerEmail->household migration), so the
+     * dashboard "food plan done" flag must resolve household-first — otherwise
+     * a member who didn't author the plan never sees it as done.
+     */
+    boolean existsByHouseholdId(String householdId);
+
+    /**
      * Batched existence lookup. Returns the lower-cased subset of {@code emails}
      * that have at least one MealPlanData row.
      */

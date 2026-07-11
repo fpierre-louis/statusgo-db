@@ -82,6 +82,36 @@ public class FoodPlanCalculatorService {
             "Ravioli", "Tofu", "Veggies", "Peanut Butter", "Crackers", "Baby Food",
             "Baby Formula", "Water", "Juice");
 
+    // Meal display-name → ingredient list, ported verbatim from the FE
+    // mealCatalog.mapMealToIngredients. The backend now DERIVES a menu's
+    // ingredients from the chosen meal NAMES (always saved) instead of trusting
+    // the FE to have computed and persisted a per-menu `ingredients` map. That
+    // coupling was fragile: whenever the saved `ingredients` map was empty
+    // (stale pre-feature rows, a save path that didn't run mapMealToIngredients,
+    // cross-household edits), EVERY meal item was silently dropped and the list
+    // collapsed to just the demographic baselines (Water, pet/baby food). Making
+    // meal→ingredient expansion authoritative on the server fixes that and is
+    // the correct thin-client shape. Ingredients absent from KNOWN_INGREDIENTS /
+    // the catalog (e.g. "Dried Fruits") are still dropped downstream, as the FE did.
+    private static final Map<String, List<String>> MEAL_INGREDIENTS = Map.ofEntries(
+            e("Cereal with Milk and Fruit", "Cereal", "Milk", "Fruit", "Juice"),
+            e("Cereal with Milk, Fruit, and Nuts", "Cereal", "Milk", "Fruit", "Nuts", "Juice"),
+            e("Cereal with Milk, Fruit, and Granola Bar", "Cereal", "Milk", "Fruit", "Granola Bar", "Juice"),
+            e("Cereal with Milk, Fruit, and Peanut Butter", "Cereal", "Milk", "Fruit", "Peanut Butter", "Juice"),
+            e("Tuna and Crackers Combo", "Tuna", "Crackers", "Fruit", "Veggies", "Juice"),
+            e("Chilli and Crackers", "Chili", "Crackers", "Fruit", "Veggies", "Juice"),
+            e("Beef Stew and Crackers Combo", "Beef Stew", "Crackers", "Fruit", "Veggies", "Juice"),
+            e("Tofu with Veggies and Crackers", "Tofu", "Veggies", "Crackers", "Juice"),
+            e("Ravioli with Fruits and Crackers", "Ravioli", "Fruit", "Crackers", "Juice"),
+            e("Granola Bar", "Granola Bar"),
+            e("Nuts or Dried Fruits", "Nuts", "Dried Fruits"),
+            e("Crackers", "Crackers"),
+            e("Peanut Butter and Crackers", "Peanut Butter", "Crackers"));
+
+    private static Map.Entry<String, List<String>> e(String meal, String... ingredients) {
+        return Map.entry(meal, List.of(ingredients));
+    }
+
     private static Map.Entry<String, Double> e(String k, double v) {
         return Map.entry(k, v);
     }
@@ -120,15 +150,33 @@ public class FoodPlanCalculatorService {
         // pre-sort order.
         Map<String, Map<String, Double>> breakdownByItem = new LinkedHashMap<>();
 
-        // ── menu day loop (verbatim useCalculatedList) ─────────────────────
+        // ── menu day loop (rotates through the saved menus) ────────────────
         for (int day = 0; day < totalDays; day++) {
             if (menus.isEmpty()) continue;
             MealPlan menu = menus.get(day % menus.size());
-            if (menu == null || menu.getIngredients() == null) continue;
+            if (menu == null) continue;
 
+            // Collect this menu's ingredients per meal slot. Prefer an
+            // explicitly-saved ingredient list (legacy/custom data), otherwise
+            // DERIVE from the chosen meal name via MEAL_INGREDIENTS. Deriving
+            // from the reliably-saved meal names is what fixes the dropped-meal
+            // regression — an empty saved `ingredients` map no longer wipes the
+            // meal items (Cereal, Milk, Tuna, Beef Stew, …).
             List<String> ingredients = new ArrayList<>();
-            for (List<String> list : menu.getIngredients().values()) {
-                if (list != null) ingredients.addAll(list);
+            Map<String, String> meals = menu.getMeals();
+            Map<String, List<String>> savedIngredients = menu.getIngredients();
+            java.util.Set<String> slots = new java.util.LinkedHashSet<>();
+            if (meals != null) slots.addAll(meals.keySet());
+            if (savedIngredients != null) slots.addAll(savedIngredients.keySet());
+            for (String slot : slots) {
+                List<String> saved = savedIngredients == null ? null : savedIngredients.get(slot);
+                if (saved != null && !saved.isEmpty()) {
+                    ingredients.addAll(saved);
+                } else {
+                    String mealName = meals == null ? null : meals.get(slot);
+                    List<String> derived = mealName == null ? null : MEAL_INGREDIENTS.get(mealName);
+                    if (derived != null) ingredients.addAll(derived);
+                }
             }
 
             for (String ing : ingredients) {
@@ -162,7 +210,7 @@ public class FoodPlanCalculatorService {
         }
         if (dogs > 0) addItem(breakdownByItem, "Worth of dog food", Map.of("dogs", dogs * 1.0 * totalDays));
         if (cats > 0) addItem(breakdownByItem, "Worth of cat food", Map.of("cats", cats * 1.0 * totalDays));
-        if (pets > 0) addItem(breakdownByItem, "Worth of pet food", Map.of("pets", pets * 1.0 * totalDays));
+        if (pets > 0) addItem(breakdownByItem, "Worth of small/other pet food", Map.of("pets", pets * 1.0 * totalDays));
 
         // ── assemble items (filter totalRaw > 0, compute packages, sort) ───
         List<FoodPlanItemDto> items = new ArrayList<>();

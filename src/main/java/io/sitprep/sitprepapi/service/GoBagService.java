@@ -16,9 +16,12 @@ import io.sitprep.sitprepapi.dto.PlanActivationDtos.GoBagSnapshotDto;
 import io.sitprep.sitprepapi.repo.GoBagItemRepo;
 import io.sitprep.sitprepapi.repo.GoBagRepo;
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
@@ -56,13 +59,39 @@ public class GoBagService {
     private final GoBagRepo bagRepo;
     private final GoBagItemRepo itemRepo;
     private final GoBagRecommendationService recommendations;
+    private final WebSocketMessageSender ws;
 
     public GoBagService(GoBagRepo bagRepo,
                         GoBagItemRepo itemRepo,
-                        GoBagRecommendationService recommendations) {
+                        GoBagRecommendationService recommendations,
+                        WebSocketMessageSender ws) {
         this.bagRepo = bagRepo;
         this.itemRepo = itemRepo;
         this.recommendations = recommendations;
+        this.ws = ws;
+    }
+
+    /**
+     * Broadcast the current state of a bag to the household's supplies topic so
+     * a packed/added/deleted/refreshed item syncs live across every member's
+     * device. Sends AFTER the enclosing transaction commits (so subscribers
+     * never see a frame for a change that later rolls back) and is a no-op if
+     * the bag or its household can't be resolved. The full-bag frame maps onto
+     * the FE {@code upsertBag(bag)} merge, which re-derives the bag's rollups.
+     */
+    private void broadcastBag(String bagId) {
+        GoBag bag = bagRepo.findById(bagId).orElse(null);
+        if (bag == null || bag.getHouseholdId() == null || bag.getHouseholdId().isBlank()) return;
+        final String householdId = bag.getHouseholdId();
+        final GoBagDto dto = toDto(bag, itemRepo.findByBagIdOrderByPriorityAscCreatedAtAsc(bagId));
+        final Map<String, Object> frame = Map.of("type", "gobag", "bag", dto);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { ws.sendHouseholdSupplies(householdId, frame); }
+            });
+        } else {
+            ws.sendHouseholdSupplies(householdId, frame);
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -207,6 +236,7 @@ public class GoBagService {
                 req != null && req.seniorNeeds(),
                 req != null && req.medicalNeeds());
         seedMissingItems(bag, rec, req == null ? null : req.expirySeeds(), existing);
+        broadcastBag(bagId);
         return toDto(bag, itemRepo.findByBagIdOrderByPriorityAscCreatedAtAsc(bagId));
     }
 
@@ -234,7 +264,9 @@ public class GoBagService {
         item.setNotes(trimToNull(req.notes()));
         // Return the managed instance (client-assigned @Id → save() merges,
         // firing @PrePersist on the copy, not this detached original).
-        return toItemDto(itemRepo.save(item));
+        GoBagItemDto saved = toItemDto(itemRepo.save(item));
+        broadcastBag(bagId);
+        return saved;
     }
 
     @Transactional
@@ -253,6 +285,7 @@ public class GoBagService {
         }
         if (req.notes() != null) item.setNotes(trimToNull(req.notes()));
         itemRepo.save(item);
+        broadcastBag(bagId);
         return toItemDto(item);
     }
 
@@ -271,12 +304,14 @@ public class GoBagService {
         item.setExpiresOn(LocalDate.now().plusDays(shelfDays));
         item.setReminderSentAt(null);
         itemRepo.save(item);
+        broadcastBag(bagId);
         return toItemDto(item);
     }
 
     @Transactional
     public void deleteItem(String bagId, String itemId) {
         itemRepo.delete(requireItem(bagId, itemId));
+        broadcastBag(bagId);
     }
 
     // ---------------------------------------------------------------------

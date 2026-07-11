@@ -47,9 +47,10 @@ class HomeStockpileServiceTest {
     @Mock DemographicRepo demographicRepo;
     @Mock FoodPlanCalculatorService foodPlanCalculatorService;
     @Mock HomeStockpileItemRepo stockpileItemRepo;
+    @Mock io.sitprep.sitprepapi.websocket.WebSocketMessageSender ws;
 
     private HomeStockpileService service() {
-        return new HomeStockpileService(demographicRepo, foodPlanCalculatorService, stockpileItemRepo);
+        return new HomeStockpileService(demographicRepo, foodPlanCalculatorService, stockpileItemRepo, ws);
     }
 
     private static Demographic demo(int adults, int teens, int kids, int infants,

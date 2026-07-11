@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.websocket;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.*;
 
 @Configuration
@@ -26,6 +27,25 @@ public class LocalWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         registry.setApplicationDestinationPrefixes("/app");
-        registry.enableSimpleBroker("/topic","/queue");
+        // Match prod: enable STOMP-level broker heartbeats (10s/10s) so the
+        // client's 15s heartbeats are honored and dead sockets are detected
+        // instead of lingering. SimpleBroker heartbeats require a scheduler.
+        registry.enableSimpleBroker("/topic","/queue")
+                .setHeartbeatValue(new long[]{10000L, 10000L})
+                .setTaskScheduler(heartbeatScheduler());
+    }
+
+    private ThreadPoolTaskScheduler heartbeatScheduler;
+
+    private synchronized ThreadPoolTaskScheduler heartbeatScheduler() {
+        if (heartbeatScheduler == null) {
+            ThreadPoolTaskScheduler s = new ThreadPoolTaskScheduler();
+            s.setPoolSize(1);
+            s.setThreadNamePrefix("ws-hb-");
+            s.setRemoveOnCancelPolicy(true);
+            s.initialize();
+            heartbeatScheduler = s;
+        }
+        return heartbeatScheduler;
     }
 }

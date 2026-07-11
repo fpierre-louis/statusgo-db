@@ -56,7 +56,7 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
                 // Each idle scheduler thread ~512 KB stack; pool=2 is
                 // sufficient for heartbeat + session cleanup at our scale
                 // and saves ~3 MB on the 512 MB Heroku dyno (R14 ceiling).
-                .setTaskScheduler(sockJsHeartbeatScheduler())
+                .setTaskScheduler(heartbeatScheduler())
                 .setSessionCookieNeeded(false);
         System.out.println("[WS] /ws registered (PROD) origins=" + String.join(",", origins) + " cookieNeeded=false");
     }
@@ -64,7 +64,17 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         registry.setApplicationDestinationPrefixes("/app");
-        registry.enableSimpleBroker("/topic","/queue");
+        // Enable STOMP-level broker heartbeats (10s/10s). Without an explicit
+        // heartbeat value the SimpleBroker negotiates 0,0, so the client's
+        // heartbeatIncoming/Outgoing (15s) are inert and a half-open socket is
+        // never detected — the FE papered over this with 10s/20s REST polls.
+        // With heartbeats, a dead connection is detected in ~10-30s, the client
+        // reconnects (with a fresh token), and its onAfterConnect backfill
+        // catches up. Reuses the single bounded scheduler shared with SockJS so
+        // we don't allocate a second thread pool on the 512 MB dyno.
+        registry.enableSimpleBroker("/topic","/queue")
+                .setHeartbeatValue(new long[]{10000L, 10000L})
+                .setTaskScheduler(heartbeatScheduler());
     }
 
     /**
@@ -92,17 +102,25 @@ public class ProductionWebSocketConfig implements WebSocketMessageBrokerConfigur
     }
 
     /**
-     * Dedicated SockJS heartbeat scheduler — wired into the endpoint
-     * registration above. Kept separate from the app-wide
-     * {@code taskScheduler} bean ({@link io.sitprep.sitprepapi.config.SchedulingConfig})
-     * so a busy SockJS session can't starve {@code @Scheduled} tasks.
+     * Single bounded heartbeat scheduler, shared by BOTH the SockJS transport
+     * (h-frames) and the STOMP SimpleBroker (10s/10s broker heartbeats). Kept
+     * separate from the app-wide {@code taskScheduler} bean
+     * ({@link io.sitprep.sitprepapi.config.SchedulingConfig}) so a busy socket
+     * can't starve {@code @Scheduled} tasks — but memoized to a single pool=2
+     * instance so enabling broker heartbeats doesn't allocate a second thread
+     * pool on the 512 MB Heroku dyno.
      */
-    private ThreadPoolTaskScheduler sockJsHeartbeatScheduler() {
-        ThreadPoolTaskScheduler s = new ThreadPoolTaskScheduler();
-        s.setPoolSize(2);
-        s.setThreadNamePrefix("sockjs-hb-");
-        s.setRemoveOnCancelPolicy(true);
-        s.initialize();
-        return s;
+    private ThreadPoolTaskScheduler heartbeatScheduler;
+
+    private synchronized ThreadPoolTaskScheduler heartbeatScheduler() {
+        if (heartbeatScheduler == null) {
+            ThreadPoolTaskScheduler s = new ThreadPoolTaskScheduler();
+            s.setPoolSize(2);
+            s.setThreadNamePrefix("ws-hb-");
+            s.setRemoveOnCancelPolicy(true);
+            s.initialize();
+            heartbeatScheduler = s;
+        }
+        return heartbeatScheduler;
     }
 }

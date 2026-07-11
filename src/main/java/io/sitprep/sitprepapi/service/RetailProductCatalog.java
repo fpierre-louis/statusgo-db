@@ -46,7 +46,7 @@ public class RetailProductCatalog {
             product("Baby Food", "oz", "Pouches or jars by age; rotate often and pack disposable feeding supplies.", null, "https://www.amazon.com/s?k=baby+food+pouches", null, "https://www.walmart.com/search?q=baby%20food%20pouches", 4, "oz", "4 oz pouch"),
             product("Worth of dog food", "days", "Keep the food your dog already eats; sudden switches can cause stomach issues.", null, "https://www.amazon.com/s?k=dog+food", null, "https://www.walmart.com/search?q=dog%20food", 1, "days", "1 day supply"),
             product("Worth of cat food", "days", "Keep the food your cat already eats plus a carrier-ready bowl.", null, "https://www.amazon.com/s?k=cat+food", null, "https://www.walmart.com/search?q=cat%20food", 1, "days", "1 day supply"),
-            product("Worth of pet food", "days", "Use the regular food for other pets; include water, bedding, and habitat needs.", null, "https://www.amazon.com/s?k=pet+food", null, "https://www.walmart.com/search?q=pet%20food", 1, "days", "1 day supply")
+            product("Worth of small/other pet food", "days", "Use the regular food for other pets; include water, bedding, and habitat needs.", null, "https://www.amazon.com/s?k=pet+food", null, "https://www.walmart.com/search?q=pet%20food", 1, "days", "1 day supply")
     );
 
     private final Map<String, RetailProductDto> byItem;

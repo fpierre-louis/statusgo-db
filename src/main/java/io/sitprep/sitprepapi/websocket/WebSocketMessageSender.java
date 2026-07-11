@@ -22,21 +22,24 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Centralized STOMP broadcast helper.
- * Topics:
- *  - Posts:       /topic/posts/{groupId}
- *  - GroupPost del:    /topic/posts/{groupId}/delete
- *  - Comments:    /topic/comments/{postId}
- *  - Cmt del:     /topic/comments/{postId}/delete
- *  - Post cmts:   /topic/task-comments/{postId}
- *  - Post cmt del:/topic/task-comments/{postId}/delete
- *  - Activations: /topic/activations/{activationId}/acks
- *  - Activation plan updates: /topic/activations/{activationId}/plan
- *  - Chat:        /topic/chat/{groupId}
- *  - Chat del:    /topic/chat/{groupId}/delete
- *  - Group tasks: /topic/group/{groupId}/tasks
- *  - Group task del: /topic/group/{groupId}/tasks/delete
- *  - Community tasks (by zip-bucket): /topic/community/tasks/{zipBucket}
+ * Centralized STOMP broadcast helper — the single place every
+ * {@code convertAndSend} lives. Topic strings below reflect what the methods
+ * ACTUALLY publish (verified 2026-07-11); the previous list had drifted).
+ * Canonical topics:
+ *  - Group chat post / reaction / typing: /topic/group-posts/{groupId}[/delete|/typing]
+ *  - Group chat comment:  /topic/group-post-comments/{postId}[/delete]
+ *  - Community-feed post + reaction (group-scoped): /topic/group/{groupId}/posts
+ *  - Community-feed post + reaction (community):    /topic/community/posts/{zipBucket}
+ *  - Community-feed comment: /topic/post-comments/{postId}[/delete]
+ *  - Activations: /topic/activations/{activationId}/acks and /plan
+ *  - Household events / member status / presence / supplies:
+ *      /topic/households/{householdId}/{events|members/status|presence|supplies}
+ *  - Group member status / location / alert status:
+ *      /topic/group/{groupId}/{members/status|members/location|status}
+ *  - DMs: /topic/dm/{lowercased-email}
+ *
+ * NOTE: the community-feed post/reaction topic is {@code .../posts}, NOT the
+ * legacy {@code .../tasks} — the FE subscribers were fixed to match 2026-07-11.
  */
 @Component
 public class WebSocketMessageSender {
@@ -223,6 +226,21 @@ public class WebSocketMessageSender {
         if (householdId == null || householdId.isBlank() || dto == null) return;
         messagingTemplate.convertAndSend(
                 "/topic/households/" + householdId + "/presence", dto);
+    }
+
+    /**
+     * Go-bag + home-stockpile item changes, so supply progress syncs live
+     * across a household's devices (no more manual reload / HTTP poll). Both
+     * sources share this one topic; the {@code frame} carries a {@code type}
+     * discriminator ({@code "gobag"} full-bag frame / {@code "stockpile-item"}
+     * per-item frame) so each FE subscriber ignores the other kind.
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/supplies}</p>
+     */
+    public void sendHouseholdSupplies(String householdId, Object frame) {
+        if (householdId == null || householdId.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/supplies", frame);
     }
 
     /**

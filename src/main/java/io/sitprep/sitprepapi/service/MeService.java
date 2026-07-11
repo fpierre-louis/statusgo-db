@@ -243,8 +243,17 @@ public class MeService {
 
         // Plan readiness flags via cheap existence checks. The full plan
         // entities are only fetched when /api/me/{uid}/plans is hit.
+        //
+        // MealPlanData is HOUSEHOLD-owned (one-per-household since the
+        // ownerEmail->household migration). A member who didn't author the plan
+        // has it under a different ownerEmail, so an owner-only check left the
+        // "Emergency Food Planner" dashboard card stuck not-done for them.
+        // Resolve household-first (base household), fall back to owner-email.
+        final String baseHouseholdId = user.getBaseHouseholdId();
         boolean hasMealPlan = email.isBlank() ? false : safeGet("hasMealPlan", logCtx,
-                () -> mealPlanDataRepo.existsByOwnerEmailIgnoreCase(email), false);
+                () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
+                            && mealPlanDataRepo.existsByHouseholdId(baseHouseholdId))
+                        || mealPlanDataRepo.existsByOwnerEmailIgnoreCase(email), false);
         boolean hasEvac = email.isBlank() ? false : safeGet("hasEvac", logCtx,
                 () -> evacuationPlanRepo.existsByOwnerEmailIgnoreCase(email), false);
         boolean hasContacts = email.isBlank() ? false : safeGet("hasContacts", logCtx,
@@ -459,8 +468,17 @@ public class MeService {
                 .map(String::trim).map(String::toLowerCase).orElse("");
         String logCtx = "uid=" + user.getFirebaseUid() + " email=" + email + " plans";
 
+        // Household-first (base household), owner-email fallback — mirrors the
+        // hasMealPlan readiness flag and the household-scoped write in
+        // MealPlanDataService.upsert, so every household member sees the plan
+        // summary regardless of who authored it.
+        final String baseHouseholdId = user.getBaseHouseholdId();
         MealPlanData mealPlan = safeGet("mealPlan", logCtx,
-                () -> mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email).orElse(null),
+                () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
+                            ? mealPlanDataRepo.findFirstByHouseholdId(baseHouseholdId)
+                            : Optional.<MealPlanData>empty())
+                        .or(() -> mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email))
+                        .orElse(null),
                 null);
         List<EvacuationPlan> evacPlans = safeGet("evacPlans", logCtx,
                 () -> evacuationPlanRepo.findByOwnerEmail(email),

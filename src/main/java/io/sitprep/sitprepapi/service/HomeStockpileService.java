@@ -9,10 +9,15 @@ import io.sitprep.sitprepapi.dto.HomeStockpileDtos.StockpileCategoryDto;
 import io.sitprep.sitprepapi.dto.HomeStockpileDtos.StockpileItemDto;
 import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.repo.HomeStockpileItemRepo;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Map;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -82,13 +87,36 @@ public class HomeStockpileService {
     private final DemographicRepo demographicRepo;
     private final FoodPlanCalculatorService foodPlanCalculatorService;
     private final HomeStockpileItemRepo stockpileItemRepo;
+    private final WebSocketMessageSender ws;
 
     public HomeStockpileService(DemographicRepo demographicRepo,
                                 FoodPlanCalculatorService foodPlanCalculatorService,
-                                HomeStockpileItemRepo stockpileItemRepo) {
+                                HomeStockpileItemRepo stockpileItemRepo,
+                                WebSocketMessageSender ws) {
         this.demographicRepo = demographicRepo;
         this.foodPlanCalculatorService = foodPlanCalculatorService;
         this.stockpileItemRepo = stockpileItemRepo;
+        this.ws = ws;
+    }
+
+    /**
+     * Broadcast a single stockpile item's new satisfied state to the
+     * household's supplies topic so a check/uncheck syncs live across every
+     * member's device. Sends AFTER commit. A per-item frame (not the whole
+     * recomputed DTO) matches the FE's per-item reconcile, which survives
+     * out-of-order concurrent toggles from multiple members.
+     */
+    private void broadcastStockpileItem(String householdId, String itemKey, boolean satisfied) {
+        if (householdId == null || householdId.isBlank()) return;
+        final Map<String, Object> frame =
+                Map.of("type", "stockpile-item", "itemKey", itemKey, "satisfied", satisfied);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { ws.sendHouseholdSupplies(householdId, frame); }
+            });
+        } else {
+            ws.sendHouseholdSupplies(householdId, frame);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -189,8 +217,10 @@ public class HomeStockpileService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Not a checkable stockpile item: " + itemKey);
         }
+        boolean nowSatisfied;
         if (stockpileItemRepo.existsByHouseholdIdAndItemKey(householdId, itemKey)) {
             stockpileItemRepo.deleteByHouseholdIdAndItemKey(householdId, itemKey);
+            nowSatisfied = false;
         } else {
             // Idempotent upsert (INSERT ... ON CONFLICT DO NOTHING): a concurrent
             // double-check from another member is a clean no-op, never a
@@ -198,7 +228,10 @@ public class HomeStockpileService {
             // on Postgres the failed INSERT aborts the transaction, so the
             // getForHousehold read below would then fail with a 500 (T-16).
             stockpileItemRepo.insertIfAbsent(householdId, itemKey);
+            nowSatisfied = true;
         }
+        // Sync the check/uncheck to the household's other devices.
+        broadcastStockpileItem(householdId, itemKey, nowSatisfied);
         return getForHousehold(householdId);
     }
 
