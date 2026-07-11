@@ -168,6 +168,14 @@ public class Group {
     private Integer maxSeats;
 
     /**
+     * Monthly SMS alert allowance for the population-band pricing model
+     * (agencies pay by addressable population + a bundled SMS allowance).
+     * Null means no allowance / not applicable. @Data generates the accessors.
+     */
+    @Column(name = "sms_allowance_monthly")
+    private Integer smsAllowanceMonthly;
+
+    /**
      * Custom organization logo — a public image URL (Cloudflare R2).
      * Phase 4 of docs/BUSINESS_MODEL.md, the "co-branded page"
      * capability. When set, the group page renders this in place of

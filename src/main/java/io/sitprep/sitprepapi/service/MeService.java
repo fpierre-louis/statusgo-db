@@ -794,7 +794,8 @@ public class MeService {
                 pref == null ? null : pref.getQuietEnd(),
                 pref == null ? null : pref.getQuietTimezone(),
                 io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
-                g.getMaxSeats()
+                g.getMaxSeats(),
+                g.getSmsAllowanceMonthly()
         );
     }
 
@@ -820,7 +821,8 @@ public class MeService {
                 null,
                 null,
                 io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
-                g.getMaxSeats()
+                g.getMaxSeats(),
+                g.getSmsAllowanceMonthly()
         );
     }
 

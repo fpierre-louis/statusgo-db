@@ -354,7 +354,13 @@ public record MeDto(
              * unlimited (FREE / legacy). Pairs with {@link #memberCount} for the
              * "N of M seats" readout and disabling invite when full.
              */
-            Integer maxSeats
+            Integer maxSeats,
+            /**
+             * Monthly SMS alert allowance (population-band pricing). Null = n/a.
+             * Surfaced so the agency dashboard can render "sent / allowance"
+             * without an extra call.
+             */
+            Integer smsAllowanceMonthly
     ) {}
 
     // MemberAvatar (the circle-card member-stack identity) is now the shared

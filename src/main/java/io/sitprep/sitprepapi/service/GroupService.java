@@ -446,6 +446,27 @@ public class GroupService {
         group.setGroupType(groupDetails.getGroupType());
         group.setLastUpdatedBy(groupDetails.getLastUpdatedBy());
         group.setMemberCount(groupDetails.getMemberCount());
+        // Population-band enforcement (diff-based): a bulk roster overwrite must
+        // not over-provision a seat-capped tier. Allow shrink / reorder and a
+        // grandfathered over-cap roster, but reject net-new additions that push
+        // the roster past max_seats (the population band cap). 409 CONFLICT.
+        Integer bandCap = group.getMaxSeats();
+        if (bandCap != null && bandCap > 0) {
+            Set<String> oldNorm = oldMemberEmails.stream()
+                    .filter(e -> e != null && !e.isBlank())
+                    .map(e -> e.trim().toLowerCase())
+                    .collect(Collectors.toSet());
+            Set<String> incomingNorm = safeList(groupDetails.getMemberEmails()).stream()
+                    .filter(e -> e != null && !e.isBlank())
+                    .map(e -> e.trim().toLowerCase())
+                    .collect(Collectors.toSet());
+            boolean hasNetNew = incomingNorm.stream().anyMatch(e -> !oldNorm.contains(e));
+            if (hasNetNew && incomingNorm.size() > bandCap) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This plan's population band is full (" + bandCap + "). "
+                        + "Remove members or add capacity in billing before inviting more.");
+            }
+        }
         group.setMemberEmails(safeList(groupDetails.getMemberEmails()));
         group.setPendingMemberEmails(safeList(groupDetails.getPendingMemberEmails()));
         group.setPrivacy(groupDetails.getPrivacy());
