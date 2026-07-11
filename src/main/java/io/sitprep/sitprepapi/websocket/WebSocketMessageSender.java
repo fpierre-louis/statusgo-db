@@ -244,6 +244,20 @@ public class WebSocketMessageSender {
     }
 
     /**
+     * Household demographic (head-count) change, so every member's dashboard,
+     * readiness score, and food planner reflect the new counts without a manual
+     * reload. The frame carries the updated {@code DemographicDto} so the FE can
+     * refetch /me (which recomputes readiness server-side).
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/demographic}</p>
+     */
+    public void sendHouseholdDemographic(String householdId, Object frame) {
+        if (householdId == null || householdId.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/demographic", frame);
+    }
+
+    /**
      * Group twin for member status changes.
      *
      * <p>Topic: {@code /topic/group/{groupId}/members/status}</p>

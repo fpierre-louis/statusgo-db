@@ -234,10 +234,23 @@ public class MeService {
                 .map(String::trim).map(String::toLowerCase).orElse("");
         String logCtx = "uid=" + user.getFirebaseUid() + " email=" + email;
 
+        // Base household id — used to resolve HOUSEHOLD-owned records
+        // (demographic, meal plan) household-first, with an owner-email fallback,
+        // so a member who didn't author the record still sees it as present.
+        final String baseHouseholdId = user.getBaseHouseholdId();
+
         // Demographic stays inline — used for HouseholdDto.demographic AND
-        // for the demographicsDone readiness flag, so a single fetch.
+        // for the demographicsDone readiness flag, so a single fetch. It is
+        // HOUSEHOLD-owned (keyed by householdId; the food calculator reads it
+        // household-scoped). Resolve household-first, owner-email fallback — an
+        // owner-only lookup left the "Household Demographics" dashboard card
+        // stuck not-done for non-authoring members (the same class of bug the
+        // meal plan had).
         Demographic demographic = safeGet("demographic", logCtx,
-                () -> demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email)
+                () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
+                            ? demographicRepo.findFirstByHouseholdIdOrderByIdDesc(baseHouseholdId)
+                            : Optional.<Demographic>empty())
+                        .or(() -> demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email))
                         .orElse(null),
                 null);
 
@@ -249,7 +262,6 @@ public class MeService {
         // has it under a different ownerEmail, so an owner-only check left the
         // "Emergency Food Planner" dashboard card stuck not-done for them.
         // Resolve household-first (base household), fall back to owner-email.
-        final String baseHouseholdId = user.getBaseHouseholdId();
         boolean hasMealPlan = email.isBlank() ? false : safeGet("hasMealPlan", logCtx,
                 () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
                             && mealPlanDataRepo.existsByHouseholdId(baseHouseholdId))

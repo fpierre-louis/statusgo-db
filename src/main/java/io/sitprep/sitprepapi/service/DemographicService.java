@@ -1,14 +1,19 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Demographic;
+import io.sitprep.sitprepapi.dto.DemographicDto;
 import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -18,11 +23,14 @@ public class DemographicService {
 
     private final DemographicRepo demographicRepository;
     private final HouseholdResolver householdResolver;
+    private final WebSocketMessageSender ws;
 
     public DemographicService(DemographicRepo demographicRepository,
-                              HouseholdResolver householdResolver) {
+                              HouseholdResolver householdResolver,
+                              WebSocketMessageSender ws) {
         this.demographicRepository = demographicRepository;
         this.householdResolver = householdResolver;
+        this.ws = ws;
     }
 
     public Demographic saveDemographic(Demographic demographic) {
@@ -45,6 +53,9 @@ public class DemographicService {
             row.setDogs(demographic.getDogs());
             row.setCats(demographic.getCats());
             row.setPets(demographic.getPets());
+            // Preserve admin-emails on a cross-household edit too (the base path
+            // already does); an admin editing counts shouldn't silently wipe them.
+            if (demographic.getAdminEmails() != null) row.setAdminEmails(demographic.getAdminEmails());
             row.setHouseholdId(targetHh);
             if (row.getOwnerEmail() == null) row.setOwnerEmail(currentUserEmail);
             return saveIdempotent(row, currentUserEmail, targetHh);
@@ -83,15 +94,43 @@ public class DemographicService {
      * row truly cannot be located afterward (would indicate a schema drift).
      */
     private Demographic saveIdempotent(Demographic row, String ownerEmail, String householdId) {
+        Demographic saved;
         try {
-            return demographicRepository.save(row);
+            saved = demographicRepository.save(row);
         } catch (DataIntegrityViolationException ex) {
             log.info("demographic upsert lost a race for owner={} household={}; returning the winner",
                     ownerEmail, householdId);
             Optional<Demographic> winner = householdId == null
                     ? demographicRepository.findByOwnerEmailIgnoreCase(ownerEmail)
                     : demographicRepository.findFirstByHouseholdIdOrderByIdDesc(householdId);
-            return winner.orElseThrow(() -> ex);
+            saved = winner.orElseThrow(() -> ex);
+        }
+        // Every save branch funnels through here, so this is the one place to
+        // broadcast the demographic change to the household's other devices.
+        broadcastDemographic(saved);
+        return saved;
+    }
+
+    /**
+     * Push the updated head-count to {@code /topic/households/{hid}/demographic}
+     * so every member's dashboard, readiness score, and food planner reflect the
+     * new counts without a manual reload. Sent AFTER commit when a transaction is
+     * active; otherwise immediately (this service isn't @Transactional, so a
+     * plain save() has already committed by the time we're here). No-op if the
+     * row has no household id yet.
+     */
+    private void broadcastDemographic(Demographic saved) {
+        if (saved == null) return;
+        final String householdId = saved.getHouseholdId();
+        if (householdId == null || householdId.isBlank()) return;
+        final Map<String, Object> frame = Map.of(
+                "type", "demographic", "demographic", DemographicDto.from(saved));
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { ws.sendHouseholdDemographic(householdId, frame); }
+            });
+        } else {
+            ws.sendHouseholdDemographic(householdId, frame);
         }
     }
 
