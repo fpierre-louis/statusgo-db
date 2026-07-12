@@ -27,7 +27,8 @@ public record MePlansDto(
             Integer planDurationQuantity,
             String planDurationUnit,
             int numberOfMenuOptions,
-            int planCount
+            int planCount,
+            boolean suppliesGathered
     ) {}
 
     public record EvacPlanSummary(

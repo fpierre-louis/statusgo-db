@@ -911,7 +911,9 @@ public class MeService {
         Integer qty = m.getPlanDuration() == null ? null : m.getPlanDuration().getQuantity();
         String unit = m.getPlanDuration() == null ? null : m.getPlanDuration().getUnit();
         int planCount = m.getMealPlan() == null ? 0 : m.getMealPlan().size();
-        return new MePlansDto.MealPlanSummary(m.getId(), qty, unit, m.getNumberOfMenuOptions(), planCount);
+        boolean suppliesGathered = Boolean.TRUE.equals(m.getSuppliesGathered());
+        return new MePlansDto.MealPlanSummary(
+                m.getId(), qty, unit, m.getNumberOfMenuOptions(), planCount, suppliesGathered);
     }
 
     private MePlansDto.EvacPlanSummary toEvacSummary(EvacuationPlan e) {

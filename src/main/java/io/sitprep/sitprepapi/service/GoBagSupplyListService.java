@@ -2,14 +2,10 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.GoBag;
 import io.sitprep.sitprepapi.domain.GoBagItem;
-import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagShoppingListDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.ShoppingItemDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.SupplyCountsDto;
-import io.sitprep.sitprepapi.repo.AlertModeStateRepo;
 import io.sitprep.sitprepapi.repo.GoBagItemRepo;
-import io.sitprep.sitprepapi.repo.GroupRepo;
-import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,22 +43,16 @@ public class GoBagSupplyListService {
     private final GoBagService goBagService;
     private final GoBagItemRepo itemRepo;
     private final GoBagProductCatalog catalog;
-    private final GroupRepo groupRepo;
-    private final PlanActivationRepo activationRepo;
-    private final AlertModeStateRepo alertModeRepo;
+    private final CommerceSuppressionService commerceSuppression;
 
     public GoBagSupplyListService(GoBagService goBagService,
                                   GoBagItemRepo itemRepo,
                                   GoBagProductCatalog catalog,
-                                  GroupRepo groupRepo,
-                                  PlanActivationRepo activationRepo,
-                                  AlertModeStateRepo alertModeRepo) {
+                                  CommerceSuppressionService commerceSuppression) {
         this.goBagService = goBagService;
         this.itemRepo = itemRepo;
         this.catalog = catalog;
-        this.groupRepo = groupRepo;
-        this.activationRepo = activationRepo;
-        this.alertModeRepo = alertModeRepo;
+        this.commerceSuppression = commerceSuppression;
     }
 
     @Transactional(readOnly = true)
@@ -132,29 +122,12 @@ public class GoBagSupplyListService {
 
     /**
      * First matching suppression reason, or null when commerce may render.
-     * Package-visible for direct unit coverage.
+     * Delegates to the shared {@link CommerceSuppressionService} (the rule was
+     * extracted 2026-07-12 so Go Bag, the 14-Day Kit supply list, and the Food
+     * Planner all gate commerce identically). Package-visible for direct unit
+     * coverage via the existing test.
      */
     String suppressionReason(String householdId) {
-        Group household = groupRepo.findByGroupId(householdId).orElse(null);
-        if (household == null) return null;
-
-        if ("Active".equalsIgnoreCase(household.getAlert())) return "household_checkin";
-
-        String owner = household.getOwnerEmail();
-        if (owner != null && activationRepo
-                .findFirstActiveByOwnerEmail(owner, Instant.now()).isPresent()) {
-            return "deployed_plan";
-        }
-
-        String zip = household.getZipCode();
-        if (zip != null && zip.trim().length() >= 3) {
-            String state = alertModeRepo.findById(zip.trim().substring(0, 3))
-                    .map(s -> s.getState())
-                    .orElse(null);
-            if (AlertModeService.ALERT.equals(state) || AlertModeService.CRISIS.equals(state)) {
-                return "area_alert";
-            }
-        }
-        return null;
+        return commerceSuppression.suppressionReason(householdId);
     }
 }

@@ -59,7 +59,16 @@ public final class HomeStockpileDtos {
             boolean foodWaterSatisfied,
             List<StockpileCategoryDto> categories,
             Instant generatedAt,
-            String datasetVersion
+            String datasetVersion,
+            /**
+             * Monetization-integrity flags (2026-07-12): when true, the Supply
+             * Drawer swaps its buy buttons for a calm "focus on your plan" state
+             * and every item's retailer links ship null. Reason mirrors
+             * {@link io.sitprep.sitprepapi.service.CommerceSuppressionService}
+             * (household_checkin | deployed_plan | area_alert | null).
+             */
+            boolean commerceSuppressed,
+            String suppressionReason
     ) {}
 
     public record StockpileCategoryDto(
@@ -87,6 +96,16 @@ public final class HomeStockpileDtos {
             /** 0 = essential, 1 = recommended, 2 = situational. */
             int priority,
             String detail,
-            boolean satisfied
+            boolean satisfied,
+            /**
+             * BE-authored retailer links (from {@code SupplyProductCatalog}) for the
+             * Supply Drawer quick-shop. Null when the item has no catalog mapping
+             * (e.g. the derived food_water pointers) OR when commerce is suppressed
+             * in a crisis posture. {@code amazonAsin} is non-null only once a
+             * human-verified ASIN lands (enables a batched cart-add vs. a search).
+             */
+            String amazonUrl,
+            String walmartUrl,
+            String amazonAsin
     ) {}
 }

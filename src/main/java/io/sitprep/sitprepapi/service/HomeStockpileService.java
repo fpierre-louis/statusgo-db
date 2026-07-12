@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -88,15 +89,21 @@ public class HomeStockpileService {
     private final FoodPlanCalculatorService foodPlanCalculatorService;
     private final HomeStockpileItemRepo stockpileItemRepo;
     private final WebSocketMessageSender ws;
+    private final SupplyProductCatalog supplyCatalog;
+    private final CommerceSuppressionService commerceSuppression;
 
     public HomeStockpileService(DemographicRepo demographicRepo,
                                 FoodPlanCalculatorService foodPlanCalculatorService,
                                 HomeStockpileItemRepo stockpileItemRepo,
-                                WebSocketMessageSender ws) {
+                                WebSocketMessageSender ws,
+                                SupplyProductCatalog supplyCatalog,
+                                CommerceSuppressionService commerceSuppression) {
         this.demographicRepo = demographicRepo;
         this.foodPlanCalculatorService = foodPlanCalculatorService;
         this.stockpileItemRepo = stockpileItemRepo;
         this.ws = ws;
+        this.supplyCatalog = supplyCatalog;
+        this.commerceSuppression = commerceSuppression;
     }
 
     /**
@@ -144,12 +151,18 @@ public class HomeStockpileService {
             checked.add(row.getItemKey());
         }
 
+        // Commerce-integrity gate: in a crisis posture the Supply Drawer shows
+        // no buy links (VISION_AND_SCOPE rule 6). One decision, shared with the
+        // Go Bag list + Food Planner via CommerceSuppressionService.
+        String suppressionReason = commerceSuppression.suppressionReason(householdId);
+        boolean commerceSuppressed = suppressionReason != null;
+
         List<StockpileCategoryDto> categories = new ArrayList<>();
         categories.add(foodWaterCategory(foodWaterSatisfied));                          // derived
-        categories.add(applyChecked(sanitationCategory(persons, infants, pets), checked));
-        categories.add(applyChecked(powerHeatCategory(persons), checked));
-        categories.add(applyChecked(medicalCategory(persons), checked));
-        categories.add(applyChecked(toolsSafetyCategory(adultsTeens), checked));
+        categories.add(applyChecked(sanitationCategory(persons, infants, pets), checked, commerceSuppressed));
+        categories.add(applyChecked(powerHeatCategory(persons), checked, commerceSuppressed));
+        categories.add(applyChecked(medicalCategory(persons), checked, commerceSuppressed));
+        categories.add(applyChecked(toolsSafetyCategory(adultsTeens), checked, commerceSuppressed));
 
         // Completion now spans EVERY item: Food & Water's two derived lines plus
         // each checked-off non-food item. The optimistic FE uses the same formula.
@@ -172,7 +185,9 @@ public class HomeStockpileService {
                 foodWaterSatisfied,
                 categories,
                 Instant.now(),
-                DATASET_VERSION
+                DATASET_VERSION,
+                commerceSuppressed,
+                suppressionReason
         );
     }
 
@@ -241,10 +256,24 @@ public class HomeStockpileService {
      * category is satisfied when all its items are, and it is now trackable.
      * (Food &amp; Water is derived and never passes through here.)
      */
-    private static StockpileCategoryDto applyChecked(StockpileCategoryDto c, Set<String> checked) {
+    private StockpileCategoryDto applyChecked(StockpileCategoryDto c, Set<String> checked,
+                                              boolean suppressed) {
         List<StockpileItemDto> items = c.items().stream()
-                .map(it -> new StockpileItemDto(it.itemKey(), it.label(), it.qtyRecommended(),
-                        it.unit(), it.priority(), it.detail(), checked.contains(it.itemKey())))
+                .map(it -> {
+                    // Join the BE-authored retailer links (nulled under crisis
+                    // suppression) so the Supply Drawer quick-shop works with
+                    // zero FE URL construction.
+                    var product = suppressed
+                            ? Optional.<SupplyProductCatalog.Product>empty()
+                            : supplyCatalog.byKey(it.itemKey());
+                    return new StockpileItemDto(
+                            it.itemKey(), it.label(), it.qtyRecommended(),
+                            it.unit(), it.priority(), it.detail(),
+                            checked.contains(it.itemKey()),
+                            product.map(SupplyProductCatalog.Product::amazonUrl).orElse(null),
+                            product.map(SupplyProductCatalog.Product::walmartUrl).orElse(null),
+                            product.map(SupplyProductCatalog.Product::amazonAsin).orElse(null));
+                })
                 .toList();
         boolean satisfied = !items.isEmpty() && items.stream().allMatch(StockpileItemDto::satisfied);
         return new StockpileCategoryDto(c.key(), c.label(), c.blurb(), true, satisfied,
@@ -364,6 +393,9 @@ public class HomeStockpileService {
 
     private static StockpileItemDto item(String key, String label, int qty, String unit,
                                          int priority, String detail, boolean satisfied) {
-        return new StockpileItemDto(key, label, qty, unit, priority, detail, satisfied);
+        // Retailer links are joined later (read path) from SupplyProductCatalog,
+        // and nulled under commerce suppression — so the base item carries none.
+        return new StockpileItemDto(key, label, qty, unit, priority, detail, satisfied,
+                null, null, null);
     }
 }

@@ -59,6 +59,12 @@ public class MealPlanDataService {
             existing.setPlanDuration(incoming.getPlanDuration());
             existing.setNumberOfMenuOptions(incoming.getNumberOfMenuOptions());
             existing.setSelectedItemsJson(incoming.getSelectedItemsJson());
+            // Only move the gather-confirmation flag when the caller actually
+            // sent it (nullable) — an ordinary shopping-list save omits it and
+            // must not reset a household that already confirmed it's stocked.
+            if (incoming.getSuppliesGathered() != null) {
+                existing.setSuppliesGathered(incoming.getSuppliesGathered());
+            }
             if (hh != null) existing.setHouseholdId(hh);
 
             // Replace child collection safely (orphanRemoval=true, cascade=ALL).
@@ -95,6 +101,9 @@ public class MealPlanDataService {
         existing.setPlanDuration(payload.getPlanDuration());
         existing.setNumberOfMenuOptions(payload.getNumberOfMenuOptions());
         existing.setSelectedItemsJson(payload.getSelectedItemsJson());
+        if (payload.getSuppliesGathered() != null) {
+            existing.setSuppliesGathered(payload.getSuppliesGathered());
+        }
         if (existing.getHouseholdId() == null) {
             existing.setHouseholdId(householdResolver.baseHouseholdIdFor(email));
         }

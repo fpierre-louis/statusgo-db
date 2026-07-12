@@ -48,9 +48,15 @@ class HomeStockpileServiceTest {
     @Mock FoodPlanCalculatorService foodPlanCalculatorService;
     @Mock HomeStockpileItemRepo stockpileItemRepo;
     @Mock io.sitprep.sitprepapi.websocket.WebSocketMessageSender ws;
+    @Mock SupplyProductCatalog supplyCatalog;
+    @Mock CommerceSuppressionService commerceSuppression;
 
     private HomeStockpileService service() {
-        return new HomeStockpileService(demographicRepo, foodPlanCalculatorService, stockpileItemRepo, ws);
+        // supplyCatalog.byKey(...) returns Optional.empty() by Mockito default and
+        // commerceSuppression.suppressionReason(...) returns null, so items ship
+        // with no links and not-suppressed — the assertions below are unaffected.
+        return new HomeStockpileService(demographicRepo, foodPlanCalculatorService,
+                stockpileItemRepo, ws, supplyCatalog, commerceSuppression);
     }
 
     private static Demographic demo(int adults, int teens, int kids, int infants,

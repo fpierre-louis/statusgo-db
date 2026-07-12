@@ -44,6 +44,20 @@ public class MealPlanData {
     @Column(name = "selected_items_json", columnDefinition = "TEXT")
     private String selectedItemsJson;
 
+    // Three-state Food Planner completion (2026-07-11). A plan can exist
+    // (menus + duration + shopping list) yet the household hasn't actually
+    // ACQUIRED the food. This flag captures the user's explicit "I've gathered
+    // these supplies" confirmation from the end of the shopping-list step, so
+    // the dashboard can show: no plan (grey) -> plan built / not gathered
+    // (yellow) -> stocked (green). Household-scoped like the rest of the row.
+    //
+    // Nullable on purpose: an ordinary "Save shopping list" omits the field, so
+    // upsert leaves the prior value alone (null != a real false). Only the
+    // explicit gather-confirmation toggle sends true/false. Treated as false
+    // when null everywhere it's read.
+    @Column(name = "supplies_gathered")
+    private Boolean suppliesGathered;
+
     public void setId(Long id) {
         this.id = id;
     }
@@ -87,6 +101,10 @@ public class MealPlanData {
 
     public void setSelectedItemsJson(String selectedItemsJson) {
         this.selectedItemsJson = selectedItemsJson;
+    }
+
+    public void setSuppliesGathered(Boolean suppliesGathered) {
+        this.suppliesGathered = suppliesGathered;
     }
 
     @Override
