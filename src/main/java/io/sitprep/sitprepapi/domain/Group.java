@@ -232,6 +232,55 @@ public class Group {
     @Column(name = "agency_authorized", columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean agencyAuthorized = false;
 
+    // -----------------------------------------------------------------
+    // Multi-tenant claim lifecycle — Phase 1 (V43__unified_workorder_schema).
+    // A "ghost" group is a placeholder for a civic entity that residents have
+    // filed against but which has not onboarded. See DOCS_GROWTH_MONETIZATION.md
+    // (consent-based redesign) for the full lifecycle + invite worker.
+    // -----------------------------------------------------------------
+
+    /**
+     * Claim lifecycle state: CLAIMED (default — a normal owned group), GHOST
+     * (unclaimed civic target a resident filed against), or INVITED (a single
+     * consent-gated claim invite has been sent). Provisioning via the existing
+     * VerificationApplication pipeline returns it to CLAIMED.
+     */
+    @Column(name = "claim_state", length = 16, columnDefinition = "varchar(16) NOT NULL DEFAULT 'CLAIMED'")
+    private String claimState = "CLAIMED";
+
+    /**
+     * Aggregate, non-PII count of distinct residents waiting on this unclaimed
+     * civic target. Drives whether a claim invite is worth sending. 0 for every
+     * normal (non-ghost) group.
+     */
+    @Column(name = "ghost_demand_signal", nullable = false,
+            columnDefinition = "integer NOT NULL DEFAULT 0")
+    private int ghostDemandSignal = 0;
+
+    // Ghost Tenant outreach (Phase 3 — V46__ghost_tenant_outreach_tracking).
+    // Consent-first: outreach is only ever emailed to officialContactEmail (a
+    // human-verified official channel), at most weekly, capped at
+    // GhostTenantService.OUTREACH_LIFETIME_CAP sends, and never again once
+    // outreachOptOut is set. NO scraping, NO social-media tagging anywhere.
+
+    /** Human-verified official contact channel for claim outreach. Null until a human sets it. */
+    @Column(name = "official_contact_email", length = 320)
+    private String officialContactEmail;
+
+    /** Permanent one-click opt-out. When true the outreach worker skips this group forever. */
+    @Column(name = "outreach_opt_out", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean outreachOptOut = false;
+
+    /** When the last outreach email was sent; NULL = never contacted. Gates the weekly cadence. */
+    @Column(name = "last_outreach_date")
+    private Instant lastOutreachDate;
+
+    /** Lifetime count of outreach emails sent to this ghost group. Capped by the worker. */
+    @Column(name = "outreach_count", nullable = false,
+            columnDefinition = "integer NOT NULL DEFAULT 0")
+    private int outreachCount = 0;
+
     /**
      * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
      * {@code stripeCustomerId} is the group's Stripe Customer (the
