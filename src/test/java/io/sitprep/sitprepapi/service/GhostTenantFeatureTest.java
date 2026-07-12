@@ -1,9 +1,13 @@
 package io.sitprep.sitprepapi.service;
 
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.exception.InvalidTokenException;
 import io.sitprep.sitprepapi.repo.GhostDemandVoteRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.resource.GhostTenantResource;
+import io.sitprep.sitprepapi.resource.PublicOutreachResource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +40,8 @@ class GhostTenantFeatureTest {
     @Autowired GhostDemandVoteRepo voteRepo;
     @Autowired GhostTenantService ghostTenantService;
     @Autowired GhostTenantResource ghostTenantResource;
+    @Autowired OutreachTokenService outreachTokenService;
+    @Autowired PublicOutreachResource publicOutreachResource;
 
     @AfterEach
     void clearAuth() {
@@ -167,5 +173,76 @@ class GhostTenantFeatureTest {
         }
 
         assertThat(reload(g.getGroupId()).getOutreachCount()).isEqualTo(3); // never exceeds LIFETIME_CAP
+    }
+
+    // ── Tokenized one-click opt-out ─────────────────────────────────────────
+
+    @Test
+    void optOutToken_roundtrips_to_its_groupId() {
+        Group g = newGroup("GHOST");
+        String token = outreachTokenService.generateToken(g.getGroupId(), "mayor@testville.gov");
+        assertThat(outreachTokenService.validateAndExtractGroupId(token)).isEqualTo(g.getGroupId());
+    }
+
+    @Test
+    void optOut_publicEndpoint_setsFlagTrue() {
+        Group g = newGroup("GHOST");
+        g.setOfficialContactEmail("mayor@testville.gov");
+        g.setGhostDemandSignal(3);
+        groupRepo.saveAndFlush(g);
+
+        String token = outreachTokenService.generateToken(g.getGroupId(), "mayor@testville.gov");
+        ResponseEntity<String> resp = publicOutreachResource.optOut(token);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(reload(g.getGroupId()).isOutreachOptOut()).isTrue();
+    }
+
+    @Test
+    void optOut_publicEndpoint_isIdempotent() {
+        Group g = newGroup("GHOST");
+        g.setOfficialContactEmail("mayor@testville.gov");
+        groupRepo.saveAndFlush(g);
+        String token = outreachTokenService.generateToken(g.getGroupId(), "mayor@testville.gov");
+
+        assertThat(publicOutreachResource.optOut(token).getStatusCode().value()).isEqualTo(200);
+        assertThat(publicOutreachResource.optOut(token).getStatusCode().value()).isEqualTo(200); // 2nd click still OK
+        assertThat(reload(g.getGroupId()).isOutreachOptOut()).isTrue();
+    }
+
+    @Test
+    void optOut_tamperedToken_isRejected_andLeavesFlagFalse() {
+        Group g = newGroup("GHOST");
+        g.setOfficialContactEmail("mayor@testville.gov");
+        groupRepo.saveAndFlush(g);
+
+        String valid = outreachTokenService.generateToken(g.getGroupId(), "mayor@testville.gov");
+        // Flip the final signature char — invalidates the HMAC (guaranteed different).
+        char last = valid.charAt(valid.length() - 1);
+        String tampered = valid.substring(0, valid.length() - 1) + (last == 'A' ? 'B' : 'A');
+
+        ResponseEntity<String> resp = publicOutreachResource.optOut(tampered);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);   // tamper => 400 Bad Request
+        assertThat(reload(g.getGroupId()).isOutreachOptOut()).isFalse(); // and NOT opted out
+    }
+
+    @Test
+    void optOutToken_forgedWithWrongSecret_throwsInvalidToken() {
+        Group g = newGroup("GHOST");
+        // A token signed with a secret we don't hold must never validate.
+        String forged = JWT.create()
+                .withIssuer("sitprep-outreach")
+                .withSubject(g.getGroupId())
+                .sign(Algorithm.HMAC256("attacker-secret"));
+
+        assertThatThrownBy(() -> outreachTokenService.validateAndExtractGroupId(forged))
+                .isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    void optOutToken_garbageInput_throwsInvalidToken() {
+        assertThatThrownBy(() -> outreachTokenService.validateAndExtractGroupId("not-a-real-token"))
+                .isInstanceOf(InvalidTokenException.class);
     }
 }

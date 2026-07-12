@@ -14,7 +14,11 @@ import org.springframework.stereotype.Component;
  * contend with the other schedulers on the small pool.
  *
  * <p>Privacy: this only ever triggers simulated emails to human-verified
- * official contacts. No scraping, no social-media APIs.</p>
+ * official contacts. No scraping, no social-media APIs. Each notice carries a
+ * stateless, HMAC-signed one-click opt-out link — assembled in
+ * {@link GhostTenantService#processOutreach()} via {@code OutreachTokenService}
+ * and served by {@code PublicOutreachResource} — so a recipient can permanently
+ * unsubscribe without ever creating an account.</p>
  */
 @Component
 public class GhostTenantOutreachWorker {

@@ -45,10 +45,14 @@ public class GhostTenantService {
 
     private final GroupRepo groupRepo;
     private final GhostDemandVoteRepo voteRepo;
+    private final OutreachTokenService outreachTokenService;
 
-    public GhostTenantService(GroupRepo groupRepo, GhostDemandVoteRepo voteRepo) {
+    public GhostTenantService(GroupRepo groupRepo,
+                              GhostDemandVoteRepo voteRepo,
+                              OutreachTokenService outreachTokenService) {
         this.groupRepo = groupRepo;
         this.voteRepo = voteRepo;
+        this.outreachTokenService = outreachTokenService;
     }
 
     /**
@@ -104,12 +108,18 @@ public class GhostTenantService {
 
         for (Group g : eligible) {
             int contactNumber = g.getOutreachCount() + 1;
+            // Stateless one-click opt-out link, embedded in every notice (Phase 3).
+            // The signed token is the group's authorisation to unsubscribe without
+            // ever logging in — see OutreachTokenService / PublicOutreachResource.
+            String optOutLink = outreachTokenService.buildOptOutLink(
+                    g.getGroupId(), g.getOfficialContactEmail());
             // SIMULATED send — no real email/scraping/social. Official channel only.
             log.info("[ghost-outreach] SIMULATED email -> official contact <{}> for ghost group {} ('{}'): "
                             + "{} resident(s) are waiting for you to claim this page. "
-                            + "Weekly cadence; contact {} of {} lifetime; one-click opt-out honoured.",
+                            + "Weekly cadence; contact {} of {} lifetime.\n"
+                            + "To opt out of future notices, click here: {}",
                     g.getOfficialContactEmail(), g.getGroupId(), g.getGroupName(),
-                    g.getGhostDemandSignal(), contactNumber, OUTREACH_LIFETIME_CAP);
+                    g.getGhostDemandSignal(), contactNumber, OUTREACH_LIFETIME_CAP, optOutLink);
 
             g.setOutreachCount(contactNumber);
             g.setLastOutreachDate(Instant.now());
@@ -120,5 +130,26 @@ public class GhostTenantService {
             log.info("[ghost-outreach] processed {} eligible ghost group(s).", eligible.size());
         }
         return eligible.size();
+    }
+
+    /**
+     * Permanently opt a group out of claim outreach. Backs the public one-click
+     * opt-out link; the caller ({@code PublicOutreachResource}) is responsible for
+     * having verified the signed token first, so {@code groupId} is trusted here.
+     * Idempotent — a second click on an already-opted-out group is a no-op.
+     *
+     * @throws IllegalArgumentException if no such group exists (a validly-signed
+     *         token for a since-deleted group → the resource maps this to 404).
+     */
+    @Transactional
+    public void optOutGroup(String groupId) {
+        Group group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("Group not found: " + groupId));
+        if (!group.isOutreachOptOut()) {
+            group.setOutreachOptOut(true);
+            groupRepo.save(group);
+            log.info("[ghost-outreach] group {} ('{}') opted OUT of claim outreach via one-click link.",
+                    group.getGroupId(), group.getGroupName());
+        }
     }
 }
