@@ -1,0 +1,22 @@
+-- V41 — Drop the orphaned meal_plan_ingredients_v2 table (fixes meal-plan-update 500).
+--
+-- V39/V40 replaced MealPlan.ingredients (an @ElementCollection onto
+-- meal_plan_ingredients_v2) with a native jsonb column
+-- (meal_plan_v2.ingredients_json), and left the old collection table in place —
+-- described at the time as "harmless, no longer mapped". It was NOT harmless: its
+-- foreign key to meal_plan_v2 is ON DELETE NO ACTION, and the meal-plan UPDATE
+-- path clears + re-inserts the menu rows (orphanRemoval → DELETE FROM
+-- meal_plan_v2). For any pre-jsonb menu that still had rows here, that delete hit
+-- a FK violation → PUT /api/mealPlans/{email} returned 500 for EVERY such plan
+-- (e.g. the "supplies gathered" toggle). Because the table is unmapped, Hibernate
+-- never cleaned its rows before deleting the parent menu, unlike the still-mapped
+-- meal_plan_meals_v2 (@ElementCollection).
+--
+-- The table holds only stale pre-jsonb ingredient lists, fully superseded by the
+-- jsonb column (and FoodPlanCalculatorService derives ingredients from meal names
+-- regardless), so dropping it is safe and loses nothing functional. Idempotent
+-- (IF EXISTS) so it is a no-op on environments where the table was already
+-- dropped manually or never existed. Plain transactional DDL — no
+-- CREATE INDEX CONCURRENTLY, so it cannot hit the prod statement_timeout trap.
+
+DROP TABLE IF EXISTS meal_plan_ingredients_v2;
