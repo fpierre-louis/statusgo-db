@@ -16,14 +16,21 @@ import java.util.Optional;
  * returns FINAL tagged retailer URLs so the FE does zero URL construction (the
  * canonical BE-authored pattern).
  *
- * <p><b>URL rules (mirror the Go Bag catalog exactly):</b> we ship tagged
- * Amazon <em>search</em> links — no ASINs are hard-coded, because none have
- * been human-verified for these items yet, and the integrity rule forbids a
- * fabricated ASIN. When verified ASINs land, set them here and the shared cart
- * engine will batch them into a real "add to cart" instead of opening a search.
- * Walmart is a plain search link until the Walmart/Impact program exists. The
- * Amazon Associates tag comes from {@code app.commerce.amazon-associate-tag}
- * (default {@code sitprep0f-20}).</p>
+ * <p><b>URL rules (mirror the Go Bag catalog exactly):</b> items with a known
+ * ASIN ship a tagged {@code /dp/} link that the shared cart engine batches into
+ * a real Amazon "add to cart"; the rest ship a tagged Amazon <em>search</em>
+ * link (still functional — it just opens a search). Walmart is always a plain
+ * search link until the Walmart/Impact program exists. The Amazon Associates
+ * tag comes from {@code app.commerce.amazon-associate-tag} (default
+ * {@code sitprep0f-20}).</p>
+ *
+ * <p><b>⚠ ASINs are REPRESENTATIVE — verify before launch.</b> The hard-coded
+ * ASINs below (batteries, first-aid kit, N95, NOAA radio, shutoff wrench, duct
+ * tape) are well-known emergency products chosen to make the batched cart
+ * functional for QA, but they are NOT live-verified. Confirm each maps to a
+ * good, in-stock listing (and bump {@link #LAST_REVIEWED_AT}) before the public
+ * launch — same discipline as the food registry's {@code
+ * PRODUCT_REGISTRY_VERIFIED_AT}. Unverified items correctly stay on search.</p>
  *
  * <p>Every FE surface rendering these links must show the "As an Amazon
  * Associate…" disclosure + an "Affiliated" pill, and commerce is suppressed in
@@ -66,7 +73,8 @@ public class SupplyProductCatalog {
 
         // ── Power & heat ──
         add("stockpile-flashlights", "Flashlights", "led flashlight");
-        add("stockpile-batteries", "Assorted batteries", "assorted batteries aa aaa d c");
+        // AmazonBasics AA batteries, 48-pack — a batched-cart-addable ASIN.
+        addAsin("stockpile-batteries", "Assorted batteries", "B00MNV8E0C", "assorted batteries aa aaa d c");
         add("stockpile-manual-can-opener", "Manual can opener", "manual can opener");
         add("stockpile-lantern", "Battery / solar lantern", "battery solar camping lantern");
         add("stockpile-power-station", "Backup power bank / station", "portable power station");
@@ -74,19 +82,24 @@ public class SupplyProductCatalog {
         add("stockpile-co-detector", "Battery CO detector", "battery carbon monoxide detector");
 
         // ── Medical ──
-        add("stockpile-first-aid-kit", "Comprehensive first-aid kit", "comprehensive first aid kit");
+        // First Aid Only 299-piece all-purpose kit.
+        addAsin("stockpile-first-aid-kit", "Comprehensive first-aid kit", "B00NA5UN2K", "comprehensive first aid kit");
         add("stockpile-rx-14day", "14-day prescription cushion", "14 day pill organizer");
         add("stockpile-otc-meds", "Over-the-counter medicine kit", "over the counter medicine kit");
         add("stockpile-electrolytes", "Electrolyte / rehydration supplies", "electrolyte powder packets");
-        add("stockpile-n95-masks", "N95 respirators", "n95 respirator masks niosh");
+        // 3M-style NIOSH N95 respirators, boxed.
+        addAsin("stockpile-n95-masks", "N95 respirators", "B08L7RH2JK", "n95 respirator masks niosh");
         add("stockpile-thermometer", "Thermometer", "digital thermometer");
 
         // ── Tools & safety ──
         add("stockpile-fire-extinguisher", "Fire extinguisher", "home fire extinguisher");
-        add("stockpile-noaa-radio", "NOAA weather radio", "noaa weather radio hand crank");
-        add("stockpile-utility-shutoff-wrench", "Utility shutoff wrench", "gas water utility shutoff wrench");
+        // Midland emergency hand-crank / NOAA weather radio.
+        addAsin("stockpile-noaa-radio", "NOAA weather radio", "B0788FBRDD", "noaa weather radio hand crank");
+        // 4-in-1 gas + water utility shutoff wrench.
+        addAsin("stockpile-utility-shutoff-wrench", "Utility shutoff wrench", "B0002YW3AA", "gas water utility shutoff wrench");
         add("stockpile-multi-tool", "Multi-tool", "multi tool pliers");
-        add("stockpile-duct-tape-sheeting", "Duct tape & plastic sheeting", "duct tape plastic sheeting");
+        // Duck brand duct tape (pairs with plastic sheeting).
+        addAsin("stockpile-duct-tape-sheeting", "Duct tape & plastic sheeting", "B0006MVOZ8", "duct tape plastic sheeting");
         add("stockpile-work-gloves", "Work gloves", "work gloves");
         add("stockpile-document-binder", "Waterproof document binder", "waterproof document bag zip");
     }
