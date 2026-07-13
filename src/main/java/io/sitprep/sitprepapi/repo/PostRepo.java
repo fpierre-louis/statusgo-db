@@ -37,6 +37,15 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                                @Param("minLng") double minLng,
                                @Param("maxLng") double maxLng);
 
+    /**
+     * Metered monetization — count of group-scoped work orders a group has
+     * created since {@code since} (start of the current billing month). Drives
+     * {@code WorkOrderQuotaService}'s per-tier monthly cap. Only {@code
+     * kind="task"} rows are counted; personal (groupId null) and civic-report
+     * kinds are never metered.
+     */
+    long countByGroupIdAndKindAndCreatedAtGreaterThanEqual(String groupId, String kind, Instant since);
+
     // ---------------------------------------------------------------------
     // Conditional status transitions (audit DB-03, C-3).
     //
@@ -188,6 +197,9 @@ public interface PostRepo extends JpaRepository<Post, Long> {
 
     /** Anything the user has claimed (across groups). */
     List<Post> findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(String claimedByEmail);
+
+    /** Anything assigned to the user (group push flow) — backs /me/posts?role=assignee. */
+    List<Post> findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(String assigneeEmail);
 
     /**
      * Community-scope candidates: groupId IS NULL plus zip-bucket pre-filter.

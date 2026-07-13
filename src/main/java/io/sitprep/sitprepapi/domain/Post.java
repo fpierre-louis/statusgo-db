@@ -103,7 +103,7 @@ public class Post {
     private Instant assignedAt;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @Column(nullable = false, length = 32)
     private PostStatus status;
 
     @Enumerated(EnumType.STRING)
@@ -386,6 +386,59 @@ public class Post {
     @Column(name = "source_post_id")
     private Long sourcePostId;
 
+    // -----------------------------------------------------------------
+    // Unified Work Order fields — Phase 1 (V43__unified_workorder_schema).
+    // Ported from the deleted legacy disaster-relief intake flow
+    // (src/shared/tasks/Request/* @ commit 258adaf26). All additive +
+    // nullable/defaulted; meaningful only on group/agency work orders,
+    // inert on personal preparedness tasks and every non-task kind.
+    // -----------------------------------------------------------------
+
+    // --- Legacy hazard / triage (from WorkInfoForm.js) ---
+    @Column(name = "near_power_lines", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean nearPowerLines = false;
+
+    @Column(name = "electrical_hazard", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean electricalHazard = false;
+
+    /** Free-form water-level note at the site (e.g. "ankle", "knee-deep"). */
+    @Column(name = "water_level", length = 32)
+    private String waterLevel;
+
+    /** Tri-state: null = unknown, TRUE = safe to enter, FALSE = not safe. */
+    @Column(name = "safe_to_enter")
+    private Boolean safeToEnter;
+
+    // --- Liability / release (from ReleaseForm.js) ---
+    /**
+     * Whether this work order requires a signed liability waiver before it may
+     * be actioned. Default false — personal tasks and every legacy row are
+     * ungated. When true, {@code ck_task_liability_gate} forbids the row from
+     * resting in IN_PROGRESS / VERIFICATION_PENDING / CLOSED / DONE unless
+     * {@link #releaseSigned} is true OR {@link #releaseExceptionReason} is set.
+     */
+    @Column(name = "liability_required", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean liabilityRequired = false;
+
+    @Column(name = "release_signed", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean releaseSigned = false;
+
+    /** SHA-256 (hex) of the exact waiver copy the requester agreed to. */
+    @Column(name = "release_text_hash", length = 64)
+    private String releaseTextHash;
+
+    /**
+     * The legacy "requester did not sign" escape hatch — a required reason
+     * (not present / refused / language barrier). A non-null value satisfies
+     * the liability gate without a signature.
+     */
+    @Column(name = "release_exception_reason", length = 500)
+    private String releaseExceptionReason;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
@@ -401,7 +454,15 @@ public class Post {
     }
 
     public enum PostStatus {
-        OPEN, CLAIMED, IN_PROGRESS, DONE, CANCELLED
+        // Original 5-state lifecycle (unchanged; DONE retained as a terminal
+        // alias of CLOSED for back-compat with existing rows).
+        OPEN, CLAIMED, IN_PROGRESS, DONE, CANCELLED,
+        // Unified work-order state machine additions (Phase 1). DRAFT and
+        // LIABILITY_PENDING bracket the front of the flow; VERIFICATION_PENDING
+        // and CLOSED bracket the back. Liability-gated tasks cannot reach
+        // IN_PROGRESS / VERIFICATION_PENDING / CLOSED / DONE unsigned — enforced
+        // by ck_task_liability_gate (V43), not just here.
+        DRAFT, LIABILITY_PENDING, VERIFICATION_PENDING, CLOSED
     }
 
     public enum PostPriority {

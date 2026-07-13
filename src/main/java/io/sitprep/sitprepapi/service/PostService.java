@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException;
 import io.sitprep.sitprepapi.constant.CivicCategory;
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.constant.OfficialTier;
@@ -83,6 +84,7 @@ public class PostService {
     private final AgencyAuthorizationService agencyAuthorizationService;
     private final PostConfirmRepo postConfirmRepo;
     private final AskBookmarkRepo askBookmarkRepo;
+    private final WorkOrderQuotaService workOrderQuotaService;
 
     public record PostSharePreview(
             String title,
@@ -103,7 +105,8 @@ public class PostService {
                        PublisherPublishAuditService publisherPublishAuditService,
                        AgencyAuthorizationService agencyAuthorizationService,
                        PostConfirmRepo postConfirmRepo,
-                       AskBookmarkRepo askBookmarkRepo) {
+                       AskBookmarkRepo askBookmarkRepo,
+                       WorkOrderQuotaService workOrderQuotaService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -119,6 +122,7 @@ public class PostService {
         this.agencyAuthorizationService = agencyAuthorizationService;
         this.postConfirmRepo = postConfirmRepo;
         this.askBookmarkRepo = askBookmarkRepo;
+        this.workOrderQuotaService = workOrderQuotaService;
     }
 
     /**
@@ -434,6 +438,17 @@ public class PostService {
         t.setDescription(incoming.getDescription());
         t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : PostStatus.OPEN);
         t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Post.PostPriority.MEDIUM);
+        // Unified work-order fields (V43). Additive; inert on non-task kinds.
+        // liabilityRequired flags a work order that must capture a signed
+        // release before it can move to IN_PROGRESS / VERIFICATION_PENDING /
+        // CLOSED / DONE (enforced by assertLiabilitySatisfied + the
+        // ck_task_liability_gate DB constraint). Triage fields carry the
+        // legacy disaster-relief hazard context.
+        t.setLiabilityRequired(incoming.isLiabilityRequired());
+        t.setNearPowerLines(incoming.isNearPowerLines());
+        t.setElectricalHazard(incoming.isElectricalHazard());
+        t.setWaterLevel(blankToNull(incoming.getWaterLevel()));
+        t.setSafeToEnter(incoming.getSafeToEnter());
         GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
@@ -550,6 +565,15 @@ public class PostService {
             } catch (Exception e) {
                 log.debug("Post geo enrichment failed: {}", e.getMessage());
             }
+        }
+
+        // Metered monetization (Phase 2) — a group-scoped work order counts
+        // against the owning group's monthly plan allowance. Personal tasks
+        // (groupId null) and civic-report kinds are never metered. A group at
+        // its cap gets a 402 here, before the row is persisted.
+        if (t.getGroupId() != null && "task".equals(t.getKind())) {
+            groupRepo.findByGroupId(t.getGroupId())
+                    .ifPresent(workOrderQuotaService::assertQuota);
         }
 
         publisherPublishAuditService.requirePublisherPostAllowed(
@@ -817,6 +841,18 @@ public class PostService {
         if (email == null || email.isBlank()) return List.of();
         // Claimer is the viewer for this surface (same reasoning as listRequestedBy).
         List<PostDto> dtos = taskRepo.findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(PostDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
+    }
+
+    /**
+     * Tasks assigned to the user (group push flow — {@code assigneeEmail}).
+     * Backs {@code GET /api/me/posts?role=assignee}, the third arm of the
+     * unified "my work" union (requester ∪ claimer ∪ assignee).
+     */
+    public List<PostDto> listAssignedTo(String email) {
+        if (email == null || email.isBlank()) return List.of();
+        List<PostDto> dtos = taskRepo.findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
     }
@@ -1182,7 +1218,8 @@ public class PostService {
      */
     @Transactional
     public PostDto markInProgress(Long postId) {
-        mustExist(postId);
+        Post t = mustExist(postId);
+        assertLiabilitySatisfied(t, PostStatus.IN_PROGRESS);
         int rows = taskRepo.transitionToInProgress(postId,
                 EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED),
                 PostStatus.IN_PROGRESS);
@@ -1196,7 +1233,8 @@ public class PostService {
     /** Claimer or assignee marks complete. */
     @Transactional
     public PostDto complete(Long postId) {
-        mustExist(postId);
+        Post t = mustExist(postId);
+        assertLiabilitySatisfied(t, PostStatus.DONE);
         int rows = taskRepo.transitionComplete(postId, PostStatus.DONE, Instant.now(),
                 EnumSet.of(PostStatus.DONE, PostStatus.CANCELLED));
         if (rows == 0) {
@@ -1225,6 +1263,65 @@ public class PostService {
             throw new IllegalStateException("Only cancelled tasks can be reopened");
         }
         return refetchAndBroadcast(postId);
+    }
+
+    // -----------------------------------------------------------------
+    // Liability gate — Phase 2. Application-layer twin of the
+    // ck_task_liability_gate DB CHECK (V43). A liability-required work
+    // order may not advance into an operational/terminal state until a
+    // release is captured (signed, or a documented signing exception).
+    // -----------------------------------------------------------------
+
+    /** The states a liability-gated task must not enter unsatisfied. */
+    private static final EnumSet<PostStatus> LIABILITY_GATED_STATES = EnumSet.of(
+            PostStatus.IN_PROGRESS, PostStatus.VERIFICATION_PENDING,
+            PostStatus.CLOSED, PostStatus.DONE);
+
+    /**
+     * Assert the liability gate for a target transition. No-op unless the task
+     * both {@code liabilityRequired} and is moving into a gated state; then it
+     * requires {@code releaseSigned == true} OR a non-blank
+     * {@code releaseExceptionReason}.
+     *
+     * @throws LiabilityNotAcceptedException (→ 409) when the gate is unmet
+     */
+    private void assertLiabilitySatisfied(Post t, PostStatus target) {
+        if (t == null || !t.isLiabilityRequired()) return;
+        if (!LIABILITY_GATED_STATES.contains(target)) return;
+        boolean satisfied = t.isReleaseSigned()
+                || (t.getReleaseExceptionReason() != null && !t.getReleaseExceptionReason().isBlank());
+        if (!satisfied) {
+            throw new LiabilityNotAcceptedException(
+                    "This work order requires a signed liability waiver before it can move to "
+                    + target + ". Capture the release (or a documented signing exception) first.");
+        }
+    }
+
+    /**
+     * Capture the liability release for a work order (POST /api/posts/{id}/release).
+     * Idempotent — re-submitting the same payload yields the same persisted
+     * state. Caller authorization is enforced at the resource layer.
+     *
+     * @param releaseSigned          true when the requester signed/accepted
+     * @param releaseTextHash        SHA-256 of the exact waiver copy shown (optional)
+     * @param releaseExceptionReason required when {@code releaseSigned} is false —
+     *                               the documented reason no signature was captured
+     * @throws IllegalArgumentException (→ 400) when unsigned with no reason
+     */
+    @Transactional
+    public PostDto acceptRelease(Long postId, boolean releaseSigned,
+                                 String releaseTextHash, String releaseExceptionReason) {
+        Post t = mustExist(postId);
+        String reason = blankToNull(releaseExceptionReason);
+        if (!releaseSigned && reason == null) {
+            throw new IllegalArgumentException(
+                    "A release exception reason is required when the waiver is not signed.");
+        }
+        t.setReleaseSigned(releaseSigned);
+        t.setReleaseTextHash(blankToNull(releaseTextHash));
+        t.setReleaseExceptionReason(reason);
+        Post saved = taskRepo.save(t);
+        return PostDto.fromEntity(saved);
     }
 
     /**

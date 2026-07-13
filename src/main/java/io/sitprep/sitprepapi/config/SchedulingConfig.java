@@ -33,15 +33,15 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 public class SchedulingConfig implements SchedulingConfigurer {
 
     /**
-     * Pool size 3 — AlertIngestService.scheduledPoll(), the reminder/retention
-     * sweeps, and the go-bag expiry sweep (all daily {@code fixedDelay} jobs
-     * that stagger via distinct initialDelays, so they rarely overlap). Bump
-     * when adding more periodic work.
+     * Pool size 4 — AlertIngestService.scheduledPoll(), the reminder/retention
+     * sweeps, the go-bag expiry sweep, and GhostTenantOutreachWorker (all daily
+     * {@code fixedDelay} jobs that stagger via distinct initialDelays, so they
+     * rarely overlap). Bump when adding more periodic work.
      */
     @Bean(destroyMethod = "shutdown")
     public ThreadPoolTaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler s = new ThreadPoolTaskScheduler();
-        s.setPoolSize(3);
+        s.setPoolSize(4);
         s.setThreadNamePrefix("sitprep-sched-");
         s.setWaitForTasksToCompleteOnShutdown(true);
         s.setAwaitTerminationSeconds(20);

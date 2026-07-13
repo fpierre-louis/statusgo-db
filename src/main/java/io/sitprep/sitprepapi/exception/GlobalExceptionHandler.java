@@ -104,6 +104,37 @@ public class GlobalExceptionHandler {
                         "Resource was modified by another request. Reload and retry."));
     }
 
+    /**
+     * Metered-monetization block — a group hit its monthly work-order
+     * allowance. Surfaced as 402 Payment Required with a stable
+     * {@code QUOTA_EXCEEDED} code so the FE can route straight to the
+     * upgrade / Stripe Checkout flow rather than treating it as a generic
+     * error. See WorkOrderQuotaService + DOCS_GROWTH_MONETIZATION.md.
+     */
+    @ExceptionHandler(io.sitprep.sitprepapi.exception.QuotaExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleQuotaExceeded(
+            io.sitprep.sitprepapi.exception.QuotaExceededException ex, HttpServletRequest req) {
+        log.warn("Work-order quota exceeded on {} {}: {}",
+                req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                .body(buildErrorBody("QUOTA_EXCEEDED", ex.getMessage(), req));
+    }
+
+    /**
+     * Liability gate — a work order that requires a signed waiver was asked to
+     * advance without one. 409 Conflict with a stable
+     * {@code LIABILITY_NOT_ACCEPTED} code. Mirrors the {@code ck_task_liability_gate}
+     * DB constraint at the application layer with a clean client message.
+     */
+    @ExceptionHandler(io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException.class)
+    public ResponseEntity<Map<String, Object>> handleLiabilityNotAccepted(
+            io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException ex, HttpServletRequest req) {
+        log.warn("Liability gate blocked transition on {} {}: {}",
+                req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(buildErrorBody("LIABILITY_NOT_ACCEPTED", ex.getMessage(), req));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleAllUncaughtException(Exception ex, HttpServletRequest req) {
         // Catch-all for anything that escaped the more-specific handlers above.

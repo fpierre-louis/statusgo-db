@@ -142,9 +142,14 @@ public class PostResource {
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role
     ) {
         String me = AuthUtils.requireAuthenticatedEmail();
-        List<PostDto> result = "claimer".equalsIgnoreCase(role)
-                ? tasks.listClaimedBy(me)
-                : tasks.listRequestedBy(me);
+        List<PostDto> result;
+        if ("assignee".equalsIgnoreCase(role)) {
+            result = tasks.listAssignedTo(me);
+        } else if ("claimer".equalsIgnoreCase(role)) {
+            result = tasks.listClaimedBy(me);
+        } else {
+            result = tasks.listRequestedBy(me);
+        }
         return ResponseEntity.ok(ApiResponse.ok(result, ApiMeta.now()));
     }
 
@@ -317,8 +322,27 @@ public class PostResource {
                 tasks.updateCivicStatus(id, req.status(), req.note(), me), ApiMeta.now()));
     }
 
+    // -----------------------------------------------------------------
+    // Liability release — Phase 2. Captures the waiver acceptance (or a
+    // documented signing exception) so a liability-gated work order can
+    // advance. Idempotent: re-POSTing the same payload is a no-op re-save.
+    // -----------------------------------------------------------------
+
+    @PostMapping("/api/posts/{id}/release")
+    public ResponseEntity<ApiResponse<PostDto>> acceptRelease(@PathVariable Long id,
+                                                              @RequestBody(required = false) ReleaseRequest req) {
+        // Only someone entitled to sign/override for THIS task may capture it.
+        ensureCanSignRelease(id);
+        boolean signed = req != null && Boolean.TRUE.equals(req.releaseSigned());
+        String hash = req == null ? null : req.releaseTextHash();
+        String reason = req == null ? null : req.releaseExceptionReason();
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.acceptRelease(id, signed, hash, reason), ApiMeta.now()));
+    }
+
     public record SaveResult(boolean viewerSaved) {}
     public record CivicStatusRequest(String status, String note) {}
+    public record ReleaseRequest(Boolean releaseSigned, String releaseTextHash, String releaseExceptionReason) {}
 
     // -----------------------------------------------------------------
     // Authorization helpers
@@ -370,6 +394,39 @@ public class PostResource {
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Only the task claimer, assignee, or a group admin can update it");
+    }
+
+    /**
+     * Caller must be entitled to capture the liability release for a task.
+     * Entitled roles: the requester (the property owner / person the work is
+     * for), the claimer, the assignee, or an admin/owner of the task's group —
+     * i.e. anyone who could legitimately witness the release or sign on the
+     * requester's behalf in the field. Throws 401 / 403 / 404.
+     */
+    private String ensureCanSignRelease(Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Post t = existing.get();
+        if (caller.equalsIgnoreCase(t.getRequesterEmail())
+                || caller.equalsIgnoreCase(t.getClaimedByEmail())
+                || caller.equalsIgnoreCase(t.getAssigneeEmail())) {
+            return caller;
+        }
+        String groupId = t.getGroupId();
+        if (groupId != null && !groupId.isBlank()) {
+            try {
+                Group g = groupService.getGroupByPublicId(groupId);
+                boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+                boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+                if (isOwner || isAdmin) return caller;
+            } catch (RuntimeException ignored) {
+                // group lookup failed — fall through to 403
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only the requester, claimer, assignee, or a group admin can capture the liability release");
     }
 
     /**

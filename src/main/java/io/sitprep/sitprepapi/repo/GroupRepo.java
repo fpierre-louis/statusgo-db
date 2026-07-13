@@ -137,4 +137,26 @@ public interface GroupRepo extends JpaRepository<Group, String> {
         "ORDER BY g.alertActivatedAt ASC"
     )
     List<Group> findActiveAlertsForReminderSweep(org.springframework.data.domain.Pageable page);
+
+    /**
+     * Ghost groups eligible for a claim-outreach email (Phase 3). Encodes the
+     * consent-first policy directly in the query so the worker can't accidentally
+     * over-contact: only GHOST groups that (a) have residents waiting
+     * (ghost_demand_signal &gt; 0), (b) haven't opted out, (c) are under the
+     * lifetime cap, (d) have a human-verified official contact to email, and
+     * (e) are past the weekly cadence (never contacted, or last contact before
+     * {@code cutoff}). Oldest-first so a backlog drains FIFO.
+     */
+    @Query("""
+        SELECT g FROM Group g
+         WHERE g.claimState = 'GHOST'
+           AND g.ghostDemandSignal > 0
+           AND g.outreachOptOut = false
+           AND g.outreachCount < :cap
+           AND g.officialContactEmail IS NOT NULL
+           AND (g.lastOutreachDate IS NULL OR g.lastOutreachDate < :cutoff)
+         ORDER BY g.lastOutreachDate ASC NULLS FIRST, g.ghostDemandSignal DESC
+        """)
+    List<Group> findGhostOutreachEligible(@Param("cap") int cap,
+                                          @Param("cutoff") java.time.Instant cutoff);
 }

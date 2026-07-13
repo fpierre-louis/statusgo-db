@@ -210,7 +210,20 @@ public record PostDto(
          * keys card chrome off {@code community.feedItemType} and each
          * existing PostDto constructor site threads a single extra arg.
          */
-        CommunityExtras community
+        CommunityExtras community,
+        // Unified work-order fields (Phase 1). Flat so the FE reads
+        // task.liabilityRequired / task.nearPowerLines etc. directly.
+        // Meaningful on kind="task" work orders; default false / null on
+        // every other kind. safeToEnter is a nullable tri-state
+        // (null=unknown, true=yes, false=no).
+        boolean liabilityRequired,
+        boolean releaseSigned,
+        String releaseTextHash,
+        String releaseExceptionReason,
+        boolean nearPowerLines,
+        boolean electricalHazard,
+        String waterLevel,
+        Boolean safeToEnter
 ) {
 
     /** Per-type community-feed fields — see {@link #community}. */
@@ -301,7 +314,9 @@ public record PostDto(
                 thanksCount, viewerThanked, commentsCount,
                 reactionsByEmoji, viewerEmojis, latestCommentPreview,
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
-                assigneeEmail, parentPost, c);
+                assigneeEmail, parentPost, c,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter());
     }
 
     public record ParentPostPreview(
@@ -409,7 +424,9 @@ public record PostDto(
                 /* authoredAsGroupType */ null,
                 t.getAssigneeEmail(),
                 /* parentPost */ null,
-                CommunityExtras.fromEntity(t)
+                CommunityExtras.fromEntity(t),
+                t.isLiabilityRequired(), t.isReleaseSigned(), t.getReleaseTextHash(), t.getReleaseExceptionReason(),
+                t.isNearPowerLines(), t.isElectricalHazard(), t.getWaterLevel(), t.getSafeToEnter()
         );
     }
 
@@ -442,7 +459,9 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -511,7 +530,9 @@ public record PostDto(
                 authoredAsGroupType,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -539,7 +560,9 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -570,7 +593,9 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -598,7 +623,9 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -642,7 +669,9 @@ public record PostDto(
                 authoredAsGroupId, name, type,
                 assigneeEmail,
                 parentPost,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 
@@ -668,7 +697,9 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail,
                 preview,
-                community
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter()
         );
     }
 

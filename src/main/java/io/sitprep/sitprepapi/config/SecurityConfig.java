@@ -38,6 +38,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/ws/**", "/app/**", "/topic/**").permitAll()
+                        // Public, unauthenticated endpoints. Ghost-tenant opt-out
+                        // links (/api/public/outreach/opt-out) are clicked by
+                        // non-registered recipients who carry no Firebase token, so
+                        // this prefix must never require auth. Declared BEFORE the
+                        // general /api/** rule so it stays permitAll even when a
+                        // future phase flips /api/** to .authenticated(). Security on
+                        // these routes comes from the signed request payload (e.g.
+                        // the HMAC-signed outreach token), not the session.
+                        .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/api/**").permitAll()
                         .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().permitAll()
