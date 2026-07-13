@@ -502,7 +502,14 @@ public class Post {
         // and CLOSED bracket the back. Liability-gated tasks cannot reach
         // IN_PROGRESS / VERIFICATION_PENDING / CLOSED / DONE unsigned — enforced
         // by ck_task_liability_gate (V43), not just here.
-        DRAFT, LIABILITY_PENDING, VERIFICATION_PENDING, CLOSED
+        DRAFT, LIABILITY_PENDING, VERIFICATION_PENDING, CLOSED,
+        // Terminal archival state. A nightly sweep (WorkOrderArchivalService)
+        // flips work orders (kind="task") that have been DONE longer than the
+        // retention window (7d) to ARCHIVED so the primary operational list
+        // stays clean; the FE surfaces them behind an "Archive" filter. Stored
+        // in the same @Enumerated(STRING) VARCHAR(32) status column — no schema
+        // change, and it is not in ck_task_liability_gate's forbidden set.
+        ARCHIVED
     }
 
     public enum PostPriority {

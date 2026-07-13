@@ -124,6 +124,40 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                            @Param("completedAt") Instant completedAt,
                            @Param("forbidden") Set<PostStatus> forbidden);
 
+    /**
+     * Nightly auto-archival sweep — bulk-flip work orders that have been in the
+     * DONE status past the retention window to ARCHIVED in a single set-based
+     * UPDATE. Never loads the DONE set into the JVM heap (performance mandate).
+     *
+     * <p>Scoped to {@code kind = :kind} ("task") so the DONE status that
+     * marketplace listings reuse as "sold" is never swept. Ages off
+     * {@code completedAt} — the timestamp {@code transitionComplete} stamps on
+     * the DONE transition, i.e. genuinely "how long it's been DONE" — and falls
+     * back via {@code COALESCE} to {@code updatedAt} for any legacy DONE rows
+     * predating the {@code completedAt} column so they still age out. Uses a
+     * strict {@code <} so only rows STRICTLY older than the threshold archive.</p>
+     *
+     * <p>{@code @PreUpdate} does not fire on a bulk JPQL update, so
+     * {@code updatedAt} is set explicitly to keep the row's mtime honest.</p>
+     *
+     * @return the number of rows archived by this pass.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.status    = :archived,
+                  p.updatedAt = :now
+            WHERE p.kind = :kind
+              AND p.status = :done
+              AND COALESCE(p.completedAt, p.updatedAt) < :threshold
+           """)
+    int archiveStaleWorkOrders(@Param("done") PostStatus done,
+                               @Param("archived") PostStatus archived,
+                               @Param("kind") String kind,
+                               @Param("threshold") Instant threshold,
+                               @Param("now") Instant now);
+
     // Cancel also clears the claim metadata (claimedByGroupId / claimedByEmail
     // / claimedAt). Pre-fix: cancelled tasks kept the previous claimer's
     // identity, so DTOs / analytics / notifications showed a cancelled task as
