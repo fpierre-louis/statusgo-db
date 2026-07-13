@@ -198,6 +198,9 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     /** Anything the user has claimed (across groups). */
     List<Post> findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(String claimedByEmail);
 
+    /** Anything assigned to the user (group push flow) — backs /me/posts?role=assignee. */
+    List<Post> findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(String assigneeEmail);
+
     /**
      * Community-scope candidates: groupId IS NULL plus zip-bucket pre-filter.
      * Caller refines with Haversine in service-layer Java. The status filter

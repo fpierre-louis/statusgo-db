@@ -846,6 +846,18 @@ public class PostService {
     }
 
     /**
+     * Tasks assigned to the user (group push flow — {@code assigneeEmail}).
+     * Backs {@code GET /api/me/posts?role=assignee}, the third arm of the
+     * unified "my work" union (requester ∪ claimer ∪ assignee).
+     */
+    public List<PostDto> listAssignedTo(String email) {
+        if (email == null || email.isBlank()) return List.of();
+        List<PostDto> dtos = taskRepo.findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .map(PostDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
+    }
+
+    /**
      * Community feed with follow-merge — per
      * {@code docs/PROFILE_AND_FOLLOW.md} build-order step 4. Returns:
      * <ul>

@@ -142,9 +142,14 @@ public class PostResource {
             @RequestParam(value = "role", required = false, defaultValue = "requester") String role
     ) {
         String me = AuthUtils.requireAuthenticatedEmail();
-        List<PostDto> result = "claimer".equalsIgnoreCase(role)
-                ? tasks.listClaimedBy(me)
-                : tasks.listRequestedBy(me);
+        List<PostDto> result;
+        if ("assignee".equalsIgnoreCase(role)) {
+            result = tasks.listAssignedTo(me);
+        } else if ("claimer".equalsIgnoreCase(role)) {
+            result = tasks.listClaimedBy(me);
+        } else {
+            result = tasks.listRequestedBy(me);
+        }
         return ResponseEntity.ok(ApiResponse.ok(result, ApiMeta.now()));
     }
 
