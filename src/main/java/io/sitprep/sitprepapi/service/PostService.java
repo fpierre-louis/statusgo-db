@@ -458,10 +458,13 @@ public class PostService {
         // or an explicit root needType if the client sends one — so the column
         // stays authoritative for dispatch queries without trusting two sources.
         t.setNeedType(resolveNeedType(incoming));
-        // TODO: Phase 5 - Implement life-safety server-side derivation logic here
-        //   (compute dispatcherPriority / siteSafeToEnter / habitability /
-        //    damageSeverity from the authoritative work_details flags on write;
-        //    never trust a client-sent priority). See EXECUTION_GAME_PLAN_WIZARD.md §5.
+        // Delegation (Step 4): assign to a member at create when the wizard set
+        // one. The dedicated /assign endpoint remains the reassignment path.
+        t.setAssigneeEmail(blankToNull(incoming.getAssigneeEmail()));
+        // Phase 5 — server-side life-safety derivation. ZERO-TRUST: interrogates
+        // the authoritative work_details flags, escalating priority regardless of
+        // the client-submitted value, and stamps the derived safety snapshots.
+        deriveLifeSafety(t);
         GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
@@ -727,6 +730,105 @@ public class PostService {
             if (nt != null && !nt.toString().isBlank()) return nt.toString().trim();
         }
         return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 5 — server-side life-safety derivation (zero-trust escalation).
+    // -----------------------------------------------------------------------
+
+    /** Universal life-safety flags in work_details that force an emergency
+     *  escalation regardless of the client-submitted priority. */
+    private static final List<String> LIFE_SAFETY_FLAGS = List.of(
+            "occupantTrapped", "medicalPowerDependence", "gasLeakSuspected",
+            "downedPowerLine", "structurallyUnsafe", "hazmatSpillPresent",
+            "carbonMonoxideRisk");
+
+    /**
+     * Interrogate the authoritative {@code work_details} bag and:
+     * <ol>
+     *   <li><b>ZERO-TRUST escalation:</b> if ANY universal life-safety flag is
+     *       true, force the Post priority to {@code URGENT} (the highest state) —
+     *       the server has final say, overriding whatever the client sent;</li>
+     *   <li><b>Derived snapshots:</b> compute + stamp {@code siteSafeToEnter},
+     *       {@code habitability}, and {@code dispatcherPriority} back into the
+     *       bag. These are never trusted from the client; the server is their
+     *       sole author.</li>
+     * </ol>
+     * No-op on non-work-order rows (needType null) so plain community posts are
+     * untouched.
+     */
+    private void deriveLifeSafety(Post t) {
+        Map<String, Object> wd = t.getWorkDetails();
+        boolean anyLifeSafety = wd != null
+                && LIFE_SAFETY_FLAGS.stream().anyMatch(k -> boolTrue(wd.get(k)));
+
+        // (1) Zero-trust escalation — the server's final say on priority.
+        if (anyLifeSafety) {
+            t.setPriority(Post.PostPriority.URGENT);
+        }
+
+        // (2) Derived snapshots — only for actual work orders (needType present).
+        if (t.getNeedType() == null) return;
+
+        Map<String, Object> next = (wd == null) ? new LinkedHashMap<>() : new LinkedHashMap<>(wd);
+        next.put("siteSafeToEnter", deriveSiteSafeToEnter(next, t.getSafeToEnter(), t.isElectricalHazard()));
+        next.put("habitability", deriveHabitability(next, t.isElectricalHazard()));
+        next.put("dispatcherPriority", anyLifeSafety ? "emergency" : dispatcherFromPriority(t.getPriority()));
+        t.setWorkDetails(next);
+    }
+
+    /** "Do I send a crew, and with what precautions?" — the derived go/no-go. */
+    private static String deriveSiteSafeToEnter(Map<String, Object> wd, Boolean safeToEnterCol, boolean electricalHazardCol) {
+        if (boolTrue(wd.get("gasLeakSuspected")) || boolTrue(wd.get("downedPowerLine"))
+                || boolTrue(wd.get("structurallyUnsafe")) || boolTrue(wd.get("hazmatSpillPresent"))
+                || boolTrue(wd.get("carbonMonoxideRisk")) || boolTrue(wd.get("ceilingCollapseRisk"))
+                || "red".equals(str(wd.get("inspectionPlacardColor")))
+                || Boolean.FALSE.equals(safeToEnterCol)) {
+            return "unsafeDoNotEnter";
+        }
+        if (electricalHazardCol || boolTrue(wd.get("sewageContamination")) || boolTrue(wd.get("moldPresent"))
+                || boolTrue(wd.get("spillReachedWaterway")) || boolTrue(wd.get("standingWaterPresent"))
+                || "yellow".equals(str(wd.get("inspectionPlacardColor")))) {
+            return "cautionPpeRequired";
+        }
+        if (Boolean.TRUE.equals(safeToEnterCol)) return "safe";
+        return "needsAssessment";
+    }
+
+    /** "Can occupants safely remain?" — the derived habitability class. */
+    private static String deriveHabitability(Map<String, Object> wd, boolean electricalHazardCol) {
+        if (boolTrue(wd.get("structurallyUnsafe")) || boolTrue(wd.get("ceilingCollapseRisk"))
+                || "red".equals(str(wd.get("inspectionPlacardColor")))
+                || boolTrue(wd.get("gasLeakSuspected")) || boolTrue(wd.get("hazmatSpillPresent"))
+                || boolTrue(wd.get("carbonMonoxideRisk"))) {
+            return "uninhabitable";
+        }
+        if (boolTrue(wd.get("downedPowerLine")) || electricalHazardCol
+                || boolTrue(wd.get("sewageContamination")) || boolTrue(wd.get("standingWaterPresent"))
+                || boolTrue(wd.get("moldPresent")) || "yellow".equals(str(wd.get("inspectionPlacardColor")))) {
+            return "habitableWithCaution";
+        }
+        return "unknown";
+    }
+
+    /** Map the (post-escalation) Post priority to the dispatch-queue label. */
+    private static String dispatcherFromPriority(Post.PostPriority p) {
+        return switch (p == null ? Post.PostPriority.MEDIUM : p) {
+            case URGENT, HIGH -> "urgent";
+            case MEDIUM -> "routine";
+            case LOW -> "scheduled";
+        };
+    }
+
+    /** Lenient truthiness for a jsonb value (Boolean true or the string "true"). */
+    private static boolean boolTrue(Object v) {
+        if (v instanceof Boolean b) return b;
+        if (v instanceof String s) return "true".equalsIgnoreCase(s.trim());
+        return false;
+    }
+
+    private static String str(Object v) {
+        return v == null ? null : v.toString();
     }
 
     // ---------------------------------------------------------------------
@@ -1398,6 +1500,9 @@ public class PostService {
         } else if (patch.getNeedType() != null) {
             t.setNeedType(blankToNull(patch.getNeedType()));
         }
+        // Re-derive on update — a newly-patched life-safety flag must re-escalate,
+        // and zero-trust holds even if the client lowered priority in this patch.
+        deriveLifeSafety(t);
         Post saved = taskRepo.save(t);
         // Enrich the same way every other mutation path does
         // (refetchAndBroadcast / createPost). A bare fromEntity here shipped a
