@@ -2,6 +2,12 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -237,7 +243,10 @@ public class ShelterSearchService {
                     + "?where=" + URLEncoder.encode(where, StandardCharsets.UTF_8)
                     + "&outFields=" + URLEncoder.encode(outFields, StandardCharsets.UTF_8)
                     + "&returnGeometry=true&outSR=4326&f=json");
-            JsonNode root = getJson(uri, MediaType.APPLICATION_JSON);
+            // FEMA's WAF fingerprints the JDK's default HttpURLConnection and
+            // silently serves an empty 200; go through Apache HttpClient with a
+            // browser fingerprint instead (see getJsonViaApache).
+            JsonNode root = getJsonViaApache(uri);
             if (root == null) return List.of();
             JsonNode features = root.path("features");
             if (!features.isArray()) return List.of();
@@ -465,6 +474,41 @@ public class ShelterSearchService {
             return objectMapper.readTree(res.getBody());
         }
         return null;
+    }
+
+    /**
+     * WAF-bypass GET for the FEMA NSS feed. FEMA's WAF fingerprints the JDK's
+     * default {@code HttpURLConnection} (the shared {@link #rest} client) and
+     * silently returns an empty 200 — curl and real browsers get the data.
+     * Apache HttpClient presents a different TLS/HTTP signature; the Chrome
+     * User-Agent + browser Accept headers complete the disguise. Scoped to FEMA
+     * only — Nominatim's fair-use policy requires our identifying UA, so its
+     * path keeps {@link #getJson}. A fresh client per call is fine: the national
+     * set is fetched rarely (15-min cache).
+     */
+    private JsonNode getJsonViaApache(URI uri) throws Exception {
+        RequestConfig cfg = RequestConfig.custom()
+                .setConnectTimeout(5_000).setSocketTimeout(25_000).build();
+        HttpGet get = new HttpGet(uri);
+        get.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36");
+        get.setHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                + "image/avif,image/webp,image/apng,*/*;q=0.8");
+        get.setHeader("Accept-Language", "en-US,en;q=0.9");
+        get.setHeader("Connection", "keep-alive");
+        // disableCookieManagement: FEMA's AWS ALB sets non-RFC cookies HC would
+        // warn-log on every call; a stateless GET needs none.
+        try (CloseableHttpClient client = HttpClients.custom()
+                .setDefaultRequestConfig(cfg).disableCookieManagement().build();
+             CloseableHttpResponse resp = client.execute(get)) {
+            int sc = resp.getStatusLine().getStatusCode();
+            if (sc < 200 || sc >= 300 || resp.getEntity() == null) {
+                log.warn("FEMA NSS via Apache HC -> HTTP {}", sc);
+                return null;
+            }
+            String body = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);
+            return (body == null || body.isBlank()) ? null : objectMapper.readTree(body);
+        }
     }
 
     private static String text(JsonNode node, String field) {
