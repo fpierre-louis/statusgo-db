@@ -79,7 +79,14 @@ public class MealPlanDataService {
             return repository.save(existing);
         }
 
-        // New record
+        // New record. Force a clean INSERT: MealPlanData.id is DB IDENTITY-
+        // generated, but the client can send a synthetic/stale id (the FE seeds
+        // mealPlanData.id = Date.now() for its local cache, and a rebuilt local
+        // DB leaves that id pointing at no row). A non-null id makes Spring
+        // Data's save() run merge() on a detached, non-existent row →
+        // Hibernate StaleObjectStateException → OptimisticLockingFailureException
+        // → 409. Nulling it guarantees persist() and a server-owned id.
+        incoming.setId(null);
         incoming.setOwnerEmail(email);
         incoming.setHouseholdId(hh);
         if (incoming.getMealPlan() != null) {
