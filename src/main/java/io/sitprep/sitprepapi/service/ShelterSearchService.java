@@ -229,11 +229,14 @@ public class ShelterSearchService {
         try {
             String where = (state != null) ? "state='" + state.replace("'", "''") + "'" : "1=1";
             String outFields = "shelter_id,shelter_name,address,city,state,zip,shelter_status,"
-                    + "pet_accommodations_code,ada_compliant,wheelchair_accessible,latitude,longitude";
+                    + "pet_accommodations_code,ada_compliant,wheelchair_accessible";
+            // returnGeometry=true: on this layer the latitude/longitude ATTRIBUTE
+            // fields are null — the coordinates live in the point geometry
+            // (geometry.x = lng, geometry.y = lat), returned in WGS84 via outSR=4326.
             URI uri = URI.create(FEMA_NSS_OPEN_SHELTERS
                     + "?where=" + URLEncoder.encode(where, StandardCharsets.UTF_8)
                     + "&outFields=" + URLEncoder.encode(outFields, StandardCharsets.UTF_8)
-                    + "&returnGeometry=false&outSR=4326&f=json");
+                    + "&returnGeometry=true&outSR=4326&f=json");
             JsonNode root = getJson(uri, MediaType.APPLICATION_JSON);
             if (root == null) return List.of();
             JsonNode features = root.path("features");
@@ -241,20 +244,29 @@ public class ShelterSearchService {
 
             List<Shelter> out = new ArrayList<>();
             for (JsonNode f : features) {
-                Shelter s = femaToShelter(f.path("attributes"));
+                Shelter s = femaToShelter(f);
                 if (s != null) out.add(s);
             }
             return out;
         } catch (Exception e) {
-            log.debug("FEMA NSS open-shelters fetch failed (state={}): {}", state, e.getMessage());
+            log.warn("FEMA NSS open-shelters fetch failed (state={}): {}", state, e.getMessage());
             return List.of();
         }
     }
 
-    private static Shelter femaToShelter(JsonNode a) {
-        if (a == null || a.isMissingNode()) return null;
-        double la = a.path("latitude").asDouble(Double.NaN);
-        double lo = a.path("longitude").asDouble(Double.NaN);
+    private static Shelter femaToShelter(JsonNode feature) {
+        if (feature == null || feature.isMissingNode()) return null;
+        JsonNode a = feature.path("attributes");
+        // Coordinates come from the point geometry (the lat/long attribute fields
+        // are null on this layer). x = longitude, y = latitude (WGS84 / outSR=4326).
+        JsonNode geom = feature.path("geometry");
+        double lo = geom.path("x").asDouble(Double.NaN);
+        double la = geom.path("y").asDouble(Double.NaN);
+        if (!Double.isFinite(la) || !Double.isFinite(lo)) {
+            // Fallback if a future layer version populates the attribute fields.
+            la = a.path("latitude").asDouble(Double.NaN);
+            lo = a.path("longitude").asDouble(Double.NaN);
+        }
         if (!Double.isFinite(la) || !Double.isFinite(lo)) return null;
 
         String name = text(a, "shelter_name");
