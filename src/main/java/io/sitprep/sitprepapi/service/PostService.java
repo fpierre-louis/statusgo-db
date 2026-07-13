@@ -1461,13 +1461,19 @@ public class PostService {
     }
 
     /**
-     * Author-only partial update — title, description, priority, dueAt,
-     * tags, imageKeys, latitude/longitude. Lifecycle fields (status,
-     * claimer*, claimedAt, completedAt) flow through dedicated methods.
+     * Partial update — title, description, priority, dueAt, tags, imageKeys,
+     * latitude/longitude, workDetails. Authorization is enforced upstream
+     * (PostResource.ensureCanEditTask); {@code callerEmail} is threaded here
+     * ONLY to keep the R2-destructive top-level imageKeys mutation author-only
+     * even when a broadened editor (assignee / group admin) edits the text.
+     * Lifecycle fields (status, claimer*, claimedAt, completedAt) flow through
+     * dedicated methods.
      */
     @Transactional
-    public PostDto patch(Long postId, Post patch) {
+    public PostDto patch(Long postId, Post patch, String callerEmail) {
         Post t = mustExist(postId);
+        boolean isAuthor = callerEmail != null && t.getRequesterEmail() != null
+                && t.getRequesterEmail().equalsIgnoreCase(callerEmail);
         if (patch.getTitle() != null) t.setTitle(patch.getTitle());
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
@@ -1481,8 +1487,13 @@ public class PostService {
         // keys; the actual storage call rides afterCommit (below) so a
         // rolled-back patch never destroys the user's photos. Best-
         // effort per-key — one bad key won't strand the rest.
+        //
+        // AUTHOR-ONLY: replacing imageKeys deletes the removed R2 objects, so
+        // it is delete-equivalent — a broadened non-author editor's imageKeys
+        // is ignored entirely (they can still edit text/triage). Keeps
+        // "broadening edit != broadening delete" (DELETE is also author-only).
         List<String> removedKeys = List.of();
-        if (patch.getImageKeys() != null) {
+        if (patch.getImageKeys() != null && isAuthor) {
             Set<String> incoming = new HashSet<>(patch.getImageKeys());
             List<String> existing = t.getImageKeys() == null ? List.of() : t.getImageKeys();
             removedKeys = existing.stream()
@@ -1502,7 +1513,15 @@ public class PostService {
         // author), and the derived *PhotoUrls fields are stripped (wire-only).
         if (patch.getWorkDetails() != null) {
             t.setWorkDetails(sanitizeWorkDetails(patch.getWorkDetails(), t.getWorkDetails()));
-            t.setNeedType(resolveNeedType(patch));
+            // Preserve the denormalized need_type across a wholesale bag
+            // replace: only overwrite when the patch actually carries a
+            // discriminator (root needType or one inside the bag). A generic
+            // field-edit (e.g. the detail-edit modal changing the address)
+            // sends the bag WITHOUT needType — nulling the column would drop
+            // the row out of the dispatch partial index and strip it of its
+            // work-order identity. A patch never clears need_type implicitly.
+            String resolved = resolveNeedType(patch);
+            if (resolved != null) t.setNeedType(resolved);
         } else if (patch.getNeedType() != null) {
             t.setNeedType(blankToNull(patch.getNeedType()));
         }

@@ -180,8 +180,14 @@ public class PostResource {
 
     @PatchMapping("/api/posts/{id}")
     public ResponseEntity<ApiResponse<PostDto>> patch(@PathVariable Long id, @RequestBody Post patch) {
-        ensureRequester(id);
-        return ResponseEntity.ok(ApiResponse.ok(tasks.patch(id, patch), ApiMeta.now()));
+        // Broadened 2026-07-13: work orders (kind="task") may be edited by the
+        // requester, the assigned lead, OR a group admin/owner — not just the
+        // author. Community posts / personal tasks stay strictly author-only.
+        // The caller flows into patch so top-level imageKeys mutation (an R2-
+        // destructive, delete-equivalent action) stays author-only — a
+        // broadened editor may change text/triage, never wipe the photos.
+        String caller = ensureCanEditTask(id);
+        return ResponseEntity.ok(ApiResponse.ok(tasks.patch(id, patch, caller), ApiMeta.now()));
     }
 
     @DeleteMapping("/api/posts/{id}")
@@ -420,6 +426,46 @@ public class PostResource {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the task requester can perform this action");
         }
+    }
+
+    /**
+     * Field-level edit authorization for {@code PATCH /api/posts/{id}}.
+     * Broader than {@link #ensureRequester} but ONLY for group work orders:
+     * <ul>
+     *   <li>the requester (author) — always, for any post/kind;</li>
+     *   <li>the assignee (assigned lead) — group work orders only;</li>
+     *   <li>a group admin/owner of the task's own group — work orders only.</li>
+     * </ul>
+     * Community posts (kind != {@code task}) and personal tasks (no group)
+     * stay strictly author-only, so a stranger can never edit someone's ask /
+     * marketplace / tip. {@code DELETE} deliberately keeps {@link
+     * #ensureRequester} (author-only) — broadening edit ≠ broadening delete.
+     * Throws 401 / 403 / 404. Mirrors {@link #ensureCanProgressTask}'s role
+     * resolution, plus the requester.
+     */
+    private String ensureCanEditTask(Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Post t = existing.get();
+        // Author may always edit their own post (unchanged behavior).
+        if (caller.equalsIgnoreCase(t.getRequesterEmail())) return caller;
+        // Broaden ONLY for group-scoped work orders.
+        String groupId = t.getGroupId();
+        if ("task".equals(t.getKind()) && groupId != null && !groupId.isBlank()) {
+            if (caller.equalsIgnoreCase(t.getAssigneeEmail())) return caller;
+            try {
+                Group g = groupService.getGroupByPublicId(groupId);
+                boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+                boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+                if (isOwner || isAdmin) return caller;
+            } catch (RuntimeException ignored) {
+                // group lookup failed — fall through to 403
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only the requester, assignee, or a group admin can edit this task");
     }
 
     /**
