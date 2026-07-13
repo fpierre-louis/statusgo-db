@@ -465,6 +465,20 @@ public class Post {
     @Column(name = "work_details", columnDefinition = "jsonb")
     private Map<String, Object> workDetails;
 
+    /**
+     * Denormalized need-type discriminator (V47) — also carried inside
+     * {@link #workDetails} (as {@code needType}) for self-description. Promoted
+     * to a first-class, indexed column so dispatch/triage queries filter on an
+     * index rather than a jsonb path lookup (EXECUTION_GAME_PLAN_WIZARD.md
+     * §3.1). String codes from the wizard need-type vocabulary (tree_debris |
+     * flood_water | roof_structural | hazmat_utility | civic_hazard |
+     * rescue_welfare | animal_rescue | other). Null on personal tasks and every
+     * non-work-order kind. Kept a plain {@code String} (not a Postgres enum) so
+     * the taxonomy can grow without a type migration.
+     */
+    @Column(name = "need_type", length = 32)
+    private String needType;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();

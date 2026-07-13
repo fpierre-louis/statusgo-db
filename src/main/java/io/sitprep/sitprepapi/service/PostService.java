@@ -453,6 +453,15 @@ public class PostService {
         // @RequestBody Post via Jackson and persisted as jsonb; null/inert on
         // personal tasks and every non-work-order kind.
         t.setWorkDetails(incoming.getWorkDetails());
+        // Denormalize the need-type discriminator onto its own indexed column,
+        // derived from the bag (the wizard carries needType inside work_details)
+        // or an explicit root needType if the client sends one — so the column
+        // stays authoritative for dispatch queries without trusting two sources.
+        t.setNeedType(resolveNeedType(incoming));
+        // TODO: Phase 5 - Implement life-safety server-side derivation logic here
+        //   (compute dispatcherPriority / siteSafeToEnter / habitability /
+        //    damageSeverity from the authoritative work_details flags on write;
+        //    never trust a client-sent priority). See EXECUTION_GAME_PLAN_WIZARD.md §5.
         GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());
@@ -699,6 +708,25 @@ public class PostService {
 
     private static String blankToNull(String s) {
         return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    /**
+     * Resolve the need-type discriminator for the {@code need_type} column.
+     * Prefers an explicit root {@code needType} if the client sent one, else
+     * derives it from {@code work_details.needType} (the wizard carries the
+     * discriminator inside the bag). Null when neither is present (personal
+     * tasks / non-work-order kinds).
+     */
+    private static String resolveNeedType(Post incoming) {
+        if (incoming == null) return null;
+        String root = blankToNull(incoming.getNeedType());
+        if (root != null) return root;
+        Map<String, Object> wd = incoming.getWorkDetails();
+        if (wd != null) {
+            Object nt = wd.get("needType");
+            if (nt != null && !nt.toString().isBlank()) return nt.toString().trim();
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------------
@@ -1361,6 +1389,15 @@ public class PostService {
         }
         if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
         if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
+        // Work-order triage bag (V47): replace-if-present, matching this method's
+        // per-field patch semantics. When the bag is replaced, re-derive the
+        // denormalized need_type column so it can't drift from the bag.
+        if (patch.getWorkDetails() != null) {
+            t.setWorkDetails(patch.getWorkDetails());
+            t.setNeedType(resolveNeedType(patch));
+        } else if (patch.getNeedType() != null) {
+            t.setNeedType(blankToNull(patch.getNeedType()));
+        }
         Post saved = taskRepo.save(t);
         // Enrich the same way every other mutation path does
         // (refetchAndBroadcast / createPost). A bare fromEntity here shipped a

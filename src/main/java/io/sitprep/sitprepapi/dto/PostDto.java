@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Post;
@@ -232,8 +233,21 @@ public record PostDto(
          * Null/absent on personal tasks and every non-work-order kind. Ingested
          * from the create body and returned verbatim so the FE round-trips the
          * same shape it sent — "backend shapes the data, frontend just displays".
+         *
+         * <p>{@code @JsonInclude(NON_NULL)}: null (personal tasks / non-work-order
+         * kinds) is omitted from the wire so the FE reads "absent === unknown",
+         * per the contract's strict-nullability rule.</p>
          */
-        Map<String, Object> workDetails
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Map<String, Object> workDetails,
+        /**
+         * Denormalized need-type discriminator (V47), mirrored from
+         * {@code workDetails.needType} onto its own indexed column. Null on
+         * personal tasks / non-work-order kinds; omitted from JSON (NON_NULL) to
+         * honor the contract's "absent === unknown" rule.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String needType
 ) {
 
     /** Per-type community-feed fields — see {@link #community}. */
@@ -326,7 +340,7 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail, parentPost, c,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails());
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType());
     }
 
     public record ParentPostPreview(
@@ -437,7 +451,8 @@ public record PostDto(
                 CommunityExtras.fromEntity(t),
                 t.isLiabilityRequired(), t.isReleaseSigned(), t.getReleaseTextHash(), t.getReleaseExceptionReason(),
                 t.isNearPowerLines(), t.isElectricalHazard(), t.getWaterLevel(), t.getSafeToEnter(),
-                t.getWorkDetails()
+                t.getWorkDetails(),
+                t.getNeedType()
         );
     }
 
@@ -472,7 +487,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -543,7 +558,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -573,7 +588,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -606,7 +621,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -636,7 +651,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -682,7 +697,7 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
@@ -710,7 +725,7 @@ public record PostDto(
                 preview,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
         );
     }
 
