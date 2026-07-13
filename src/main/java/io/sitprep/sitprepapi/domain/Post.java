@@ -3,11 +3,14 @@ package io.sitprep.sitprepapi.domain;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -438,6 +441,29 @@ public class Post {
      */
     @Column(name = "release_exception_reason", length = 500)
     private String releaseExceptionReason;
+
+    // --- Dynamic, need-type-specific intake bag (V47__add_work_details_jsonb) ---
+    /**
+     * Sparse, need-type-specific work-order intake captured by the civic /
+     * relief {@code WorkOrderWizard} Site &amp; Triage step — e.g. number of
+     * trees (tree removal), occupancy adults/children + dietary notes
+     * (food/supplies), a free description (other), plus a general hazard note.
+     *
+     * <p>The stable, flat triage columns ({@link #nearPowerLines},
+     * {@link #electricalHazard}, {@link #waterLevel}, {@link #safeToEnter})
+     * stay first-class; this bag holds only the remainder whose shape varies
+     * by {@code needType} and evolves per wizard phase — jsonb beats a dozen
+     * nullable columns and needs zero further migrations to grow.</p>
+     *
+     * <p>Native Hibernate 6 JSONB mapping (same as
+     * {@code MealPlan.ingredients}): {@code @JdbcTypeCode(SqlTypes.JSON)} +
+     * {@code columnDefinition = "jsonb"}. Null on personal tasks and every
+     * non-work-order kind (the common case) — left null-default rather than an
+     * empty map so those rows store SQL NULL, not {@code '{}'}.</p>
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "work_details", columnDefinition = "jsonb")
+    private Map<String, Object> workDetails;
 
     @PrePersist
     void onCreate() {

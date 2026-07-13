@@ -449,6 +449,10 @@ public class PostService {
         t.setElectricalHazard(incoming.isElectricalHazard());
         t.setWaterLevel(blankToNull(incoming.getWaterLevel()));
         t.setSafeToEnter(incoming.getSafeToEnter());
+        // Dynamic, need-type-specific intake bag (V47). Bound straight off the
+        // @RequestBody Post via Jackson and persisted as jsonb; null/inert on
+        // personal tasks and every non-work-order kind.
+        t.setWorkDetails(incoming.getWorkDetails());
         GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
         t.setLatitude(incoming.getLatitude());
         t.setLongitude(incoming.getLongitude());

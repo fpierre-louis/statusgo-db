@@ -1,0 +1,33 @@
+-- V47 — Add the work_details JSONB bag to the task/post table.
+--
+-- The civic / relief WorkOrderWizard's "Site & Triage" step captures
+-- need-type-specific intake fields that vary by needType (tree removal ->
+-- number of trees; flooding -> water level + electrical; food/supplies ->
+-- occupancy + dietary notes; other -> free description) plus a general
+-- hazard note. The FLAT, stable triage columns (near_power_lines,
+-- electrical_hazard, water_level, safe_to_enter) already exist from V45;
+-- this column holds only the SPARSE, shape-varying remainder.
+--
+-- Why jsonb over a dozen nullable columns: the field set differs per
+-- needType and will keep evolving as later wizard phases land. A single
+-- jsonb bag absorbs that churn with ZERO further migrations, gives us
+-- validation-on-write + canonical storage, and stays queryable/indexable
+-- if we ever need to report on it. Mirrors the meal_plan_v2.ingredients_json
+-- native-JSONB mapping promoted in V40 (@JdbcTypeCode(SqlTypes.JSON) +
+-- columnDefinition = "jsonb" on Post.workDetails).
+--
+-- ADDITIVE + idempotent (ADD COLUMN IF NOT EXISTS) — no drops, no renames,
+-- no default. Nullable: NULL on every personal task and every non-work-order
+-- kind (the common case), a JSON object only on group/civic work orders that
+-- ran the triage step.
+--
+-- Postgres-only DDL. It never runs under the H2 test profile
+-- (spring.flyway.enabled=false there; Hibernate builds the H2 schema from
+-- the entity via ddl-auto=create-drop, where the same
+-- columnDefinition = "jsonb" is emitted and H2's PostgreSQL mode accepts it).
+--
+-- Plain transactional DDL on a small column add — no CREATE INDEX
+-- CONCURRENTLY, so it cannot hit the prod statement_timeout trap
+-- (reference_flyway_concurrently_timeout).
+
+ALTER TABLE task ADD COLUMN IF NOT EXISTS work_details jsonb;
