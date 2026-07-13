@@ -79,6 +79,12 @@ public class ShelterSearchService {
 
     private static final String NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search";
     private static final String OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+    /** FEMA ESF#6 National Shelter System — currently-OPEN disaster shelters
+     *  (ArcGIS MapServer; synced daily from the American Red Cross shelter DB,
+     *  refreshed ~every 20 min). Replaces the retired OpenFEMA {@code OpenShelters}
+     *  REST dataset the FE used to hit directly, which now 404s. */
+    private static final String FEMA_NSS_OPEN_SHELTERS =
+            "https://gis.fema.gov/arcgis/rest/services/NSS/OpenShelters/MapServer/0/query";
 
     private static final int DEFAULT_LIMIT = 10;
     // We cache a broader ranked candidate set (unfiltered) so the optional
@@ -91,6 +97,9 @@ public class ShelterSearchService {
 
     private static final long TTL_OK_MS = Duration.ofHours(6).toMillis();
     private static final long TTL_FAIL_MS = Duration.ofMinutes(5).toMillis();
+    /** FEMA NSS refreshes ~every 20 min; the national open set is small, so we
+     *  cache it whole for 15 min and filter per-request rather than re-fetch. */
+    private static final long TTL_FEMA_MS = Duration.ofMinutes(15).toMillis();
     /** ~0.02° ≈ 2 km buckets to coalesce nearby searches. */
     private static final double Q = 0.02;
 
@@ -162,6 +171,126 @@ public class ShelterSearchService {
             if (result.size() >= DEFAULT_LIMIT) break;
         }
         return result;
+    }
+
+    /**
+     * Currently-OPEN disaster shelters from FEMA's ESF#6 National Shelter System
+     * (gis.fema.gov ArcGIS; synced daily from the American Red Cross shelter DB).
+     * Complements {@link #search} (OSM permanent shelters): this is the
+     * disaster-activated feed, legitimately near-empty in calm times. Replaces
+     * the FE's retired direct OpenFEMA {@code OpenShelters} call (now 404).
+     *
+     * <p>The national open set is small, so it's cached whole (15 min) and
+     * filtered per request by haversine distance. Never throws — empty list on
+     * any upstream failure.</p>
+     *
+     * @param state optional 2-letter code for a server-side pre-filter
+     * @return up to {@link #DEFAULT_LIMIT} open shelters within {@code radiusMi},
+     *         nearest-first
+     */
+    public List<Shelter> openDisasterShelters(Double lat, Double lng, Double radiusMi, String state) {
+        if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)) {
+            return List.of();
+        }
+        double radius = clampRadius(radiusMi);
+        String st = (state == null || state.isBlank()) ? null : state.trim().toUpperCase(Locale.US);
+
+        String key = "fema|" + (st != null ? st : "US");
+        List<Shelter> national;
+        CacheEntry cached = cache.get(key);
+        if (cached != null && !cached.isExpired()) {
+            national = cached.shelters;
+        } else {
+            national = fetchFemaOpenSheltersRaw(st);
+            long ttl = national.isEmpty() ? TTL_FAIL_MS : TTL_FEMA_MS;
+            cache.put(key, new CacheEntry(national, System.currentTimeMillis() + ttl));
+        }
+
+        // Cached rows carry distanceMi=0; recompute from THIS caller, filter, sort.
+        List<Shelter> out = new ArrayList<>();
+        for (Shelter s : national) {
+            if (s.latitude() == null || s.longitude() == null) continue;
+            double d = haversineMi(lat, lng, s.latitude(), s.longitude());
+            if (d <= radius) out.add(withDistance(s, d));
+        }
+        out.sort((a, b) -> Double.compare(a.distanceMi(), b.distanceMi()));
+        // Open shelters are sparse; return the whole nearby set (bounded) so the
+        // FE map/rail can show them all rather than an arbitrary top-10.
+        return out.size() > CANDIDATE_LIMIT ? out.subList(0, CANDIDATE_LIMIT) : out;
+    }
+
+    private static Shelter withDistance(Shelter s, double d) {
+        return new Shelter(s.id(), s.name(), s.address(), s.city(), s.state(),
+                s.latitude(), s.longitude(), s.phone(), s.petFriendly(), s.adaAccessible(),
+                s.dedicated(), s.typeLabel(), s.source(), d);
+    }
+
+    private List<Shelter> fetchFemaOpenSheltersRaw(String state) {
+        try {
+            String where = (state != null) ? "state='" + state.replace("'", "''") + "'" : "1=1";
+            String outFields = "shelter_id,shelter_name,address,city,state,zip,shelter_status,"
+                    + "pet_accommodations_code,ada_compliant,wheelchair_accessible,latitude,longitude";
+            URI uri = URI.create(FEMA_NSS_OPEN_SHELTERS
+                    + "?where=" + URLEncoder.encode(where, StandardCharsets.UTF_8)
+                    + "&outFields=" + URLEncoder.encode(outFields, StandardCharsets.UTF_8)
+                    + "&returnGeometry=false&outSR=4326&f=json");
+            JsonNode root = getJson(uri, MediaType.APPLICATION_JSON);
+            if (root == null) return List.of();
+            JsonNode features = root.path("features");
+            if (!features.isArray()) return List.of();
+
+            List<Shelter> out = new ArrayList<>();
+            for (JsonNode f : features) {
+                Shelter s = femaToShelter(f.path("attributes"));
+                if (s != null) out.add(s);
+            }
+            return out;
+        } catch (Exception e) {
+            log.debug("FEMA NSS open-shelters fetch failed (state={}): {}", state, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static Shelter femaToShelter(JsonNode a) {
+        if (a == null || a.isMissingNode()) return null;
+        double la = a.path("latitude").asDouble(Double.NaN);
+        double lo = a.path("longitude").asDouble(Double.NaN);
+        if (!Double.isFinite(la) || !Double.isFinite(lo)) return null;
+
+        String name = text(a, "shelter_name");
+        if (name == null) name = "Open shelter";
+        String city = text(a, "city");
+        String state = text(a, "state");
+        String zip = text(a, "zip");
+        String street = text(a, "address");
+        List<String> parts = new ArrayList<>();
+        if (street != null) parts.add(street);
+        if (city != null) parts.add(city);
+        String stZip = ((state != null ? state + " " : "") + (zip != null ? zip : "")).trim();
+        if (!stZip.isBlank()) parts.add(stZip);
+        String address = String.join(", ", parts);
+
+        boolean pets = isPetFriendly(text(a, "pet_accommodations_code"));
+        boolean ada = "Y".equalsIgnoreCase(text(a, "ada_compliant"))
+                || "Y".equalsIgnoreCase(text(a, "wheelchair_accessible"));
+
+        String sid = text(a, "shelter_id");
+        String id = "fema-nss-" + (sid != null ? sid
+                : (Math.round(la * 1e4) + "-" + Math.round(lo * 1e4)));
+
+        // These are human-verified, disaster-activated shelters → dedicated.
+        return new Shelter(id, name, address, city, state, la, lo, "", pets, ada,
+                true, null, "FEMA National Shelter System", 0.0);
+    }
+
+    /** NSS pet-accommodations is a lookup string ("NONE" / "UNK" / affirmative
+     *  values). Treat only affirmative values as pet-friendly so an UNK/NONE
+     *  never over-promises pet acceptance to a family relying on it. */
+    private static boolean isPetFriendly(String code) {
+        if (code == null) return false;
+        String c = code.trim().toUpperCase(Locale.US);
+        return !(c.isEmpty() || c.equals("NONE") || c.equals("UNK")
+                || c.equals("N") || c.equals("NO") || c.equals("0"));
     }
 
     // ── Forward geocode (Nominatim /search) ─────────────────────────

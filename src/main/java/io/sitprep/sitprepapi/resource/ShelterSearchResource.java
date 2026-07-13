@@ -46,4 +46,24 @@ public class ShelterSearchResource {
     ) {
         return ResponseEntity.ok(shelterSearch.search(lat, lng, q, radiusMi, petFriendly, adaAccessible));
     }
+
+    /**
+     * Currently-OPEN disaster shelters from FEMA's National Shelter System
+     * (gis.fema.gov). Complements {@code /search} (OSM permanent shelters) —
+     * this is the disaster-activated feed, near-empty in calm times. Server-side
+     * proxy + cache for the FE's retired direct OpenFEMA OpenShelters call.
+     *
+     * <pre>
+     *   GET /api/shelters/open?lat=40.43&lng=-111.88&radiusMi=100[&state=UT]
+     * </pre>
+     */
+    @GetMapping("/open")
+    public ResponseEntity<List<Shelter>> open(
+            @RequestParam("lat") Double lat,
+            @RequestParam("lng") Double lng,
+            @RequestParam(value = "radiusMi", required = false) Double radiusMi,
+            @RequestParam(value = "state", required = false) String state
+    ) {
+        return ResponseEntity.ok(shelterSearch.openDisasterShelters(lat, lng, radiusMi, state));
+    }
 }
