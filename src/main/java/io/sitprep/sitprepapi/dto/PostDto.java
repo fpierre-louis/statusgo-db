@@ -451,13 +451,44 @@ public record PostDto(
                 CommunityExtras.fromEntity(t),
                 t.isLiabilityRequired(), t.isReleaseSigned(), t.getReleaseTextHash(), t.getReleaseExceptionReason(),
                 t.isNearPowerLines(), t.isElectricalHazard(), t.getWaterLevel(), t.getSafeToEnter(),
-                t.getWorkDetails(),
+                withWorkPhotoUrls(t.getWorkDetails()),
                 t.getNeedType()
         );
     }
 
     public static PostDto fromEntity(Post t) {
         return fromEntity(t, null);
+    }
+
+    /**
+     * Wire-only enrichment for the work_details bag: when it carries the
+     * before/after photo KEY arrays (bare R2 keys — the persisted form, see
+     * {@code PostService.updateWorkPhotos}), ship derived {@code *PhotoUrls}
+     * siblings alongside so clients render without knowing the CDN host —
+     * the same key→URL fold {@code imageKeys → imageUrls} uses. The URL
+     * fields are never persisted (the write paths strip them); the bag is
+     * copied, not mutated, so the entity's map stays untouched.
+     */
+    private static Map<String, Object> withWorkPhotoUrls(Map<String, Object> wd) {
+        if (wd == null
+                || (!wd.containsKey("beforePhotoKeys") && !wd.containsKey("afterPhotoKeys"))) {
+            return wd;
+        }
+        Map<String, Object> out = new java.util.LinkedHashMap<>(wd);
+        putPhotoUrls(out, "beforePhotoKeys", "beforePhotoUrls");
+        putPhotoUrls(out, "afterPhotoKeys", "afterPhotoUrls");
+        return out;
+    }
+
+    private static void putPhotoUrls(Map<String, Object> out, String keysField, String urlsField) {
+        Object v = out.get(keysField);
+        if (v instanceof List<?> list) {
+            List<String> urls = list.stream()
+                    .filter(o -> o != null)
+                    .map(o -> PublicCdn.toPublicUrl(o.toString()))
+                    .collect(Collectors.toList());
+            out.put(urlsField, urls);
+        }
     }
 
     /**

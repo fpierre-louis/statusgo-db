@@ -340,13 +340,77 @@ public class PostResource {
                 tasks.acceptRelease(id, signed, hash, reason), ApiMeta.now()));
     }
 
+    // -----------------------------------------------------------------
+    // Before/after photo evidence — Phase 2 (DOCS_EPIC_DETAIL_AND_SCALE.md).
+    // Keys come from POST /api/images?scope=task (multipart → imgscalr → R2);
+    // this endpoint only ever moves object KEYS — never base64, never bytes.
+    // Merge semantics live in PostService.updateWorkPhotos so a photo change
+    // can't clobber the triage bag or null need_type (the generic PATCH
+    // replaces work_details wholesale and is author-only — wrong tool here).
+    // -----------------------------------------------------------------
+
+    /**
+     * Body: {@code { "phase": "before"|"after", "addKeys": [...],
+     * "removeKeys": [...] }}. RBAC per phase:
+     * <ul>
+     *   <li><b>before</b> — requester, assignee, or the task group's
+     *       admin/owner (initial-conditions evidence);</li>
+     *   <li><b>after</b> — assignee or group admin/owner ONLY (completion
+     *       evidence belongs to whoever ran/supervised the work).</li>
+     * </ul>
+     */
+    @PostMapping("/api/posts/{id}/photos")
+    public ResponseEntity<ApiResponse<PostDto>> updatePhotos(@PathVariable Long id,
+                                                             @RequestBody PhotoPatchRequest req) {
+        if (req == null || req.phase() == null || req.phase().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "phase required");
+        }
+        ensureCanAttachPhotos(id, req.phase());
+        return ResponseEntity.ok(ApiResponse.ok(
+                tasks.updateWorkPhotos(id, req.phase(), req.addKeys(), req.removeKeys()),
+                ApiMeta.now()));
+    }
+
     public record SaveResult(boolean viewerSaved) {}
     public record CivicStatusRequest(String status, String note) {}
     public record ReleaseRequest(Boolean releaseSigned, String releaseTextHash, String releaseExceptionReason) {}
+    public record PhotoPatchRequest(String phase, List<String> addKeys, List<String> removeKeys) {}
 
     // -----------------------------------------------------------------
     // Authorization helpers
     // -----------------------------------------------------------------
+
+    /**
+     * Per-phase photo-evidence RBAC (see {@link #updatePhotos}). "before" =
+     * requester | assignee | group admin/owner; "after" = assignee | group
+     * admin/owner only. (The claimer is deliberately NOT entitled — the
+     * mandate scopes completion evidence to admins and assigned leads;
+     * widen here if field reality disagrees.) Throws 401 / 403 / 404.
+     */
+    private void ensureCanAttachPhotos(Long id, String phase) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Post t = existing.get();
+        boolean before = "before".equalsIgnoreCase(phase.trim());
+        if (before && caller.equalsIgnoreCase(t.getRequesterEmail())) return;
+        if (caller.equalsIgnoreCase(t.getAssigneeEmail())) return;
+        String groupId = t.getGroupId();
+        if (groupId != null && !groupId.isBlank()) {
+            try {
+                Group g = groupService.getGroupByPublicId(groupId);
+                boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+                boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+                if (isOwner || isAdmin) return;
+            } catch (RuntimeException ignored) {
+                // group lookup failed — fall through to 403
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, before
+                ? "Only the requester, assignee, or a group admin can attach before photos"
+                : "Only the assignee or a group admin can attach after photos");
+    }
 
     private void ensureRequester(Long id) {
         String caller = AuthUtils.requireAuthenticatedEmail();

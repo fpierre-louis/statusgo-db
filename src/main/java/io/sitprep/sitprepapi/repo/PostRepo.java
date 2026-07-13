@@ -158,6 +158,33 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                                @Param("threshold") Instant threshold,
                                @Param("now") Instant now);
 
+    // ---------------------------------------------------------------------
+    // R2 reference probes — photo-evidence GC (PostService.updateWorkPhotos).
+    // Before an R2 object is freed, the service verifies no OTHER post still
+    // references its key. Both probes fail toward "referenced" (skip delete).
+    // ---------------------------------------------------------------------
+
+    /** Does any other post's imageKeys collection hold this R2 key? */
+    @Query("SELECT COUNT(p) FROM Post p JOIN p.imageKeys k WHERE k = :key AND p.id <> :id")
+    long countOtherPostsWithImageKey(@Param("id") Long id, @Param("key") String key);
+
+    /**
+     * Does any other post's work_details bag reference this R2 key? Keys are
+     * JSON-quoted in the serialized bag, so a LIKE containment probe on
+     * {@code %"<key>"%} is exact for our key shape ({@code task/<uuid>.<ext>}
+     * — no LIKE metacharacters survive normalizePhotoKey's prefix gate in
+     * practice; a crafted key containing % or _ can only OVER-match, which
+     * merely skips the delete — fail-safe). Native because JPQL cannot look
+     * inside jsonb; executed only on the rare photo-remove path. NOTE: not
+     * exercised by the H2 test profile — if a future H2 test hits it, the
+     * CAST may need an H2-compatible variant.
+     */
+    @Query(value = "SELECT COUNT(*) FROM task WHERE id <> :id "
+            + "AND CAST(work_details AS varchar) LIKE :pattern",
+            nativeQuery = true)
+    long countOtherPostsWithWorkDetailsContaining(@Param("id") Long id,
+                                                  @Param("pattern") String pattern);
+
     // Cancel also clears the claim metadata (claimedByGroupId / claimedByEmail
     // / claimedAt). Pre-fix: cancelled tasks kept the previous claimer's
     // identity, so DTOs / analytics / notifications showed a cancelled task as

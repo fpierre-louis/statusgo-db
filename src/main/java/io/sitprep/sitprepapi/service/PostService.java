@@ -451,8 +451,10 @@ public class PostService {
         t.setSafeToEnter(incoming.getSafeToEnter());
         // Dynamic, need-type-specific intake bag (V47). Bound straight off the
         // @RequestBody Post via Jackson and persisted as jsonb; null/inert on
-        // personal tasks and every non-work-order kind.
-        t.setWorkDetails(incoming.getWorkDetails());
+        // personal tasks and every non-work-order kind. Sanitized: the
+        // before/after photo arrays are endpoint-only (updateWorkPhotos is
+        // their sole author) and the derived *PhotoUrls are wire-only.
+        t.setWorkDetails(sanitizeWorkDetails(incoming.getWorkDetails(), null));
         // Denormalize the need-type discriminator onto its own indexed column,
         // derived from the bag (the wizard carries needType inside work_details)
         // or an explicit root needType if the client sends one — so the column
@@ -1494,8 +1496,12 @@ public class PostService {
         // Work-order triage bag (V47): replace-if-present, matching this method's
         // per-field patch semantics. When the bag is replaced, re-derive the
         // denormalized need_type column so it can't drift from the bag.
+        // Sanitized: the stored before/after photo arrays are carried over the
+        // replace (a generic patch can neither wipe nor inject them — the
+        // dedicated photos endpoint with its own per-phase RBAC is their sole
+        // author), and the derived *PhotoUrls fields are stripped (wire-only).
         if (patch.getWorkDetails() != null) {
-            t.setWorkDetails(patch.getWorkDetails());
+            t.setWorkDetails(sanitizeWorkDetails(patch.getWorkDetails(), t.getWorkDetails()));
             t.setNeedType(resolveNeedType(patch));
         } else if (patch.getNeedType() != null) {
             t.setNeedType(blankToNull(patch.getNeedType()));
@@ -1522,6 +1528,166 @@ public class PostService {
             });
         }
         return dto;
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 2 (DOCS_EPIC_DETAIL_AND_SCALE.md) — before/after photo evidence.
+    // -----------------------------------------------------------------------
+
+    /** work_details keys holding the before/after photo evidence as BARE R2
+     *  object keys ({@code task/<uuid>.jpg}). PostDto derives the wire-only
+     *  {@code *PhotoUrls} siblings at read time — URLs are never persisted. */
+    static final String BEFORE_PHOTO_KEYS = "beforePhotoKeys";
+    static final String AFTER_PHOTO_KEYS = "afterPhotoKeys";
+    private static final List<String> PHOTO_KEY_FIELDS =
+            List.of(BEFORE_PHOTO_KEYS, AFTER_PHOTO_KEYS);
+    private static final List<String> PHOTO_URL_FIELDS =
+            List.of("beforePhotoUrls", "afterPhotoUrls");
+    /** Mirrors the imageKeys cap in create — bounds jsonb row + STOMP frames. */
+    private static final int MAX_PHOTOS_PER_PHASE = 5;
+
+    /**
+     * Guard applied wherever a client-sent work_details bag is persisted
+     * (create + generic patch): the photo-key arrays are endpoint-only —
+     * {@link #updateWorkPhotos} is their SOLE author — so incoming copies are
+     * dropped and the stored arrays are carried over a wholesale bag replace.
+     * The derived {@code *PhotoUrls} fields are wire-only and always stripped.
+     * Preserves null-in → null-out ("absent === unknown") when there is
+     * nothing stored to carry.
+     */
+    private static Map<String, Object> sanitizeWorkDetails(Map<String, Object> incoming,
+                                                           Map<String, Object> stored) {
+        boolean storedHasPhotos = stored != null
+                && PHOTO_KEY_FIELDS.stream().anyMatch(stored::containsKey);
+        if (incoming == null && !storedHasPhotos) return null;
+        Map<String, Object> out =
+                incoming == null ? new LinkedHashMap<>() : new LinkedHashMap<>(incoming);
+        PHOTO_URL_FIELDS.forEach(out::remove);
+        for (String field : PHOTO_KEY_FIELDS) {
+            out.remove(field);
+            Object kept = stored == null ? null : stored.get(field);
+            if (kept != null) out.put(field, kept);
+        }
+        return out;
+    }
+
+    /**
+     * Merge-mutate the before/after photo evidence arrays inside
+     * {@code work_details}. A dedicated path (NOT the generic patch) because:
+     * (a) patch is author-only while after-photos are an assignee/admin
+     * action — the resource layer enforces the per-phase RBAC; (b) patch
+     * replaces the bag wholesale — this merge can never destroy triage /
+     * requester keys or null {@code need_type}; (c) the arrays get their own
+     * cap and R2 GC, mirroring {@code imageKeys}.
+     *
+     * <p>Accepts bare R2 keys or full public URLs (normalized to keys via
+     * {@link PublicCdn#toObjectKey}); only objects under the {@code task/} or
+     * {@code post/} upload scopes are accepted. Removed keys are freed from R2
+     * afterCommit, best-effort. NO base64 anywhere in this pipeline.</p>
+     *
+     * @param phase {@code "before"} or {@code "after"}
+     * @return the enriched, broadcast DTO (same fold as patch/create)
+     */
+    @Transactional
+    public PostDto updateWorkPhotos(Long postId, String phase,
+                                    List<String> addKeys, List<String> removeKeys) {
+        Post t = mustExist(postId);
+        String field = switch (phase == null ? "" : phase.trim().toLowerCase()) {
+            case "before" -> BEFORE_PHOTO_KEYS;
+            case "after" -> AFTER_PHOTO_KEYS;
+            default -> throw new IllegalArgumentException(
+                    "phase must be \"before\" or \"after\"");
+        };
+        String otherField = BEFORE_PHOTO_KEYS.equals(field)
+                ? AFTER_PHOTO_KEYS : BEFORE_PHOTO_KEYS;
+        Map<String, Object> wd = t.getWorkDetails() == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(t.getWorkDetails());
+        List<String> current = new ArrayList<>(readStringList(wd.get(field)));
+
+        // Removals — collect what actually left this phase's array.
+        List<String> removed = new ArrayList<>();
+        if (removeKeys != null) {
+            for (String raw : removeKeys) {
+                String key = normalizePhotoKey(raw);
+                if (key != null && current.remove(key)) removed.add(key);
+            }
+        }
+        // Additions — normalized, deduped, capped.
+        if (addKeys != null) {
+            for (String raw : addKeys) {
+                String key = normalizePhotoKey(raw);
+                if (key == null) {
+                    throw new IllegalArgumentException("Invalid photo key: " + raw);
+                }
+                if (!current.contains(key)) current.add(key);
+            }
+        }
+        if (current.size() > MAX_PHOTOS_PER_PHASE) {
+            throw new IllegalArgumentException("A work order can have at most "
+                    + MAX_PHOTOS_PER_PHASE + " " + phase + " photos.");
+        }
+        if (current.isEmpty()) wd.remove(field); else wd.put(field, current);
+        t.setWorkDetails(wd);
+
+        // R2 GC — REFERENCE-AWARE (audit 2026-07-13). A removed key is freed
+        // from R2 only when nothing else still points at the object:
+        //   (1) not re-added / still present in this phase's final array;
+        //   (2) not referenced by the sibling phase's array;
+        //   (3) not referenced by this post's imageKeys collection;
+        //   (4) not referenced by ANY OTHER post's imageKeys or work_details
+        //       (keys are public on the wire as URLs, so without this check an
+        //       attacker could alias a victim's key onto their own task and
+        //       add→remove it to destroy the victim's object — the storage
+        //       layer has no ownership check).
+        // Every guard fails toward "keep the object" — a leaked orphan beats a
+        // dangling reference or cross-tenant data loss.
+        Set<String> stillHeldHere = new HashSet<>(current);
+        stillHeldHere.addAll(readStringList(wd.get(otherField)));
+        if (t.getImageKeys() != null) stillHeldHere.addAll(t.getImageKeys());
+        List<String> freed = new ArrayList<>();
+        for (String key : removed) {
+            if (stillHeldHere.contains(key)) continue;
+            if (taskRepo.countOtherPostsWithImageKey(postId, key) > 0) continue;
+            if (taskRepo.countOtherPostsWithWorkDetailsContaining(
+                    postId, "%\"" + key + "\"%") > 0) continue;
+            freed.add(key);
+        }
+        // Re-stamp the derived snapshots. Safe: needType survived the merge,
+        // so deriveLifeSafety re-authors its three keys instead of bailing.
+        deriveLifeSafety(t);
+        Post saved = taskRepo.save(t);
+        PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(
+                List.of(PostDto.fromEntity(saved))))).get(0);
+        broadcastAfterCommit(dto);
+        if (!freed.isEmpty()) {
+            final List<String> toFree = List.copyOf(freed);
+            final Long id = saved.getId();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    deleteR2ObjectsBestEffort(toFree, "work-photos " + id);
+                }
+            });
+        }
+        return dto;
+    }
+
+    /** Accept a bare key or full public URL; require our upload scopes. */
+    private static String normalizePhotoKey(String raw) {
+        if (raw == null) return null;
+        String key = PublicCdn.toObjectKey(raw.trim());
+        if (key == null || key.isBlank() || key.length() > 512) return null;
+        if (!(key.startsWith("task/") || key.startsWith("post/"))) return null;
+        return key;
+    }
+
+    /** Defensive read of a jsonb array-of-strings (bag values are untyped). */
+    private static List<String> readStringList(Object v) {
+        if (!(v instanceof List<?> list)) return List.of();
+        List<String> out = new ArrayList<>(list.size());
+        for (Object o : list) {
+            if (o != null) out.add(o.toString());
+        }
+        return out;
     }
 
     /**
