@@ -74,6 +74,47 @@ This bypasses the entire deploy pipeline and any human gate around it.
 
 ---
 
+### T-2 · CI cannot verify the `task_assignee` partial-unique / one-LEAD invariant — H2 can't express a partial index
+
+**Symptom / context.** Step 2 makes `task_assignee` the authority for work-order
+roles, with a hard **"≤ 1 LEAD per task"** rule enforced by a Postgres
+**partial-unique index**:
+
+```sql
+CREATE UNIQUE INDEX uk_task_assignee_one_lead
+    ON task_assignee (task_id) WHERE role = 'LEAD';   -- V48
+```
+
+plus a `CHECK (role IN ('LEAD','HELPER'))`. **No automated test exercises either
+constraint.**
+
+**Mechanism.** The test profile disables Flyway and uses H2 with
+`ddl-auto=create-drop`, so the schema tests run against is generated from the JPA
+entity mappings — **not** from the V48 SQL. H2 has no notion of a **partial
+(filtered) unique index** (`WHERE role='LEAD'`), and the JPA `@Table`/annotations
+can't express one either, so `uk_task_assignee_one_lead` and the role `CHECK`
+simply **don't exist** in the test database. A test could insert two `LEAD` rows
+for one task and H2 would happily accept them — green build, broken invariant.
+
+**What actually guards the invariant.**
+- **At runtime:** only real **Postgres** enforces the partial-unique index.
+- **In code:** `TaskAssignmentService.setLead` demotes any existing Lead to
+  HELPER and **flushes that demote BEFORE writing the new LEAD**, so the index is
+  never transiently violated. This *ordering* is unit-tested at the mock level
+  (`TaskAssignmentServiceTest` via Mockito `InOrder`) — but the mock has no index,
+  so the test proves the **call order**, not that Postgres accepts the result.
+- **Before Step 2 shipped:** the index + backfill were validated **once, by hand,
+  against a throwaway real Postgres** (the V48/V49 rehearsal).
+
+**Standing rule.** A green `mvn clean test` does **NOT** prove the one-LEAD
+invariant. **Anyone who touches `setLead`, the demote-before-promote ordering, the
+`task_assignee` schema, or V48/V49 must RE-REHEARSE against a real Postgres**
+(not H2) before shipping — confirm two LEAD rows are rejected and the role CHECK
+holds. If you want this in CI, it needs a Testcontainers Postgres profile; until
+then it is rehearsal-verified only. (Related: T-1 on migrations reaching prod.)
+
+---
+
 ## Template for new entries
 
 ### T-N · <one-line trap name>
