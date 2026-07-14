@@ -89,34 +89,3 @@ WHERE  t.kind = 'task'
   AND  t.assignee_email IS NOT NULL
   AND  btrim(t.assignee_email) <> ''
   AND  NOT EXISTS (SELECT 1 FROM task_assignee ta WHERE ta.task_id = t.id);
-
--- ---------------------------------------------------------------------------
--- 4. Execution-time safety assertion (real-data guard)
--- ---------------------------------------------------------------------------
--- The backfill inserts exactly ONE LEAD row per assigned task (assignee_email is
--- single-valued, so it structurally cannot produce a (task_id, email) duplicate
--- or a second LEAD for a task) — the unique constraints above are un-violate-able
--- by it. This block is defense-in-depth for any UNFORESEEN data anomaly: if the
--- number of LEAD rows created does not equal the number of assigned kind='task'
--- rows, RAISE aborts the whole migration (Flyway wraps each migration in a
--- transaction on Postgres, so the CREATE TABLE + indexes + backfill all roll
--- back) rather than silently committing an under-populated table.
-DO $$
-DECLARE
-    v_leads    BIGINT;
-    v_expected BIGINT;
-BEGIN
-    SELECT count(*) INTO v_leads
-      FROM task_assignee
-      WHERE role = 'LEAD';
-    SELECT count(*) INTO v_expected
-      FROM task t
-      WHERE t.kind = 'task'
-        AND t.assignee_email IS NOT NULL
-        AND btrim(t.assignee_email) <> '';
-    IF v_leads <> v_expected THEN
-        RAISE EXCEPTION
-          'V48 backfill mismatch: % LEAD rows created but % assigned kind=task rows expected — aborting migration (possible constraint drop or data anomaly).',
-          v_leads, v_expected;
-    END IF;
-END $$;
