@@ -247,8 +247,20 @@ public record PostDto(
          * honor the contract's "absent === unknown" rule.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String needType
+        String needType,
+        /**
+         * Work-order assignees (Step 2) — the LEAD + any HELPERs — each with a
+         * display name + avatar folded server-side via the same batch UserInfo
+         * path the requester uses (so Step-A avatars render without the client
+         * cache). {@code task_assignee} is authoritative; {@code assigneeEmail}
+         * above is the derived display mirror. Empty on non-work-order kinds and
+         * on unassigned tasks (never null on the wire — the FE reads a list).
+         */
+        List<AssigneeDto> assignees
 ) {
+
+    /** One work-order assignee (Step 2): identity + task-level role LEAD|HELPER. */
+    public record AssigneeDto(String email, String displayName, String avatarUrl, String role) {}
 
     /** Per-type community-feed fields — see {@link #community}. */
     public record CommunityExtras(
@@ -340,7 +352,8 @@ public record PostDto(
                 authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
                 assigneeEmail, parentPost, c,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType());
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees);
     }
 
     public record ParentPostPreview(
@@ -452,7 +465,8 @@ public record PostDto(
                 t.isLiabilityRequired(), t.isReleaseSigned(), t.getReleaseTextHash(), t.getReleaseExceptionReason(),
                 t.isNearPowerLines(), t.isElectricalHazard(), t.getWaterLevel(), t.getSafeToEnter(),
                 withWorkPhotoUrls(t.getWorkDetails()),
-                t.getNeedType()
+                t.getNeedType(),
+                List.of()
         );
     }
 
@@ -518,7 +532,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -589,7 +604,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -619,7 +635,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -652,7 +669,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -682,7 +700,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -728,7 +747,8 @@ public record PostDto(
                 parentPost,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
     }
 
@@ -756,8 +776,38 @@ public record PostDto(
                 preview,
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
-                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType()
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees
         );
+    }
+
+    /**
+     * Returns a copy with the work-order assignee list folded in (Step 2).
+     * Populated by {@code PostService.withAssignees} from {@code task_assignee}
+     * + a batch UserInfo lookup. Non-task / unassigned rows get an empty list.
+     */
+    public PostDto withAssignees(List<AssigneeDto> assignees) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                parentPost,
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees == null ? List.of() : assignees);
     }
 
     // -------------------------------------------------------------------

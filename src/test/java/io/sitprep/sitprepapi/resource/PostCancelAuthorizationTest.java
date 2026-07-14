@@ -48,13 +48,15 @@ class PostCancelAuthorizationTest {
 
     private PostService tasks;
     private GroupService groupService;
+    private io.sitprep.sitprepapi.repo.TaskAssigneeRepo assigneeRepo;
     private PostResource resource;
 
     @BeforeEach
     void setUp() {
         tasks = mock(PostService.class);
         groupService = mock(GroupService.class);
-        resource = new PostResource(tasks, groupService);
+        assigneeRepo = mock(io.sitprep.sitprepapi.repo.TaskAssigneeRepo.class);
+        resource = new PostResource(tasks, groupService, assigneeRepo);
     }
 
     @AfterEach
@@ -133,6 +135,27 @@ class PostCancelAuthorizationTest {
         assertDoesNotThrow(() -> resource.cancel(POST_ID));
 
         verify(tasks).cancel(POST_ID);
+    }
+
+    @Test
+    void lead_canCancel() {
+        // Step 2: the task's Lead may cancel.
+        when(tasks.findById(POST_ID)).thenReturn(Optional.of(groupTask()));
+        when(assigneeRepo.existsByPostIdAndEmailIgnoreCaseAndRole(
+                POST_ID, "lead@x.com", io.sitprep.sitprepapi.domain.TaskAssignee.Role.LEAD)).thenReturn(true);
+        authenticateAs("lead@x.com");
+
+        assertDoesNotThrow(() -> resource.cancel(POST_ID));
+
+        verify(tasks).cancel(POST_ID);
+    }
+
+    @Test
+    void helper_cannotCancel() {
+        // A Helper is NOT a Lead — the assigneeRepo LEAD check returns false (default).
+        when(tasks.findById(POST_ID)).thenReturn(Optional.of(groupTask()));
+        stubGroup();
+        assertForbidden("helper@x.com");
     }
 
     // -----------------------------------------------------------------

@@ -56,7 +56,9 @@ class WorkOrderReopenRestoreTest {
                 mock(PostConfirmRepo.class),
                 mock(AskBookmarkRepo.class),
                 mock(WorkOrderQuotaService.class),
-                audit);
+                audit,
+                mock(io.sitprep.sitprepapi.repo.TaskAssigneeRepo.class),
+                mock(TaskAssignmentService.class));
         // refetchAndBroadcast registers an afterCommit synchronization.
         TransactionSynchronizationManager.initSynchronization();
     }

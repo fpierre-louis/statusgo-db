@@ -16,10 +16,13 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
+import io.sitprep.sitprepapi.domain.TaskAssignee;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -87,6 +90,8 @@ public class PostService {
     private final AskBookmarkRepo askBookmarkRepo;
     private final WorkOrderQuotaService workOrderQuotaService;
     private final AdminAuditLogService adminAuditLogService;
+    private final TaskAssigneeRepo taskAssigneeRepo;
+    private final TaskAssignmentService taskAssignmentService;
 
     public record PostSharePreview(
             String title,
@@ -109,7 +114,9 @@ public class PostService {
                        PostConfirmRepo postConfirmRepo,
                        AskBookmarkRepo askBookmarkRepo,
                        WorkOrderQuotaService workOrderQuotaService,
-                       AdminAuditLogService adminAuditLogService) {
+                       AdminAuditLogService adminAuditLogService,
+                       TaskAssigneeRepo taskAssigneeRepo,
+                       TaskAssignmentService taskAssignmentService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -127,6 +134,8 @@ public class PostService {
         this.askBookmarkRepo = askBookmarkRepo;
         this.workOrderQuotaService = workOrderQuotaService;
         this.adminAuditLogService = adminAuditLogService;
+        this.taskAssigneeRepo = taskAssigneeRepo;
+        this.taskAssignmentService = taskAssignmentService;
     }
 
     // -----------------------------------------------------------------------
@@ -242,6 +251,54 @@ public class PostService {
                     return (u == null) ? d : d.withAuthor(u);
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Batch-fold the work-order assignee list (Step 2 — {@code task_assignee},
+     * LEAD + HELPERs) into task PostDtos, each enriched with a display name +
+     * avatar via one batched UserInfo lookup (same path {@link #withAuthors}
+     * uses). Two batched queries total; non-task dtos pass through untouched.
+     * {@code task_assignee} is authoritative — {@code assigneeEmail} on the dto
+     * stays the derived display mirror.
+     */
+    private List<PostDto> withAssignees(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> taskIds = dtos.stream()
+                .filter(d -> "task".equals(d.kind()) && d.id() != null)
+                .map(PostDto::id).distinct().collect(Collectors.toList());
+        if (taskIds.isEmpty()) return dtos;
+        Map<Long, List<TaskAssignee>> byTask = taskAssigneeRepo.findByPostIdIn(taskIds).stream()
+                .collect(Collectors.groupingBy(TaskAssignee::getPostId));
+        if (byTask.isEmpty()) return dtos;
+        List<String> emails = byTask.values().stream().flatMap(List::stream)
+                .map(TaskAssignee::getEmail).filter(Objects::nonNull)
+                .map(s -> s.toLowerCase(Locale.ROOT)).distinct().collect(Collectors.toList());
+        Map<String, UserInfo> users = emails.isEmpty() ? Map.of()
+                : userInfoRepo.findByUserEmailIn(emails).stream()
+                    .filter(u -> u.getUserEmail() != null)
+                    .collect(Collectors.toMap(u -> u.getUserEmail().toLowerCase(Locale.ROOT),
+                            Function.identity(), (a, b) -> a));
+        return dtos.stream().map(d -> {
+            List<TaskAssignee> rows = byTask.get(d.id());
+            if (rows == null || rows.isEmpty()) return d;
+            List<PostDto.AssigneeDto> list = rows.stream()
+                    .sorted(Comparator
+                            .comparingInt((TaskAssignee r) -> r.getRole() == TaskAssignee.Role.LEAD ? 0 : 1)
+                            .thenComparing(r -> r.getCreatedAt() == null ? Instant.EPOCH : r.getCreatedAt()))
+                    .map(r -> {
+                        UserInfo u = r.getEmail() == null ? null
+                                : users.get(r.getEmail().toLowerCase(Locale.ROOT));
+                        String first = (u == null || u.getUserFirstName() == null) ? "" : u.getUserFirstName();
+                        String last = (u == null || u.getUserLastName() == null) ? "" : u.getUserLastName();
+                        String name = (first + " " + last).trim();
+                        String avatar = (u == null) ? null : DtoImages.avatar(u.getProfileImageUrl());
+                        return new PostDto.AssigneeDto(
+                                r.getEmail(), name.isEmpty() ? null : name, avatar,
+                                r.getRole() == null ? null : r.getRole().name());
+                    })
+                    .collect(Collectors.toList());
+            return d.withAssignees(list);
+        }).collect(Collectors.toList());
     }
 
     /**
@@ -508,9 +565,11 @@ public class PostService {
         // or an explicit root needType if the client sends one — so the column
         // stays authoritative for dispatch queries without trusting two sources.
         t.setNeedType(resolveNeedType(incoming));
-        // Delegation (Step 4): assign to a member at create when the wizard set
-        // one. The dedicated /assign endpoint remains the reassignment path.
-        t.setAssigneeEmail(blankToNull(incoming.getAssigneeEmail()));
+        // Delegation (Step 4): CAPTURED here, APPLIED after persist via the single
+        // write-through writer (below). Step 2: nothing but TaskAssignmentService
+        // may write the assignee_email mirror, and a task_assignee LEAD row must
+        // back it — so do NOT set the mirror directly here.
+        String delegatedAssignee = blankToNull(incoming.getAssigneeEmail());
         // Phase 5 — server-side life-safety derivation. ZERO-TRUST: interrogates
         // the authoritative work_details flags, escalating priority regardless of
         // the client-submitted value, and stamps the derived safety snapshots.
@@ -645,12 +704,21 @@ public class PostService {
         publisherPublishAuditService.requirePublisherPostAllowed(
                 t.getAuthoredAsGroupId(), t.getRequesterEmail(), requesterEmail, false);
         Post saved = taskRepo.save(t);
+        // Delegation (Step 4) — route a create-time assignee through the single
+        // write-through writer so the task_assignee LEAD row + the assignee_email
+        // mirror land together (needs the generated id, hence post-persist). This
+        // closes the split-brain where a delegated-at-create task had a mirror but
+        // no task_assignee row (so the delegate couldn't progress the work).
+        if (delegatedAssignee != null && "task".equals(saved.getKind())
+                && saved.getGroupId() != null && !saved.getGroupId().isBlank()) {
+            taskAssignmentService.setLead(saved.getId(), delegatedAssignee, requesterEmail);
+            saved = taskRepo.findById(saved.getId()).orElse(saved); // reflect the mirror write
+        }
         PostDto dto = PostDto.fromEntity(saved);
-        // Fold in authored-as-group identity (name + type) so the
-        // newly-created post returns with the group emblem already
-        // populated — no second round-trip needed on the FE to render
-        // the post card with the right author header.
-        dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(dto)))).get(0);
+        // Fold authored-as-group identity (name + type) + the work-order assignee
+        // roster so the newly-created post returns fully shaped — no second FE
+        // round-trip. (withAssignees is a no-op on non-task kinds.)
+        dto = withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(dto))))).get(0);
         publisherPublishAuditService.recordCommunityPost(saved, requesterEmail);
         broadcastAfterCommit(dto);
         return dto;
@@ -1036,9 +1104,18 @@ public class PostService {
      */
     public List<PostDto> listAssignedTo(String email) {
         if (email == null || email.isBlank()) return List.of();
-        List<PostDto> dtos = taskRepo.findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+        // Step 2 (DOCS_STEP2 §5.7): "assigned to me" reads task_assignee (LEAD OR
+        // HELPER), the sole authority — the single assignee_email can't express
+        // Helpers. task_assignee is authoritative for membership.
+        List<Long> taskIds = taskAssigneeRepo.findByEmailIgnoreCase(email).stream()
+                .map(TaskAssignee::getPostId).distinct().collect(Collectors.toList());
+        if (taskIds.isEmpty()) return List.of();
+        List<PostDto> dtos = taskRepo.findAllById(taskIds).stream()
+                .sorted(Comparator.comparing(
+                        (Post p) -> p.getCreatedAt() == null ? Instant.EPOCH : p.getCreatedAt())
+                        .reversed())
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAssignees(withAuthors(dtos)))), email);
     }
 
     /**
@@ -1382,19 +1459,26 @@ public class PostService {
      */
     @Transactional
     public PostDto assign(Long postId, String assigneeEmail, String assignedByEmail) {
-        Post before = mustExist(postId);
-        String assignee = (assigneeEmail == null || assigneeEmail.isBlank())
-                ? null : assigneeEmail.trim().toLowerCase();
-        String assignedBy = (assignee == null) ? null
-                : (assignedByEmail == null ? null : assignedByEmail.trim().toLowerCase());
-        Instant assignedAt = (assignee == null) ? null : Instant.now();
-        int rows = taskRepo.transitionAssign(postId, assignee, assignedBy, assignedAt,
-                EnumSet.of(PostStatus.DONE, PostStatus.CANCELLED));
-        if (rows == 0) {
-            throw new IllegalStateException("Cannot assign a closed task");
-        }
-        auditWorkOrder(before, "task.assign",
-                assignee == null ? "unassigned" : "assigned to " + assignee);
+        // Step 2: "assign" sets the LEAD. task_assignee is the sole authority;
+        // TaskAssignmentService is the single write-through writer (collection +
+        // assignee_email mirror + same-tx audit). A blank email clears the Lead.
+        // Broadcast the fresh DTO here — kept out of the writer to avoid a
+        // PostService <-> TaskAssignmentService circular dependency.
+        taskAssignmentService.setLead(postId, assigneeEmail, assignedByEmail);
+        return refetchAndBroadcast(postId);
+    }
+
+    /** Step 2: add a HELPER to a work order (multi-assignee). */
+    @Transactional
+    public PostDto addHelper(Long postId, String helperEmail, String actorEmail) {
+        taskAssignmentService.addHelper(postId, helperEmail, actorEmail);
+        return refetchAndBroadcast(postId);
+    }
+
+    /** Step 2: remove a specific assignee (LEAD or HELPER) from a work order. */
+    @Transactional
+    public PostDto removeAssignee(Long postId, String email, String actorEmail) {
+        taskAssignmentService.removeAssignee(postId, email, actorEmail);
         return refetchAndBroadcast(postId);
     }
 
@@ -1946,7 +2030,11 @@ public class PostService {
         Post fresh = taskRepo.findById(postId)
                 .orElseThrow(() -> new IllegalStateException(
                         "Post vanished mid-transition: " + postId));
-        PostDto dto = withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(fresh))))).get(0);
+        // withAssignees folds the task_assignee roster (Step 2) so the mutation
+        // response AND the STOMP broadcast carry the current LEAD/HELPER list —
+        // otherwise every lifecycle broadcast would ship assignees=[] and wipe
+        // the roster on subscribed clients. (No-op on non-task kinds.)
+        PostDto dto = withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(PostDto.fromEntity(fresh)))))).get(0);
         broadcastAfterCommit(dto);
         return dto;
     }
@@ -1985,7 +2073,7 @@ public class PostService {
         return taskRepo.findById(id)
                 .map(PostDto::fromEntity)
                 .map(d -> {
-                    List<PostDto> folded = withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(d)))), viewerEmail);
+                    List<PostDto> folded = withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(d))))), viewerEmail);
                     return folded.isEmpty() ? d : folded.get(0);
                 });
     }

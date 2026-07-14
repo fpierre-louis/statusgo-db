@@ -8,6 +8,8 @@ import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.domain.TaskAssignee;
+import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.web.Idempotent;
 import org.springframework.http.HttpStatus;
@@ -48,10 +50,13 @@ public class PostResource {
 
     private final PostService tasks;
     private final GroupService groupService;
+    private final TaskAssigneeRepo assigneeRepo;
 
-    public PostResource(PostService tasks, GroupService groupService) {
+    public PostResource(PostService tasks, GroupService groupService,
+                        TaskAssigneeRepo assigneeRepo) {
         this.tasks = tasks;
         this.groupService = groupService;
+        this.assigneeRepo = assigneeRepo;
     }
 
     // -----------------------------------------------------------------
@@ -236,9 +241,46 @@ public class PostResource {
     @PostMapping("/api/posts/{id}/assign")
     public ResponseEntity<ApiResponse<PostDto>> assign(@PathVariable Long id,
                                                       @RequestBody(required = false) AssignRequest req) {
-        String caller = ensureGroupManagerOf(id);
+        // Step 2: /assign sets the LEAD (a blank/omitted email clears it).
+        // Entitled to a group Owner/Admin OR the task's current Lead.
+        String caller = ensureCanAssignTask(id);
         String assignee = (req == null) ? null : req.assigneeEmail();
+        if (assignee != null && !assignee.isBlank()) {
+            ensureTargetIsGroupMember(tasks.findById(id).map(Post::getGroupId).orElse(null), assignee);
+        }
         return ResponseEntity.ok(ApiResponse.ok(tasks.assign(id, assignee, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Add a HELPER to a work order (Step 2, multi-assignee). Body:
+     * {@code { "assigneeEmail": "..." }}. Entitled to a group Owner/Admin OR the
+     * task's Lead — never a Helper.
+     */
+    @PostMapping("/api/posts/{id}/helpers")
+    public ResponseEntity<ApiResponse<PostDto>> addHelper(@PathVariable Long id,
+                                                          @RequestBody(required = false) AssignRequest req) {
+        String caller = ensureCanAssignTask(id);
+        String email = (req == null) ? null : req.assigneeEmail();
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "assigneeEmail required");
+        }
+        ensureTargetIsGroupMember(tasks.findById(id).map(Post::getGroupId).orElse(null), email);
+        return ResponseEntity.ok(ApiResponse.ok(tasks.addHelper(id, email, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Remove an assignee (LEAD or HELPER) from a work order (Step 2). Entitled to
+     * a group Owner/Admin OR the task's Lead; additionally a non-manager Lead may
+     * NOT remove an assignment a group Owner/Admin made. Email is a query param
+     * (avoids path-encoding issues with {@code @} / dots).
+     */
+    @DeleteMapping("/api/posts/{id}/assignees")
+    public ResponseEntity<ApiResponse<PostDto>> removeAssignee(@PathVariable Long id,
+                                                               @RequestParam String email) {
+        String caller = ensureCanAssignTask(id);
+        String groupId = tasks.findById(id).map(Post::getGroupId).orElse(null);
+        ensureLeadCannotOverrideManager(id, caller, groupId, email);
+        return ResponseEntity.ok(ApiResponse.ok(tasks.removeAssignee(id, email, caller), ApiMeta.now()));
     }
 
     @PostMapping("/api/posts/{id}/in-progress")
@@ -411,7 +453,9 @@ public class PostResource {
         Post t = existing.get();
         boolean before = "before".equalsIgnoreCase(phase.trim());
         if (before && caller.equalsIgnoreCase(t.getRequesterEmail())) return;
-        if (caller.equalsIgnoreCase(t.getAssigneeEmail())) return;
+        // Step 2: ANY assignee (LEAD or HELPER) may attach — read task_assignee
+        // (authoritative), not the assignee_email mirror (which is now Lead-only).
+        if ("task".equals(t.getKind()) && assigneeRepo.existsByPostIdAndEmailIgnoreCase(id, caller)) return;
         String groupId = t.getGroupId();
         if (groupId != null && !groupId.isBlank()) {
             try {
@@ -464,7 +508,9 @@ public class PostResource {
         // Broaden ONLY for group-scoped work orders.
         String groupId = t.getGroupId();
         if ("task".equals(t.getKind()) && groupId != null && !groupId.isBlank()) {
-            if (caller.equalsIgnoreCase(t.getAssigneeEmail())) return caller;
+            // Step 2: ANY assignee (LEAD or HELPER) may edit — read task_assignee
+            // (authoritative), not the assignee_email mirror (now Lead-only).
+            if (assigneeRepo.existsByPostIdAndEmailIgnoreCase(id, caller)) return caller;
             try {
                 Group g = groupService.getGroupByPublicId(groupId);
                 boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
@@ -505,9 +551,14 @@ public class PostResource {
         Post t = existing.get();
         // Requester may always cancel their own request (unchanged behavior).
         if (caller.equalsIgnoreCase(t.getRequesterEmail())) return;
-        // Broaden ONLY for group-scoped work orders — admin/owner, NOT claimer/assignee.
+        // Broaden ONLY for group-scoped work orders — admin/owner OR the task's
+        // Lead (Step 2). NEVER a Helper: a volunteer working a task can't cancel
+        // it out from under the requester.
         String groupId = t.getGroupId();
         if ("task".equals(t.getKind()) && groupId != null && !groupId.isBlank()) {
+            if (assigneeRepo.existsByPostIdAndEmailIgnoreCaseAndRole(id, caller, TaskAssignee.Role.LEAD)) {
+                return; // the task's Lead
+            }
             try {
                 Group g = groupService.getGroupByPublicId(groupId);
                 boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
@@ -519,7 +570,7 @@ public class PostResource {
             }
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Only the task requester or a group admin can cancel this task");
+                "Only the task requester, its Lead, or a group admin can cancel this task");
     }
 
     /**
@@ -540,8 +591,11 @@ public class PostResource {
         Optional<Post> existing = tasks.findById(id);
         if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Post t = existing.get();
-        if (caller.equalsIgnoreCase(t.getClaimedByEmail())
-                || caller.equalsIgnoreCase(t.getAssigneeEmail())) {
+        if (caller.equalsIgnoreCase(t.getClaimedByEmail())) return;
+        // Step 2: ANY assignee (LEAD or HELPER) may progress — Helpers do the
+        // work. Reads task_assignee (authoritative), not the assigneeEmail mirror.
+        if ("task".equals(t.getKind())
+                && assigneeRepo.existsByPostIdAndEmailIgnoreCase(id, caller)) {
             return;
         }
         String groupId = t.getGroupId();
@@ -557,7 +611,96 @@ public class PostResource {
             }
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Only the task claimer, assignee, or a group admin can update it");
+                "Only the task claimer, an assignee, or a group admin can update it");
+    }
+
+    /**
+     * Group-manager check — caller is Owner or Admin of {@code groupId}.
+     * Null-safe + group-lookup-safe (a failed lookup ⇒ "not a manager"). Shared
+     * by the Step-2 assignment guards.
+     */
+    private boolean isGroupManagerOf(String groupId, String caller) {
+        if (groupId == null || groupId.isBlank() || caller == null) return false;
+        try {
+            Group g = groupService.getGroupByPublicId(groupId);
+            if (caller.equalsIgnoreCase(g.getOwnerEmail())) return true;
+            return g.getAdminEmails() != null && g.getAdminEmails().stream()
+                    .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Assignment authorization (Step 2 — {@code /assign} + {@code /helpers}): a
+     * group {@code Owner/Admin} OR the task's {@code Lead}. A {@code Helper} may
+     * NEVER manage assignments. Group work orders only. Returns the verified
+     * caller. Throws 401 / 403 / 404.
+     */
+    private String ensureCanAssignTask(Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Post t = existing.get();
+        String groupId = t.getGroupId();
+        if (!"task".equals(t.getKind()) || groupId == null || groupId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Assignment is only available on group work orders");
+        }
+        if (isGroupManagerOf(groupId, caller)) return caller;
+        if (assigneeRepo.existsByPostIdAndEmailIgnoreCaseAndRole(id, caller, TaskAssignee.Role.LEAD)) {
+            return caller; // the task's Lead
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only a group admin/owner or the task's Lead can manage assignments");
+    }
+
+    /**
+     * Extra rule when REMOVING an assignee (Step 2): a Lead who is NOT a group
+     * Owner/Admin may not remove an assignment that a group Owner/Admin made — a
+     * Lead can add/manage Helpers but can't override the group's manager.
+     * Owner/Admins are unrestricted. Call AFTER {@link #ensureCanAssignTask}.
+     *
+     * <p>KNOWN LIMITATION: provenance is re-resolved against the assigner's
+     * CURRENT group role, so if the admin who made an assignment later loses
+     * admin status a Lead could then remove that row. A durable fix needs a
+     * persisted is-manager-origin flag on {@code task_assignee} (future migration).</p>
+     */
+    private void ensureLeadCannotOverrideManager(Long id, String caller, String groupId, String targetEmail) {
+        if (isGroupManagerOf(groupId, caller)) return; // managers unrestricted
+        assigneeRepo.findByPostIdAndEmailIgnoreCase(id, targetEmail).ifPresent(row -> {
+            if (isGroupManagerOf(groupId, row.getAssignedBy())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "A Lead can't remove an assignment made by a group admin/owner");
+            }
+        });
+    }
+
+    /**
+     * Step 2: an assignment TARGET must be a member (or Owner/Admin) of the
+     * task's group. Without this a non-manager Lead could add an arbitrary
+     * outside email, who would then gain progress/edit rights on the group's
+     * work order (and, via promotion, cancel/assign). Blank target = clearing,
+     * no check. Throws 403 (non-member) / 404 (group gone).
+     */
+    private void ensureTargetIsGroupMember(String groupId, String targetEmail) {
+        if (targetEmail == null || targetEmail.isBlank()) return;
+        Group g;
+        try {
+            g = groupService.getGroupByPublicId(groupId);
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        String want = targetEmail.trim();
+        boolean member = want.equalsIgnoreCase(g.getOwnerEmail())
+                || (g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(want)))
+                || (g.getMemberEmails() != null && g.getMemberEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(want)));
+        if (!member) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Can only assign a member of the task's group");
+        }
     }
 
     /**
@@ -573,8 +716,12 @@ public class PostResource {
         if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         Post t = existing.get();
         if (caller.equalsIgnoreCase(t.getRequesterEmail())
-                || caller.equalsIgnoreCase(t.getClaimedByEmail())
-                || caller.equalsIgnoreCase(t.getAssigneeEmail())) {
+                || caller.equalsIgnoreCase(t.getClaimedByEmail())) {
+            return caller;
+        }
+        // Step 2: ANY assignee (LEAD or HELPER) may witness the release — read
+        // task_assignee (authoritative), not the assignee_email mirror.
+        if ("task".equals(t.getKind()) && assigneeRepo.existsByPostIdAndEmailIgnoreCase(id, caller)) {
             return caller;
         }
         String groupId = t.getGroupId();

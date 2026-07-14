@@ -98,6 +98,26 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                          @Param("assignedAt") Instant assignedAt,
                          @Param("forbidden") Set<PostStatus> forbidden);
 
+    // Step 2: targeted write of ONLY the display-mirror columns
+    // (assignee_email / assigned_by_email / assigned_at). Used by
+    // TaskAssignmentService.rederiveMirror instead of a full-entity save so a
+    // concurrent status / claim / completedAt change committed by another tx is
+    // NOT clobbered (Post has no @Version / @DynamicUpdate). No status guard —
+    // the mirror is display-only and orthogonal to lifecycle.
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.assigneeEmail   = :email,
+                  p.assignedByEmail = :by,
+                  p.assignedAt      = :at
+            WHERE p.id = :id
+           """)
+    int updateAssigneeMirror(@Param("id") Long id,
+                             @Param("email") String email,
+                             @Param("by") String by,
+                             @Param("at") Instant at);
+
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
