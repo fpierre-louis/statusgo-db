@@ -259,10 +259,21 @@ public class PostResource {
         return ResponseEntity.ok(ApiResponse.ok(tasks.cancel(id), ApiMeta.now()));
     }
 
+    // Reopen (DONE→IN_PROGRESS / CANCELLED→OPEN) + restore (ARCHIVED→OPEN) are
+    // board-lifecycle moves — entitled to the same actors who progress/complete
+    // a task (claimer, assignee, or group admin/owner), via ensureCanProgressTask.
+    // (Reopen was author-only; broadened so an admin can reopen a task they
+    // didn't personally file — consistent with complete/in-progress.)
     @PostMapping("/api/posts/{id}/reopen")
     public ResponseEntity<ApiResponse<PostDto>> reopen(@PathVariable Long id) {
-        ensureRequester(id);
+        ensureCanProgressTask(id);
         return ResponseEntity.ok(ApiResponse.ok(tasks.reopen(id), ApiMeta.now()));
+    }
+
+    @PostMapping("/api/posts/{id}/restore")
+    public ResponseEntity<ApiResponse<PostDto>> restore(@PathVariable Long id) {
+        ensureCanProgressTask(id);
+        return ResponseEntity.ok(ApiResponse.ok(tasks.restore(id), ApiMeta.now()));
     }
 
     /**

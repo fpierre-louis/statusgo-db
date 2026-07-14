@@ -1390,13 +1390,39 @@ public class PostService {
         return refetchAndBroadcast(postId);
     }
 
-    /** Reopen a cancelled task — clears claimer state. */
+    /**
+     * Reopen a closed task — clears claimer state AND completedAt (resets the
+     * archive clock). Status-aware target:
+     *   • DONE      → IN_PROGRESS (resume the work that was completed)
+     *   • CANCELLED → OPEN        (put it back on the board)
+     * Anything else → 409 (nothing to reopen).
+     */
     @Transactional
     public PostDto reopen(Long postId) {
-        mustExist(postId);
-        int rows = taskRepo.transitionReopen(postId, PostStatus.CANCELLED, PostStatus.OPEN);
+        Post t = mustExist(postId);
+        int rows;
+        if (t.getStatus() == PostStatus.DONE) {
+            rows = taskRepo.transitionReopen(postId, PostStatus.DONE, PostStatus.IN_PROGRESS);
+        } else {
+            rows = taskRepo.transitionReopen(postId, PostStatus.CANCELLED, PostStatus.OPEN);
+        }
         if (rows == 0) {
-            throw new IllegalStateException("Only cancelled tasks can be reopened");
+            throw new IllegalStateException("Only completed or cancelled tasks can be reopened");
+        }
+        return refetchAndBroadcast(postId);
+    }
+
+    /**
+     * Restore an archived task back onto the board (ARCHIVED → OPEN). Archived
+     * ≠ deleted — the nightly sweep archives stale DONE work orders, but an
+     * admin can always pull one back. Clears completedAt via transitionReopen.
+     */
+    @Transactional
+    public PostDto restore(Long postId) {
+        mustExist(postId);
+        int rows = taskRepo.transitionReopen(postId, PostStatus.ARCHIVED, PostStatus.OPEN);
+        if (rows == 0) {
+            throw new IllegalStateException("Only archived tasks can be restored");
         }
         return refetchAndBroadcast(postId);
     }

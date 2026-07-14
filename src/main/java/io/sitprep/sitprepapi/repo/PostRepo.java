@@ -204,6 +204,11 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                          @Param("next") PostStatus next,
                          @Param("forbidden") PostStatus forbidden);
 
+    // Reopen / restore: return a closed task to an active state. Clears the
+    // claim metadata AND completedAt — clearing completedAt resets the 7-day
+    // archive clock (WorkOrderArchivalService keys off COALESCE(completedAt,
+    // updatedAt)); without it a reopened DONE task would carry a stale
+    // completion time and re-archive on the next sweep.
     @Transactional
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
@@ -211,7 +216,8 @@ public interface PostRepo extends JpaRepository<Post, Long> {
               SET p.status            = :next,
                   p.claimedByGroupId  = NULL,
                   p.claimedByEmail    = NULL,
-                  p.claimedAt         = NULL
+                  p.claimedAt         = NULL,
+                  p.completedAt       = NULL
             WHERE p.id = :id
               AND p.status = :expected
            """)
