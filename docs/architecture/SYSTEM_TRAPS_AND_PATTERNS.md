@@ -115,6 +115,35 @@ then it is rehearsal-verified only. (Related: T-1 on migrations reaching prod.)
 
 ---
 
+### T-3 · V49 is SINGLE-USE — never rebuild `task_assignee` from `assignee_email` again (it would wipe Helpers)
+
+**Applied to prod 2026-07-14 (release v504, `flyway_schema_history` v49 `success=t`).** After this
+migration, the authority direction is **permanently reversed** and must never be run backwards.
+
+**The rule.** `V49__reconcile_task_assignee.sql` did a one-time rebuild: `DELETE FROM task_assignee`
+then re-`INSERT` one `LEAD` per assigned `kind='task'` row **from `assignee_email`**. That was correct
+**only** because it ran *before any Step-2 write code — hence any HELPER — was live**, so
+`assignee_email` (which only ever knows the single Lead) was a complete source. **That window is now
+closed.** From v504 on:
+
+- **`task_assignee` is THE authority** for assignment membership + roles (`LEAD`/`HELPER`), written
+  write-through by `TaskAssignmentService` (the sole writer). `assignee_email` is a **derived display
+  mirror** (Lead ?? earliest Helper ?? null), re-derived FROM the collection.
+- **NEVER regenerate `task_assignee` from `assignee_email` again.** The mirror can represent at most
+  one person, so a rebuild would **silently DELETE every HELPER** (and any non-primary assignee) —
+  destroying real assignment data with no error.
+
+**What enforces it / what doesn't.** Flyway's run-once semantics stop *V49 itself* from re-firing
+(it's recorded in `flyway_schema_history` and can never re-run). The real hazard is a **human**
+copy-pasting V49's body into `psql` "to clean up drift" or "re-sync the mirror," or writing a V50 that
+does the same rebuild. **Don't.** If `task_assignee` ever needs repair after Step 2, repair it **as
+the authority** — fix the offending rows directly — and let `TaskAssignmentService.rederiveMirror`
+push the corrected value back into `assignee_email`. Reconciliation only ever flows
+collection → mirror now, never mirror → collection. (Related: T-1 immutable-once-applied migrations;
+T-2 the one-LEAD invariant is Postgres-enforced, not CI-tested.)
+
+---
+
 ## Template for new entries
 
 ### T-N · <one-line trap name>
