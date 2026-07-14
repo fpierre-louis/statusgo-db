@@ -198,6 +198,13 @@ public class BillingService {
                         .build())
                 .putMetadata("groupId", group.getGroupId())
                 .putMetadata("planTier", tier.name())
+                // client_reference_id — the canonical Stripe correlation key for
+                // checkout fulfillment. Billing is GROUP-scoped here (the group,
+                // not the user, is the subscriber), so the group's public id is
+                // the correct reference; the webhook reads metadata.groupId first
+                // and falls back to this. Redundant-but-canonical: makes the
+                // session self-describing even if metadata is ever stripped.
+                .setClientReferenceId(group.getGroupId())
                 // Copy the same metadata onto the Subscription so the
                 // subscription.updated / .deleted webhooks can resolve
                 // the group without a Stripe-id lookup table.
@@ -295,8 +302,12 @@ public class BillingService {
             return ignored("Checkout payload could not be deserialized");
         }
         Map<String, String> md = session.getMetadata();
-        String groupId = md == null ? null : md.get("groupId");
-        if (!hasText(groupId)) return ignored("Checkout session has no groupId metadata");
+        String metaGroupId = md == null ? null : md.get("groupId");
+        // Fallback to client_reference_id (stamped at session-create time) so a
+        // session fulfills even if its metadata is absent/stripped. Single
+        // final assignment — captured by the ifPresent lambda below.
+        final String groupId = hasText(metaGroupId) ? metaGroupId : session.getClientReferenceId();
+        if (!hasText(groupId)) return ignored("Checkout session has no groupId metadata or client_reference_id");
         Optional<Group> group = groupRepo.findByGroupId(groupId);
         if (group.isEmpty()) return ignored("No group found for checkout metadata", groupId);
         group.ifPresent(g -> {
@@ -306,7 +317,7 @@ public class BillingService {
             // Seat cap = purchased quantity on the subscription line item.
             Integer seats = seatsForSubscriptionId(session.getSubscription());
             if (seats != null) g.setMaxSeats(seats);
-            String tier = md.get("planTier");
+            String tier = md == null ? null : md.get("planTier");
             if (tier != null) g.setPlanTier(PlanTier.fromWire(tier).name());
             g.setUpdatedAt(Instant.now());
             groupRepo.save(g);
