@@ -32,11 +32,13 @@ class WorkOrderReopenRestoreTest {
     private static final Long POST_ID = 77L;
 
     private PostRepo taskRepo;
+    private AdminAuditLogService audit;
     private PostService service;
 
     @BeforeEach
     void setUp() {
         taskRepo = mock(PostRepo.class);
+        audit = mock(AdminAuditLogService.class);
         service = new PostService(
                 taskRepo,
                 mock(UserInfoRepo.class),
@@ -53,7 +55,8 @@ class WorkOrderReopenRestoreTest {
                 mock(AgencyAuthorizationService.class),
                 mock(PostConfirmRepo.class),
                 mock(AskBookmarkRepo.class),
-                mock(WorkOrderQuotaService.class));
+                mock(WorkOrderQuotaService.class),
+                audit);
         // refetchAndBroadcast registers an afterCommit synchronization.
         TransactionSynchronizationManager.initSynchronization();
     }
@@ -81,6 +84,8 @@ class WorkOrderReopenRestoreTest {
 
         verify(taskRepo).transitionReopen(eq(POST_ID), eq(PostStatus.DONE), eq(PostStatus.IN_PROGRESS));
         verify(taskRepo, never()).transitionReopen(eq(POST_ID), eq(PostStatus.CANCELLED), eq(PostStatus.OPEN));
+        // Backward move must be persistently audited (Guardrail 1).
+        verify(audit).record(any(), eq("task.reopen"), eq("task"), eq(String.valueOf(POST_ID)), any());
     }
 
     @Test
@@ -113,6 +118,19 @@ class WorkOrderReopenRestoreTest {
         assertDoesNotThrow(() -> service.restore(POST_ID));
 
         verify(taskRepo).transitionReopen(eq(POST_ID), eq(PostStatus.ARCHIVED), eq(PostStatus.OPEN));
+        verify(audit).record(any(), eq("task.restore"), eq("task"), eq(String.valueOf(POST_ID)), any());
+    }
+
+    @Test
+    void reopen_failure_writesNoAudit() {
+        // A no-op transition (0 rows) must not leave a misleading audit trail.
+        when(taskRepo.findById(POST_ID)).thenReturn(Optional.of(taskWithStatus(PostStatus.OPEN)));
+        when(taskRepo.transitionReopen(eq(POST_ID), eq(PostStatus.CANCELLED), eq(PostStatus.OPEN)))
+                .thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> service.reopen(POST_ID));
+
+        verify(audit, never()).record(any(), any(), any(), any(), any());
     }
 
     @Test

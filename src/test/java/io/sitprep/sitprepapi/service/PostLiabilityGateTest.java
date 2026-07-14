@@ -59,7 +59,8 @@ class PostLiabilityGateTest {
                 mock(AgencyAuthorizationService.class),
                 mock(PostConfirmRepo.class),
                 mock(AskBookmarkRepo.class),
-                mock(WorkOrderQuotaService.class));
+                mock(WorkOrderQuotaService.class),
+                mock(AdminAuditLogService.class));
         // refetchAndBroadcast registers an afterCommit synchronization on the
         // successful transition path — same pattern as GroupPostSecurityTest.
         TransactionSynchronizationManager.initSynchronization();

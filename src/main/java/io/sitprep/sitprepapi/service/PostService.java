@@ -21,6 +21,7 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.PublicCdn;
+import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,6 +86,7 @@ public class PostService {
     private final PostConfirmRepo postConfirmRepo;
     private final AskBookmarkRepo askBookmarkRepo;
     private final WorkOrderQuotaService workOrderQuotaService;
+    private final AdminAuditLogService adminAuditLogService;
 
     public record PostSharePreview(
             String title,
@@ -106,7 +108,8 @@ public class PostService {
                        AgencyAuthorizationService agencyAuthorizationService,
                        PostConfirmRepo postConfirmRepo,
                        AskBookmarkRepo askBookmarkRepo,
-                       WorkOrderQuotaService workOrderQuotaService) {
+                       WorkOrderQuotaService workOrderQuotaService,
+                       AdminAuditLogService adminAuditLogService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -123,6 +126,51 @@ public class PostService {
         this.postConfirmRepo = postConfirmRepo;
         this.askBookmarkRepo = askBookmarkRepo;
         this.workOrderQuotaService = workOrderQuotaService;
+        this.adminAuditLogService = adminAuditLogService;
+    }
+
+    // -----------------------------------------------------------------------
+    // Work-order transition audit (Guardrail 1). Every lifecycle move writes a
+    // persistent AdminAuditLog row {actor, action, target=task/id, from->to}.
+    // Backward moves (reopen/restore) and life-safety-flagged tasks are marked
+    // in the summary — the must-capture set. BE is the authoritative writer
+    // (unbypassable); the FE logStatusTransition seam is a client breadcrumb.
+    // A logging failure never breaks the transition itself.
+    // -----------------------------------------------------------------------
+
+    /** True iff the task currently carries any universal life-safety flag. */
+    private static boolean hasLifeSafetyFlag(Post t) {
+        Map<String, Object> wd = t == null ? null : t.getWorkDetails();
+        return wd != null && LIFE_SAFETY_FLAGS.stream().anyMatch(k -> boolTrue(wd.get(k)));
+    }
+
+    /** The set of currently-true life-safety flags (for change detection). */
+    private static Set<String> lifeSafetyFlagsOn(Post t) {
+        Map<String, Object> wd = t == null ? null : t.getWorkDetails();
+        if (wd == null) return Set.of();
+        return LIFE_SAFETY_FLAGS.stream()
+                .filter(k -> boolTrue(wd.get(k)))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Write one work-order audit row. {@code before} is the entity as loaded
+     * (bulk-UPDATE transitions don't mutate the in-memory object, so its status
+     * is the FROM). Never throws — a failed audit write is logged, not fatal.
+     */
+    private void auditWorkOrder(Post before, String action, String detail) {
+        if (before == null) return;
+        String summary = detail
+                + (hasLifeSafetyFlag(before) ? " [life-safety]" : "")
+                + (before.getGroupId() != null ? " group=" + before.getGroupId() : "");
+        try {
+            adminAuditLogService.record(
+                    AuthUtils.getCurrentUserEmail(), action, "task",
+                    String.valueOf(before.getId()), summary);
+        } catch (RuntimeException e) {
+            log.warn("Work-order audit write failed ({} task {}): {}",
+                    action, before.getId(), e.getMessage());
+        }
     }
 
     /**
@@ -1309,7 +1357,7 @@ public class PostService {
     @Transactional
     public PostDto claim(Long postId, String claimerGroupId, String claimerEmail) {
         // Verify existence up front so a missing id is a 400, not a 409.
-        mustExist(postId);
+        Post before = mustExist(postId);
         String email = claimerEmail == null ? null : claimerEmail.trim().toLowerCase();
         int rows = taskRepo.transitionClaim(
                 postId, PostStatus.OPEN, PostStatus.CLAIMED,
@@ -1317,6 +1365,7 @@ public class PostService {
         if (rows == 0) {
             throw new IllegalStateException("Task was claimed by another group");
         }
+        auditWorkOrder(before, "task.claim", before.getStatus() + " -> CLAIMED");
         return refetchAndBroadcast(postId);
     }
 
@@ -1333,7 +1382,7 @@ public class PostService {
      */
     @Transactional
     public PostDto assign(Long postId, String assigneeEmail, String assignedByEmail) {
-        mustExist(postId);
+        Post before = mustExist(postId);
         String assignee = (assigneeEmail == null || assigneeEmail.isBlank())
                 ? null : assigneeEmail.trim().toLowerCase();
         String assignedBy = (assignee == null) ? null
@@ -1344,6 +1393,8 @@ public class PostService {
         if (rows == 0) {
             throw new IllegalStateException("Cannot assign a closed task");
         }
+        auditWorkOrder(before, "task.assign",
+                assignee == null ? "unassigned" : "assigned to " + assignee);
         return refetchAndBroadcast(postId);
     }
 
@@ -1363,6 +1414,7 @@ public class PostService {
             throw new IllegalStateException(
                     "Post must be open or claimed before marking in-progress");
         }
+        auditWorkOrder(t, "task.start", t.getStatus() + " -> IN_PROGRESS");
         return refetchAndBroadcast(postId);
     }
 
@@ -1376,17 +1428,19 @@ public class PostService {
         if (rows == 0) {
             throw new IllegalStateException("Post is already closed");
         }
+        auditWorkOrder(t, "task.complete", t.getStatus() + " -> DONE");
         return refetchAndBroadcast(postId);
     }
 
     /** Requester cancels. Frees claimedBy state in case it was claimed. */
     @Transactional
     public PostDto cancel(Long postId) {
-        mustExist(postId);
+        Post before = mustExist(postId);
         int rows = taskRepo.transitionCancel(postId, PostStatus.CANCELLED, PostStatus.DONE);
         if (rows == 0) {
             throw new IllegalStateException("Cannot cancel a completed task");
         }
+        auditWorkOrder(before, "task.cancel", before.getStatus() + " -> CANCELLED");
         return refetchAndBroadcast(postId);
     }
 
@@ -1401,14 +1455,19 @@ public class PostService {
     public PostDto reopen(Long postId) {
         Post t = mustExist(postId);
         int rows;
+        PostStatus target;
         if (t.getStatus() == PostStatus.DONE) {
-            rows = taskRepo.transitionReopen(postId, PostStatus.DONE, PostStatus.IN_PROGRESS);
+            target = PostStatus.IN_PROGRESS;
+            rows = taskRepo.transitionReopen(postId, PostStatus.DONE, target);
         } else {
-            rows = taskRepo.transitionReopen(postId, PostStatus.CANCELLED, PostStatus.OPEN);
+            target = PostStatus.OPEN;
+            rows = taskRepo.transitionReopen(postId, PostStatus.CANCELLED, target);
         }
         if (rows == 0) {
             throw new IllegalStateException("Only completed or cancelled tasks can be reopened");
         }
+        // Backward move — must-capture.
+        auditWorkOrder(t, "task.reopen", t.getStatus() + " -> " + target);
         return refetchAndBroadcast(postId);
     }
 
@@ -1419,11 +1478,13 @@ public class PostService {
      */
     @Transactional
     public PostDto restore(Long postId) {
-        mustExist(postId);
+        Post before = mustExist(postId);
         int rows = taskRepo.transitionReopen(postId, PostStatus.ARCHIVED, PostStatus.OPEN);
         if (rows == 0) {
             throw new IllegalStateException("Only archived tasks can be restored");
         }
+        // Backward move — must-capture.
+        auditWorkOrder(before, "task.restore", "ARCHIVED -> OPEN");
         return refetchAndBroadcast(postId);
     }
 
@@ -1500,6 +1561,9 @@ public class PostService {
         Post t = mustExist(postId);
         boolean isAuthor = callerEmail != null && t.getRequesterEmail() != null
                 && t.getRequesterEmail().equalsIgnoreCase(callerEmail);
+        // Life-safety flag set BEFORE the edit — audited if it changes (a
+        // trusted editor adding/removing a hazard flag is a must-capture event).
+        Set<String> lsBefore = lifeSafetyFlagsOn(t);
         if (patch.getTitle() != null) t.setTitle(patch.getTitle());
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
@@ -1555,6 +1619,14 @@ public class PostService {
         // and zero-trust holds even if the client lowered priority in this patch.
         deriveLifeSafety(t);
         Post saved = taskRepo.save(t);
+        // Life-safety flag change → persistent audit (Guardrail 1). Scoped
+        // naturally to work orders: a community post has no life-safety flags,
+        // so the sets are equal and nothing is written.
+        Set<String> lsAfter = lifeSafetyFlagsOn(saved);
+        if (!lsBefore.equals(lsAfter)) {
+            auditWorkOrder(saved, "task.lifesafety-change",
+                    "life-safety flags " + lsBefore + " -> " + lsAfter);
+        }
         // Enrich the same way every other mutation path does
         // (refetchAndBroadcast / createPost). A bare fromEntity here shipped a
         // null author (requesterFirstName/lastName/profileImageUrl/authorType
