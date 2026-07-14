@@ -35,7 +35,7 @@ import java.util.Set;
  *   POST   /api/tasks/{id}/assign                  group admin assigns to a member
  *   POST   /api/tasks/{id}/in-progress             claimer/assignee marks active
  *   POST   /api/tasks/{id}/complete                claimer/assignee marks done
- *   POST   /api/tasks/{id}/cancel                  requester cancels
+ *   POST   /api/tasks/{id}/cancel                  requester or group admin cancels
  *   POST   /api/tasks/{id}/reopen                  requester reopens cancelled
  * </pre>
  *
@@ -255,7 +255,7 @@ public class PostResource {
 
     @PostMapping("/api/posts/{id}/cancel")
     public ResponseEntity<ApiResponse<PostDto>> cancel(@PathVariable Long id) {
-        ensureRequester(id);
+        ensureCanCancelTask(id);
         return ResponseEntity.ok(ApiResponse.ok(tasks.cancel(id), ApiMeta.now()));
     }
 
@@ -477,6 +477,49 @@ public class PostResource {
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Only the requester, assignee, or a group admin can edit this task");
+    }
+
+    /**
+     * Cancellation authorization for {@code POST /api/posts/{id}/cancel}.
+     * Deliberately NARROWER than {@link #ensureCanProgressTask}: cancel is for
+     * exactly two parties —
+     * <ul>
+     *   <li>the requester (author) — self-cancel of their own request, for any
+     *       post/kind (unchanged from the old {@link #ensureRequester} gate);</li>
+     *   <li>an admin/owner of the task's own group — group work orders only, so
+     *       a group manager can withdraw a task on their group's board.</li>
+     * </ul>
+     * NOT the claimer and NOT the assignee: a volunteer working a task must not
+     * be able to cancel it out from under the requester. (A task {@code Lead}
+     * gains cancel rights in a later phase, once Lead is a real, checkable role
+     * distinct from today's single assignee — who becomes a Helper.) Community
+     * posts (kind != {@code task}) and personal tasks (no group) stay strictly
+     * author-only; {@code DELETE} is unaffected (still author-only). Throws
+     * 401 / 403 / 404. Reuses {@link #ensureCanProgressTask}'s group-owner/admin
+     * resolution, minus the claimer/assignee branch.
+     */
+    private void ensureCanCancelTask(Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Optional<Post> existing = tasks.findById(id);
+        if (existing.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        Post t = existing.get();
+        // Requester may always cancel their own request (unchanged behavior).
+        if (caller.equalsIgnoreCase(t.getRequesterEmail())) return;
+        // Broaden ONLY for group-scoped work orders — admin/owner, NOT claimer/assignee.
+        String groupId = t.getGroupId();
+        if ("task".equals(t.getKind()) && groupId != null && !groupId.isBlank()) {
+            try {
+                Group g = groupService.getGroupByPublicId(groupId);
+                boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
+                boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                        .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+                if (isOwner || isAdmin) return;
+            } catch (RuntimeException ignored) {
+                // group lookup failed — fall through to 403
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Only the task requester or a group admin can cancel this task");
     }
 
     /**
