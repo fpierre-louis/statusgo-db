@@ -233,21 +233,22 @@ public class PostResource {
     }
 
     /**
-     * Group admin/owner assigns the task to a member (push assignment).
-     * Body: {@code { "assigneeEmail": "..." }} — a blank/omitted email
-     * clears the assignment. Caller must be admin/owner of the task's
-     * own group.
+     * Add a LEAD to a work order (push assignment; Phase 2a multi-lead).
+     * Body: {@code { "assigneeEmail": "..." }}. ADDITIVE — adds a lead without
+     * demoting existing leads (a task may have several); the first lead
+     * auto-becomes the primary point of contact. Entitled to a group Owner/Admin
+     * OR any existing lead. A blank email is rejected — clearing-via-assign is
+     * gone (remove with DELETE /assignees; un-lead with /demote-lead).
      */
     @PostMapping("/api/posts/{id}/assign")
     public ResponseEntity<ApiResponse<PostDto>> assign(@PathVariable Long id,
                                                       @RequestBody(required = false) AssignRequest req) {
-        // Step 2: /assign sets the LEAD (a blank/omitted email clears it).
-        // Entitled to a group Owner/Admin OR the task's current Lead.
         String caller = ensureCanAssignTask(id);
         String assignee = (req == null) ? null : req.assigneeEmail();
-        if (assignee != null && !assignee.isBlank()) {
-            ensureTargetIsGroupMember(tasks.findById(id).map(Post::getGroupId).orElse(null), assignee);
+        if (assignee == null || assignee.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "assigneeEmail required");
         }
+        ensureTargetIsGroupMember(tasks.findById(id).map(Post::getGroupId).orElse(null), assignee);
         return ResponseEntity.ok(ApiResponse.ok(tasks.assign(id, assignee, caller), ApiMeta.now()));
     }
 
@@ -266,6 +267,37 @@ public class PostResource {
         }
         ensureTargetIsGroupMember(tasks.findById(id).map(Post::getGroupId).orElse(null), email);
         return ResponseEntity.ok(ApiResponse.ok(tasks.addHelper(id, email, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Demote a LEAD to HELPER (Phase 2a) — keeps them on the task; the FE cycling
+     * control's Lead → Helper step. Body: {@code { "assigneeEmail": "..." }}.
+     * Entitled to a group Owner/Admin OR any lead. If the demoted lead was the
+     * primary, the primary clears (no auto-shuffle).
+     */
+    @PostMapping("/api/posts/{id}/demote-lead")
+    public ResponseEntity<ApiResponse<PostDto>> demoteLead(@PathVariable Long id,
+                                                           @RequestBody(required = false) AssignRequest req) {
+        String caller = ensureCanAssignTask(id);
+        String email = (req == null) ? null : req.assigneeEmail();
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "assigneeEmail required");
+        }
+        return ResponseEntity.ok(ApiResponse.ok(tasks.demoteLead(id, email, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Set the task's PRIMARY lead / point of contact (Phase 2a). Body:
+     * {@code { "assigneeEmail": "..." }} — a blank/omitted email CLEARS the primary.
+     * The target must be an existing lead (409 otherwise). Entitled to a group
+     * Owner/Admin OR any lead.
+     */
+    @PostMapping("/api/posts/{id}/primary")
+    public ResponseEntity<ApiResponse<PostDto>> setPrimary(@PathVariable Long id,
+                                                           @RequestBody(required = false) AssignRequest req) {
+        String caller = ensureCanAssignTask(id);
+        String email = (req == null) ? null : req.assigneeEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.setPrimary(id, email, caller), ApiMeta.now()));
     }
 
     /**

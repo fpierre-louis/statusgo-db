@@ -67,6 +67,18 @@ public class TaskAssignee {
     @Column(nullable = false, length = 16)
     private Role role;
 
+    /**
+     * Marks this LEAD as the task's PRIMARY point of contact when several leads
+     * exist (V50, Phase 2a). Optional — a task may have leads and no primary.
+     * DB-guaranteed &le;1 per task by the partial-unique index
+     * {@code uk_task_assignee_one_primary}; a CHECK ({@code ck_task_assignee_primary_is_lead})
+     * forbids a Helper being primary. Both constraints are Postgres-only (V50), not
+     * exercised by the H2 test profile — the service enforces the same invariants
+     * in code (see {@code TaskAssignmentService.setPrimary}).
+     */
+    @Column(name = "is_primary", nullable = false)
+    private boolean primary;
+
     /** Verified caller who created this assignment (audit parity). */
     @Column(name = "assigned_by", length = 255)
     private String assignedBy;

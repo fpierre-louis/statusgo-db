@@ -13,16 +13,33 @@ import org.springframework.http.HttpStatus;
 
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 /**
  * The SINGLE write-through writer for work-order assignment (Step 2 —
- * DOCS_STEP2_ROLE_MODEL_DESIGN.md). {@code task_assignee} is the sole authority
- * for assignment membership + roles ({@code LEAD} / {@code HELPER});
- * {@code task.assignee_email} is a NON-authoritative "primary display" mirror
- * (Lead ?? earliest Helper ?? null) that ONLY this service maintains — nothing
- * reads {@code assignee_email} to make an authorization or role decision.
+ * DOCS_STEP2_ROLE_MODEL_DESIGN.md; Phase 2a multi-lead — V50).
+ * {@code task_assignee} is the sole authority for assignment membership + roles
+ * ({@code LEAD} / {@code HELPER}); {@code task.assignee_email} is a
+ * NON-authoritative "primary display" mirror that ONLY this service maintains —
+ * nothing reads {@code assignee_email} to make an authorization or role decision.
+ *
+ * <p><b>Multi-lead model (V50):</b> a task may have SEVERAL leads (any group
+ * member can be Lead or Helper) and, optionally, ONE {@code primary} lead — the
+ * point of contact. The DB enforces "≤1 primary per task"
+ * ({@code uk_task_assignee_one_primary}) and "a primary must be a lead"
+ * ({@code ck_task_assignee_primary_is_lead}); this service enforces the same
+ * invariants in code (so they hold on the H2 test profile too, which can't
+ * express a partial index / CHECK). Owner-locked semantics:
+ * <ul>
+ *   <li>{@link #addLead} never demotes another lead (additive); the FIRST lead on
+ *       a task auto-becomes primary so the display mirror stays meaningful.</li>
+ *   <li>{@link #demoteLead} is Lead→Helper (keeps them on the task); if they were
+ *       primary, the primary simply clears — no auto-shuffle (primary is optional).</li>
+ *   <li>A task may be LEADERLESS — that's surfaced/audited, never blocked
+ *       (Step-2 philosophy carried forward).</li>
+ * </ul>
  *
  * <p>Each mutation is one {@link Transactional} unit that updates the collection,
  * re-derives the mirror, and writes its {@code AdminAuditLog} row <b>in the same
@@ -57,58 +74,113 @@ public class TaskAssignmentService {
     // -----------------------------------------------------------------
 
     /**
-     * Set (or replace) the task's Lead. A blank/null email clears the Lead
-     * ({@link #removeLead}). If a <i>different</i> Lead exists it is DEMOTED to
-     * HELPER (never removed) with a {@code task.lead-change} audit event, then
-     * the target becomes LEAD (promoting an existing Helper if present). The
-     * demotion is flushed BEFORE the new LEAD is written so the partial-unique
-     * one-Lead index is never transiently violated.
+     * Add a LEAD (multi-lead; V50). Additive — NEVER demotes an existing lead.
+     * Promotes the person if they were a Helper; a no-op if they are already a
+     * Lead (so it never touches an existing primary). If this is the task's FIRST
+     * lead, it auto-becomes the {@code primary} point of contact (a lone lead is
+     * trivially the POC, and it keeps the display mirror non-null).
      */
     @Transactional
-    public void setLead(Long taskId, String email, String actor) {
+    public void addLead(Long taskId, String email, String actor) {
         String lead = norm(email);
-        if (lead == null) { removeLead(taskId, actor); return; }
+        if (lead == null) return; // nothing to add (the resource rejects blank with 400)
         Post t = assignableTask(taskId);
 
-        // Demote an existing, different Lead first (flush so ≤1-LEAD holds).
-        Optional<TaskAssignee> currentLead = assigneeRepo.findByPostIdAndRole(taskId, Role.LEAD);
-        currentLead.ifPresent(cur -> {
-            if (!cur.getEmail().equalsIgnoreCase(lead)) {
-                cur.setRole(Role.HELPER);
-                assigneeRepo.saveAndFlush(cur);
-                audit.record(actor, "task.lead-change", "task", String.valueOf(taskId),
-                        "LEAD -> HELPER " + cur.getEmail() + " (replaced by " + lead + ")" + grp(t));
-            }
-        });
+        Optional<TaskAssignee> existing = assigneeRepo.findByPostIdAndEmailIgnoreCase(taskId, lead);
+        if (existing.isPresent() && existing.get().getRole() == Role.LEAD) {
+            return; // already a Lead — no downgrade, don't disturb the primary
+        }
 
-        // Upsert the target as LEAD (promote if they were already a Helper).
-        TaskAssignee row = assigneeRepo.findByPostIdAndEmailIgnoreCase(taskId, lead)
-                .orElseGet(TaskAssignee::new);
+        // First lead on the task? (checked BEFORE the upsert; the target can't be
+        // a Lead here — that's the early-return above — so this counts OTHER leads.)
+        boolean hadLead = !assigneeRepo.findByPostIdAndRole(taskId, Role.LEAD).isEmpty();
+
+        TaskAssignee row = existing.orElseGet(TaskAssignee::new);
         row.setPostId(taskId);
         row.setEmail(lead);
         row.setRole(Role.LEAD);
+        row.setPrimary(!hadLead); // lone first lead is the primary
         row.setAssignedBy(norm(actor));
         if (row.getAssignedAt() == null) row.setAssignedAt(Instant.now());
         assigneeRepo.saveAndFlush(row);
 
         rederiveMirror(taskId);
         audit.record(actor, "task.assign", "task", String.valueOf(taskId),
-                "LEAD = " + lead + grp(t));
+                "LEAD = " + lead + (row.isPrimary() ? " (primary)" : "") + grp(t));
     }
 
-    /** Remove the current Lead (task becomes Lead-less; Helpers, if any, remain). */
+    /**
+     * Demote a LEAD to HELPER (keeps them ON the task; V50). No-op if the person
+     * isn't a lead. If they were the primary, the primary clears (a Helper can't
+     * be primary) and is NOT auto-reassigned — primary is optional. Removing them
+     * from the task entirely is {@link #removeAssignee}.
+     */
     @Transactional
-    public void removeLead(Long taskId, String actor) {
+    public void demoteLead(Long taskId, String email, String actor) {
+        String who = norm(email);
+        if (who == null) return;
         Post t = assignableTask(taskId);
-        Optional<TaskAssignee> lead = assigneeRepo.findByPostIdAndRole(taskId, Role.LEAD);
-        if (lead.isEmpty()) { rederiveMirror(taskId); return; } // idempotent no-op
-        String who = lead.get().getEmail();
-        assigneeRepo.delete(lead.get());
-        assigneeRepo.flush();
+        Optional<TaskAssignee> found = assigneeRepo.findByPostIdAndEmailIgnoreCase(taskId, who);
+        if (found.isEmpty() || found.get().getRole() != Role.LEAD) return; // nothing to demote
+        TaskAssignee row = found.get();
+        boolean wasPrimary = row.isPrimary();
+        row.setRole(Role.HELPER);
+        row.setPrimary(false); // a Helper can never be primary (CHECK parity)
+        assigneeRepo.saveAndFlush(row);
         rederiveMirror(taskId);
-        // Last-Lead removal is surfaced, not silently stripped.
-        audit.record(actor, "task.unassign", "task", String.valueOf(taskId),
-                "LEAD removed " + who + " (now Lead-less)" + grp(t));
+        audit.record(actor, "task.lead-change", "task", String.valueOf(taskId),
+                "LEAD -> HELPER " + who + (wasPrimary ? " (was primary; now none)" : "") + grp(t));
+    }
+
+    /**
+     * Mark a lead as the task's PRIMARY point of contact (V50). A blank/null email
+     * CLEARS the primary (leaves the leads, no POC). Otherwise the target must be
+     * an existing LEAD (409 if not) — a Helper can never be primary. The current
+     * primary (if a different row) is cleared and FLUSHED before the new one is set
+     * so the partial-unique one-primary index is never transiently violated.
+     */
+    @Transactional
+    public void setPrimary(Long taskId, String email, String actor) {
+        String target = norm(email);
+        Post t = assignableTask(taskId);
+
+        if (target == null) { clearPrimary(taskId, actor, t); return; }
+
+        TaskAssignee row = assigneeRepo.findByPostIdAndEmailIgnoreCase(taskId, target)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Primary must be an assigned lead of this task"));
+        if (row.getRole() != Role.LEAD) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Only a lead can be the primary point of contact");
+        }
+        if (row.isPrimary()) return; // already primary — idempotent
+
+        // Clear the current (different) primary FIRST + flush, so we never hold two
+        // is_primary=true rows at once (would trip uk_task_assignee_one_primary).
+        assigneeRepo.findByPostIdAndPrimaryTrue(taskId).ifPresent(cur -> {
+            if (!cur.getEmail().equalsIgnoreCase(target)) {
+                cur.setPrimary(false);
+                assigneeRepo.saveAndFlush(cur);
+            }
+        });
+
+        row.setPrimary(true);
+        assigneeRepo.saveAndFlush(row);
+        rederiveMirror(taskId);
+        audit.record(actor, "task.set-primary", "task", String.valueOf(taskId),
+                "PRIMARY = " + target + grp(t));
+    }
+
+    /** Clear the task's primary marker (no POC), if one is set. Idempotent. */
+    private void clearPrimary(Long taskId, String actor, Post t) {
+        Optional<TaskAssignee> cur = assigneeRepo.findByPostIdAndPrimaryTrue(taskId);
+        if (cur.isEmpty()) { rederiveMirror(taskId); return; }
+        String who = cur.get().getEmail();
+        cur.get().setPrimary(false);
+        assigneeRepo.saveAndFlush(cur.get());
+        rederiveMirror(taskId);
+        audit.record(actor, "task.set-primary", "task", String.valueOf(taskId),
+                "PRIMARY cleared " + who + grp(t));
     }
 
     /**
@@ -136,7 +208,10 @@ public class TaskAssignmentService {
                 "HELPER + " + helper + grp(t));
     }
 
-    /** Remove a specific assignee (LEAD or HELPER). No-op if not assigned. */
+    /**
+     * Remove a specific assignee (LEAD or HELPER). No-op if not assigned. Removing
+     * a primary lead clears the primary (the row is gone) with no auto-shuffle.
+     */
     @Transactional
     public void removeAssignee(Long taskId, String email, String actor) {
         String who = norm(email);
@@ -152,7 +227,7 @@ public class TaskAssignmentService {
                 (wasLead ? "LEAD removed " : "HELPER removed ") + who + grp(t));
     }
 
-    /** Clear every assignee (Lead + all Helpers). Mirror → null. */
+    /** Clear every assignee (all leads + all helpers). Mirror → null. */
     @Transactional
     public void clearAssignees(Long taskId, String actor) {
         Post t = assignableTask(taskId);
@@ -170,17 +245,24 @@ public class TaskAssignmentService {
     // -----------------------------------------------------------------
 
     /**
-     * Re-derive the non-authoritative {@code assignee_email} display mirror =
-     * LEAD ?? earliest HELPER ?? null, plus the assigned_by / assigned_at of that
-     * primary. Runs inside the mutation transaction so the mirror can never drift
-     * from the collection. Uses a targeted 3-column @Modifying UPDATE (like the
-     * legacy bulk transitions) — so it does NOT bump {@code updated_at} and cannot
-     * clobber a concurrently-committed status/claim change.
+     * Re-derive the non-authoritative {@code assignee_email} display mirror. With
+     * multiple leads (V50) the mirror follows the POC:
+     * {@code primary lead ?? earliest LEAD ?? earliest HELPER ?? null}, plus the
+     * assigned_by / assigned_at of that primary. Runs inside the mutation
+     * transaction so the mirror can never drift from the collection. Uses a
+     * targeted 3-column @Modifying UPDATE (like the legacy bulk transitions) — so
+     * it does NOT bump {@code updated_at} and cannot clobber a concurrently-committed
+     * status/claim change.
      */
     private void rederiveMirror(Long taskId) {
-        TaskAssignee primary = assigneeRepo.findByPostIdAndRole(taskId, Role.LEAD)
-                .orElseGet(() -> assigneeRepo.findByPostIdOrderByCreatedAtAsc(taskId)
-                        .stream().findFirst().orElse(null));
+        TaskAssignee primary = assigneeRepo.findByPostIdAndPrimaryTrue(taskId).orElse(null);
+        if (primary == null) {
+            // No starred primary — fall back to the earliest lead, then earliest
+            // of anyone (oldest-first, so the choice is deterministic).
+            List<TaskAssignee> all = assigneeRepo.findByPostIdOrderByCreatedAtAsc(taskId);
+            primary = all.stream().filter(a -> a.getRole() == Role.LEAD).findFirst()
+                    .orElseGet(() -> all.stream().findFirst().orElse(null));
+        }
         // Targeted 3-column UPDATE (NOT a full-entity save) so a concurrent
         // status / claim / completedAt commit by another tx is never clobbered
         // by a stale whole-row snapshot — Post has no @Version. The mirror is

@@ -25,8 +25,18 @@ public interface TaskAssigneeRepo extends JpaRepository<TaskAssignee, Long> {
     /** Batch fold across a feed/list page — assignees for many tasks in one query. */
     List<TaskAssignee> findByPostIdIn(List<Long> postIds);
 
-    /** The Lead of a task, if any (DB-guaranteed ≤1 by the partial-unique index). */
-    Optional<TaskAssignee> findByPostIdAndRole(Long postId, Role role);
+    /**
+     * All rows of a role on a task. Returns a LIST (was Optional under the
+     * one-Lead index) — since V50 a task may have MULTIPLE LEADs, so a single-row
+     * finder would throw NonUniqueResultException the moment a second lead exists.
+     */
+    List<TaskAssignee> findByPostIdAndRole(Long postId, Role role);
+
+    /**
+     * The task's PRIMARY lead (point of contact), if one is marked (V50).
+     * DB-guaranteed ≤1 by the partial-unique index {@code uk_task_assignee_one_primary}.
+     */
+    Optional<TaskAssignee> findByPostIdAndPrimaryTrue(Long postId);
 
     /** A specific person's assignment on a task (role change / remove / dedup). */
     Optional<TaskAssignee> findByPostIdAndEmailIgnoreCase(Long postId, String email);

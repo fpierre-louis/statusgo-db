@@ -282,8 +282,11 @@ public class PostService {
             List<TaskAssignee> rows = byTask.get(d.id());
             if (rows == null || rows.isEmpty()) return d;
             List<PostDto.AssigneeDto> list = rows.stream()
+                    // Display order (Phase 2a): primary lead first, then other
+                    // leads, then helpers — each arm oldest-first.
                     .sorted(Comparator
-                            .comparingInt((TaskAssignee r) -> r.getRole() == TaskAssignee.Role.LEAD ? 0 : 1)
+                            .comparingInt((TaskAssignee r) -> r.isPrimary() ? 0 : 1)
+                            .thenComparingInt(r -> r.getRole() == TaskAssignee.Role.LEAD ? 0 : 1)
                             .thenComparing(r -> r.getCreatedAt() == null ? Instant.EPOCH : r.getCreatedAt()))
                     .map(r -> {
                         UserInfo u = r.getEmail() == null ? null
@@ -294,7 +297,7 @@ public class PostService {
                         String avatar = (u == null) ? null : DtoImages.avatar(u.getProfileImageUrl());
                         return new PostDto.AssigneeDto(
                                 r.getEmail(), name.isEmpty() ? null : name, avatar,
-                                r.getRole() == null ? null : r.getRole().name());
+                                r.getRole() == null ? null : r.getRole().name(), r.isPrimary());
                     })
                     .collect(Collectors.toList());
             return d.withAssignees(list);
@@ -711,7 +714,8 @@ public class PostService {
         // no task_assignee row (so the delegate couldn't progress the work).
         if (delegatedAssignee != null && "task".equals(saved.getKind())
                 && saved.getGroupId() != null && !saved.getGroupId().isBlank()) {
-            taskAssignmentService.setLead(saved.getId(), delegatedAssignee, requesterEmail);
+            // First lead on a brand-new task → addLead auto-marks them primary.
+            taskAssignmentService.addLead(saved.getId(), delegatedAssignee, requesterEmail);
             saved = taskRepo.findById(saved.getId()).orElse(saved); // reflect the mirror write
         }
         PostDto dto = PostDto.fromEntity(saved);
@@ -1447,24 +1451,21 @@ public class PostService {
     }
 
     /**
-     * Group admin assigns the task to a member (push assignment). Pass a
-     * null/blank {@code assigneeEmail} to clear the assignment. Caller
-     * authorization (admin/owner of the task's group) is checked at the
-     * resource layer. Assignment is orthogonal to the claim/status
-     * lifecycle — an OPEN task can be assigned, and the assignee then
-     * works it through the normal in-progress / complete flow.
-     *
-     * <p>The UPDATE's WHERE rejects DONE / CANCELLED rows atomically —
-     * a concurrent complete/cancel beats this assign at the DB level.</p>
+     * Assign a LEAD to a work order (push assignment; Phase 2a multi-lead).
+     * ADDITIVE — adds a lead without demoting existing leads (a task may have
+     * several); the first lead auto-becomes the primary point of contact. Caller
+     * authorization (group Owner/Admin or an existing lead) is checked at the
+     * resource layer. Assignment is orthogonal to the claim/status lifecycle — an
+     * OPEN task can be assigned, and any assignee works it through in-progress /
+     * complete. Removal is {@link #removeAssignee}; un-leading is {@link #demoteLead}.
      */
     @Transactional
     public PostDto assign(Long postId, String assigneeEmail, String assignedByEmail) {
-        // Step 2: "assign" sets the LEAD. task_assignee is the sole authority;
-        // TaskAssignmentService is the single write-through writer (collection +
-        // assignee_email mirror + same-tx audit). A blank email clears the Lead.
+        // task_assignee is the sole authority; TaskAssignmentService is the single
+        // write-through writer (collection + assignee_email mirror + same-tx audit).
         // Broadcast the fresh DTO here — kept out of the writer to avoid a
         // PostService <-> TaskAssignmentService circular dependency.
-        taskAssignmentService.setLead(postId, assigneeEmail, assignedByEmail);
+        taskAssignmentService.addLead(postId, assigneeEmail, assignedByEmail);
         return refetchAndBroadcast(postId);
     }
 
@@ -1472,6 +1473,20 @@ public class PostService {
     @Transactional
     public PostDto addHelper(Long postId, String helperEmail, String actorEmail) {
         taskAssignmentService.addHelper(postId, helperEmail, actorEmail);
+        return refetchAndBroadcast(postId);
+    }
+
+    /** Phase 2a: demote a LEAD to HELPER (keeps them on the task). */
+    @Transactional
+    public PostDto demoteLead(Long postId, String email, String actorEmail) {
+        taskAssignmentService.demoteLead(postId, email, actorEmail);
+        return refetchAndBroadcast(postId);
+    }
+
+    /** Phase 2a: set (or, with a blank email, clear) the PRIMARY lead / POC. */
+    @Transactional
+    public PostDto setPrimary(Long postId, String email, String actorEmail) {
+        taskAssignmentService.setPrimary(postId, email, actorEmail);
         return refetchAndBroadcast(postId);
     }
 

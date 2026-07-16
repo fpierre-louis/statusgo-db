@@ -259,8 +259,13 @@ public record PostDto(
         List<AssigneeDto> assignees
 ) {
 
-    /** One work-order assignee (Step 2): identity + task-level role LEAD|HELPER. */
-    public record AssigneeDto(String email, String displayName, String avatarUrl, String role) {}
+    /**
+     * One work-order assignee (Step 2): identity + task-level role LEAD|HELPER,
+     * plus {@code primary} (Phase 2a) — true for the one lead marked as the point
+     * of contact when a task has several leads. Always false for Helpers.
+     */
+    public record AssigneeDto(String email, String displayName, String avatarUrl,
+                              String role, boolean primary) {}
 
     /** Per-type community-feed fields — see {@link #community}. */
     public record CommunityExtras(

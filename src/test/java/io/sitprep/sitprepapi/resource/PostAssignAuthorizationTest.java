@@ -89,31 +89,47 @@ class PostAssignAuthorizationTest {
 
     // ---- assign (ensureCanAssignTask): Owner/Admin/Lead allowed; Helper/stranger denied ----
 
+    // Phase 2a: /assign now ADDS a lead (additive), so an allowed caller must
+    // pass a real group-member target (ADMIN is a member here); a blank target is
+    // rejected 400 (clearing-via-assign is gone — see assign_blankTarget_rejected).
+
     @Test
     void owner_canAssign() {
         authenticateAs(OWNER);
-        assertDoesNotThrow(() -> resource.assign(POST_ID, null));
-        verify(tasks).assign(eq(POST_ID), any(), eq(OWNER));
+        assertDoesNotThrow(() -> resource.assign(POST_ID, new PostResource.AssignRequest(ADMIN)));
+        verify(tasks).assign(eq(POST_ID), eq(ADMIN), eq(OWNER));
     }
 
     @Test
     void admin_canAssign() {
         authenticateAs(ADMIN);
-        assertDoesNotThrow(() -> resource.assign(POST_ID, null));
-        verify(tasks).assign(eq(POST_ID), any(), eq(ADMIN));
+        assertDoesNotThrow(() -> resource.assign(POST_ID, new PostResource.AssignRequest(ADMIN)));
+        verify(tasks).assign(eq(POST_ID), eq(ADMIN), eq(ADMIN));
     }
 
     @Test
     void lead_canAssign() {
         asLead(LEAD);
         authenticateAs(LEAD);
-        assertDoesNotThrow(() -> resource.assign(POST_ID, null));
-        verify(tasks).assign(eq(POST_ID), any(), eq(LEAD));
+        assertDoesNotThrow(() -> resource.assign(POST_ID, new PostResource.AssignRequest(ADMIN)));
+        verify(tasks).assign(eq(POST_ID), eq(ADMIN), eq(LEAD));
+    }
+
+    @Test
+    void assign_blankTarget_rejected400_neverCallsService() {
+        // Clean cut (owner decision c): /assign is addLead now; a blank email is a
+        // 400, not a "clear". The guard passes (owner), then the blank check fires.
+        authenticateAs(OWNER);
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> resource.assign(POST_ID, new PostResource.AssignRequest("  ")));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        verify(tasks, never()).assign(any(), any(), any());
     }
 
     @Test
     void helper_cannotAssign() {
-        // helper is any-assignee but NOT a Lead → the Lead check is false.
+        // helper is any-assignee but NOT a Lead → the Lead check is false. The guard
+        // runs before the blank check, so a null body still 403s here.
         authenticateAs(HELPER);
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> resource.assign(POST_ID, null));
