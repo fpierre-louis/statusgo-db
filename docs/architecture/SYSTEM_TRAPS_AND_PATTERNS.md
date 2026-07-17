@@ -144,6 +144,32 @@ T-2 the one-LEAD invariant is Postgres-enforced, not CI-tested.)
 
 ---
 
+### T-4 · Adding a `PostKind` wire value REQUIRES widening the `chk_task_kind` CHECK in the same migration
+
+**Symptom / context:** V51 added `PostKind.PROJECT` ("project") but not the DB CHECK. Everything green —
+`mvn test` 205/205, a clean local boot, AND a full prod-clone rehearsal — yet `INSERT … kind='project'`
+on prod threw `new row … violates check constraint "chk_task_kind"`. Caught only by the live post-deploy
+smoke (a rolled-back insert); backfilled by V52.
+
+**Mechanism:** `chk_task_kind` (added V9, widened V11) enumerates the allowed `kind` values as a DB CHECK.
+The H2 test profile builds its schema from JPA entities (`ddl-auto=create-drop`), which do NOT carry this
+CHECK (it lives only in migration SQL) — so unit tests insert ANY kind and pass (see T-2). The Postgres
+rehearsal applied the migration + proved additive invariants but never inserted a `kind='project'` row, so
+it didn't exercise the CHECK either. `kind` has THREE sources of truth that must agree: the entity/`PostKind`
+enum, the service-layer `AUTHORIZED_KINDS` validation, and this DB CHECK — and only the first two are
+compiler/test-visible.
+
+**Fix / standing rule:** Whenever you add a value to `PostKind`, ship a migration that widens the CHECK in
+the SAME release: `ALTER TABLE task DROP CONSTRAINT IF EXISTS chk_task_kind; ALTER TABLE task ADD CONSTRAINT
+chk_task_kind CHECK (kind IS NULL OR kind IN (…full list…, '<new>'))`. Copy the value list verbatim from the
+LIVE prod constraint (`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='chk_task_kind'`) so
+no existing kind is dropped (dropping one would make the ADD fail on the first offending existing row). The
+only pre-FE check that catches a miss is a post-deploy smoke that actually INSERTs the new kind inside a
+rolled-back transaction — run it. (Related: T-2 H2 can't express DB constraints; T-1 migrations are
+immutable once applied.)
+
+---
+
 ## Template for new entries
 
 ### T-N · <one-line trap name>
