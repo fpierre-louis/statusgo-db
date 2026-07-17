@@ -16,6 +16,7 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.PostDto;
+import io.sitprep.sitprepapi.dto.CivicQueueDto;
 import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -1095,6 +1096,87 @@ public class PostService {
     @Transactional(readOnly = true)
     public List<PostDto> listByGroup(String groupId, PostStatus status) {
         return listByGroup(groupId, status, null);
+    }
+
+    /**
+     * Civic epic Slice 1 — an agency's civic-report pending queue (READ-ONLY).
+     * One indexed read of every civic report tagged to {@code agencyGroupId},
+     * then per-status counts (across ALL statuses, so the FE tab bar is honest
+     * regardless of the applied filter) + the reports filtered to the optional
+     * {@code statusWire}. Location is carried straight from the reverse-geocode
+     * data already on the row ({@code placeLabel} + lat/lng) — never recomputed.
+     *
+     * <p>The returned {@link CivicQueueDto} is list-shaped for multi-agency
+     * (decision 8): {@code taggedAgencies} is a List so Slice 2 changes only the
+     * population here, not the wire contract. Authorization is the caller's
+     * (the resource gates via {@code AgencyAuthorizationService.requireAgencyAdmin}).</p>
+     */
+    @Transactional(readOnly = true)
+    public CivicQueueDto listCivicReportsForAgency(String agencyGroupId, String statusWire) {
+        CivicQueueDto.CivicQueueCounts empty = new CivicQueueDto.CivicQueueCounts(0, 0, 0, 0, 0);
+        if (agencyGroupId == null || agencyGroupId.isBlank()) {
+            return new CivicQueueDto(empty, List.of());
+        }
+        List<Post> rows = taskRepo.findByTaggedAgencyGroupIdOrderByCreatedAtDesc(agencyGroupId.trim());
+
+        // Batch-resolve tagged-agency display names (distinct ids → one query).
+        // Today every row's tagged agency IS agencyGroupId, but resolving from
+        // the row keeps this correct once a report is tagged to several.
+        Set<String> agencyIds = rows.stream()
+                .map(Post::getTaggedAgencyGroupId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, String> agencyNameById = new HashMap<>();
+        if (!agencyIds.isEmpty()) {
+            for (Group g : groupRepo.findAllById(agencyIds)) {
+                if (g != null && g.getGroupId() != null) agencyNameById.put(g.getGroupId(), g.getGroupName());
+            }
+        }
+
+        CivicStatus filter = (statusWire == null || statusWire.isBlank())
+                ? null : CivicStatus.fromWire(statusWire.trim().toLowerCase());
+
+        int reported = 0, acknowledged = 0, scheduled = 0, resolved = 0;
+        List<CivicQueueDto.CivicReportSummary> reports = new ArrayList<>();
+        for (Post p : rows) {
+            CivicStatus s = CivicStatus.fromWire(p.getCivicStatus());
+            if (s == null) continue; // defensive — only real civic reports count
+            switch (s) {
+                case REPORTED -> reported++;
+                case ACKNOWLEDGED -> acknowledged++;
+                case SCHEDULED -> scheduled++;
+                case RESOLVED -> resolved++;
+            }
+            if (filter != null && s != filter) continue;
+            reports.add(toCivicSummary(p, agencyNameById));
+        }
+        int total = reported + acknowledged + scheduled + resolved;
+        return new CivicQueueDto(
+                new CivicQueueDto.CivicQueueCounts(reported, acknowledged, scheduled, resolved, total),
+                reports);
+    }
+
+    private static CivicQueueDto.CivicReportSummary toCivicSummary(Post p, Map<String, String> agencyNameById) {
+        List<CivicQueueDto.AgencyRef> tagged = new ArrayList<>();
+        String aid = p.getTaggedAgencyGroupId();
+        if (aid != null && !aid.isBlank()) {
+            tagged.add(new CivicQueueDto.AgencyRef(aid, agencyNameById.get(aid)));
+        }
+        return new CivicQueueDto.CivicReportSummary(
+                p.getId(),
+                p.getCivicCategory(),
+                p.getCivicStatus(),
+                p.getTitle(),
+                p.getDescription(),
+                p.getLatitude(),
+                p.getLongitude(),
+                p.getPlaceLabel(),
+                p.getRequesterEmail(),
+                p.getCreatedAt(),
+                p.getCivicAckedAt(),
+                p.getScheduledFor(),
+                p.getResolvedAt(),
+                tagged);
     }
 
     @Transactional(readOnly = true)

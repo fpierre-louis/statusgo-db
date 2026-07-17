@@ -282,6 +282,20 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     /** Anything the requester posted. */
     List<Post> findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(String requesterEmail);
 
+    /**
+     * Civic epic Slice 1 — every civic report tagged to one agency, newest
+     * first. Range-scans the existing {@code idx_task_tagged_agency
+     * (tagged_agency_group_id, civic_status)} index on its leading column (no
+     * new index / migration). The service computes per-status counts + filters
+     * by {@link io.sitprep.sitprepapi.constant.CivicStatus} in memory — a
+     * single agency's civic-report set is small, so one indexed read is cheap.
+     *
+     * <p>Slice 2 (multi-agency tagging) will replace this single-column query
+     * with a join over the multi-agency link table; the {@code CivicQueueDto}
+     * contract is already list-shaped so that change stays behind this repo.</p>
+     */
+    List<Post> findByTaggedAgencyGroupIdOrderByCreatedAtDesc(String taggedAgencyGroupId);
+
     /** Anything the user has claimed (across groups). */
     List<Post> findByClaimedByEmailIgnoreCaseOrderByCreatedAtDesc(String claimedByEmail);
 

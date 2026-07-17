@@ -42,6 +42,27 @@ public class AgencyAuthorizationService {
         }
     }
 
+    /**
+     * Civic epic Slice 1 — READ gate for an agency's own surfaces (the civic
+     * pending queue). Requires the caller to be at least an admin/owner of an
+     * {@code agencyAuthorized} group (decision 6: "agency = any Group with
+     * agencyAuthorized=true"). Deliberately does NOT require jurisdiction geo —
+     * unlike {@link #requireAgencyPostingAllowed}, reading a queue needs no
+     * posting geometry, so a freshly-authorized agency that hasn't set its
+     * radius can still read its inbox.
+     */
+    public void requireAgencyAdmin(Group agency, String callerEmail) {
+        if (agency == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agency group not found");
+        }
+        if (!GroupRole.fromGroup(agency, callerEmail).isAtLeastAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group admin or owner role required");
+        }
+        if (!agency.isAgencyAuthorized()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not an authorized agency");
+        }
+    }
+
     public List<UserInfo> recipients(Group agency, Instant since) {
         if (hasGeo(agency)) {
             return userGeoService.findWithinRadiusMiles(
