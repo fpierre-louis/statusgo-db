@@ -256,7 +256,24 @@ public record PostDto(
          * above is the derived display mirror. Empty on non-work-order kinds and
          * on unassigned tasks (never null on the wire — the FE reads a list).
          */
-        List<AssigneeDto> assignees
+        List<AssigneeDto> assignees,
+        /**
+         * Bundles / projects (V51) — DERIVED roll-up of this project's children
+         * (counts by status + a display label + the triage feed). Non-null only
+         * when {@code kind="project"}; omitted from the wire (NON_NULL) on every
+         * standalone task and non-task kind. Computed on read; never persisted.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        ProjectRollup projectRollup,
+        /**
+         * Bundles / projects (V51) — this project's child tasks as full task
+         * DTOs, folded ONLY on the project-detail path. Null (omitted) on the
+         * group list (the project card shows {@code projectRollup} + its
+         * {@code total} childCount instead) and on every non-project row. An
+         * empty list is a real, distinct value: a project with no tasks yet.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        List<PostDto> children
 ) {
 
     /**
@@ -266,6 +283,24 @@ public record PostDto(
      */
     public record AssigneeDto(String email, String displayName, String avatarUrl,
                               String role, boolean primary) {}
+
+    /**
+     * Bundles / projects (V51) — the DERIVED roll-up of a project's children,
+     * computed from child rows on read (never persisted). {@code total} doubles
+     * as the childCount the list card shows. The triage feed
+     * ({@code topOpenPriority}, {@code anyOpenLifeSafety},
+     * {@code mostUrgentOpenChildId}) lets the mixed list float a project up by
+     * its hottest still-open child (a life-safety child surfaces the project).
+     * {@code label} is a ready-to-render string ("1/3 done · 1 in progress ·
+     * 1 open"). Counts: {@code done} folds DONE + CLOSED (terminal-complete).
+     */
+    public record ProjectRollup(
+            int total, int open, int claimed, int inProgress, int done, int cancelled,
+            String label,
+            Post.PostPriority topOpenPriority,
+            boolean anyOpenLifeSafety,
+            Long mostUrgentOpenChildId
+    ) {}
 
     /** Per-type community-feed fields — see {@link #community}. */
     public record CommunityExtras(
@@ -358,7 +393,7 @@ public record PostDto(
                 assigneeEmail, parentPost, c,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees);
+                assignees, projectRollup, children);
     }
 
     public record ParentPostPreview(
@@ -471,7 +506,9 @@ public record PostDto(
                 t.isNearPowerLines(), t.isElectricalHazard(), t.getWaterLevel(), t.getSafeToEnter(),
                 withWorkPhotoUrls(t.getWorkDetails()),
                 t.getNeedType(),
-                List.of()
+                List.of(),
+                /* projectRollup — folded by PostService.withProjectRollup */ null,
+                /* children      — folded by PostService on the detail path */ null
         );
     }
 
@@ -538,7 +575,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -610,7 +647,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -641,7 +678,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -675,7 +712,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -706,7 +743,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -753,7 +790,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -782,7 +819,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees
+                assignees, projectRollup, children
         );
     }
 
@@ -812,7 +849,69 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees == null ? List.of() : assignees);
+                assignees == null ? List.of() : assignees,
+                projectRollup, children);
+    }
+
+    /**
+     * Bundles / projects (V51) — returns a copy with the DERIVED project
+     * roll-up folded in. Populated by {@code PostService.withProjectRollup}
+     * from a single grouped child query; no-op on the FE side (read-only).
+     * Only ever called for {@code kind="project"} rows.
+     */
+    public PostDto withProjectRollup(ProjectRollup projectRollup) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                parentPost,
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees, projectRollup, children);
+    }
+
+    /**
+     * Bundles / projects (V51) — returns a copy with the project's child task
+     * DTOs folded in. Populated by {@code PostService} ONLY on the
+     * project-detail path (the group list omits children and shows the
+     * roll-up's childCount instead). An empty list is a valid value: a project
+     * with no tasks yet.
+     */
+    public PostDto withChildren(List<PostDto> children) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                parentPost,
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees, projectRollup, children);
     }
 
     // -------------------------------------------------------------------

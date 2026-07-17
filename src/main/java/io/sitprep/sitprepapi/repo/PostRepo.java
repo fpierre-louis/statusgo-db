@@ -288,6 +288,43 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     /** Anything assigned to the user (group push flow) — backs /me/posts?role=assignee. */
     List<Post> findByAssigneeEmailIgnoreCaseOrderByCreatedAtDesc(String assigneeEmail);
 
+    // ---------------------------------------------------------------------
+    // Bundles / projects (V51). Children point at their container via
+    // project_id (distinct from the repost parent_task_id). One batch finder
+    // backs both the roll-up fold (group list) and the children fold (detail);
+    // the two targeted @Modifying updates move a task in/out and detach a
+    // deleted project's children — set-based, never loading children onto the
+    // heap, and matching the mirror-update discipline elsewhere in this repo.
+    // ---------------------------------------------------------------------
+
+    /** All child tasks of the given project containers (one batched query). */
+    List<Post> findByProjectIdIn(List<Long> projectIds);
+
+    /**
+     * Move a single task into a project (or out, with {@code projectId=null}).
+     * Targeted single-column update so a concurrent status/claim change on the
+     * row isn't clobbered (Post has no @Version). No status guard — the project
+     * link is orthogonal to lifecycle.
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE Post p SET p.projectId = :projectId WHERE p.id = :id")
+    int updateProjectId(@Param("id") Long id, @Param("projectId") Long projectId);
+
+    /**
+     * Detach every child of a project — set-based NULL-out used when a project
+     * container is deleted so its children survive as standalone tasks (belt-
+     * and-suspenders with the ON DELETE SET NULL FK, and the sole mechanism on
+     * the H2 test profile, which builds the schema from entities without the
+     * FK). Deliberately NOT clearAutomatically: the caller's managed container
+     * entity must survive for the subsequent delete(), and no child rows are
+     * loaded in that transaction, so there is nothing stale to evict.
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE Post p SET p.projectId = NULL WHERE p.projectId = :projectId")
+    int detachChildrenOfProject(@Param("projectId") Long projectId);
+
     /**
      * Community-scope candidates: groupId IS NULL plus zip-bucket pre-filter.
      * Caller refines with Haversine in service-layer Java. The status filter

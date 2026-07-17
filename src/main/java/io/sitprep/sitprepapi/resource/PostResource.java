@@ -315,6 +315,24 @@ public class PostResource {
         return ResponseEntity.ok(ApiResponse.ok(tasks.removeAssignee(id, email, caller), ApiMeta.now()));
     }
 
+    /**
+     * Bundles / projects (V51) — move a task INTO a project, or OUT of it with a
+     * blank/omitted projectId (detach → standalone). Body: {@code { "projectId":
+     * 123 }}. The service enforces the structure rules + authorization: group
+     * Owner/Admin only, the target must be a same-group project container, and a
+     * project row can never be nested. Creating a project (or attaching at
+     * create) goes through {@code POST /api/posts} with {@code kind="project"} /
+     * a {@code projectId} in the body; closing a project reuses the container's
+     * {@code /complete}. This endpoint is only the re-parent move.
+     */
+    @PostMapping("/api/posts/{id}/project")
+    public ResponseEntity<ApiResponse<PostDto>> setProject(@PathVariable Long id,
+                                                           @RequestBody(required = false) ProjectRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Long projectId = (req == null) ? null : req.projectId();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.moveToProject(id, projectId, caller), ApiMeta.now()));
+    }
+
     @PostMapping("/api/posts/{id}/in-progress")
     public ResponseEntity<ApiResponse<PostDto>> markInProgress(@PathVariable Long id) {
         ensureCanProgressTask(id);
@@ -819,4 +837,7 @@ public class PostResource {
     public record ClaimRequest(String groupId, String claimerEmail) {}
 
     public record AssignRequest(String assigneeEmail) {}
+
+    /** Bundles / projects (V51) — body for POST /{id}/project (null projectId detaches). */
+    public record ProjectRequest(Long projectId) {}
 }

@@ -221,9 +221,28 @@ public class Post {
     @Column(name = "tag")
     private Set<String> tags = new HashSet<>();
 
-    /** For sub-task hierarchies (work-order breakdowns). Null for top-level tasks. */
+    /**
+     * Repost / quote-post pointer — the post this row quotes. Wired to
+     * {@code PostService.withParentPosts} (folds a compact quote-card preview)
+     * and the create-path blank-description bypass. NOTE: despite the legacy
+     * "sub-task" column name, this is the REPOST link, NOT the bundles link.
+     * Bundles/projects use {@link #projectId} (V51) — a separate column.
+     */
     @Column(name = "parent_task_id")
     private Long parentPostId;
+
+    /**
+     * Bundles / projects (V51) — the container this task belongs to, or null
+     * for a standalone task. Points at a {@code kind="project"} Post row that
+     * groups several child tasks for one recipient/home. Distinct from
+     * {@link #parentPostId} (the repost pointer). Modeled as a plain scalar
+     * {@code Long} (not a {@code @ManyToOne}) — same as {@code parentPostId} —
+     * so Hibernate treats it as a column and never tries to manage the
+     * association; the DB self-FK is {@code ON DELETE SET NULL} (deleting a
+     * project detaches its children to standalone, never cascade-deletes them).
+     */
+    @Column(name = "project_id")
+    private Long projectId;
 
     // -----------------------------------------------------------------
     // Sponsored content fields — docs/SPONSORED_AND_ALERT_MODE.md

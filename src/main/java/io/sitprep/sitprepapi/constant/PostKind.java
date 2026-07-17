@@ -83,7 +83,20 @@ public enum PostKind {
      * community feed (BE listing filters out personal tasks when the
      * caller isn't the requester).
      */
-    TASK("task");
+    TASK("task"),
+
+    /**
+     * Bundle / project container (V51) — groups several child {@link #TASK}
+     * work orders for one recipient/home. Holds the recipient label (its
+     * {@code title}) + location (the geo fields) once; children point at it
+     * via {@code project_id} and don't repeat those. Has no work of its own:
+     * it correctly falls OUT of the task-only paths ({@code withAssignees},
+     * {@code ensureCanAssignTask}, which gate on {@code kind="task"}), so a
+     * project never carries assignees and rejects the assign endpoints. Its
+     * roll-up status is DERIVED from its children on read. The {@code title}
+     * IS the recipient label, so a title is required.
+     */
+    PROJECT("project");
 
     private final String wire;
 

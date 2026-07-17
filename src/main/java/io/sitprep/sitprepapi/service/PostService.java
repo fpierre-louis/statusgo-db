@@ -28,8 +28,10 @@ import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -643,6 +645,27 @@ public class PostService {
             t.setDescription(incoming.getDescription() == null ? null : incoming.getDescription().trim());
         }
 
+        // ── Bundles / projects (V51) ──────────────────────────────────────────
+        // The NEW project_id container link — entirely separate from the repost
+        // parent_task_id set above. Two shapes reach create():
+        //   • a project CONTAINER (kind="project") — must NOT be nested, so it
+        //     may not itself carry a project_id;
+        //   • a normal task carrying project_id — attaches to an existing,
+        //     same-group project container.
+        // Structure changes are group-manager gated (Owner/Admin), mirroring the
+        // authored-as-group admin gate above.
+        Long incomingProjectId = incoming.getProjectId();
+        if ("project".equals(t.getKind())) {
+            if (incomingProjectId != null) {
+                throw new IllegalArgumentException("A project cannot be nested inside another project");
+            }
+            requireProjectManager(t.getGroupId(), requesterEmail);
+        } else if (incomingProjectId != null) {
+            validateChildProjectRef(t.getGroupId(), null, incomingProjectId);
+            requireProjectManager(t.getGroupId(), requesterEmail);
+            t.setProjectId(incomingProjectId);
+        }
+
         // Marketplace fields. price + isFree are mutually exclusive
         // and only meaningful when kind="marketplace"; silently drop
         // them on other kinds rather than throw, since they may be
@@ -1054,8 +1077,18 @@ public class PostService {
         List<Post> rows = (status == null)
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
-        List<PostDto> dtos = rows.stream().map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail);
+        // V51: hide children (project_id != null) from the top-level list — the
+        // project container card represents them (plus its roll-up childCount).
+        // Standalone tasks and project containers (project_id == null) stay.
+        List<PostDto> dtos = rows.stream()
+                .filter(p -> p.getProjectId() == null)
+                .map(PostDto::fromEntity).collect(Collectors.toList());
+        // withProjectRollup folds each project container's derived counts +
+        // triage feed via one grouped child query (no-op when the page has no
+        // projects). No withAssignees here — the card uses the assignee_email
+        // mirror on the un-folded list (the roster folds only on detail/mutations).
+        return withProjectRollup(
+                withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail));
     }
 
     /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
@@ -1495,6 +1528,198 @@ public class PostService {
     public PostDto removeAssignee(Long postId, String email, String actorEmail) {
         taskAssignmentService.removeAssignee(postId, email, actorEmail);
         return refetchAndBroadcast(postId);
+    }
+
+    // =====================================================================
+    // Bundles / projects (V51) — a kind="project" container groups several
+    // child tasks (project_id link, distinct from the repost parent_task_id).
+    // Structure ops are group-manager gated; roll-up status is DERIVED from
+    // children on read (never persisted); each child stays a full task with
+    // its own multi-lead roster + lifecycle.
+    // =====================================================================
+
+    /**
+     * Move a task into a project (or out, with {@code projectId == null}).
+     * Manager-gated (Owner/Admin of the task's group). A project row can never be
+     * moved into another (no nesting); the target must be a same-group project
+     * container. Uses the targeted single-column update so a concurrent lifecycle
+     * change isn't clobbered.
+     */
+    @Transactional
+    public PostDto moveToProject(Long taskId, Long projectId, String caller) {
+        Post t = taskRepo.findById(taskId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found"));
+        if ("project".equals(t.getKind())) {
+            throw new IllegalArgumentException("A project cannot be moved into another project");
+        }
+        requireProjectManager(t.getGroupId(), caller);
+        if (projectId != null) {
+            validateChildProjectRef(t.getGroupId(), t.getId(), projectId);
+        }
+        taskRepo.updateProjectId(taskId, projectId); // null → detach to standalone
+        return refetchAndBroadcast(taskId);
+    }
+
+    /**
+     * Manager gate for project-structure ops (create / attach / move / detach):
+     * Owner or Admin of the group. Groupless (personal) scope has no managers, so
+     * it passes — a personal project is owned by its creator. Throws 403 / 404.
+     */
+    private void requireProjectManager(String groupId, String caller) {
+        if (groupId == null || groupId.isBlank()) return;
+        Group g = groupRepo.findByGroupId(groupId.trim()).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        String me = caller == null ? "" : caller.trim();
+        boolean isOwner = g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(me);
+        boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+        if (!isOwner && !isAdmin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only a group admin or owner can manage projects");
+        }
+    }
+
+    /**
+     * A child's project_id must reference an existing, same-group project
+     * CONTAINER — and never itself. Throws 400 on any violation. {@code childId}
+     * is null at create time (the child isn't persisted yet, so there is no
+     * self-reference to guard).
+     */
+    private void validateChildProjectRef(String childGroupId, Long childId, Long projectId) {
+        if (projectId == null) return;
+        if (childId != null && projectId.equals(childId)) {
+            throw new IllegalArgumentException("A task cannot be its own project");
+        }
+        Post parent = taskRepo.findById(projectId).orElseThrow(() ->
+                new IllegalArgumentException("projectId references an unknown project"));
+        if (!"project".equals(parent.getKind())) {
+            throw new IllegalArgumentException("projectId must reference a project container");
+        }
+        if (!Objects.equals(parent.getGroupId(), childGroupId)) {
+            throw new IllegalArgumentException("A task must belong to the same group as its project");
+        }
+    }
+
+    /**
+     * Fold each project container's DERIVED roll-up (child status counts + label
+     * + triage feed) via ONE grouped child query. No-op when the page carries no
+     * kind="project" rows (the common case), so it's cheap to leave in every
+     * list/broadcast pipeline. Nothing here is persisted.
+     */
+    private List<PostDto> withProjectRollup(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return dtos;
+        List<Long> projectIds = dtos.stream()
+                .filter(d -> "project".equals(d.kind()) && d.id() != null)
+                .map(PostDto::id).distinct().collect(Collectors.toList());
+        if (projectIds.isEmpty()) return dtos;
+        Map<Long, List<Post>> childrenByProject = taskRepo.findByProjectIdIn(projectIds).stream()
+                .filter(p -> p.getProjectId() != null)
+                .collect(Collectors.groupingBy(Post::getProjectId));
+        return dtos.stream().map(d -> {
+            if (!"project".equals(d.kind()) || d.id() == null) return d;
+            return d.withProjectRollup(computeRollup(childrenByProject.getOrDefault(d.id(), List.of())));
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * Load + enrich a project's child tasks for the detail fold — each a full
+     * task DTO (with its own assignee roster) ordered most-urgent-open first.
+     */
+    private List<PostDto> loadChildrenDtos(Long projectId, String viewerEmail) {
+        List<Post> children = taskRepo.findByProjectIdIn(List.of(projectId));
+        if (children.isEmpty()) return List.of();
+        List<PostDto> dtos = children.stream()
+                .sorted(CHILD_DISPLAY_ORDER)
+                .map(PostDto::fromEntity).collect(Collectors.toList());
+        return withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(dtos)))), viewerEmail);
+    }
+
+    /** Terminal statuses — a child in one of these is no longer "open" work. */
+    private static final Set<PostStatus> TERMINAL_STATUSES = EnumSet.of(
+            PostStatus.DONE, PostStatus.CLOSED, PostStatus.CANCELLED, PostStatus.ARCHIVED);
+
+    private static boolean isActiveStatus(PostStatus s) {
+        return s != null && !TERMINAL_STATUSES.contains(s);
+    }
+
+    private static int priorityRank(Post.PostPriority p) {
+        return switch (p == null ? Post.PostPriority.LOW : p) {
+            case URGENT -> 3;
+            case HIGH -> 2;
+            case MEDIUM -> 1;
+            case LOW -> 0;
+        };
+    }
+
+    /** Is {@code a} strictly more urgent than {@code b}? life-safety › priority › older. */
+    private static boolean moreUrgent(Post a, Post b) {
+        boolean la = hasLifeSafetyFlag(a), lb = hasLifeSafetyFlag(b);
+        if (la != lb) return la;
+        int pa = priorityRank(a.getPriority()), pb = priorityRank(b.getPriority());
+        if (pa != pb) return pa > pb;
+        Instant ca = a.getCreatedAt() == null ? Instant.EPOCH : a.getCreatedAt();
+        Instant cb = b.getCreatedAt() == null ? Instant.EPOCH : b.getCreatedAt();
+        return ca.isBefore(cb);
+    }
+
+    /** Detail child order: active (most-urgent-first) before terminal (newest-first). */
+    private static final Comparator<Post> CHILD_DISPLAY_ORDER = (a, b) -> {
+        boolean aa = isActiveStatus(a.getStatus()), ab = isActiveStatus(b.getStatus());
+        if (aa != ab) return aa ? -1 : 1;
+        if (aa) {
+            if (moreUrgent(a, b)) return -1;
+            if (moreUrgent(b, a)) return 1;
+            return 0;
+        }
+        Instant ca = a.getCreatedAt() == null ? Instant.EPOCH : a.getCreatedAt();
+        Instant cb = b.getCreatedAt() == null ? Instant.EPOCH : b.getCreatedAt();
+        return cb.compareTo(ca);
+    };
+
+    /**
+     * DERIVED project roll-up from its child rows. {@code done} folds DONE +
+     * CLOSED (both terminal-complete). The triage feed considers only ACTIVE
+     * (non-terminal) children so a project sorts by its hottest still-open work.
+     * Package-private for direct unit testing.
+     */
+    static PostDto.ProjectRollup computeRollup(List<Post> kids) {
+        int total = kids.size();
+        int open = 0, claimed = 0, inProgress = 0, done = 0, cancelled = 0;
+        boolean anyLifeSafety = false;
+        Post.PostPriority topOpen = null;
+        Post mostUrgent = null;
+        for (Post k : kids) {
+            switch (k.getStatus() == null ? PostStatus.OPEN : k.getStatus()) {
+                case OPEN -> open++;
+                case CLAIMED -> claimed++;
+                case IN_PROGRESS -> inProgress++;
+                case DONE, CLOSED -> done++;
+                case CANCELLED -> cancelled++;
+                default -> { /* DRAFT / LIABILITY_PENDING / VERIFICATION_PENDING / ARCHIVED */ }
+            }
+            if (isActiveStatus(k.getStatus())) {
+                if (hasLifeSafetyFlag(k)) anyLifeSafety = true;
+                if (topOpen == null || priorityRank(k.getPriority()) > priorityRank(topOpen)) {
+                    topOpen = k.getPriority();
+                }
+                if (mostUrgent == null || moreUrgent(k, mostUrgent)) mostUrgent = k;
+            }
+        }
+        return new PostDto.ProjectRollup(total, open, claimed, inProgress, done, cancelled,
+                buildRollupLabel(total, open, claimed, inProgress, done, cancelled),
+                topOpen, anyLifeSafety, mostUrgent == null ? null : mostUrgent.getId());
+    }
+
+    /** "1/3 done · 1 in progress · 1 open" — only non-zero segments after the done fraction. */
+    static String buildRollupLabel(int total, int open, int claimed, int inProgress, int done, int cancelled) {
+        if (total == 0) return "No tasks yet";
+        StringBuilder sb = new StringBuilder();
+        sb.append(done).append('/').append(total).append(" done");
+        if (inProgress > 0) sb.append(" · ").append(inProgress).append(" in progress");
+        if (claimed > 0) sb.append(" · ").append(claimed).append(" claimed");
+        if (open > 0) sb.append(" · ").append(open).append(" open");
+        if (cancelled > 0) sb.append(" · ").append(cancelled).append(" cancelled");
+        return sb.toString();
     }
 
     /**
@@ -1992,6 +2217,15 @@ public class PostService {
         List<String> imageKeys = t.getImageKeys() == null
                 ? List.of()
                 : new ArrayList<>(t.getImageKeys());
+        // V51: deleting a project container detaches its children to standalone
+        // (project_id → NULL) — NEVER cascade-deletes real work orders. Done
+        // explicitly (belt-and-suspenders with the ON DELETE SET NULL FK, and the
+        // sole mechanism on the H2 test profile, whose entity-built schema has no
+        // FK). The detach @Modifying does not clearAutomatically, so `t` stays
+        // managed for the delete() below.
+        if ("project".equals(t.getKind())) {
+            taskRepo.detachChildrenOfProject(id);
+        }
         taskRepo.delete(t);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
@@ -2085,12 +2319,18 @@ public class PostService {
     @Transactional(readOnly = true)
     public Optional<PostDto> findDtoById(Long id, String viewerEmail) {
         if (id == null) return Optional.empty();
-        return taskRepo.findById(id)
-                .map(PostDto::fromEntity)
-                .map(d -> {
-                    List<PostDto> folded = withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(d))))), viewerEmail);
-                    return folded.isEmpty() ? d : folded.get(0);
-                });
+        return taskRepo.findById(id).map(post -> {
+            PostDto base = PostDto.fromEntity(post);
+            List<PostDto> folded = withProjectRollup(
+                    withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(base))))), viewerEmail));
+            PostDto dto = folded.isEmpty() ? base : folded.get(0);
+            // V51: the project-detail read additionally folds the full child task
+            // list (the group list omits children + shows the roll-up childCount).
+            if ("project".equals(post.getKind())) {
+                dto = dto.withChildren(loadChildrenDtos(post.getId(), viewerEmail));
+            }
+            return dto;
+        });
     }
 
     /**
