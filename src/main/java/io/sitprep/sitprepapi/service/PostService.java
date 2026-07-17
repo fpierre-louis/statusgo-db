@@ -1162,6 +1162,15 @@ public class PostService {
         if (aid != null && !aid.isBlank()) {
             tagged.add(new CivicQueueDto.AgencyRef(aid, agencyNameById.get(aid)));
         }
+        // The resident's captured street address lives in the shared work_details
+        // bag (addressStreet), exactly like a work-order task — no dedicated
+        // column, so no migration. Null on legacy reports.
+        String formattedAddress = null;
+        Map<String, Object> wd = p.getWorkDetails();
+        if (wd != null) {
+            Object a = wd.get("addressStreet");
+            if (a != null && !a.toString().isBlank()) formattedAddress = a.toString().trim();
+        }
         return new CivicQueueDto.CivicReportSummary(
                 p.getId(),
                 p.getCivicCategory(),
@@ -1171,6 +1180,7 @@ public class PostService {
                 p.getLatitude(),
                 p.getLongitude(),
                 p.getPlaceLabel(),
+                formattedAddress,
                 p.getRequesterEmail(),
                 p.getCreatedAt(),
                 p.getCivicAckedAt(),

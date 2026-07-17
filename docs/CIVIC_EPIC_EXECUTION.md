@@ -20,7 +20,9 @@ the epic completes.**
 ## Locked owner decisions (verbatim — do not lose)
 
 1. **Dedupe proximity:** 0.5 miles default, category-dependent; the
-   event/pothole **ADDRESS is tracked on the post**.
+   event/pothole **ADDRESS is tracked on the post**. ✅ **SATISFIED** by the
+   Address Foundation pass (below) — a full street address now persists on every
+   new civic report (`work_details.addressStreet`) + its lat/lng.
 2. **Category match:** "similar" (or best industry practice), **not** exact-only.
 3. **Time window:** start simple; let users dictate where things go — don't
    over-engineer a fixed window now.
@@ -93,17 +95,60 @@ Already live (the civic *primitive*):
   (`AgencyRequestService`). Ghost-tenant claim engine for unclaimed civic
   entities (`GhostTenantService`, `Group.claimState`).
 
-**Address flag (foundational, noted — NOT built in Slice 1):** a civic report
-stores `latitude`, `longitude`, `zipBucket`, and `placeLabel` (a Nextdoor-style
-neighborhood→city→region→state short label from the reverse-geocode at create).
-It does **NOT** store a formatted **street** address (work-order tasks keep
-`addressStreet` inside `work_details`, but civic reports don't). Decision 1 says
-"ADDRESS is tracked on the post" — for a street-level address the small
-foundational item is to persist the FE-entered / reverse-geocoded formatted
-address on the civic report at create (reusing `/api/geocode/reverse`). Until
-then the queue displays `placeLabel`. **Owner/coordinator to confirm** whether
-Slice 1's `placeLabel` display is enough for now or the street-address column
-lands as a pre-Slice-2 foundational change.
+**Address flag — RESOLVED by the Address Foundation pass (below).** (Historical:
+Slice 1 shipped with only `placeLabel` display because civic reports stored
+lat/lng + zipBucket + placeLabel but no street address. The owner then decided a
+full street address must be captured before Slice 2 / dedupe.)
+
+---
+
+## Address Foundation — lands before Slice 2 — SHIPPED
+
+**Owner decision:** civic reports must carry a **full street address** + a
+tappable "get directions" link. Captured now (before dedupe) so it isn't
+backfilled once real reports exist.
+
+**Scope determination: CODE-ONLY — NO MIGRATION.** The street address persists
+in the civic report's existing `work_details` JSONB bag under `addressStreet` —
+the SAME structured field work-order tasks already use — so there is **no new
+column and no migration** (no gate needed). `work_details` (V47) is already
+bound from the request body, preserved through create
+(`sanitizeWorkDetails`), and `deriveLifeSafety` only escalates on true
+life-safety flags, so an address-only bag is inert.
+
+**Geocode API reused (not reinvented):** BE `GET /api/geocode/search` (forward)
++ `GET /api/geocode/reverse` (reverse) via `GeocodeService`/`NominatimGeocodeService`;
+FE helpers `geocodeSearch` + `geocodeReverse` in `sitprepApiService.js`
+(both return `{ label, lat, lng }`). (Note: the FE also has a Google-Places
+`useAddressAutocomplete` — deliberately NOT used here; the owner directive is the
+Nominatim proxy.)
+
+**BE (`sitprepapi 2`, `main`):**
+- `CivicQueueDto.CivicReportSummary` gains `formattedAddress` (read from
+  `work_details.addressStreet`; null on legacy reports). `PostService.toCivicSummary`
+  populates it. Create already persists the FE-sent `work_details.addressStreet`
+  (no create-path change). `placeLabel` stays as the legacy display fallback.
+
+**FE (`Status Now`, `sitprep-features`):**
+- `CivicFields` — new "Where is it?" issue-location capture: an address
+  type-ahead over `geocodeSearch` + a one-tap "Use my current location" over
+  `geocodeReverse`. Sets `{ address, lat, lng }` (the ISSUE's point).
+- `PostComposer` — a civic report now sends the issue's lat/lng (overriding the
+  reporter's live spot) + `work_details.addressStreet`; a location is required to
+  submit (drives directions + future dedupe).
+- `shared/utils/mapsLink.js` — `directionsUrl(lat,lng)`: Apple Maps universal
+  link on iOS, Google Maps elsewhere (external native-maps deep link, NOT the
+  deferred in-app map layer).
+- Display: the agency queue row + the community civic card (`PostBody`) show the
+  real street address (fallback `placeLabel`) + a "Directions" link.
+
+**Live verification:** the `work_details.addressStreet` round-trip is already
+proven live (work-order tasks store/read it today); the queue DTO mapping is
+deterministic. A full civic-report round-trip on prod needs a verified-publisher
+agency (privileged, admin-only), so that path is covered by the existing
+mechanism + a post-deploy Slice-1 queue regression E2E.
+
+**Status:** SHIPPED (code-only; see commit SHAs / deploy note).
 
 ---
 

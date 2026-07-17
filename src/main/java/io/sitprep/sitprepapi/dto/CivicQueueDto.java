@@ -45,9 +45,13 @@ public record CivicQueueDto(
      * @param description    the resident's report body
      * @param latitude       map-ready; null on legacy rows with no fix
      * @param longitude      map-ready; null on legacy rows with no fix
-     * @param placeLabel     displayable location (neighborhood → city → state)
-     *                       from the reverse-geocode at create; the FE renders
-     *                       this until a street-level address is captured
+     * @param placeLabel     short area label (neighborhood → city → state) from
+     *                       the reverse-geocode at create — the display fallback
+     *                       when no street address exists (legacy rows)
+     * @param formattedAddress the full street address the resident captured at
+     *                       create (from the shared /api/geocode API), stored on
+     *                       the report's {@code work_details.addressStreet}. Null
+     *                       on legacy reports filed before the address foundation
      * @param requesterEmail the filer (for the future +1/me-too counting)
      * @param createdAt      filed at
      * @param acknowledgedAt when an agency acknowledged, else null
@@ -65,6 +69,7 @@ public record CivicQueueDto(
             Double latitude,
             Double longitude,
             String placeLabel,
+            String formattedAddress,
             String requesterEmail,
             Instant createdAt,
             Instant acknowledgedAt,
