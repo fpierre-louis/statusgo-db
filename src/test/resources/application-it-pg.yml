@@ -1,0 +1,31 @@
+# Integration-test profile — drives the resolver against a REAL local Postgres
+# (a throwaway DB whose schema is built by replaying the real Flyway migrations
+# through psql), NOT H2 and NOT mocks. This closes the H2-vs-Postgres gap that
+# bit chk_task_kind (trap T-4): the default `test` profile runs H2 with
+# Hibernate-generated DDL and Flyway disabled, so the real group_jurisdiction_zips
+# join table has never been exercised on Postgres.
+#
+# Gated at the class level by @EnabledIfEnvironmentVariable(JURISDICTION_PG_IT)
+# so it NEVER runs on CI / Heroku (no local Postgres there → no accidental build
+# break). Never points at prod (statusgo-db); the DB below is a local throwaway.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/sitprep_juris_it
+    driver-class-name: org.postgresql.Driver
+    username: dione
+    password: ""
+    hikari:
+      # Neutralize the base config's Postgres session-init (statement_timeout);
+      # a trivial no-op keeps connection acquisition simple for the IT.
+      connection-init-sql: "SELECT 1"
+  flyway:
+    # Schema is pre-built by the psql migration replay in the runner script, so
+    # Flyway must not also try to run (and must not baseline an empty DB).
+    enabled: false
+  jpa:
+    hibernate:
+      # The throwaway DB already holds the real prod-equivalent schema; do not
+      # let Hibernate create/alter/validate it. Query-time errors still surface.
+      ddl-auto: none
+    show-sql: false
+    open-in-view: false
