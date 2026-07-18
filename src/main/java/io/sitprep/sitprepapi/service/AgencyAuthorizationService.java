@@ -10,8 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -63,17 +66,36 @@ public class AgencyAuthorizationService {
         }
     }
 
+    /**
+     * Users in an agency's jurisdiction to receive its alert — the LIFE-SAFETY
+     * send path. Slice 2 unifies the coverage predicate to radius ∪ claimed-zip
+     * (the same union the AgencyJurisdictionService resolver uses, applied in the
+     * agency→users direction). Previously {@code hasGeo} short-circuited to
+     * radius-ONLY, silently ignoring an agency that also claimed zips; the union
+     * can only BROADEN the recipient set, never narrow it. Deduped by email.
+     */
     public List<UserInfo> recipients(Group agency, Instant since) {
+        Map<String, UserInfo> byEmail = new LinkedHashMap<>();
         if (hasGeo(agency)) {
-            return userGeoService.findWithinRadiusMiles(
+            for (UserInfo u : userGeoService.findWithinRadiusMiles(
                     agency.getJurisdictionLat(),
                     agency.getJurisdictionLng(),
                     agency.getJurisdictionRadiusMiles(),
-                    since);
+                    since)) {
+                if (u != null && u.getUserEmail() != null) {
+                    byEmail.putIfAbsent(u.getUserEmail().toLowerCase(), u);
+                }
+            }
         }
         Set<String> zips = legacyZips(agency);
-        if (zips.isEmpty()) return List.of();
-        return userInfoRepo.findByLastKnownZipInAndLastKnownLocationAtAfter(zips, since);
+        if (!zips.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByLastKnownZipInAndLastKnownLocationAtAfter(zips, since)) {
+                if (u != null && u.getUserEmail() != null) {
+                    byEmail.putIfAbsent(u.getUserEmail().toLowerCase(), u);
+                }
+            }
+        }
+        return new ArrayList<>(byEmail.values());
     }
 
     public boolean hasGeo(Group agency) {

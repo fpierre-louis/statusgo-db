@@ -13,7 +13,7 @@ the epic completes.**
 | Slice | Scope | Migration? | Status |
 |---|---|---|---|
 | **1 — Agency pending queue (READ-ONLY)** | An authorized agency lists its civic reports by status, with location for display + map-ready coords. No claim/merge/dedupe. | No (index already exists) | **✅ SHIPPED** (see Slice 1 log) |
-| **2 — Civic-claim + multi-agency** | Report tagged to ≥1 agency; an agency CLAIMS to work it + RELEASES for others in-jurisdiction. Claim gates operational actions. **Data-model change** (single `taggedAgencyGroupId` → multi-agency + claim/release). | Yes (hard-gated) | ⛔ NOT STARTED — needs the multi-agency data-model design pass (owner + coordinator). |
+| **2 — Civic-claim + multi-agency** | Report tagged to ≥1 agency; an agency CLAIMS to work it + RELEASES for others in-jurisdiction. Claim gates operational actions. **Data-model change** (single `taggedAgencyGroupId` → multi-agency + claim/release). | Yes (V53) | 🟡 **BUILT LOCALLY — AWAITING PROD GATE.** Code + V53 committed on `main` (local only, unpushed). Local Postgres apply + `ddl-auto=validate` green; `CivicAgencyServiceTest` 7/7; full suite green except the pre-existing GhostTenant flake. Backfill is INSERT-ONLY; local count 0 (dev DB has no tagged civic reports) — **prod count measured at rehearsal**. Prod apply pending the backup → rehearse → owner review → apply → verify gate (see Slice 2 build log below). |
 | **3 — Manual merge-duplicates** | Agency merges N reports into one canonical survivor; merged rows kept + linked "duplicate of". | Yes | ⛔ NOT STARTED |
 | **4 — Create-time dedupe** | At submit, warn + suggest similar nearby reports (geo proximity + category). Never silent auto-merge. | No (geo primitives exist) | ⛔ NOT STARTED |
 

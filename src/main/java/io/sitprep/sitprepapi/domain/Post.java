@@ -372,9 +372,33 @@ public class Post {
     @Column(name = "civic_category", length = 16)
     private String civicCategory;
 
-    /** The verified-agency group responsible for the civic report (group publicId). */
+    /**
+     * The first/primary tagged agency (group publicId) — a DISPLAY MIRROR of the
+     * civic_report_agency join (Slice 2, V53). Multi-agency tags live in the join
+     * table; this single column is kept (decision 7) for back-compat readers and
+     * is dual-written by CivicAgencyService. A later cleanup migration retires it.
+     */
     @Column(name = "tagged_agency_group_id", length = 64)
     private String taggedAgencyGroupId;
+
+    /**
+     * The agency currently holding the active CLAIM on this civic report (group
+     * publicId), or null when unclaimed — the denormalized single-claim mirror
+     * (Slice 2, V53) of the claimed civic_report_agency row. Gates the
+     * claim-only operations (schedule/resolve, work-order spawn, merge).
+     */
+    @Column(name = "claiming_agency_group_id", length = 64)
+    private String claimingAgencyGroupId;
+
+    /**
+     * INPUT-ONLY (not persisted) — the civic-report composer's confirmed/adjusted
+     * agency tag set at create (Slice 2 D2 auto-derive: the resolver pre-selects
+     * covering agencies, the filer confirms/adjusts). Null on legacy clients that
+     * still send the single {@link #taggedAgencyGroupId}. Reconciled + persisted
+     * to the join by CivicAgencyService post-save.
+     */
+    @Transient
+    private List<String> civicAgencyIds;
 
     /** Latest agency note on the civic card ("Acknowledged · work order #2287"). */
     @Column(name = "agency_note", length = 280)

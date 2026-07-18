@@ -120,9 +120,14 @@ public class PostResource {
 
     @GetMapping("/api/agencies")
     public ResponseEntity<ApiResponse<List<PostService.AgencyDto>>> agencies(
+            @RequestParam(value = "lat", required = false) Double lat,
+            @RequestParam(value = "lng", required = false) Double lng,
             @RequestParam(value = "zip", required = false) String zip) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(tasks.listAgencies(zip), ApiMeta.now()));
+        // Slice 2: when the civic composer passes the issue location, discovery
+        // goes through the jurisdiction resolver (the agencies that will be
+        // auto-tagged); zip-only / no-location falls back to the legacy list.
+        return ResponseEntity.ok(ApiResponse.ok(tasks.listAgencies(lat, lng, zip), ApiMeta.now()));
     }
 
     @GetMapping("/api/community/conditions")

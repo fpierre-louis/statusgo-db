@@ -95,6 +95,11 @@ public class PostService {
     private final AdminAuditLogService adminAuditLogService;
     private final TaskAssigneeRepo taskAssigneeRepo;
     private final TaskAssignmentService taskAssignmentService;
+    // Civic epic Slice 2 — the location→agencies resolver + the multi-agency
+    // tagging/claim engine (CivicAgencyService depends on PostRepo, not
+    // PostService, so there is no constructor cycle).
+    private final AgencyJurisdictionService agencyJurisdictionService;
+    private final CivicAgencyService civicAgencyService;
 
     public record PostSharePreview(
             String title,
@@ -119,7 +124,9 @@ public class PostService {
                        WorkOrderQuotaService workOrderQuotaService,
                        AdminAuditLogService adminAuditLogService,
                        TaskAssigneeRepo taskAssigneeRepo,
-                       TaskAssignmentService taskAssignmentService) {
+                       TaskAssignmentService taskAssignmentService,
+                       AgencyJurisdictionService agencyJurisdictionService,
+                       CivicAgencyService civicAgencyService) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -139,6 +146,8 @@ public class PostService {
         this.adminAuditLogService = adminAuditLogService;
         this.taskAssigneeRepo = taskAssigneeRepo;
         this.taskAssignmentService = taskAssignmentService;
+        this.agencyJurisdictionService = agencyJurisdictionService;
+        this.civicAgencyService = civicAgencyService;
     }
 
     // -----------------------------------------------------------------------
@@ -706,13 +715,18 @@ public class PostService {
         // Reverse-geocode to populate zipBucket (community-feed pre-filter)
         // and placeLabel (Nextdoor-style "{neighborhood} · {time}" subtitle
         // on feed cards). Safe to skip on group-scope tasks since the
-        // group itself provides location context.
+        // group itself provides location context. The FULL postcode is captured
+        // here too — the civic multi-agency resolver (V53) needs it (its zip side
+        // matches the group_jurisdiction_zips join on the full zip, not the
+        // 3-char zipBucket).
+        String civicPostcode = null;
         if (t.getGroupId() == null && t.getLatitude() != null && t.getLongitude() != null) {
             try {
                 NominatimGeocodeService.Place p = geocode.reverse(t.getLatitude(), t.getLongitude());
                 if (p != null) {
                     t.setZipBucket(p.zipBucket());
                     t.setPlaceLabel(p.shortLabel());
+                    civicPostcode = p.postcode();
                 }
             } catch (Exception e) {
                 log.debug("Post geo enrichment failed: {}", e.getMessage());
@@ -740,6 +754,16 @@ public class PostService {
                 && saved.getGroupId() != null && !saved.getGroupId().isBlank()) {
             // First lead on a brand-new task → addLead auto-marks them primary.
             taskAssignmentService.addLead(saved.getId(), delegatedAssignee, requesterEmail);
+            saved = taskRepo.findById(saved.getId()).orElse(saved); // reflect the mirror write
+        }
+        // Civic epic Slice 2 — auto-derive + persist the report's agency tags to
+        // the civic_report_agency join (needs the generated id, hence post-save).
+        // `saved` is still the bound instance here (civic reports never hit the
+        // delegatedAssignee refetch above), so its transient civicAgencyIds — the
+        // filer's confirmed set — survives. Reconciles against the covering set,
+        // dual-writes the taggedAgencyGroupId mirror, and runs the orphan hook.
+        if ("civic-report".equals(saved.getKind())) {
+            civicAgencyService.applyCreateTags(saved, civicPostcode);
             saved = taskRepo.findById(saved.getId()).orElse(saved); // reflect the mirror write
         }
         PostDto dto = PostDto.fromEntity(saved);
@@ -800,21 +824,16 @@ public class PostService {
             if (!CivicCategory.isValid(cat)) {
                 throw new IllegalArgumentException("civicCategory must be one of " + CivicCategory.ALLOWED_WIRE_VALUES);
             }
-            String agencyId = blankToNull(incoming.getTaggedAgencyGroupId());
-            if (agencyId == null) {
-                throw new IllegalArgumentException("civic-report requires a taggedAgencyGroupId");
-            }
-            Group agency = groupRepo.findByGroupId(agencyId)
-                    .orElseThrow(() -> new IllegalArgumentException("taggedAgencyGroupId references an unknown group"));
-            // Must be a VERIFIED agency (a verified publisher linked to this group)
-            // — keeps the feed-card "verified" badge honest and stops a crafted
-            // request from tagging an arbitrary group. Mirrors listAgencies.
-            if (userInfoRepo.findFirstByVerifiedPublisherGroupIdIgnoreCase(agency.getGroupId()).isEmpty()) {
-                throw new IllegalArgumentException("taggedAgencyGroupId must reference a verified agency");
-            }
             t.setCivicCategory(cat);
-            t.setTaggedAgencyGroupId(agency.getGroupId());
             t.setCivicStatus(CivicStatus.REPORTED.wire());
+            // Slice 2 (V53): agency tagging is no longer a single required field.
+            // The tag set is AUTO-DERIVED from the report's location by the
+            // resolver + the filer's confirm/adjust, then persisted to the
+            // civic_report_agency join post-save (CivicAgencyService.applyCreateTags).
+            // Eligibility is agencyAuthorized (decision 5) — the old
+            // verified-publisher single-tag check is retired here. Any incoming
+            // taggedAgencyGroupId / civicAgencyIds pass through on `t` as the
+            // filer's confirmed set (reconciled against the covering set below).
         }
     }
 
@@ -836,13 +855,10 @@ public class PostService {
                 || source.getTaggedAgencyGroupId() == null) {
             return; // only civic-report sources are linkable
         }
-        Group agency = groupRepo.findByGroupId(source.getTaggedAgencyGroupId()).orElse(null);
+        // Slice 2 (decision 3): spawning a work order off a civic report requires
+        // the CLAIM — only the claiming agency's admins may link + auto-acknowledge.
         String me = actorEmail.trim().toLowerCase();
-        boolean authorized = agency != null && (
-                (agency.getOwnerEmail() != null && agency.getOwnerEmail().equalsIgnoreCase(me))
-                        || (agency.getAdminEmails() != null && agency.getAdminEmails().stream()
-                        .anyMatch(x -> x != null && x.equalsIgnoreCase(me))));
-        if (!authorized) return; // never link a stranger's task to a report
+        if (!civicAgencyService.isClaimingAgencyAdmin(source, me)) return; // not the claiming agency
 
         t.setSourcePostId(sourceId);
         if (CivicStatus.fromWire(source.getCivicStatus()) == CivicStatus.REPORTED) {
@@ -1043,15 +1059,10 @@ public class PostService {
         if (!CivicStatus.canAdvanceTo(from, to)) {
             throw new IllegalStateException("cannot move civic status " + from + " -> " + to);
         }
-        Group agency = groupRepo.findByGroupId(t.getTaggedAgencyGroupId())
-                .orElseThrow(() -> new IllegalArgumentException("tagged agency missing"));
+        // Slice 2 gating (decision 3): ACKNOWLEDGED is open to any active-tagged
+        // agency; SCHEDULED/RESOLVED require the CLAIMING agency (and a claim).
         String me = actorEmail.trim().toLowerCase();
-        boolean owner = agency.getOwnerEmail() != null && agency.getOwnerEmail().equalsIgnoreCase(me);
-        boolean admin = agency.getAdminEmails() != null && agency.getAdminEmails().stream()
-                .anyMatch(x -> x != null && x.equalsIgnoreCase(me));
-        if (!owner && !admin) {
-            throw new IllegalArgumentException("Only the tagged agency's admins can update civic status");
-        }
+        civicAgencyService.requireCanAdvanceCivic(t, to, me);
         t.setCivicStatus(to.wire());
         if (note != null && !note.isBlank()) {
             String n = note.trim();
@@ -1117,21 +1128,19 @@ public class PostService {
         if (agencyGroupId == null || agencyGroupId.isBlank()) {
             return new CivicQueueDto(empty, List.of());
         }
-        List<Post> rows = taskRepo.findByTaggedAgencyGroupIdOrderByCreatedAtDesc(agencyGroupId.trim());
+        // Slice 2: the agency's reports are those with an ACTIVE join tag for it
+        // (idx_cra_agency_claimed), not the single tagged_agency_group_id column.
+        List<Long> ids = civicAgencyService.reportIdsForAgency(agencyGroupId.trim());
+        if (ids.isEmpty()) return new CivicQueueDto(empty, List.of());
+        List<Post> rows = taskRepo.findAllById(ids).stream()
+                .filter(p -> p.getCivicStatus() != null)
+                .sorted(Comparator.comparing(Post::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .collect(Collectors.toList());
 
-        // Batch-resolve tagged-agency display names (distinct ids → one query).
-        // Today every row's tagged agency IS agencyGroupId, but resolving from
-        // the row keeps this correct once a report is tagged to several.
-        Set<String> agencyIds = rows.stream()
-                .map(Post::getTaggedAgencyGroupId)
-                .filter(id -> id != null && !id.isBlank())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, String> agencyNameById = new HashMap<>();
-        if (!agencyIds.isEmpty()) {
-            for (Group g : groupRepo.findAllById(agencyIds)) {
-                if (g != null && g.getGroupId() != null) agencyNameById.put(g.getGroupId(), g.getGroupName());
-            }
-        }
+        // Fold each report's FULL active-tag set (all agencies, with claim state).
+        Map<Long, List<CivicAgencyService.AgencyTag>> tagsByPost =
+                civicAgencyService.activeTagsByPost(ids);
 
         CivicStatus filter = (statusWire == null || statusWire.isBlank())
                 ? null : CivicStatus.fromWire(statusWire.trim().toLowerCase());
@@ -1148,7 +1157,7 @@ public class PostService {
                 case RESOLVED -> resolved++;
             }
             if (filter != null && s != filter) continue;
-            reports.add(toCivicSummary(p, agencyNameById));
+            reports.add(toCivicSummary(p, tagsByPost.getOrDefault(p.getId(), List.of())));
         }
         int total = reported + acknowledged + scheduled + resolved;
         return new CivicQueueDto(
@@ -1156,12 +1165,19 @@ public class PostService {
                 reports);
     }
 
-    private static CivicQueueDto.CivicReportSummary toCivicSummary(Post p, Map<String, String> agencyNameById) {
+    private static CivicQueueDto.CivicReportSummary toCivicSummary(
+            Post p, List<CivicAgencyService.AgencyTag> tags) {
         List<CivicQueueDto.AgencyRef> tagged = new ArrayList<>();
-        String aid = p.getTaggedAgencyGroupId();
-        if (aid != null && !aid.isBlank()) {
-            tagged.add(new CivicQueueDto.AgencyRef(aid, agencyNameById.get(aid)));
+        for (CivicAgencyService.AgencyTag t : tags) {
+            tagged.add(new CivicQueueDto.AgencyRef(
+                    t.agencyGroupId(), t.name(), t.claimed(), t.tagSource()));
         }
+        // Report-level claim state. Decision 4: a released report returns to
+        // UNCLAIMED (claimable by any tagged agency), so the runtime state is a
+        // clean claimed/unclaimed off the mirror — "released" is audit history on
+        // the join row (released_at), not a distinct live queue state.
+        String claimingId = p.getClaimingAgencyGroupId();
+        String claimState = (claimingId != null && !claimingId.isBlank()) ? "claimed" : "unclaimed";
         // The resident's captured street address lives in the shared work_details
         // bag (addressStreet), exactly like a work-order task — no dedicated
         // column, so no migration. Null on legacy reports.
@@ -1186,6 +1202,8 @@ public class PostService {
                 p.getCivicAckedAt(),
                 p.getScheduledFor(),
                 p.getResolvedAt(),
+                claimState,
+                claimingId,
                 tagged);
     }
 
@@ -1474,13 +1492,40 @@ public class PostService {
 
     public record AgencyDto(String id, String name, String kind, boolean verified, String jurisdictionLabel) {}
 
-    /**
-     * Verified-agency tag targets for civic reports. Sourced from verified
-     * publishers linked to a group; best-effort zip match against the
-     * publisher's service-area label (returns all when zip is blank).
-     */
+    /** Back-compat overload (no coordinates) — the verified-publisher zip list. */
     @Transactional(readOnly = true)
     public List<AgencyDto> listAgencies(String zip) {
+        return listAgencies(null, null, zip);
+    }
+
+    /**
+     * Agency tag targets for the civic composer (Slice 2 — resolver-wired).
+     *
+     * <p>When a location is supplied, discovery goes through the SAME resolver
+     * the create-path auto-derive uses ({@link AgencyJurisdictionService#agenciesCovering}
+     * — radius ∪ claimed-zip over {@code agencyAuthorized} agencies), so the
+     * picker shows exactly the agencies that will be auto-tagged (decision 5:
+     * eligibility is agencyAuthorized). Without coordinates it falls back to the
+     * legacy verified-publisher + service-area-substring list, retiring that
+     * divergent mechanism as callers pass coordinates.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<AgencyDto> listAgencies(Double lat, Double lng, String zip) {
+        if (GeoUtil.validLatLng(lat, lng) || (zip != null && !zip.isBlank())) {
+            List<Group> covering = agencyJurisdictionService.agenciesCovering(lat, lng, zip);
+            if (!covering.isEmpty()) {
+                Map<String, AgencyDto> byId = new LinkedHashMap<>();
+                for (Group g : covering) {
+                    if (g == null || g.getGroupId() == null) continue;
+                    byId.putIfAbsent(g.getGroupId(), new AgencyDto(
+                            g.getGroupId(), g.getGroupName(), g.getJurisdictionType(), true,
+                            g.getJurisdictionType()));
+                }
+                return new ArrayList<>(byId.values());
+            }
+            // No covering agency by coordinates — fall through to the legacy list
+            // (a freshly-authorized agency may lack geo/zip provisioning yet).
+        }
         String z = (zip == null || zip.isBlank()) ? null : zip.trim().toLowerCase();
         List<UserInfo> pubs = userInfoRepo.findByVerifiedPublisherTrue();
         List<String> gids = pubs.stream()
@@ -1517,10 +1562,13 @@ public class PostService {
     public LocalAgencyDto localAgencyForViewer(String email) {
         if (email == null || email.isBlank()) return null;
         UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(email.trim()).orElse(null);
-        String zip = u == null ? null : u.getLastKnownZip();
-        if (zip == null || zip.isBlank()) return null;
-        List<Group> matches = groupRepo.findByJurisdictionZip(zip.trim());
-        if (matches == null || matches.isEmpty()) return null;
+        if (u == null) return null;
+        // Slice 2 — resolver-wired: the co-sign agency is the first covering
+        // authorized agency by the unified radius ∪ zip predicate (was zip-only
+        // first-match, which missed radius-only agencies). Broadens, never narrows.
+        List<Group> matches = agencyJurisdictionService.agenciesCovering(
+                u.getLastKnownLat(), u.getLastKnownLng(), u.getLastKnownZip());
+        if (matches.isEmpty()) return null;
         Group g = matches.get(0);
         return new LocalAgencyDto(g.getGroupId(), g.getGroupName(), g.getLogoImageUrl(), g.getJurisdictionType());
     }

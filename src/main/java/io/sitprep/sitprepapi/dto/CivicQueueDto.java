@@ -57,8 +57,13 @@ public record CivicQueueDto(
      * @param acknowledgedAt when an agency acknowledged, else null
      * @param scheduledFor   when scheduled, else null
      * @param resolvedAt     when resolved, else null
-     * @param taggedAgencies the agencies this report is tagged to — a List
-     *                       (size 1 today; multi-agency in Slice 2)
+     * @param claimState     Slice 2 — {@code unclaimed} | {@code claimed} |
+     *                       {@code released} (a prior claim was let go, now
+     *                       claimable again by any tagged agency)
+     * @param claimingAgencyGroupId the agency holding the active claim, else null
+     * @param taggedAgencies the agencies this report is ACTIVELY tagged to
+     *                       (Slice 2: the full multi-agency set, each carrying its
+     *                       own claim flag + tag source)
      */
     public record CivicReportSummary(
             Long id,
@@ -75,9 +80,15 @@ public record CivicQueueDto(
             Instant acknowledgedAt,
             Instant scheduledFor,
             Instant resolvedAt,
+            String claimState,
+            String claimingAgencyGroupId,
             List<AgencyRef> taggedAgencies
     ) {}
 
-    /** A tagged agency reference — group id + display name. */
-    public record AgencyRef(String groupId, String name) {}
+    /**
+     * A tagged agency reference — group id + display name, plus (Slice 2) whether
+     * this agency holds the active claim and how the tag arose
+     * ({@code auto} | {@code citizen_added} | {@code legacy}).
+     */
+    public record AgencyRef(String groupId, String name, boolean claimed, String tagSource) {}
 }

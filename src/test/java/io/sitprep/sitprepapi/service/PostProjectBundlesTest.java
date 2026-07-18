@@ -88,7 +88,9 @@ class PostProjectBundlesTest {
                 mock(WorkOrderQuotaService.class),
                 mock(AdminAuditLogService.class),
                 mock(TaskAssigneeRepo.class),
-                mock(TaskAssignmentService.class));
+                mock(TaskAssignmentService.class),
+                mock(AgencyJurisdictionService.class),
+                mock(CivicAgencyService.class));
         // Any fold that reaches withEngagement needs real (empty) reaction summaries
         // — a mock defaults them to null → NPE. Harmless when the path doesn't use them.
         when(reactionService.loadThankSummary(any(), any()))

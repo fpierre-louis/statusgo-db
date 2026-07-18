@@ -6,12 +6,14 @@ import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.CivicQueueDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.AgencyAuthorizationService;
+import io.sitprep.sitprepapi.service.CivicAgencyService;
 import io.sitprep.sitprepapi.service.PostService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,12 +39,15 @@ public class AgencyCivicResource {
     private final PostService posts;
     private final GroupRepo groupRepo;
     private final AgencyAuthorizationService agencyAuth;
+    private final CivicAgencyService civicAgency;
 
     public AgencyCivicResource(PostService posts, GroupRepo groupRepo,
-                               AgencyAuthorizationService agencyAuth) {
+                               AgencyAuthorizationService agencyAuth,
+                               CivicAgencyService civicAgency) {
         this.posts = posts;
         this.groupRepo = groupRepo;
         this.agencyAuth = agencyAuth;
+        this.civicAgency = civicAgency;
     }
 
     @GetMapping("/api/agencies/{groupId}/civic-reports")
@@ -50,10 +55,40 @@ public class AgencyCivicResource {
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) String status) {
         String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAgencyAdmin(groupId, caller);
+        return ResponseEntity.ok(ApiResponse.ok(
+                posts.listCivicReportsForAgency(groupId, status), ApiMeta.now()));
+    }
+
+    /**
+     * Slice 2 — an authorized, tagged agency CLAIMS a civic report to work it.
+     * The claim gates the operational actions (schedule/resolve, work-order
+     * spawn, merge); acknowledge stays open to any tagged agency. 409 if the
+     * report is already claimed (the one-claim partial index + service guard).
+     */
+    @PostMapping("/api/agencies/{groupId}/civic-reports/{postId}/claim")
+    public ResponseEntity<ApiResponse<CivicAgencyService.ClaimResult>> claim(
+            @PathVariable String groupId, @PathVariable Long postId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAgencyAdmin(groupId, caller);
+        return ResponseEntity.ok(ApiResponse.ok(civicAgency.claim(postId, groupId, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Slice 2 — the CLAIMING agency releases the report back to unclaimed
+     * (decision 4): claimable again by any tagged agency, no auto-reassign.
+     */
+    @PostMapping("/api/agencies/{groupId}/civic-reports/{postId}/release")
+    public ResponseEntity<ApiResponse<CivicAgencyService.ClaimResult>> release(
+            @PathVariable String groupId, @PathVariable Long postId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAgencyAdmin(groupId, caller);
+        return ResponseEntity.ok(ApiResponse.ok(civicAgency.release(postId, groupId, caller), ApiMeta.now()));
+    }
+
+    private void requireAgencyAdmin(String groupId, String caller) {
         Group agency = groupRepo.findByGroupId(groupId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agency group not found"));
         agencyAuth.requireAgencyAdmin(agency, caller);
-        return ResponseEntity.ok(ApiResponse.ok(
-                posts.listCivicReportsForAgency(groupId, status), ApiMeta.now()));
     }
 }
