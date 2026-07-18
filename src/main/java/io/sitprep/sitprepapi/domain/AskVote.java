@@ -49,8 +49,18 @@ public class AskVote {
     @Column(name = "voter_email", nullable = false, length = 320)
     private String voterEmail;
 
-    /** +1 = upvote, -1 = downvote. Zero is not stored — the row is deleted instead. */
-    @Column(nullable = false)
+    /**
+     * +1 = upvote, -1 = downvote. Zero is not stored — the row is deleted instead.
+     *
+     * <p>Column name is QUOTED (delimited identifier) because {@code value} is a
+     * reserved word in H2 — the unquoted DDL H2 generates for the @SpringBootTest
+     * schema fails to parse ("expected identifier"), which broke the entire
+     * H2-schema test layer. Postgres (prod) folds the original unquoted
+     * {@code value} column to lowercase, so quoted {@code "value"} resolves to the
+     * exact same existing column — a mapping-only fix with ZERO DB change (see
+     * V1__baseline.sql: {@code value INTEGER NOT NULL}).</p>
+     */
+    @Column(name = "\"value\"", nullable = false)
     private int value;
 
     @Column(name = "created_at", nullable = false)
