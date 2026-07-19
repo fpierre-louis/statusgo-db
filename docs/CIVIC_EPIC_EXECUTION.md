@@ -61,6 +61,18 @@ the epic completes.**
     `GeocodeService` / `NominatimGeocodeService` (`GeocodeResource`, unauth).
 - **BE is the enforcement boundary; FE mirrors it.**
 
+## Watch items (must re-check before the relevant event)
+
+- **⚠ Life-safety recipient blast-radius (Slice 2 wiring).** The alert-recipient
+  path was unified to `radius ∪ zip` (was radius-only when an agency had geo).
+  It can only BROADEN the audience. At the V53 apply (2026-07-19) the delta was
+  **0** for the only authorized agency (City of Traverse MT: geo, 12 mi, **no
+  jurisdiction zips**) — the union has nothing to add *yet*. The broadening
+  behavior is real and now live; it just has no zips to act on. **The moment ANY
+  agency gets a jurisdiction zip list added, re-measure its life-safety recipient
+  set (OLD radius-only vs NEW radius∪zip) BEFORE the first real alert goes out** —
+  that is when the audience can widen meaningfully.
+
 ## Future phases (ROADMAP ONLY — do NOT start)
 
 - **Work-order layer IN THE MAPS COMPONENT** — group tasks AND civic reports as
