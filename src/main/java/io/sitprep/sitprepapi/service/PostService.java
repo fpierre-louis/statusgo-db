@@ -487,6 +487,15 @@ public class PostService {
                 if (g != null && g.getGroupId() != null) agencyById.put(g.getGroupId(), g);
             }
         }
+        // Slice 2 — batch-fold the full multi-agency tag set for civic posts from
+        // the civic_report_agency join (reuses the Slice-2 fold; one query for the
+        // page). Non-civic posts skip it.
+        List<Long> civicIds = dtos.stream()
+                .filter(d -> d.id() != null && d.community() != null
+                        && d.community().civicStatus() != null)
+                .map(PostDto::id).toList();
+        Map<Long, List<CivicAgencyService.AgencyTag>> civicTagsByPost =
+                civicIds.isEmpty() ? Map.of() : civicAgencyService.activeTagsByPost(civicIds);
 
         return dtos.stream()
                 .map(d -> {
@@ -510,6 +519,17 @@ public class PostService {
                         if (ce.taggedAgency() != null) {
                             Group g = agencyById.get(ce.taggedAgency().id());
                             if (g != null) ce = ce.withAgencyIdentity(g.getGroupName(), true);
+                        }
+                        // Slice 2 — fold the full multi-agency list (civic only).
+                        // A civic post with no active tags gets an empty list so
+                        // the FE can distinguish "orphan" from "not civic".
+                        if (ce.civicStatus() != null) {
+                            List<CivicAgencyService.AgencyTag> tags =
+                                    civicTagsByPost.getOrDefault(d.id(), List.of());
+                            ce = ce.withTaggedAgencies(tags.stream()
+                                    .map(t -> new CivicQueueDto.AgencyRef(
+                                            t.agencyGroupId(), t.name(), t.claimed(), t.tagSource()))
+                                    .collect(Collectors.toList()));
                         }
                         out = out.withCommunity(ce);
                     }
@@ -831,9 +851,17 @@ public class PostService {
             // resolver + the filer's confirm/adjust, then persisted to the
             // civic_report_agency join post-save (CivicAgencyService.applyCreateTags).
             // Eligibility is agencyAuthorized (decision 5) — the old
-            // verified-publisher single-tag check is retired here. Any incoming
-            // taggedAgencyGroupId / civicAgencyIds pass through on `t` as the
-            // filer's confirmed set (reconciled against the covering set below).
+            // verified-publisher single-tag check is retired here.
+            //
+            // Carry the filer's confirmed set from `incoming` onto the working
+            // copy `t` — create() builds a fresh Post and copies field-by-field,
+            // so these MUST be copied explicitly or applyCreateTags reads null and
+            // falls back to auto-tagging ALL covering agencies (the deselect/
+            // adjust would be silently ignored). civicAgencyIds is @Transient
+            // (input-only, not persisted); taggedAgencyGroupId is the legacy
+            // single-tag fallback both paths still honor.
+            t.setCivicAgencyIds(incoming.getCivicAgencyIds());
+            t.setTaggedAgencyGroupId(blankToNull(incoming.getTaggedAgencyGroupId()));
         }
     }
 

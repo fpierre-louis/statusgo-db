@@ -308,7 +308,7 @@ public record PostDto(
             String officialTier,          // emergency | advisory | notice (official only)
             String civicCategory,         // pothole | streetlight | debris | water | other
             String civicStatus,           // reported | acknowledged | scheduled | resolved
-            TaggedAgency taggedAgency,    // civic_report only; null otherwise
+            TaggedAgency taggedAgency,    // civic_report only; null otherwise (legacy single, kept for back-compat)
             NewsSource source,            // news only; null otherwise
             Integer readMinutes,          // news only
             int confirmsCount,
@@ -318,7 +318,21 @@ public record PostDto(
             // severe/emergency alert or an author-pinned official) — for
             // 24h from pinnedAt, or until pinnedUntil. Drives the FE
             // "Pinned by your area" strip. Replaces the old top alert band.
-            boolean pinned
+            boolean pinned,
+            // Slice 2 (V53) civic multi-agency — the FULL set of tagged agencies
+            // (same AgencyRef shape as CivicQueueDto: groupId/name + per-tag
+            // claimed + tagSource), folded from the civic_report_agency join.
+            // NON_NULL so non-civic posts omit it. The single {@code taggedAgency}
+            // above stays populated for back-compat (keep-then-retire, decision 7).
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            List<CivicQueueDto.AgencyRef> taggedAgencies,
+            // Slice 2 civic claim state — {@code unclaimed | claimed} + the
+            // claiming agency (from the Post's claiming_agency_group_id mirror;
+            // a released report is unclaimed, decision 4). NON_NULL / civic-only.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String claimState,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String claimingAgencyGroupId
     ) {
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -331,11 +345,18 @@ public record PostDto(
             Instant now = Instant.now();
             boolean pinned = (t.getPinnedAt() != null && t.getPinnedAt().isAfter(now.minusSeconds(86_400)))
                     || (t.getPinnedUntil() != null && t.getPinnedUntil().isAfter(now));
+            // Claim state rides the Post mirror — no query. Civic reports only.
+            boolean isCivic = !isBlank(t.getCivicStatus());
+            String claimingId = isCivic && !isBlank(t.getClaimingAgencyGroupId())
+                    ? t.getClaimingAgencyGroupId().trim() : null;
+            String claimState = isCivic ? (claimingId != null ? "claimed" : "unclaimed") : null;
             return new CommunityExtras(
                     feedItemType(t), trim(t.getOfficialTier()),
                     trim(t.getCivicCategory()), trim(t.getCivicStatus()),
                     agency, source, t.getReadMinutes(),
-                    0, false, false, pinned);
+                    0, false, false, pinned,
+                    null /* taggedAgencies — folded from the join by withTaggedAgencies */,
+                    claimState, claimingId);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -350,12 +371,14 @@ public record PostDto(
 
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
-                    taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned);
+                    taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
-                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned);
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -363,12 +386,21 @@ public record PostDto(
             if (taggedAgency == null) return this;
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
-                    source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned);
+                    source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId);
+        }
+
+        /** Slice 2 — fold the full multi-agency tag list from the join. */
+        public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    tags, claimState, claimingAgencyGroupId);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
-                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p);
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
+                    taggedAgencies, claimState, claimingAgencyGroupId);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }
