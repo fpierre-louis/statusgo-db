@@ -89,7 +89,12 @@ public record CivicQueueDto(
             // queue itself excludes merged rows — merged_into_post_id IS NULL).
             Long mergedIntoPostId,
             int mergedDuplicateCount,
-            List<Long> mergedDuplicateIds
+            List<Long> mergedDuplicateIds,
+            // Slice B — the report's first photo as a browser-ready URL (resolved
+            // via the same PublicCdn key→URL fold the community feed uses; no R2
+            // change). Null when the report has no photo. Lets an agency triage
+            // from the picture (a fallen sign says more than "Other · Reported").
+            String imageUrl
     ) {}
 
     /**

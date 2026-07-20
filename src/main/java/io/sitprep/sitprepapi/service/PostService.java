@@ -1292,7 +1292,19 @@ public class PostService {
                 // filtered out); the count/ids describe its absorbed duplicates.
                 p.getMergedIntoPostId(),
                 mergedDuplicateIds == null ? 0 : mergedDuplicateIds.size(),
-                mergedDuplicateIds == null ? List.of() : mergedDuplicateIds);
+                mergedDuplicateIds == null ? List.of() : mergedDuplicateIds,
+                // First photo → public URL (same fold as imageKeys→imageUrls).
+                firstImageUrl(p));
+    }
+
+    /** The report's first image key resolved to a public URL, or null. */
+    private static String firstImageUrl(Post p) {
+        List<String> keys = p.getImageKeys();
+        if (keys == null) return null;
+        for (String k : keys) {
+            if (k != null && !k.isBlank()) return PublicCdn.toPublicUrl(k);
+        }
+        return null;
     }
 
     @Transactional(readOnly = true)
