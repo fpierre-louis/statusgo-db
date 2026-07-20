@@ -13,7 +13,7 @@ the epic completes.**
 | Slice | Scope | Migration? | Status |
 |---|---|---|---|
 | **1 — Agency pending queue (READ-ONLY)** | An authorized agency lists its civic reports by status, with location for display + map-ready coords. No claim/merge/dedupe. | No (index already exists) | **✅ SHIPPED** (see Slice 1 log) |
-| **2 — Civic-claim + multi-agency** | Report tagged to ≥1 agency; an agency CLAIMS to work it + RELEASES for others in-jurisdiction. Claim gates operational actions. **Data-model change** (single `taggedAgencyGroupId` → multi-agency + claim/release). | Yes (V53) | ✅ **SHIPPED TO PROD 2026-07-19 (release v513, `c5fb50c`).** Gated apply: backup `b007` → rehearse on restored clone (Flyway V52→V53 + validate; Gates A/B/C all pass; **Gate C delta = 0**, City of Traverse MT has geo but no zips) → owner sign-off → applied. Post-apply verify: Flyway V53 `success=t`; `task` count 8532 unchanged before/after; `civic_report_agency = 0` (backfill INSERT-only, 0 tagged reports); all objects + 4 indexes present; auth-gated endpoints 401; **live smoke 12/12** (auto-derive tags both covering agencies → claim → 2nd-claimer 409 → acknowledge-without-claim 200 → schedule-by-non-claimer 403 → release); Traverse MT alert recipients unchanged at 7. See the Gate-C watch item above. |
+| **2 — Civic-claim + multi-agency** | Report tagged to ≥1 agency; an agency CLAIMS to work it + RELEASES for others in-jurisdiction. Claim gates operational actions. **Data-model change** (single `taggedAgencyGroupId` → multi-agency + claim/release). | Yes (V53) | ✅ **COMPLETE — BE + FE + live-verified, closed 2026-07-19 at 18/18.** Migration V53 gated-applied as release **v513** (`c5fb50c`; backup `b007` → clone rehearsal Gates A/B/C pass, Gate C delta 0 → sign-off → apply → verify; `civic_report_agency=0`, `task` unchanged, Traverse MT recipients unchanged at 7). Two code-only gap fixes shipped as **v514** (`00fe9cd`): (1) create() now copies `civicAgencyIds` onto its working Post (deselect was inert), (2) `CommunityExtras` exposes `taggedAgencies` + `claimState` + `claimingAgencyGroupId` (NON_NULL; single `taggedAgency` kept for back-compat). FE shipped: agency queue claim/release + multi-agency + gated status actions; composer D2 auto-derive confirm/adjust; PostBody multi-agency card (`51bfce07d` on `sitprep-features`). Closing live E2E **18/18** (deselect now persists as chosen; DTO fields serialize for civic + omit for non-civic; claim→409→acknowledge→403→release→reclaim; orphan recorded with empty list). See the Gate-C watch item above. |
 | **3 — Manual merge-duplicates** | Agency merges N reports into one canonical survivor; merged rows kept + linked "duplicate of". | Yes | ⛔ NOT STARTED |
 | **4 — Create-time dedupe** | At submit, warn + suggest similar nearby reports (geo proximity + category). Never silent auto-merge. | No (geo primitives exist) | ⛔ NOT STARTED |
 
@@ -72,6 +72,19 @@ the epic completes.**
   agency gets a jurisdiction zip list added, re-measure its life-safety recipient
   set (OLD radius-only vs NEW radius∪zip) BEFORE the first real alert goes out** —
   that is when the audience can widen meaningfully.
+
+## Lessons
+
+- **A test that sets the field on the SAME object it passes in cannot catch a
+  missing field-copy.** Slice 2's `CivicAgencyServiceTest` called
+  `applyCreateTags(report, …)` with `report.civicAgencyIds` set directly on that
+  object, so it never exercised `create()`'s `incoming → new Post t` copy — and
+  missed that `civicAgencyIds` was dropped (the deselect was silently inert on
+  prod until the live FE E2E caught it). **Fix pattern:** for anything that
+  crosses the request-binding boundary, construct the payload the way the real
+  request path does (a SEPARATE `incoming` object → `create()` → assert the
+  PERSISTED result), not by mutating the object under test. See
+  `CivicCreateTagsCopyTest` — it fails without the copy.
 
 ## Future phases (ROADMAP ONLY — do NOT start)
 
