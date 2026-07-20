@@ -285,6 +285,15 @@ public record MeDto(
              */
             boolean agencyAuthorized,
             /**
+             * True when the viewer is STAFF of this agency (a row in
+             * {@code agency_staff}) — the non-admin employee relationship,
+             * independent of group role. The single FE eligibility helper
+             * {@code isAgencyWorkspaceEligible} reads
+             * {@code agencyAuthorized && (isAdminRole(role) || agencyStaff)}.
+             * Always false for non-agency groups and pending rows.
+             */
+            boolean agencyStaff,
+            /**
              * Group record's audit timestamp — bumped on group-field
              * edits (name, alert toggled, etc.). Retained for legacy
              * sort consumers; prefer {@link #lastActivityAt} for any

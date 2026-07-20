@@ -64,6 +64,7 @@ public class MeService {
     private final GoBagService goBagService;
     private final HouseholdReadinessService readinessEngine;
     private final ObjectMapper objectMapper;
+    private final AgencyStaffService agencyStaffService;
 
     public MeService(
             UserInfoRepo userInfoRepo,
@@ -85,7 +86,8 @@ public class MeService {
             PlatformAccessService platformAccessService,
             GoBagService goBagService,
             HouseholdReadinessService readinessEngine,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            AgencyStaffService agencyStaffService
     ) {
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -107,6 +109,7 @@ public class MeService {
         this.goBagService = goBagService;
         this.readinessEngine = readinessEngine;
         this.objectMapper = objectMapper;
+        this.agencyStaffService = agencyStaffService;
     }
 
     /**
@@ -397,14 +400,22 @@ public class MeService {
             }
         }
 
+        // Agency STAFF (fourth group source, D-d): the set of agency-authorized
+        // groups this viewer is STAFF of — independent of owner/admin/member role.
+        // Folded into each GroupSummary's agencyStaff flag, and used below to
+        // surface staff-only agencies (staff but not a member) that the
+        // membership-derived buckets would otherwise miss entirely.
+        java.util.Set<String> staffGroupIds = agencyStaffService.staffGroupIdsFor(email);
+
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         List<GroupSummary> pending = new ArrayList<>();
+        java.util.Set<String> representedIds = new java.util.HashSet<>(groupsById.keySet());
         for (Group g : groupsById.values()) {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -413,7 +424,24 @@ public class MeService {
         for (Group g : pendingGroupList) {
             if (g == null || g.getGroupId() == null || groupsById.containsKey(g.getGroupId())) continue;
             if ("Household".equalsIgnoreCase(g.getGroupType())) continue;
-            pending.add(toPendingGroupSummary(g));
+            representedIds.add(g.getGroupId());
+            pending.add(toPendingGroupSummary(g, staffGroupIds));
+        }
+        // Fourth source: agencies where the viewer is STAFF but is NOT owner/admin/
+        // member (so absent from groupsById) and has no pending request. Surface
+        // them in `joined` so the workspace switcher (isAgencyWorkspaceEligible)
+        // can see them; role resolves to "none" and agencyStaff=true. Households
+        // and any non-agency-authorized row are skipped.
+        List<String> missingStaffIds = staffGroupIds.stream()
+                .filter(id -> id != null && !representedIds.contains(id))
+                .toList();
+        if (!missingStaffIds.isEmpty()) {
+            for (Group g : groupRepo.findAllById(missingStaffIds)) {
+                if (g == null || g.getGroupId() == null) continue;
+                if (householdIds.contains(g.getGroupId())) continue;
+                if (!g.isAgencyAuthorized()) continue;
+                joined.add(toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds));
+            }
         }
 
         // Per-household summaries for the "Your households" section.
@@ -793,7 +821,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -815,6 +843,7 @@ public class MeService {
                 g.getAlert(),
                 g.getActiveHazardType(),
                 g.isAgencyAuthorized(),
+                staffGroupIds != null && g.getGroupId() != null && staffGroupIds.contains(g.getGroupId()),
                 g.getUpdatedAt(),
                 previewFor(g, profiles),
                 unreadCountFor(g, readMap),
@@ -829,7 +858,7 @@ public class MeService {
         );
     }
 
-    private GroupSummary toPendingGroupSummary(Group g) {
+    private GroupSummary toPendingGroupSummary(Group g, java.util.Set<String> staffGroupIds) {
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
         int pendingCount = g.getPendingMemberEmails() == null ? 0 : g.getPendingMemberEmails().size();
         return new GroupSummary(
@@ -842,6 +871,7 @@ public class MeService {
                 g.getAlert(),
                 g.getActiveHazardType(),
                 g.isAgencyAuthorized(),
+                staffGroupIds != null && g.getGroupId() != null && staffGroupIds.contains(g.getGroupId()),
                 g.getUpdatedAt(),
                 List.of(),
                 0,
