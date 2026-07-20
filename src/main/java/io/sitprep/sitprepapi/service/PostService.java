@@ -497,6 +497,44 @@ public class PostService {
         Map<Long, List<CivicAgencyService.AgencyTag>> civicTagsByPost =
                 civicIds.isEmpty() ? Map.of() : civicAgencyService.activeTagsByPost(civicIds);
 
+        // Slice 3 — civic merge read-through. (a) A merged duplicate's card
+        // mirrors the SURVIVOR's civic status for DISPLAY (decision 1) — resolve
+        // each referenced canonical's status. (b) A canonical's confirm count
+        // sums its duplicates' confirms (decision 4d) — no stored rollup.
+        List<Long> mergedCanonicalRefs = dtos.stream()
+                .filter(d -> d.community() != null && d.community().civicStatus() != null
+                        && d.community().mergedIntoPostId() != null)
+                .map(d -> d.community().mergedIntoPostId()).filter(Objects::nonNull)
+                .distinct().toList();
+        Map<Long, String> canonicalStatusById = new HashMap<>();
+        if (!mergedCanonicalRefs.isEmpty()) {
+            for (Post c : taskRepo.findAllById(mergedCanonicalRefs)) {
+                if (c != null && c.getCivicStatus() != null) {
+                    canonicalStatusById.put(c.getId(), c.getCivicStatus());
+                }
+            }
+        }
+        List<Long> civicCanonicalIds = dtos.stream()
+                .filter(d -> d.id() != null && d.community() != null
+                        && d.community().civicStatus() != null
+                        && d.community().mergedIntoPostId() == null)
+                .map(PostDto::id).toList();
+        Map<Long, Integer> mergedConfirmBonus = new HashMap<>();
+        if (!civicCanonicalIds.isEmpty()) {
+            Map<Long, List<Long>> dupsByCanon = civicAgencyService.duplicateIdsByCanonical(civicCanonicalIds);
+            List<Long> allDupIds = dupsByCanon.values().stream().flatMap(List::stream)
+                    .distinct().toList();
+            if (!allDupIds.isEmpty()) {
+                Map<Long, Long> dupConfirms = postConfirmRepo.findByPostIdIn(allDupIds).stream()
+                        .collect(Collectors.groupingBy(PostConfirm::getPostId, Collectors.counting()));
+                for (Map.Entry<Long, List<Long>> e : dupsByCanon.entrySet()) {
+                    int bonus = e.getValue().stream()
+                            .mapToInt(id -> dupConfirms.getOrDefault(id, 0L).intValue()).sum();
+                    if (bonus > 0) mergedConfirmBonus.put(e.getKey(), bonus);
+                }
+            }
+        }
+
         return dtos.stream()
                 .map(d -> {
                     if (d.id() == null) return d;
@@ -513,7 +551,10 @@ public class PostService {
                     PostDto.CommunityExtras ce = out.community();
                     if (ce != null) {
                         ce = ce.withConfirms(
-                                confirmCounts.getOrDefault(d.id(), 0L).intValue(),
+                                // Slice 3 (4d) — canonical shows summed confirms
+                                // across itself + its merged duplicates.
+                                confirmCounts.getOrDefault(d.id(), 0L).intValue()
+                                        + mergedConfirmBonus.getOrDefault(d.id(), 0),
                                 viewerConfirmed.contains(d.id())
                         ).withSaved(savedKeys.contains(String.valueOf(d.id())));
                         if (ce.taggedAgency() != null) {
@@ -530,6 +571,12 @@ public class PostService {
                                     .map(t -> new CivicQueueDto.AgencyRef(
                                             t.agencyGroupId(), t.name(), t.claimed(), t.tagSource()))
                                     .collect(Collectors.toList()));
+                        }
+                        // Slice 3 — mirror the survivor's status onto a merged
+                        // duplicate's citizen card (read-through, decision 1).
+                        if (ce.mergedIntoPostId() != null) {
+                            String cs = canonicalStatusById.get(ce.mergedIntoPostId());
+                            if (cs != null) ce = ce.withCanonicalStatus(cs);
                         }
                         out = out.withCommunity(ce);
                     }
@@ -1162,6 +1209,10 @@ public class PostService {
         if (ids.isEmpty()) return new CivicQueueDto(empty, List.of());
         List<Post> rows = taskRepo.findAllById(ids).stream()
                 .filter(p -> p.getCivicStatus() != null)
+                // Slice 3 — merged duplicates drop out of the queue; only the
+                // canonical stays (decision: queue set AND merged_into_post_id IS
+                // NULL). Merged rows remain reachable by id for the tap-through.
+                .filter(p -> p.getMergedIntoPostId() == null)
                 .sorted(Comparator.comparing(Post::getCreatedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
@@ -1169,6 +1220,9 @@ public class PostService {
         // Fold each report's FULL active-tag set (all agencies, with claim state).
         Map<Long, List<CivicAgencyService.AgencyTag>> tagsByPost =
                 civicAgencyService.activeTagsByPost(ids);
+        // Slice 3 — per-canonical duplicate ids for mergedDuplicateCount/ids.
+        Map<Long, List<Long>> dupsByCanonical = civicAgencyService.duplicateIdsByCanonical(
+                rows.stream().map(Post::getId).collect(Collectors.toList()));
 
         CivicStatus filter = (statusWire == null || statusWire.isBlank())
                 ? null : CivicStatus.fromWire(statusWire.trim().toLowerCase());
@@ -1185,7 +1239,8 @@ public class PostService {
                 case RESOLVED -> resolved++;
             }
             if (filter != null && s != filter) continue;
-            reports.add(toCivicSummary(p, tagsByPost.getOrDefault(p.getId(), List.of())));
+            reports.add(toCivicSummary(p, tagsByPost.getOrDefault(p.getId(), List.of()),
+                    dupsByCanonical.getOrDefault(p.getId(), List.of())));
         }
         int total = reported + acknowledged + scheduled + resolved;
         return new CivicQueueDto(
@@ -1194,7 +1249,7 @@ public class PostService {
     }
 
     private static CivicQueueDto.CivicReportSummary toCivicSummary(
-            Post p, List<CivicAgencyService.AgencyTag> tags) {
+            Post p, List<CivicAgencyService.AgencyTag> tags, List<Long> mergedDuplicateIds) {
         List<CivicQueueDto.AgencyRef> tagged = new ArrayList<>();
         for (CivicAgencyService.AgencyTag t : tags) {
             tagged.add(new CivicQueueDto.AgencyRef(
@@ -1232,7 +1287,12 @@ public class PostService {
                 p.getResolvedAt(),
                 claimState,
                 claimingId,
-                tagged);
+                tagged,
+                // Canonical queue row: mergedIntoPostId is null (merged rows are
+                // filtered out); the count/ids describe its absorbed duplicates.
+                p.getMergedIntoPostId(),
+                mergedDuplicateIds == null ? 0 : mergedDuplicateIds.size(),
+                mergedDuplicateIds == null ? List.of() : mergedDuplicateIds);
     }
 
     @Transactional(readOnly = true)

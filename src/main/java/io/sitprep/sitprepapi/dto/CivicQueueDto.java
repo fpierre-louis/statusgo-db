@@ -82,7 +82,14 @@ public record CivicQueueDto(
             Instant resolvedAt,
             String claimState,
             String claimingAgencyGroupId,
-            List<AgencyRef> taggedAgencies
+            List<AgencyRef> taggedAgencies,
+            // Slice 3 (V54) merge fold. On a CANONICAL queue row: how many
+            // duplicates were merged into it + their ids (drill-in). On a merged
+            // row fetched by id: mergedIntoPostId points at the survivor (the
+            // queue itself excludes merged rows — merged_into_post_id IS NULL).
+            Long mergedIntoPostId,
+            int mergedDuplicateCount,
+            List<Long> mergedDuplicateIds
     ) {}
 
     /**

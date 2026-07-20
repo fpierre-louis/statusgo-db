@@ -314,6 +314,22 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     /** All child tasks of the given project containers (one batched query). */
     List<Post> findByProjectIdIn(List<Long> projectIds);
 
+    // ---------------------------------------------------------------------
+    // Civic merge (V54, Slice 3). A duplicate points at its canonical via
+    // merged_into_post_id; a work order points at its source civic report via
+    // source_post_id. The merge/unmerge service walks these to flatten chains
+    // and re-point work orders; the queue folds duplicate counts per canonical.
+    // ---------------------------------------------------------------------
+
+    /** Reports merged INTO the given canonical (its direct duplicates). */
+    List<Post> findByMergedIntoPostId(Long canonicalId);
+
+    /** Batched: reports merged into any of the given canonicals (queue fold). */
+    List<Post> findByMergedIntoPostIdIn(java.util.Collection<Long> canonicalIds);
+
+    /** Work orders spawned from a given source civic report (re-point on merge). */
+    List<Post> findBySourcePostId(Long sourcePostId);
+
     /**
      * Move a single task into a project (or out, with {@code projectId=null}).
      * Targeted single-column update so a concurrent status/claim change on the

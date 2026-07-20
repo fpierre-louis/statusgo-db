@@ -432,6 +432,27 @@ public class Post {
     @Column(name = "source_post_id")
     private Long sourcePostId;
 
+    /**
+     * Civic epic Slice 3 (V54) — merge link. When non-null, THIS civic report is
+     * a DUPLICATE that has been merged INTO the canonical report with this id
+     * (whose own {@code mergedIntoPostId} is always null — chains are flattened
+     * in {@code CivicAgencyService}, never nested). Null = a live/canonical
+     * report. The FK is {@code ON DELETE SET NULL} (a deleted survivor detaches
+     * its duplicates to standalone, never cascade-destroys citizen data), and a
+     * {@code CHECK} forbids self-merge — both Postgres-only (V54), so the H2 test
+     * profile relies on the service guards. Merged status is READ-THROUGH: the
+     * duplicate keeps its own {@link #civicStatus} frozen for history while read
+     * surfaces resolve to the survivor's status for display (decision 1).
+     */
+    @Column(name = "merged_into_post_id")
+    private Long mergedIntoPostId;
+
+    @Column(name = "merged_at")
+    private Instant mergedAt;
+
+    @Column(name = "merged_by_email", length = 320)
+    private String mergedByEmail;
+
     // -----------------------------------------------------------------
     // Unified Work Order fields — Phase 1 (V43__unified_workorder_schema).
     // Ported from the deleted legacy disaster-relief intake flow

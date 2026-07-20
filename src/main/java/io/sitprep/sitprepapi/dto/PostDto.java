@@ -332,7 +332,19 @@ public record PostDto(
             @JsonInclude(JsonInclude.Include.NON_NULL)
             String claimState,
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            String claimingAgencyGroupId
+            String claimingAgencyGroupId,
+            // Slice 3 (V54) civic merge — the citizen card marker + tap-through
+            // (decision 10). Non-null ONLY when THIS report is a merged duplicate:
+            // the canonical (survivor) id it was folded into. Its presence is the
+            // "Merged with a nearby report" signal + the tap-through target.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Long mergedIntoPostId,
+            // The survivor's civic status, read-through (decision 1) — folded in
+            // {@code PostService.withEngagement} for a merged duplicate so the
+            // citizen card mirrors the canonical's status without a write-fanout.
+            // Null for canonical/non-merged rows.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String canonicalStatus
     ) {
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -356,7 +368,10 @@ public record PostDto(
                     agency, source, t.getReadMinutes(),
                     0, false, false, pinned,
                     null /* taggedAgencies — folded from the join by withTaggedAgencies */,
-                    claimState, claimingId);
+                    claimState, claimingId,
+                    // Slice 3 — the merge marker rides the entity mirror (no query);
+                    // canonicalStatus is read-through, folded later in withEngagement.
+                    isCivic ? t.getMergedIntoPostId() : null, null);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -372,13 +387,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -387,20 +402,27 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+        }
+
+        /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
+        public CommunityExtras withCanonicalStatus(String status) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }

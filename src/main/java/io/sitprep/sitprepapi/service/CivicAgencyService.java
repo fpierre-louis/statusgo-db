@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -78,6 +79,12 @@ public class CivicAgencyService {
 
     /** Claim/release outcome for the endpoint response. */
     public record ClaimResult(Long postId, String claimState, String claimingAgencyGroupId) {}
+
+    /** Merge outcome — the survivor + the ids that were merged into it. */
+    public record MergeResult(Long canonicalId, List<Long> mergedDuplicateIds, int mergedDuplicateCount) {}
+
+    /** Unmerge outcome — the restored report + the canonical it left. */
+    public record UnmergeResult(Long postId, Long formerCanonicalId) {}
 
     // ─────────────────────────────────────────────────────────────────────
     // Create-path auto-derive (D2)
@@ -234,6 +241,182 @@ public class CivicAgencyService {
         report.setClaimingAgencyGroupId(null);
         taskRepo.save(report);
         return new ClaimResult(postId, "unclaimed", null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Merge / unmerge (Slice 3)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Merge N duplicate civic reports INTO a canonical (locked decisions 1–8).
+     * The caller must be an admin of the CLAIMING agency of the canonical
+     * (decision 6; the resource has already checked agency-authorized + admin).
+     *
+     * <p>Per duplicate: re-point its child work orders' {@code sourcePostId} to
+     * the canonical (4a — work follows the survivor); UNION its active agency
+     * tags onto the canonical as {@code tag_source='merged'} where the canonical
+     * isn't already actively tagged (4b — claim state does NOT transfer); FLATTEN
+     * any grand-duplicates (rows already merged into this duplicate) directly
+     * onto the canonical so chains never nest (decision 3). Media stays on the
+     * duplicates (4c); filers stay on their own rows (4e); confirms aggregate via
+     * read-through, not a stored rollup (4d).</p>
+     *
+     * <p>Guards: merging INTO an already-merged report → 409 (decision 3); a
+     * duplicate claimed by ANOTHER agency → 409 "release it first" (decision 7);
+     * a duplicate already merged elsewhere → 409. No category/jurisdiction
+     * restriction (decision 8). Self-id is filtered out (the DB CHECK is the
+     * belt-and-suspenders floor).</p>
+     */
+    @Transactional
+    public MergeResult merge(Long canonicalId, List<Long> duplicateIds, String agencyGroupId, String callerEmail) {
+        if (canonicalId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No canonical report supplied");
+        }
+        Post canonical = mustBeCivicReport(canonicalId);
+        // Decision 3 — cannot merge INTO an already-merged (duplicate) report.
+        if (canonical.getMergedIntoPostId() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That report is itself merged into another — merge into the canonical instead");
+        }
+        // Decision 6 — the claiming agency of the canonical (admin) only.
+        requireMergeAuthority(canonical, agencyGroupId, callerEmail);
+
+        List<Long> requested = (duplicateIds == null ? List.<Long>of() : duplicateIds).stream()
+                .filter(Objects::nonNull)
+                .filter(id -> !id.equals(canonicalId)) // never self-merge (CHECK is the floor)
+                .distinct()
+                .collect(Collectors.toList());
+        if (requested.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No duplicate reports supplied");
+        }
+
+        String actor = callerEmail == null ? null : callerEmail.trim().toLowerCase();
+        Instant now = Instant.now();
+        List<Long> merged = new ArrayList<>();
+
+        for (Long dupId : requested) {
+            Post dup = mustBeCivicReport(dupId);
+            if (dup.getMergedIntoPostId() != null) {
+                if (dup.getMergedIntoPostId().equals(canonicalId)) continue; // idempotent — already merged here
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "A selected report is already merged into a different report");
+            }
+            // Decision 7 — a duplicate claimed by ANOTHER agency blocks the merge.
+            String dupClaim = dup.getClaimingAgencyGroupId();
+            if (dupClaim != null && !dupClaim.isBlank() && !dupClaim.equalsIgnoreCase(agencyGroupId)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "A selected report is claimed by another agency; release it first");
+            }
+
+            // Decision 3 FLATTEN — re-point this duplicate's own duplicates
+            // (grand-duplicates) DIRECTLY at the canonical so no chain forms.
+            for (Post grand : taskRepo.findByMergedIntoPostId(dupId)) {
+                grand.setMergedIntoPostId(canonicalId);
+                grand.setMergedAt(now);
+                grand.setMergedByEmail(actor);
+                taskRepo.save(grand);
+            }
+            // Decision 4a — work follows the survivor. Re-point work orders whose
+            // sourcePostId is this duplicate (grand-duplicates' work orders were
+            // already re-pointed to this duplicate on their own merge, so this
+            // one sweep catches them too).
+            for (Post wo : taskRepo.findBySourcePostId(dupId)) {
+                wo.setSourcePostId(canonicalId);
+                taskRepo.save(wo);
+            }
+            // Decision 4b — UNION active agency tags onto the canonical.
+            unionActiveTagsOntoCanonical(dupId, canonicalId);
+
+            dup.setMergedIntoPostId(canonicalId);
+            dup.setMergedAt(now);
+            dup.setMergedByEmail(actor);
+            taskRepo.save(dup);
+            merged.add(dupId);
+        }
+        return new MergeResult(canonicalId, merged, merged.size());
+    }
+
+    /**
+     * Restore a merged duplicate to a standalone report (decision 9 — unmerge is
+     * in Slice 3; humans mis-merge). LOCKED: re-pointed work orders STAY with the
+     * former canonical (no unwind of sourcePostId), and union'd
+     * {@code tag_source='merged'} tags are LEFT on the canonical (they can't be
+     * attributed to a single duplicate — several duplicates may have contributed
+     * the same agency, and other duplicates may still be merged). Same claim-gate
+     * as merge (admin of the former canonical's claiming agency).
+     */
+    @Transactional
+    public UnmergeResult unmerge(Long duplicateId, String agencyGroupId, String callerEmail) {
+        Post dup = mustBeCivicReport(duplicateId);
+        Long canonicalId = dup.getMergedIntoPostId();
+        if (canonicalId == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Report is not merged");
+        }
+        Post canonical = taskRepo.findById(canonicalId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Canonical report not found"));
+        requireMergeAuthority(canonical, agencyGroupId, callerEmail);
+
+        dup.setMergedIntoPostId(null);
+        dup.setMergedAt(null);
+        dup.setMergedByEmail(null);
+        taskRepo.save(dup);
+        // Work orders + tag_source='merged' tags intentionally left in place (see javadoc).
+        return new UnmergeResult(duplicateId, canonicalId);
+    }
+
+    /**
+     * Decision 6 authority — the caller must be an admin of the agency that holds
+     * the active CLAIM on the canonical. (The resource layer already enforced
+     * "admin of an agencyAuthorized group"; this adds the claiming-agency match.)
+     */
+    private void requireMergeAuthority(Post canonical, String agencyGroupId, String callerEmail) {
+        String claimingId = canonical.getClaimingAgencyGroupId();
+        if (claimingId == null || claimingId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Claim this report before merging duplicates into it");
+        }
+        if (agencyGroupId == null || !claimingId.equalsIgnoreCase(agencyGroupId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the claiming agency can merge or unmerge this report");
+        }
+        if (!isAgencyAdmin(claimingId, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the claiming agency's admins can merge or unmerge");
+        }
+    }
+
+    /** Decision 4b — union a duplicate's active tags onto the canonical as 'merged'. */
+    private void unionActiveTagsOntoCanonical(Long dupId, Long canonicalId) {
+        Set<String> canonActive = tagRepo.findByPostIdAndActiveTrue(canonicalId).stream()
+                .map(CivicReportAgency::getAgencyGroupId)
+                .filter(Objects::nonNull).map(s -> s.toLowerCase())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (CivicReportAgency tag : tagRepo.findByPostIdAndActiveTrue(dupId)) {
+            String aid = tag.getAgencyGroupId();
+            if (aid == null || canonActive.contains(aid.toLowerCase())) continue; // already active → keep its source
+            // New (or re-activated tombstone) tag on the canonical; provenance
+            // preserved as 'merged'. Claim state NOT copied (upsertTag never
+            // touches claimed).
+            upsertTag(canonicalId, aid, "merged", true);
+        }
+    }
+
+    /**
+     * Read-through fold (decision 4d/queue): the duplicate ids grouped by their
+     * canonical, for {@code mergedDuplicateCount}/{@code mergedDuplicateIds} and
+     * the confirm-count aggregation. One batched query.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, List<Long>> duplicateIdsByCanonical(Collection<Long> canonicalIds) {
+        Map<Long, List<Long>> out = new HashMap<>();
+        if (canonicalIds == null || canonicalIds.isEmpty()) return out;
+        for (Post d : taskRepo.findByMergedIntoPostIdIn(canonicalIds)) {
+            Long c = d.getMergedIntoPostId();
+            if (c != null && d.getId() != null) {
+                out.computeIfAbsent(c, k -> new ArrayList<>()).add(d.getId());
+            }
+        }
+        return out;
     }
 
     // ─────────────────────────────────────────────────────────────────────

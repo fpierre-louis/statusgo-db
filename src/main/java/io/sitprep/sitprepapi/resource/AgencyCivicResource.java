@@ -14,9 +14,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
 
 /**
  * Civic epic Slice 1 — an authorized agency's civic-report pending queue
@@ -85,6 +88,39 @@ public class AgencyCivicResource {
         requireAgencyAdmin(groupId, caller);
         return ResponseEntity.ok(ApiResponse.ok(civicAgency.release(postId, groupId, caller), ApiMeta.now()));
     }
+
+    /**
+     * Slice 3 — a CLAIMING agency MERGES {@code duplicateIds} into the canonical
+     * {@code postId}. Claim-gated (decision 6) + cross-agency-claim blocked
+     * (decision 7) in the service; the agency layer here only checks admin of an
+     * agencyAuthorized group.
+     */
+    @PostMapping("/api/agencies/{groupId}/civic-reports/{postId}/merge")
+    public ResponseEntity<ApiResponse<CivicAgencyService.MergeResult>> merge(
+            @PathVariable String groupId, @PathVariable Long postId,
+            @RequestBody(required = false) MergeRequest body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAgencyAdmin(groupId, caller);
+        List<Long> dupes = body == null ? null : body.duplicateIds();
+        return ResponseEntity.ok(ApiResponse.ok(
+                civicAgency.merge(postId, dupes, groupId, caller), ApiMeta.now()));
+    }
+
+    /**
+     * Slice 3 — UNMERGE a duplicate back to a standalone report (decision 9). Same
+     * claim-gate as merge; re-pointed work orders stay with the former canonical.
+     */
+    @PostMapping("/api/agencies/{groupId}/civic-reports/{duplicateId}/unmerge")
+    public ResponseEntity<ApiResponse<CivicAgencyService.UnmergeResult>> unmerge(
+            @PathVariable String groupId, @PathVariable Long duplicateId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAgencyAdmin(groupId, caller);
+        return ResponseEntity.ok(ApiResponse.ok(
+                civicAgency.unmerge(duplicateId, groupId, caller), ApiMeta.now()));
+    }
+
+    /** Merge request body — the duplicate report ids to fold into the canonical. */
+    public record MergeRequest(List<Long> duplicateIds) {}
 
     private void requireAgencyAdmin(String groupId, String caller) {
         Group agency = groupRepo.findByGroupId(groupId)
