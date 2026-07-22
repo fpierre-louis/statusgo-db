@@ -21,6 +21,28 @@ r2:
   bucket-name:       sitprep-images
   public-base-url:   https://sitprepimages.com
 
+# ── LOCAL DATABASE + FLYWAY ─────────────────────────────────────────────────
+# Local dev runs against a LOCAL Postgres so laptop boots can never touch prod.
+# Create the DB once; Flyway (enabled below) applies migrations on boot and
+# keeps it current — no more manual replay / schema drift.
+#
+#   createdb statusnowdb
+#   # first boot with the `local` profile applies V1..Vn automatically
+#
+# ⚠ SAFETY: Flyway is ENABLED here, so it auto-migrates whatever `datasource.url`
+# points at. Keep it pinned to localhost. NEVER point the `local` profile at a
+# remote/prod DB — a local boot against prod RDS with Flyway on is what leaked
+# V48 to production on 2026-07-14. For a shared environment use the
+# ${JDBC_DATABASE_*} env vars (application.yml / default profile) instead, or
+# set `enabled: false` first.
+spring:
+  flyway:
+    enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/statusnowdb
+    username: <your-postgres-username>
+    password: ""
+
 # Add other dev-only overrides here as needed (Firebase, JWT secret, etc.)
 # Anything you don't override falls through to the env-var defaults in
 # application.yml.
