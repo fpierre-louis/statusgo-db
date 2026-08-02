@@ -47,7 +47,7 @@ class AgencyJurisdictionServicePostgresIT {
 
     @BeforeEach
     void init() {
-        svc = new AgencyJurisdictionService(groupRepo, new AgencyAuthorizationService(null, null));
+        svc = new AgencyJurisdictionService(groupRepo, new AgencyAuthorizationService(null, null, null));
     }
 
     // Agency center used across radius tests.

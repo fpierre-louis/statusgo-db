@@ -154,6 +154,14 @@ public class AccountDeletionService {
                 "WHERE (h.supervisorKind = 'user' AND LOWER(h.supervisorId) = :e) " +
                 "   OR (h.accompaniedKind = 'user' AND LOWER(h.accompaniedId) = :e)", e);
         int notifs      = bulkDelete("DELETE FROM NotificationLog n WHERE LOWER(n.recipientEmail) = :e", e);
+        // Agency STAFF rows. `agency_staff.user_email` deliberately has NO FK to
+        // user_info (an agency may add crew before they install), so nothing at
+        // the DB level removes these when the account goes — app-level cleanup
+        // is the design's stated owner (AGENCY_STAFF_PHASE0_DESIGN.md). Leaving
+        // them would strand a live PRIVILEGE GRANT keyed on a freed address:
+        // a staff row widens the civic-queue read gate, so whoever next
+        // registers that email would inherit it.
+        int agencyStaff = bulkDelete("DELETE FROM AgencyStaff s WHERE LOWER(s.userEmail) = :e", e);
 
         // -----------------------------------------------------------------
         // 3. Strip user from every group's memberEmails / adminEmails /
@@ -209,7 +217,7 @@ public class AccountDeletionService {
                 activations, acks,
                 meals, evacs, meetings, origins, contacts, demographic, saved,
                 events, accomp, notifs,
-                strippedFrom, soloHouseholds.size()
+                strippedFrom, soloHouseholds.size(), agencyStaff
         );
         log.info("AccountDeletion: complete for email={} result={}", e, result);
         return result;
@@ -247,7 +255,11 @@ public class AccountDeletionService {
             int mealPlans, int evacPlans, int meetingPlaces, int originLocations,
             int emergencyContactGroups, int demographic, int savedLocations,
             int householdEvents, int accompaniments, int notifications,
-            int strippedFromGroups, int deletedSoloHouseholds
+            int strippedFromGroups, int deletedSoloHouseholds,
+            /** Agency STAFF rows removed — see the deletion step for why these
+                can't rely on a DB cascade. Appended last so existing positional
+                consumers keep their indices. */
+            int agencyStaffRows
     ) {}
 
     public record BlockingGroup(String groupId, String groupName, String groupType) {}

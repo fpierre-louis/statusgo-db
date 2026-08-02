@@ -32,9 +32,14 @@ import java.util.List;
  *   GET /api/agencies/{groupId}/civic-reports?status=reported
  * </pre>
  *
- * <p>Gated via {@link AgencyAuthorizationService#requireAgencyAdmin} — the
- * caller must be an admin/owner of an {@code agencyAuthorized} group (decision
- * 6). BE is the enforcement boundary; the FE mirrors this gate for UX only.</p>
+ * <p><b>Gates.</b> The queue READ uses
+ * {@link AgencyAuthorizationService#requireAgencyStaffOrAdmin} — an admin/owner
+ * OR a STAFF member of the {@code agencyAuthorized} group, since an agency's
+ * non-admin employees are exactly the people who work this queue. Every
+ * mutation (claim / release / merge / unmerge) keeps the narrower
+ * {@link AgencyAuthorizationService#requireAgencyAdmin} (decision 6); widening
+ * writes to staff is a separate owner decision. BE is the enforcement boundary;
+ * the FE mirrors these gates for UX only.</p>
  */
 @RestController
 public class AgencyCivicResource {
@@ -58,7 +63,9 @@ public class AgencyCivicResource {
             @PathVariable String groupId,
             @RequestParam(value = "status", required = false) String status) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        requireAgencyAdmin(groupId, caller);
+        // READ is staff-or-admin: an agency's non-admin employees work this
+        // queue. Every WRITE below stays admin-only (see requireAgencyAdmin).
+        requireAgencyStaffOrAdmin(groupId, caller);
         return ResponseEntity.ok(ApiResponse.ok(
                 posts.listCivicReportsForAgency(groupId, status), ApiMeta.now()));
     }
@@ -123,8 +130,20 @@ public class AgencyCivicResource {
     public record MergeRequest(List<Long> duplicateIds) {}
 
     private void requireAgencyAdmin(String groupId, String caller) {
-        Group agency = groupRepo.findByGroupId(groupId)
+        agencyAuth.requireAgencyAdmin(loadAgency(groupId), caller);
+    }
+
+    /**
+     * READ gate — admin/owner OR a staff member of this agency. Used by the
+     * queue GET only; the mutation endpoints deliberately keep the narrower
+     * admin gate above.
+     */
+    private void requireAgencyStaffOrAdmin(String groupId, String caller) {
+        agencyAuth.requireAgencyStaffOrAdmin(loadAgency(groupId), caller);
+    }
+
+    private Group loadAgency(String groupId) {
+        return groupRepo.findByGroupId(groupId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agency group not found"));
-        agencyAuth.requireAgencyAdmin(agency, caller);
     }
 }

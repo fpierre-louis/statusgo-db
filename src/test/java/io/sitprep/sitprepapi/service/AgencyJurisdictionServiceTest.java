@@ -17,7 +17,7 @@ import static org.mockito.Mockito.when;
  * with roles"). Pure Mockito — no Spring context, no DB. Uses a REAL
  * {@link AgencyAuthorizationService} so the resolver's radius gating goes
  * through the same {@code hasGeo} (lat/lng valid + radius in (0, 50]) the alert
- * path uses; its two constructor deps are never touched by {@code hasGeo}, so
+ * path uses; its constructor deps are never touched by {@code hasGeo}, so
  * they can be null here.
  */
 @ExtendWith(MockitoExtension.class)
@@ -25,7 +25,8 @@ class AgencyJurisdictionServiceTest {
 
     @Mock GroupRepo groupRepo;
 
-    private final AgencyAuthorizationService agencyAuth = new AgencyAuthorizationService(null, null);
+    private final AgencyAuthorizationService agencyAuth =
+            new AgencyAuthorizationService(null, null, null);
 
     private AgencyJurisdictionService svc() {
         return new AgencyJurisdictionService(groupRepo, agencyAuth);

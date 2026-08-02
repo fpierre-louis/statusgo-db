@@ -24,10 +24,14 @@ public class AgencyAuthorizationService {
 
     private final UserInfoRepo userInfoRepo;
     private final UserGeoService userGeoService;
+    private final AgencyStaffService agencyStaffService;
 
-    public AgencyAuthorizationService(UserInfoRepo userInfoRepo, UserGeoService userGeoService) {
+    public AgencyAuthorizationService(UserInfoRepo userInfoRepo,
+                                      UserGeoService userGeoService,
+                                      AgencyStaffService agencyStaffService) {
         this.userInfoRepo = userInfoRepo;
         this.userGeoService = userGeoService;
+        this.agencyStaffService = agencyStaffService;
     }
 
     public void requireAgencyPostingAllowed(Group agency, String callerEmail) {
@@ -60,6 +64,44 @@ public class AgencyAuthorizationService {
         }
         if (!GroupRole.fromGroup(agency, callerEmail).isAtLeastAdmin()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group admin or owner role required");
+        }
+        if (!agency.isAgencyAuthorized()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not an authorized agency");
+        }
+    }
+
+    /**
+     * READ gate for an agency's operational surfaces that STAFF may also see —
+     * strictly wider than {@link #requireAgencyAdmin} by exactly one population:
+     * a person with an {@code agency_staff} row for this group (the non-admin
+     * employee who works the agency's queue; see
+     * docs/lanes/AGENCY_STAFF_PHASE0_DESIGN.md). Staff is INDEPENDENT of group
+     * role, so a staff member typically resolves to {@code MEMBER} or
+     * {@code NONE} via {@link GroupRole#fromGroup} and would fail the admin gate.
+     *
+     * <p>Same shape as {@link #requireAgencyAdmin}: 404 when the group is
+     * missing, 403 when the caller is neither admin/owner nor staff, and 403
+     * when the group is not {@code agencyAuthorized}. Like its sibling it does
+     * NOT require jurisdiction geo — reading a queue needs no posting geometry.
+     *
+     * <p><b>Deliberately read-only.</b> Use this for reads. The civic WRITE
+     * paths (claim / release / merge / unmerge) stay on
+     * {@link #requireAgencyAdmin} — widening those to staff is a separate owner
+     * decision, not implied by read access.
+     */
+    public void requireAgencyStaffOrAdmin(Group agency, String callerEmail) {
+        if (agency == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agency group not found");
+        }
+        boolean admin = GroupRole.fromGroup(agency, callerEmail).isAtLeastAdmin();
+        // Short-circuit: only pay for the staff lookup when the role check fails.
+        boolean staff = !admin
+                && callerEmail != null && !callerEmail.isBlank()
+                && agency.getGroupId() != null
+                && agencyStaffService.isStaff(callerEmail, agency.getGroupId());
+        if (!admin && !staff) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Agency staff, admin, or owner role required");
         }
         if (!agency.isAgencyAuthorized()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not an authorized agency");
