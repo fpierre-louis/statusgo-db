@@ -92,6 +92,15 @@ public class AdminAgencyService {
                 req == null ? null : req.radiusMiles());
         group.setAgencyAuthorized(true);
         addAdminIfAbsent(group, ownerEmail);
+        // An admin must also be a member — the same invariant GroupService.addAdmin
+        // enforces ("admin must be a member too"). Provisioning did not honour it,
+        // so every agency created here was born with an owner in adminEmails and
+        // an EMPTY memberEmails: the group's own roster showed zero people, and
+        // GroupViewService.assemble (which builds the member list strictly from
+        // memberEmails) rendered an empty admin dashboard. Fixing it at the source
+        // per Lane B5 of docs/audits/2026-07-30-agency-admin-management/FINDINGS.md.
+        addMemberIfAbsent(group, ownerEmail);
+        group.setMemberCount(group.getMemberEmails() == null ? 0 : group.getMemberEmails().size());
         group.setUpdatedAt(Instant.now());
 
         Group saved = groupRepo.save(group);
@@ -156,6 +165,15 @@ public class AdminAgencyService {
         boolean present = group.getAdminEmails().stream()
                 .anyMatch(existing -> existing != null && existing.equalsIgnoreCase(email));
         if (!present) group.getAdminEmails().add(email);
+    }
+
+    /** Companion to {@link #addAdminIfAbsent} — see the B5 note at the call site. */
+    private static void addMemberIfAbsent(Group group, String email) {
+        if (email == null) return;
+        if (group.getMemberEmails() == null) group.setMemberEmails(new ArrayList<>());
+        boolean present = group.getMemberEmails().stream()
+                .anyMatch(existing -> existing != null && existing.equalsIgnoreCase(email));
+        if (!present) group.getMemberEmails().add(email);
     }
 
     private static String geoSummary(Group group) {

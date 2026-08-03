@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -36,17 +37,20 @@ public class GroupViewService {
     private final GroupPostRepo postRepo;
     private final HouseholdManualMemberService manualMemberService;
     private final HouseholdAccompanimentService accompanimentService;
+    private final PlatformAccessService platformAccessService;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
                             GroupPostRepo postRepo,
                             HouseholdManualMemberService manualMemberService,
-                            HouseholdAccompanimentService accompanimentService) {
+                            HouseholdAccompanimentService accompanimentService,
+                            PlatformAccessService platformAccessService) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.postRepo = postRepo;
         this.manualMemberService = manualMemberService;
         this.accompanimentService = accompanimentService;
+        this.platformAccessService = platformAccessService;
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +101,7 @@ public class GroupViewService {
         return new GroupMemberViewDto(
                 toGroupInfo(g),
                 resolveViewerRole(g, viewerEmail),
+                resolveViewerPlatformRole(viewerEmail),
                 members,
                 manualMembers,
                 accompaniments,
@@ -241,6 +246,36 @@ public class GroupViewService {
         dto.setPinnedAt(p.getPinnedAt());
         dto.setPinnedBy(p.getPinnedBy());
         return dto;
+    }
+
+    /**
+     * The viewer's platform role, or null when they hold none.
+     *
+     * <p>Deliberately a SEPARATE resolver from {@link #resolveViewerRole},
+     * which is left exactly as it was. {@code viewerRole} means "this person's
+     * standing on this group's roster" and frontend WRITE gates branch on it
+     * ({@code GroupVerificationPage} → submit a verification application;
+     * {@code OrgAdminDashboard} → hand the role to the roster manager, which
+     * decides whether to render promote / demote / remove). Folding platform
+     * access into that value would have made those surfaces offer group-tier
+     * mutations that {@code GroupResource.requireAdminOf} then refuses, because
+     * no platform bypass exists there. See the field doc on
+     * {@code GroupMemberViewDto.viewerPlatformRole}.</p>
+     *
+     * <p>Failure is non-fatal: this is a visibility nicety, and a hiccup
+     * reading {@code platform_admin} must not take down every group page in the
+     * app. {@code PlatformAccessService.resolve} converts a
+     * {@code DataAccessException} into a 503, so it is caught here and
+     * downgraded to "no platform role".</p>
+     */
+    private String resolveViewerPlatformRole(String viewerEmail) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return null;
+        try {
+            PlatformRole role = platformAccessService.resolve(viewerEmail).role();
+            return role == null || role == PlatformRole.NONE ? null : role.name();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private String resolveViewerRole(Group g, String viewerEmail) {

@@ -6,6 +6,35 @@ import java.util.List;
 public record GroupMemberViewDto(
         GroupInfo group,
         String viewerRole,
+        /**
+         * The viewer's PLATFORM role ({@code PlatformRole} name — e.g.
+         * {@code "SUPER_ADMIN"}, {@code "ADMIN"}), or null when they hold no
+         * active {@code platform_admin} row. Lane B3 of
+         * docs/audits/2026-07-30-agency-admin-management/FINDINGS.md.
+         *
+         * <p><b>This is a VISIBILITY signal, not an authorization one.</b> It
+         * exists so the platform console's "Dashboard" link stops refusing its
+         * own super-admin: {@link #viewerRole} is derived purely from the group
+         * roster, so a platform admin who is not personally on the agency's
+         * roster resolves to {@code "none"} and the admin dashboard renders
+         * "Admin access required".</p>
+         *
+         * <p>It is shipped as a SEPARATE field rather than by elevating
+         * {@code viewerRole} deliberately. {@code viewerRole} is consumed by
+         * frontend WRITE gates — {@code GroupVerificationPage} branches on
+         * OWNER/ADMIN to offer verification-application submission, and
+         * {@code OrgAdminDashboard} passes it to the roster manager to decide
+         * whether to render promote / demote / remove controls. Those controls
+         * call {@code /api/groups/**}, which is gated by
+         * {@code GroupResource.requireAdminOf} and has no platform bypass, so
+         * elevating {@code viewerRole} would have made the UI offer actions the
+         * API refuses. A platform admin's write path for an agency is the
+         * platform-scoped {@code /api/admin/agencies/**} routes instead.</p>
+         *
+         * <p>Consumers must therefore gate only rendering/visibility on this
+         * field, never a mutation.</p>
+         */
+        String viewerPlatformRole,
         List<MemberSummary> members,
         /**
          * Household-only — populated when {@code group.groupType == "Household"},

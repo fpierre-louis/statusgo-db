@@ -335,6 +335,15 @@ public class AgencyRequestService {
         group.setPendingMemberEmails(new ArrayList<>());
         addAdminIfAbsent(group, ownerEmail);
         addAdminIfAbsent(group, app.getSubmitterEmail());
+        // An admin must also be a member (the invariant GroupService.addAdmin
+        // enforces). Without this the workspace is created with admins but an
+        // EMPTY memberEmails, and GroupViewService.assemble — which builds the
+        // roster strictly from memberEmails — renders an admin dashboard with
+        // nobody on it. Lane B5 of
+        // docs/audits/2026-07-30-agency-admin-management/FINDINGS.md.
+        addMemberIfAbsent(group, ownerEmail);
+        addMemberIfAbsent(group, app.getSubmitterEmail());
+        group.setMemberCount(group.getMemberEmails() == null ? 0 : group.getMemberEmails().size());
         groupRepo.save(group);
         app.setGroupId(groupId);
         applicationRepo.save(app);
@@ -436,6 +445,16 @@ public class AgencyRequestService {
 
     private static String nullSafe(Double value) {
         return value == null ? "(none)" : String.valueOf(value);
+    }
+
+    /** Companion to {@link #addAdminIfAbsent} — see the B5 note at the call site. */
+    private static void addMemberIfAbsent(Group group, String rawEmail) {
+        String email = normalizeEmail(rawEmail);
+        if (email == null) return;
+        if (group.getMemberEmails() == null) group.setMemberEmails(new ArrayList<>());
+        boolean present = group.getMemberEmails().stream()
+                .anyMatch(existing -> existing != null && existing.equalsIgnoreCase(email));
+        if (!present) group.getMemberEmails().add(email);
     }
 
     private static void addAdminIfAbsent(Group group, String rawEmail) {
