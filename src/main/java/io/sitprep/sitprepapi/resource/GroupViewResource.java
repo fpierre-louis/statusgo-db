@@ -25,6 +25,15 @@ public class GroupViewResource {
      * group's alert state.
      *
      * <p>Viewer identity comes from the verified Firebase token.</p>
+     *
+     * <p><b>Access is NOT merely "authenticated".</b> The payload is a full
+     * roster (member emails, names, statuses, last-active, and location subject
+     * to each member's sharing pref), so the read is gated in
+     * {@code GroupViewService.requireCanReadGroup} to the group's own
+     * owner/admin/member, plus platform admins and agency staff — the two
+     * populations whose shipped consoles are built from this payload. Anyone
+     * else gets 403; an unknown group id still gets 404. See that method for
+     * the full rationale.</p>
      */
     @GetMapping("/{groupId}/member")
     public ResponseEntity<GroupMemberViewDto> getMemberView(@PathVariable String groupId) {

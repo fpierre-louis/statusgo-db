@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupPost;
@@ -14,8 +15,10 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.Geo;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.*;
@@ -38,25 +41,81 @@ public class GroupViewService {
     private final HouseholdManualMemberService manualMemberService;
     private final HouseholdAccompanimentService accompanimentService;
     private final PlatformAccessService platformAccessService;
+    private final AgencyStaffService agencyStaffService;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
                             GroupPostRepo postRepo,
                             HouseholdManualMemberService manualMemberService,
                             HouseholdAccompanimentService accompanimentService,
-                            PlatformAccessService platformAccessService) {
+                            PlatformAccessService platformAccessService,
+                            AgencyStaffService agencyStaffService) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.postRepo = postRepo;
         this.manualMemberService = manualMemberService;
         this.accompanimentService = accompanimentService;
         this.platformAccessService = platformAccessService;
+        this.agencyStaffService = agencyStaffService;
     }
 
     @Transactional(readOnly = true)
     public Optional<GroupMemberViewDto> buildMemberView(String groupId, String viewerEmail) {
         if (groupId == null || groupId.isBlank()) return Optional.empty();
-        return groupRepo.findByGroupId(groupId).map(g -> assemble(g, normalize(viewerEmail)));
+        return groupRepo.findByGroupId(groupId).map(g -> {
+            String viewer = normalize(viewerEmail);
+            requireCanReadGroup(g, viewer);
+            return assemble(g, viewer);
+        });
+    }
+
+    /**
+     * READ gate for the consolidated group view.
+     *
+     * <p><b>Why this exists.</b> This endpoint was previously gated on
+     * authentication ALONE — `AuthUtils.requireAuthenticatedEmail()` and nothing
+     * else — so any signed-in user could read any group's full roster by id:
+     * every member's email, name, self-status, last-active time, and (subject to
+     * their per-group sharing pref) last known coordinates, plus the group's
+     * address and owner/admin email lists. For households that is a family's
+     * roster and whereabouts. Closing it.</p>
+     *
+     * <p><b>Who may read.</b> Deliberately the union of every population that a
+     * shipped surface depends on — narrower would break working features:</p>
+     * <ul>
+     *   <li><b>owner / admin / member</b> — the group's own people. PENDING is
+     *       excluded: a join request is not yet a membership, and the
+     *       join-confirmation flow reads the sanitized {@code GroupPreviewDto}
+     *       instead, which ships no rosters.</li>
+     *   <li><b>platform admins</b> — the console's "Dashboard" link into any
+     *       agency depends on this (Lane B3, {@code viewerPlatformRole}).</li>
+     *   <li><b>agency staff</b> — a staff-only viewer is NOT a group member by
+     *       design, and the agency console they may now open (Step 5) is built
+     *       from this payload.</li>
+     * </ul>
+     *
+     * <p><b>Known scaffolded caller.</b> {@code /h/share/:groupId}
+     * (HouseholdGuestPage) renders a read-only household mirror for a
+     * non-member. Its own header comment claims it is "gated by the existing
+     * membership check on the server" — that check did not exist, so the route
+     * worked BECAUSE of this hole. It is currently unreachable (nothing in the
+     * UI links to it; real share links go to {@code /share/group/{id}}, which
+     * uses the sanitized preview DTO), so this gate breaks no reachable
+     * feature. If that guest view is ever revived, build it the way that file's
+     * TODO already specifies — a separate redacted {@code public-view} endpoint
+     * with a share token — not by widening this one.</p>
+     */
+    private void requireCanReadGroup(Group g, String viewer) {
+        if (viewer == null || viewer.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated request required");
+        }
+        if (GroupRole.fromGroup(g, viewer) != GroupRole.NONE) return;
+        // Cheapest checks first; both of these are single indexed lookups and
+        // only run for a viewer with no standing on the group itself.
+        if (platformAccessService.resolve(viewer).role() != PlatformRole.NONE) return;
+        if (g.getGroupId() != null && agencyStaffService.isStaff(viewer, g.getGroupId())) return;
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "You don't have access to this group");
     }
 
     private GroupMemberViewDto assemble(Group g, String viewerEmail) {
