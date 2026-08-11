@@ -1459,6 +1459,16 @@ public class PostService {
             String authorNormalized = author == null ? null : author.toLowerCase(Locale.ROOT);
             if (authorNormalized != null && blockSet.contains(authorNormalized)) continue;
 
+            // Personal-scope filter. Every candidate here is groupless by
+            // construction (findCommunityCandidates is groupId IS NULL), and
+            // groupless means "public" for every kind EXCEPT task/project,
+            // where it means "private to the author". Without this, a
+            // personal preparedness task entered strangers' feeds as an
+            // ordinary neighbor post. Sits beside the block filter because
+            // both are viewer-specific exclusions and both belong before the
+            // geo math.
+            if (!readAuthorizer.canRead(t, viewerEmail)) continue;
+
             if (t.getLatitude() == null || t.getLongitude() == null) {
                 within.add(PostDto.fromEntity(t, null));
                 continue;
@@ -1490,9 +1500,15 @@ public class PostService {
         // so they're discoverable inline next to the algorithm. Promote to
         // application.properties when we actually want runtime tuning.
         //
-        // null distance still sorts last (community-wide rows belong after
-        // all geo-tagged ones) — Double.MAX_VALUE as the distance penalty
-        // makes the score so negative they fall to the end naturally.
+        // Geo-less rows are scored as if they were SCORE_NULL_DISTANCE_KM
+        // (50 km) away — NOT infinitely far. This comment previously claimed
+        // Double.MAX_VALUE, which would have made them sort last always; the
+        // constant has always been 50.0, so the real behavior is that a
+        // geo-less row outranks any geo-tagged row further than ~50 km. That
+        // is fine at the default 10 km radius and intended past it: a
+        // community-wide row is more relevant to a viewer on a wide radius
+        // than a located row on the far edge of it. Changing the constant is
+        // a separate ranking decision, deliberately not made here.
         // Tier first (official > civic > news > neighbor > sponsored),
         // then the relevance score within a tier — so official/crisis
         // content rises above organic without losing proximity ranking.

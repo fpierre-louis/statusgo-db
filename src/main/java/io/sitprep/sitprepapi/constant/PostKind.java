@@ -79,9 +79,15 @@ public enum PostKind {
      * task list at {@code /me/tasks}. Always {@code groupId=null}
      * and {@code requesterEmail=author}. Tagged with
      * {@code pillar:supplies|plan|practice|family} so completion
-     * rolls up into the My Readiness card. Never surfaces in the
-     * community feed (BE listing filters out personal tasks when the
-     * caller isn't the requester).
+     * rolls up into the My Readiness card.
+     *
+     * <p>Readable only by its requester — enforced by
+     * {@code PostReadAuthorizer.canRead}, which every read path that can
+     * return a groupless row calls. {@link #isPersonalScope} is the
+     * predicate. Until 2026-08-11 this paragraph asserted the same rule
+     * as settled fact while no such filter existed anywhere, and personal
+     * tasks were reaching strangers' community feeds; if you are adding a
+     * read path, call the authorizer rather than trusting this sentence.</p>
      */
     TASK("task"),
 
