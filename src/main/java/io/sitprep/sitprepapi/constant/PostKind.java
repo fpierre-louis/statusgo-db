@@ -127,6 +127,34 @@ public enum PostKind {
     }
 
     /**
+     * Kinds that are PRIVATE TO THEIR AUTHOR when they carry no group.
+     *
+     * <p>Every other kind is groupless-means-public: an {@code ask} or a
+     * {@code marketplace} listing with {@code groupId=null} is a deliberate
+     * broadcast to the neighborhood. These two are the opposite — the
+     * composer that creates them ({@code /me/tasks}) presents them as a
+     * private checklist, and {@code groupId=null} on them means "personal",
+     * not "public". The scope flag alone cannot tell the two apart, so the
+     * kind is what separates them.</p>
+     */
+    private static final Set<PostKind> PERSONAL_SCOPE = Set.of(TASK, PROJECT);
+
+    /**
+     * True when a groupless row of this wire kind is private to its author.
+     * The single source of truth for that question — read by
+     * {@code PostReadAuthorizer}, which is the only thing that should be
+     * making the visibility decision itself.
+     *
+     * <p>Unknown / null kinds return false: an unrecognized kind is treated
+     * as ordinary community content rather than silently hidden, matching
+     * how {@link #fromWire} leaves the default to the caller.</p>
+     */
+    public static boolean isPersonalScope(String wire) {
+        PostKind k = fromWire(wire);
+        return k != null && PERSONAL_SCOPE.contains(k);
+    }
+
+    /**
      * Look up the enum by wire string. Returns null when the value is
      * unknown — callers can fall back to a default.
      */
