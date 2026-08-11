@@ -44,7 +44,15 @@ import java.time.Instant;
 @Setter
 public class TaskAssignee {
 
-    /** Task-level role. Distinct from the group's Admin/Volunteer roles. */
+    /**
+     * Task-level role. Deliberately distinct from the group's Owner/Admin/Member
+     * roles ({@link io.sitprep.sitprepapi.constant.GroupRole}) — a Member can be
+     * a task LEAD, and an Admin can be a HELPER.
+     *
+     * <p>(This comment previously said "Admin/Volunteer", echoing
+     * DOCS_STEP2_ROLE_MODEL_DESIGN.md §0. That vocabulary never shipped and was
+     * formally superseded 2026-08-03: group roles are Owner / Admin / Member.)</p>
+     */
     public enum Role { LEAD, HELPER }
 
     @Id
