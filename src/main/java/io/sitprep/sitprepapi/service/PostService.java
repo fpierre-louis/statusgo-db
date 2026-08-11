@@ -1398,6 +1398,17 @@ public class PostService {
     public List<PostDto> discoverCommunity(double lat, double lng, double radiusKm,
                                            Set<PostStatus> statuses, String viewerEmail,
                                            int offset, int limit) {
+        // Cap the search radius — an arbitrarily large radius turns the
+        // Haversine filter into a full-table match and the response into a
+        // country dump. 500 km comfortably covers every legitimate feed view.
+        // Same rationale and same bound as CommunityDiscoverService.discover,
+        // which has clamped the nearby-GROUPS path since it shipped; the posts
+        // path was simply never given the equivalent guard, so the ladder's top
+        // rung reached the FE's 16,000 km sentinel unbounded. The top numeric
+        // rung is 250 mi (~402 km), so every numeric selection is unaffected —
+        // only the top rung changes.
+        if (radiusKm > 500.0) radiusKm = 500.0;
+
         Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : statuses;
 
