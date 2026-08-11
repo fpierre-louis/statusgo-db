@@ -1313,14 +1313,45 @@ public class PostService {
         return null;
     }
 
+    /**
+     * The author's own list — {@code GET /api/me/posts?role=requester}, which
+     * is what {@code /me/tasks} reads. Viewer IS the author here, so personal
+     * tasks are returned in full; that is the whole point of the surface.
+     *
+     * <p>Do NOT add a personal-scope filter to this method. It is shared with
+     * {@code /api/posts/by-author/{email}}, but the fix for that surface is
+     * the viewer-aware overload below, not a filter here — filtering here
+     * would empty the personal task list for its own owner.</p>
+     */
     @Transactional(readOnly = true)
     public List<PostDto> listRequestedBy(String email) {
-        if (email == null || email.isBlank()) return List.of();
-        // Requester is the viewer for this surface — viewerThanked uses the
-        // same email so a user's own thanks render correctly on their list.
-        List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+        return listRequestedBy(email, email);
+    }
+
+    /**
+     * Posts by {@code authorEmail} as seen by {@code viewerEmail}.
+     *
+     * <p>When the viewer is not the author, personal-scope rows
+     * ({@code task} / {@code project}) are withheld — {@code /api/posts/
+     * by-author/{email}} takes the author as a path parameter, so before
+     * this filter existed any authenticated user could pull any chosen
+     * person's private preparedness list by typing their email.</p>
+     *
+     * <p>Deliberately uses {@code isPersonalHiddenFrom} and not the full
+     * {@code canRead}: this surface also returns GROUP-scoped rows, and
+     * whether a non-member may read those is the {@code findDtoById} lane's
+     * call, not this one's. That exposure is real and still open here.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> listRequestedBy(String authorEmail, String viewerEmail) {
+        if (authorEmail == null || authorEmail.isBlank()) return List.of();
+        List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(authorEmail).stream()
+                .filter(t -> !PostReadAuthorizer.isPersonalHiddenFrom(t, viewerEmail))
                 .map(PostDto::fromEntity).collect(Collectors.toList());
-        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), email);
+        // Engagement is resolved for the VIEWER, so viewerThanked / saved
+        // state reflect the person reading. On the self path the two emails
+        // are the same, which is the pre-existing behavior.
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail);
     }
 
     /**
@@ -1335,6 +1366,12 @@ public class PostService {
         int cap = limit <= 0 ? 10 : Math.min(limit, 50);
         List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(requesterEmail).stream()
                 .filter(t -> t.getGroupId() == null)
+                // The groupId filter above narrows TO the leaking set, not
+                // away from it: a profile visitor was shown the owner's
+                // personal tasks. canRead reduces to the requester check here
+                // (every row is already groupless), so the owner still sees
+                // their own tasks on their own profile.
+                .filter(t -> readAuthorizer.canRead(t, viewerEmail))
                 .limit(cap)
                 .map(PostDto::fromEntity)
                 .collect(Collectors.toList());

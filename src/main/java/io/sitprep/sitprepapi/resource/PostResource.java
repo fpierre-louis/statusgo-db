@@ -166,14 +166,19 @@ public class PostResource {
     /**
      * Posts authored by a specific user — backs the per-business profile
      * page (/business/{email}) so a verified publisher's listings can
-     * be browsed in one place. Public-equivalent: community posts are
-     * visible in the feed already; this surface just collects them by
-     * author. Auth still required (no anonymous reads).
+     * be browsed in one place. Auth still required (no anonymous reads).
+     *
+     * <p>The old justification here was "public-equivalent: community posts
+     * are visible in the feed already". That inherited a false premise —
+     * personal preparedness tasks were NOT visible in the feed by design,
+     * they were leaking into it, and this route handed them over by author
+     * email on request. The viewer is now passed through so the service can
+     * withhold another user's personal rows.</p>
      */
     @GetMapping("/api/posts/by-author/{email}")
     public ResponseEntity<ApiResponse<List<PostDto>>> listByAuthor(@PathVariable String email) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(tasks.listRequestedBy(email), ApiMeta.now()));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(tasks.listRequestedBy(email, viewer), ApiMeta.now()));
     }
 
     @GetMapping("/api/posts/{id}")
