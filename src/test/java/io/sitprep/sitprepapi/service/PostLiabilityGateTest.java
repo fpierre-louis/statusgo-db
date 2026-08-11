@@ -64,7 +64,10 @@ class PostLiabilityGateTest {
                 mock(io.sitprep.sitprepapi.repo.TaskAssigneeRepo.class),
                 mock(TaskAssignmentService.class),
                 mock(AgencyJurisdictionService.class),
-                mock(CivicAgencyService.class));
+                mock(CivicAgencyService.class),
+                // Real authorizer, not a mock: a mock's canRead defaults to
+                // false and would silently hide every row from these tests.
+                new PostReadAuthorizer(mock(GroupRepo.class)));
         // refetchAndBroadcast registers an afterCommit synchronization on the
         // successful transition path — same pattern as GroupPostSecurityTest.
         TransactionSynchronizationManager.initSynchronization();

@@ -101,6 +101,10 @@ public class PostService {
     private final AgencyJurisdictionService agencyJurisdictionService;
     private final CivicAgencyService civicAgencyService;
 
+    // The one post read rule — see PostReadAuthorizer. Every read path in
+    // this service that can return a groupless personal row goes through it.
+    private final PostReadAuthorizer readAuthorizer;
+
     public record PostSharePreview(
             String title,
             String description,
@@ -126,7 +130,8 @@ public class PostService {
                        TaskAssigneeRepo taskAssigneeRepo,
                        TaskAssignmentService taskAssignmentService,
                        AgencyJurisdictionService agencyJurisdictionService,
-                       CivicAgencyService civicAgencyService) {
+                       CivicAgencyService civicAgencyService,
+                       PostReadAuthorizer readAuthorizer) {
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
@@ -148,6 +153,7 @@ public class PostService {
         this.taskAssignmentService = taskAssignmentService;
         this.agencyJurisdictionService = agencyJurisdictionService;
         this.civicAgencyService = civicAgencyService;
+        this.readAuthorizer = readAuthorizer;
     }
 
     // -----------------------------------------------------------------------
@@ -2585,16 +2591,28 @@ public class PostService {
     }
 
     /**
-     * Public, sanitized preview for social-platform unfurls. Only
-     * community-scope posts emit user-generated title/body/image into
-     * OpenGraph tags; group-scoped rows return a generic preview so
-     * private circle content is not leaked through chat scrapers.
+     * Public, sanitized preview for social-platform unfurls. Only posts that
+     * are readable ANONYMOUSLY emit user-generated title/body/image into
+     * OpenGraph tags; everything else returns a generic preview so private
+     * content is not leaked through chat scrapers.
+     *
+     * <p>This route is unauthenticated by design (crawlers cannot carry a
+     * token), so the gate is {@code canRead(post, null)} — the anonymous
+     * viewer. That covers group-scoped rows, which returned the generic
+     * preview before this change, AND groupless personal tasks, which did
+     * not: a personal task published the author's real name, a 150-char body
+     * excerpt, and its first image to any crawler that hit
+     * {@code /share/post/{id}}. This was the only exposure path in that audit
+     * reaching outside the product. See
+     * {@code docs/audits/personal-task-feed-exposure.md} §C.3.</p>
      */
     @Transactional(readOnly = true)
     public Optional<PostSharePreview> findPublicSharePreview(Long id) {
         if (id == null) return Optional.empty();
         return taskRepo.findById(id).map(t -> {
-            if (t.getGroupId() != null && !t.getGroupId().isBlank()) {
+            // Anonymous viewer. PostReadAuthorizer short-circuits group-scoped
+            // rows before any group lookup, so this stays one query per hit.
+            if (!readAuthorizer.canRead(t, null)) {
                 return new PostSharePreview(
                         "View this SitPrep post",
                         "Open SitPrep to view this post from your circle.",
