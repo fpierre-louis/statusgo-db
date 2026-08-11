@@ -154,10 +154,28 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.8.1</version>
+				<!--
+					Version and release level are BOTH inherited from the Spring Boot
+					parent, which reads the <java.version> property above. The old pin
+					to 3.8.1 (2019) plus a duplicated <source>/<target> meant a
+					six-year-old compiler ran against a modern JDK and the Java level
+					was declared twice, in two places that could drift apart.
+
+					Lombok is declared on the annotation-processor path explicitly
+					rather than being discovered on the classpath. javac already warns
+					about the implicit form — "a future release of javac may disable
+					annotation processing unless at least one processor is specified by
+					name ... or a search path is specified" — so relying on discovery is
+					a trap with a known expiry date. The version comes from the parent's
+					dependencyManagement; do not pin it here.
+				-->
 				<configuration>
-					<source>21</source>
-					<target>21</target>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+					</annotationProcessorPaths>
 				</configuration>
 			</plugin>
 			<plugin>
