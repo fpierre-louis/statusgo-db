@@ -2,8 +2,6 @@ package io.sitprep.sitprepapi.websocket;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
-import io.sitprep.sitprepapi.service.PlanActivationService;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -15,32 +13,19 @@ import org.springframework.util.StringUtils;
 
 import java.security.Principal;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /**
-     * Per-activation ack stream — carries recipient names, statuses, and live
-     * coordinates. The activationId rides in the share link, so link holders
-     * know the topic name; SUBSCRIBE must therefore be authorized per session
-     * (owner / household / targeted member), mirroring the SEC-3 gate on
-     * {@code GET /{id}/acks}. Other activation topics (plan-update frames)
-     * carry no PII and keep the link-possession contract.
+     * Every SUBSCRIBE rule lives in {@link WebSocketTopicAuthorizer}, which
+     * is default-deny. This class stays about transport: authenticate the
+     * CONNECT, resolve the session identity, delegate the decision.
      */
-    private static final Pattern ACTIVATION_ACKS_TOPIC =
-            Pattern.compile("^/topic/activations/([^/]+)/acks$");
+    private final WebSocketTopicAuthorizer topicAuthorizer;
 
-    /**
-     * Lazy provider, not a direct dependency: the service graph reaches
-     * SimpMessagingTemplate (via WebSocketMessageSender), which the broker
-     * config that registers this interceptor is itself constructing.
-     */
-    private final ObjectProvider<PlanActivationService> planActivationService;
-
-    public WebSocketAuthChannelInterceptor(ObjectProvider<PlanActivationService> planActivationService) {
-        this.planActivationService = planActivationService;
+    public WebSocketAuthChannelInterceptor(WebSocketTopicAuthorizer topicAuthorizer) {
+        this.topicAuthorizer = topicAuthorizer;
     }
 
     @Override
@@ -87,29 +72,22 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
-     * SUBSCRIBE authorization (2026-07-07): CONNECT-only auth left every
-     * broker topic open to any authenticated session, so anyone a recipient
-     * forwarded a share link to could stream the household's live check-in
-     * coordinates. Destinations matching the acks topic now require the
-     * session identity to pass the activation's reader authorization.
+     * SUBSCRIBE authorization. The 2026-07-07 pass established the rationale
+     * — CONNECT-only auth left every broker topic open to any authenticated
+     * session — but applied it to a single destination. Every other topic
+     * stayed open, including live household chat and group member
+     * coordinates, and every topic added afterwards inherited that default.
+     *
+     * <p>The rule set now lives in {@link WebSocketTopicAuthorizer} and is
+     * default-deny, so an unclassified destination fails closed instead of
+     * silently streaming. See {@code docs/audits/post-by-id-authorization.md}.</p>
      */
     private void authorizeSubscribe(StompHeaderAccessor accessor) {
         String destination = accessor.getDestination();
         if (!StringUtils.hasText(destination)) {
             return;
         }
-        Matcher m = ACTIVATION_ACKS_TOPIC.matcher(destination);
-        if (!m.matches()) {
-            return;
-        }
-
-        String email = sessionEmail(accessor);
-        if (!StringUtils.hasText(email)) {
-            throw new IllegalArgumentException(
-                    "Authenticated session required to subscribe to " + destination);
-        }
-        PlanActivationService service = planActivationService.getObject();
-        if (!service.canReadActivationAcks(m.group(1), email)) {
+        if (!topicAuthorizer.canSubscribe(destination, sessionEmail(accessor))) {
             throw new IllegalArgumentException(
                     "Not authorized to subscribe to " + destination);
         }
