@@ -1164,9 +1164,18 @@ public class PostService {
     // Reads
     // ---------------------------------------------------------------------
 
+    /**
+     * A group's board. Gated on membership of that group — 403, not 404,
+     * because the caller supplied the group id, so existence is not what is
+     * being protected. Per-row arms (requester / claimer / assignee) are not
+     * applied here on purpose: they grant access to a specific row, not to
+     * the group's whole board. Someone who owns one row in a group they do
+     * not belong to reaches it via {@code findDtoById} or {@code /me/posts}.
+     */
     @Transactional(readOnly = true)
     public List<PostDto> listByGroup(String groupId, PostStatus status, String viewerEmail) {
         if (groupId == null || groupId.isBlank()) return List.of();
+        requireGroupMembership(groupId, viewerEmail);
         List<Post> rows = (status == null)
                 ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
                 : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
@@ -1184,10 +1193,18 @@ public class PostService {
                 withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail));
     }
 
-    /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
-    @Transactional(readOnly = true)
-    public List<PostDto> listByGroup(String groupId, PostStatus status) {
-        return listByGroup(groupId, status, null);
+    /**
+     * Membership gate for group-board reads. Mirrors
+     * {@code GroupPostService.requireCanReadGroup} on the chat side; the two
+     * exist separately because each service already owns its own group
+     * lookup, and collapsing them means moving one service's dependency
+     * graph into the other.
+     */
+    private void requireGroupMembership(String groupId, String viewerEmail) {
+        if (!readAuthorizer.isMemberOfGroup(groupId, viewerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You are not a member of this group");
+        }
     }
 
     /**
@@ -1337,16 +1354,18 @@ public class PostService {
      * this filter existed any authenticated user could pull any chosen
      * person's private preparedness list by typing their email.</p>
      *
-     * <p>Deliberately uses {@code isPersonalHiddenFrom} and not the full
-     * {@code canRead}: this surface also returns GROUP-scoped rows, and
-     * whether a non-member may read those is the {@code findDtoById} lane's
-     * call, not this one's. That exposure is real and still open here.</p>
+     * <p>Now uses the full {@code canRead}. It previously used only
+     * {@code isPersonalHiddenFrom}, which withheld personal rows but still
+     * returned GROUP-scoped ones to non-members — left open deliberately
+     * until the group read rule was decided. It is decided, so this surface
+     * takes it: a viewer sees the author's community posts, plus group rows
+     * they could already read anyway.</p>
      */
     @Transactional(readOnly = true)
     public List<PostDto> listRequestedBy(String authorEmail, String viewerEmail) {
         if (authorEmail == null || authorEmail.isBlank()) return List.of();
         List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(authorEmail).stream()
-                .filter(t -> !PostReadAuthorizer.isPersonalHiddenFrom(t, viewerEmail))
+                .filter(t -> readAuthorizer.canRead(t, viewerEmail))
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         // Engagement is resolved for the VIEWER, so viewerThanked / saved
         // state reflect the person reading. On the self path the two emails
@@ -2625,11 +2644,19 @@ public class PostService {
      * {@code GET /api/tasks/{id}} so the detail page lands with heart
      * count + viewerThanked already populated and doesn't have to fetch
      * reactions separately.
+     *
+     * <p>Gated by {@link PostReadAuthorizer#canRead}. Returns empty both
+     * when the row is absent and when the viewer may not read it, so the
+     * resource's {@code Optional -> 404} mapping produces an identical
+     * response either way. Deliberate: {@code Post.id} is
+     * {@code GenerationType.IDENTITY} and the table measured 94% dense, so a
+     * 403 here would confirm a row exists at a guessed integer and turn the
+     * endpoint into a corpus census.</p>
      */
     @Transactional(readOnly = true)
     public Optional<PostDto> findDtoById(Long id, String viewerEmail) {
         if (id == null) return Optional.empty();
-        return taskRepo.findById(id).map(post -> {
+        return taskRepo.findById(id).filter(t -> readAuthorizer.canRead(t, viewerEmail)).map(post -> {
             PostDto base = PostDto.fromEntity(post);
             List<PostDto> folded = withProjectRollup(
                     withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(base))))), viewerEmail));

@@ -79,7 +79,7 @@ class PostListAssignedToTest {
                 mock(CivicAgencyService.class),
                 // Real authorizer, not a mock: a mock's canRead defaults to
                 // false and would silently hide every row from these tests.
-                new PostReadAuthorizer(mock(GroupRepo.class)));
+                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)));
         // withEngagement dereferences the reaction summaries — hand it real empties
         // (a mock would default them to null → NPE inside the fold).
         when(reactionService.loadThankSummary(any(), any()))

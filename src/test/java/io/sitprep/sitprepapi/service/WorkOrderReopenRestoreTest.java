@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.repo.AskBookmarkRepo;
+import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostConfirmRepo;
@@ -63,7 +64,7 @@ class WorkOrderReopenRestoreTest {
                 mock(CivicAgencyService.class),
                 // Real authorizer, not a mock: a mock's canRead defaults to
                 // false and would silently hide every row from these tests.
-                new PostReadAuthorizer(mock(GroupRepo.class)));
+                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)));
         // refetchAndBroadcast registers an afterCommit synchronization.
         TransactionSynchronizationManager.initSynchronization();
     }

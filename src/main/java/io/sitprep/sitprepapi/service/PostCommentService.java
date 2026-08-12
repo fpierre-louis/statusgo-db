@@ -52,19 +52,38 @@ public class PostCommentService {
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
     private final PostCommentReactionService reactionService;
+    private final PostReadAuthorizer readAuthorizer;
 
     public PostCommentService(PostCommentRepo commentRepo,
                               PostRepo taskRepo,
                               UserInfoRepo userInfoRepo,
                               WebSocketMessageSender ws,
                               NotificationService notificationService,
-                              PostCommentReactionService reactionService) {
+                              PostCommentReactionService reactionService,
+                              PostReadAuthorizer readAuthorizer) {
         this.commentRepo = commentRepo;
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
         this.ws = ws;
         this.notificationService = notificationService;
         this.reactionService = reactionService;
+        this.readAuthorizer = readAuthorizer;
+    }
+
+    /**
+     * A comment thread inherits its parent post's visibility — gating the
+     * post but not its replies would leave the content readable through the
+     * comment endpoints. Absent parent reads as unreadable.
+     *
+     * <p>Unreadable threads return empty rather than 403/404, which is
+     * indistinguishable from "this post has no replies" and so leaks nothing
+     * about which ids exist.</p>
+     */
+    private boolean canReadThread(Long postId, String viewerEmail) {
+        if (postId == null) return false;
+        return taskRepo.findById(postId)
+                .map(post -> readAuthorizer.canRead(post, viewerEmail))
+                .orElse(false);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -192,6 +211,7 @@ public class PostCommentService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<PostCommentDto> getCommentsByPostId(Long postId, String viewerEmail) {
         if (postId == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
 
         List<PostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
         if (rows.isEmpty()) return List.of();
@@ -205,12 +225,6 @@ public class PostCommentService {
                 .map(c -> toDto(c, userByEmail))
                 .collect(Collectors.toList());
         return withReactions(dtos, viewerEmail);
-    }
-
-    /** Back-compat overload — viewerThanked stays false for callers that don't pass identity. */
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsByPostId(Long postId) {
-        return getCommentsByPostId(postId, null);
     }
 
     /**
@@ -231,6 +245,7 @@ public class PostCommentService {
     public List<PostCommentDto> getCommentsPage(
             Long postId, String viewerEmail, Long beforeId, int limit) {
         if (postId == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
         int safeLimit = clampLimit(limit);
         org.springframework.data.domain.Pageable page =
                 org.springframework.data.domain.PageRequest.of(0, safeLimit);
@@ -265,6 +280,7 @@ public class PostCommentService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<PostCommentDto> getCommentsSince(Long postId, Instant since, String viewerEmail) {
         if (postId == null || since == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
 
         List<PostComment> rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
         if (rows.isEmpty()) return List.of();
@@ -278,12 +294,6 @@ public class PostCommentService {
                 .map(c -> toDto(c, userByEmail))
                 .collect(Collectors.toList());
         return withReactions(dtos, viewerEmail);
-    }
-
-    /** Back-compat overload. */
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public List<PostCommentDto> getCommentsSince(Long postId, Instant since) {
-        return getCommentsSince(postId, since, null);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)

@@ -58,7 +58,7 @@ class PostPersonalScopeVisibilityTest {
         groupRepo = mock(GroupRepo.class);
         reactionService = mock(PostReactionService.class);
         blockService = mock(BlockService.class);
-        authorizer = new PostReadAuthorizer(groupRepo);
+        authorizer = new PostReadAuthorizer(groupRepo, mock(TaskAssigneeRepo.class));
         service = new PostService(
                 taskRepo,
                 mock(UserInfoRepo.class),

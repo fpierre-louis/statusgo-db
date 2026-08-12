@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException;
 import io.sitprep.sitprepapi.repo.AskBookmarkRepo;
+import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostConfirmRepo;
@@ -67,7 +68,7 @@ class PostLiabilityGateTest {
                 mock(CivicAgencyService.class),
                 // Real authorizer, not a mock: a mock's canRead defaults to
                 // false and would silently hide every row from these tests.
-                new PostReadAuthorizer(mock(GroupRepo.class)));
+                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)));
         // refetchAndBroadcast registers an afterCommit synchronization on the
         // successful transition path — same pattern as GroupPostSecurityTest.
         TransactionSynchronizationManager.initSynchronization();
