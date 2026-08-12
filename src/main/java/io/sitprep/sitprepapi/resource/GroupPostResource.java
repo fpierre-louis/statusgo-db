@@ -66,8 +66,8 @@ public class GroupPostResource {
     // payload so existing callers are unchanged.
     @GetMapping("/group/{groupId}")
     public ResponseEntity<ApiResponse<List<GroupPostDto>>> getPostsByGroupId(@PathVariable String groupId) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdDto(groupId), ApiMeta.now()));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdDto(groupId, viewer), ApiMeta.now()));
     }
 
     /**
@@ -101,8 +101,8 @@ public class GroupPostResource {
             @RequestParam(value = "before", required = false) Long before,
             @RequestParam(value = "limit", required = false) Integer limit
     ) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdPage(groupId, before, limit), ApiMeta.now()));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdPage(groupId, before, limit, viewer), ApiMeta.now()));
     }
 
     @GetMapping("/since")
@@ -110,21 +110,21 @@ public class GroupPostResource {
             @RequestParam String groupId,
             @RequestParam String sinceIso
     ) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso)), ApiMeta.now()));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupSince(groupId, Instant.parse(sinceIso), viewer), ApiMeta.now()));
     }
 
     @GetMapping("/groups/latest")
     public ResponseEntity<ApiResponse<Map<String, GroupPostSummaryDto>>> getLatestPostsForGroups(
             @RequestParam("groupIds") List<String> groupIds) {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(postService.getLatestPostsForGroups(groupIds), ApiMeta.now()));
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(postService.getLatestPostsForGroups(groupIds, viewer), ApiMeta.now()));
     }
 
     @GetMapping("/{postId}")
     public ResponseEntity<ApiResponse<GroupPostDto>> getPostById(@PathVariable Long postId) {
-        AuthUtils.requireAuthenticatedEmail();
-        Optional<GroupPostDto> postOpt = postService.getPostDtoById(postId);
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        Optional<GroupPostDto> postOpt = postService.getPostDtoById(postId, viewer);
         return postOpt
                 .map(dto -> ResponseEntity.ok(ApiResponse.ok(dto, ApiMeta.now())))
                 .orElseGet(() -> ResponseEntity.status(404).<ApiResponse<GroupPostDto>>build());

@@ -152,6 +152,59 @@ public class GroupPostService {
         }
     }
 
+    /**
+     * Read gate for chat content — the counterpart to
+     * {@link #requireGroupMembership}, which had covered writes only since
+     * the 2026-07-06 location audit. Every read on this service returned
+     * whatever the query produced, so a household's chat history was
+     * readable by any authenticated account that knew (or enumerated) an id.
+     * See {@code docs/audits/post-by-id-authorization.md}.
+     *
+     * <p>Membership is the floor: owner, admin, or member. PENDING members
+     * and strangers do not read, matching the write gate exactly — a
+     * request to join is not a grant of history. The sanctioned pre-join
+     * surface is {@code GroupPreviewDto}, which is sanitized by design.</p>
+     *
+     * <p>Unknown group returns {@code false} rather than throwing, so a
+     * caller enumerating group ids cannot tell "no such group" from "not
+     * yours".</p>
+     */
+    public boolean canReadGroup(String groupId, String viewerEmail) {
+        if (groupId == null || groupId.isBlank()) return false;
+        if (viewerEmail == null || viewerEmail.isBlank()) return false;
+        Group group = groupRepo.findByGroupId(groupId.trim()).orElse(null);
+        return group != null && isMemberOf(group, viewerEmail);
+    }
+
+    /**
+     * Asserts read access to a group's chat. 403 — appropriate because the
+     * caller already supplied the group id, so existence is not what is
+     * being protected. The by-id reads use {@link #canRead} + 404 instead,
+     * where a 403 would confirm a row exists at a guessed integer.
+     */
+    public void requireCanReadGroup(String groupId, String viewerEmail) {
+        if (!canReadGroup(groupId, viewerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You are not a member of this group");
+        }
+    }
+
+    /**
+     * Read gate for a single chat message. Membership, OR the message's own
+     * author — the author arm mirrors {@code PostResource.ensureCanEditTask}
+     * ("Author may always edit their own post") so that read is never
+     * narrower than write, and covers an author who has since left the group.
+     */
+    public boolean canRead(GroupPost post, String viewerEmail) {
+        if (post == null) return false;
+        if (viewerEmail != null && !viewerEmail.isBlank()
+                && post.getAuthor() != null
+                && post.getAuthor().equalsIgnoreCase(viewerEmail.trim())) {
+            return true;
+        }
+        return canReadGroup(post.getGroupId(), viewerEmail);
+    }
+
     private static boolean isMemberOf(Group group, String email) {
         if (email == null || email.isBlank()) return false;
         if (group.getOwnerEmail() != null && group.getOwnerEmail().equalsIgnoreCase(email)) {
@@ -234,7 +287,8 @@ public class GroupPostService {
 
     public List<GroupPost> getPostsByGroupId(String groupId) { return postRepo.findPostsByGroupId(groupId); }
 
-    public List<GroupPostDto> getPostsByGroupSince(String groupId, Instant since) {
+    public List<GroupPostDto> getPostsByGroupSince(String groupId, Instant since, String viewerEmail) {
+        requireCanReadGroup(groupId, viewerEmail);
         List<GroupPost> rows = postRepo.findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(groupId, since);
         if (rows.isEmpty()) return List.of();
 
@@ -252,7 +306,8 @@ public class GroupPostService {
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public List<GroupPostDto> getPostsByGroupIdDto(String groupId) {
+    public List<GroupPostDto> getPostsByGroupIdDto(String groupId, String viewerEmail) {
+        requireCanReadGroup(groupId, viewerEmail);
         List<GroupPost> posts = postRepo.findPostsByGroupId(groupId);
         if (posts.isEmpty()) return List.of();
 
@@ -326,7 +381,9 @@ public class GroupPostService {
      * (similar to PostCommentService.getCommentsPage's default).</p>
      */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public GroupPostPageDto getPostsByGroupIdPage(String groupId, Long before, Integer limit) {
+    public GroupPostPageDto getPostsByGroupIdPage(String groupId, Long before, Integer limit,
+                                                  String viewerEmail) {
+        requireCanReadGroup(groupId, viewerEmail);
         int pageSize = (limit == null) ? 50 : Math.max(1, Math.min(200, limit));
 
         // Two queries: pinned (small, unbounded set) + unpinned (bounded
@@ -389,20 +446,44 @@ public class GroupPostService {
 
     public Optional<GroupPost> getPostById(Long id) { return postRepo.findById(id); }
 
+    /**
+     * Single chat message by id. Returns empty both when the row is absent
+     * and when the viewer may not read it, so the resource's existing
+     * {@code Optional -> 404} mapping yields an identical response either
+     * way. Deliberate: ids are a dense integer sequence
+     * ({@code GenerationType.IDENTITY}), so a 403 here would confirm a row
+     * exists at a guessed id and turn the endpoint into a corpus census.
+     */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Optional<GroupPostDto> getPostDtoById(Long id) {
-        return postRepo.findById(id).map(post -> {
-            GroupPostDto dto = convertToPostDto(post);
-            applyReadReceipts(List.of(dto), post.getGroupId());
-            return dto;
-        });
+    public Optional<GroupPostDto> getPostDtoById(Long id, String viewerEmail) {
+        return postRepo.findById(id)
+                .filter(post -> canRead(post, viewerEmail))
+                .map(post -> {
+                    GroupPostDto dto = convertToPostDto(post);
+                    applyReadReceipts(List.of(dto), post.getGroupId());
+                    return dto;
+                });
     }
 
+    /**
+     * Latest message per group. The caller supplies the id list, so this
+     * filters to the groups the viewer may actually read rather than
+     * rejecting the whole batch — the FE passes the viewer's own circles,
+     * and one unreadable id should not fail the other legitimate ones.
+     * Unreadable ids are simply absent from the response, which is also
+     * why this cannot be used to probe group existence.
+     */
     @Transactional(Transactional.TxType.SUPPORTS)
-    public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(List<String> groupIds) {
+    public Map<String, GroupPostSummaryDto> getLatestPostsForGroups(List<String> groupIds,
+                                                                    String viewerEmail) {
         if (groupIds == null || groupIds.isEmpty()) return Collections.emptyMap();
 
-        List<GroupPost> candidates = postRepo.findLatestPostsByGroupIds(groupIds);
+        List<String> readable = groupIds.stream()
+                .filter(gid -> canReadGroup(gid, viewerEmail))
+                .toList();
+        if (readable.isEmpty()) return Collections.emptyMap();
+
+        List<GroupPost> candidates = postRepo.findLatestPostsByGroupIds(readable);
         Map<String, GroupPost> bestByGroup = new HashMap<>();
         for (GroupPost p : candidates) {
             GroupPost cur = bestByGroup.get(p.getGroupId());

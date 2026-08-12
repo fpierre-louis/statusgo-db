@@ -40,6 +40,7 @@ public class GroupPostCommentService {
     private final WebSocketMessageSender ws;
     private final NotificationService notificationService;
     private final GroupPostCommentReactionService reactionService;
+    private final GroupPostService postService;
 
     public GroupPostCommentService(
             GroupPostCommentRepo commentRepo,
@@ -47,7 +48,8 @@ public class GroupPostCommentService {
             UserInfoRepo userInfoRepo,
             WebSocketMessageSender ws,
             NotificationService notificationService,
-            GroupPostCommentReactionService reactionService
+            GroupPostCommentReactionService reactionService,
+            GroupPostService postService
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
@@ -55,6 +57,23 @@ public class GroupPostCommentService {
         this.ws = ws;
         this.notificationService = notificationService;
         this.reactionService = reactionService;
+        this.postService = postService;
+    }
+
+    /**
+     * A comment thread inherits its parent message's visibility — gating the
+     * message but not its replies would leave the conversation readable
+     * through the comment endpoints. Absent parent reads as unreadable.
+     *
+     * <p>Unreadable threads return empty rather than 403/404, which is
+     * indistinguishable from "this message has no replies" and so leaks
+     * nothing about which ids exist.</p>
+     */
+    private boolean canReadThread(Long postId, String viewerEmail) {
+        if (postId == null) return false;
+        return postRepo.findById(postId)
+                .map(post -> postService.canRead(post, viewerEmail))
+                .orElse(false);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -208,6 +227,7 @@ public class GroupPostCommentService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<GroupPostCommentDto> getCommentsByPostId(Long postId, String viewerEmail) {
         if (postId == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
 
         List<GroupPostComment> rows = commentRepo.findByPostIdOrderByTimestampAsc(postId);
         if (rows.isEmpty()) return List.of();
@@ -240,6 +260,7 @@ public class GroupPostCommentService {
     public List<GroupPostCommentDto> getCommentsPage(
             Long postId, String viewerEmail, Long beforeId, int limit) {
         if (postId == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
         int safeLimit = clampLimit(limit);
         org.springframework.data.domain.Pageable page =
                 org.springframework.data.domain.PageRequest.of(0, safeLimit);
@@ -274,7 +295,15 @@ public class GroupPostCommentService {
             List<Long> postIds, Integer limitPerPost, String viewerEmail) {
         if (postIds == null || postIds.isEmpty()) return Map.of();
 
-        List<GroupPostComment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(postIds);
+        // Batch endpoint: drop the ids the viewer may not read rather than
+        // failing the whole call, so one foreign id can't deny the legitimate
+        // ones. Same rationale as GroupPostService.getLatestPostsForGroups.
+        List<Long> readable = postIds.stream()
+                .filter(id -> canReadThread(id, viewerEmail))
+                .toList();
+        if (readable.isEmpty()) return Map.of();
+
+        List<GroupPostComment> rows = commentRepo.findAllByPostIdInOrderByPostIdAscTimestampAsc(readable);
         if (rows.isEmpty()) return Map.of();
 
         Map<Long, List<GroupPostComment>> byPost = rows.stream()
@@ -314,6 +343,7 @@ public class GroupPostCommentService {
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<GroupPostCommentDto> getCommentsSince(Long postId, Instant since, String viewerEmail) {
         if (postId == null || since == null) return List.of();
+        if (!canReadThread(postId, viewerEmail)) return List.of();
 
         var rows = commentRepo.findByPostIdAndUpdatedAtAfterOrderByUpdatedAtAsc(postId, since);
         if (rows.isEmpty()) return List.of();
