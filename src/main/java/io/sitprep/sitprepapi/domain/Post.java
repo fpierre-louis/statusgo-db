@@ -18,14 +18,35 @@ import java.util.Set;
  *
  * <ul>
  *   <li><b>Group task</b> — {@code groupId != null && claimedByGroupId == null}.
- *       Visible only to that group's members. The traditional work-order flow.</li>
- *   <li><b>Community / personal task</b> — {@code groupId == null}. Visible to
- *       anyone in the {@code latitude/longitude} + radius set by the viewer.
- *       Used when an individual asks for help and any nearby group can claim.</li>
+ *       Scoped to that group. The traditional work-order flow.</li>
+ *   <li><b>Community / personal task</b> — {@code groupId == null}. Community
+ *       kinds surface to anyone in the {@code latitude/longitude} + radius set
+ *       by the viewer; personal-scope kinds ({@link io.sitprep.sitprepapi.constant.PostKind#isPersonalScope})
+ *       stay private to their requester. Used when an individual asks for help
+ *       and any nearby group can claim.</li>
  *   <li><b>Group-claimed community task</b> — community-scope task that a group
  *       leader has claimed on behalf of their group. Both the requester and
  *       the claimer-group's members see live status.</li>
  * </ul>
+ *
+ * <p><b>Visibility is not described here — it is enforced by
+ * {@link io.sitprep.sitprepapi.service.PostReadAuthorizer#canRead}, which is
+ * the authoritative rule.</b> A group-scoped row is readable by a member of
+ * its group, by its requester, by members of a group that claimed it, and by
+ * anyone assigned to it. Read that method rather than this list; the two
+ * drifting apart is precisely how this entity got into trouble.</p>
+ *
+ * <p>Until 2026-08-12 this doc asserted that a group task was "visible only to
+ * that group's members". Nothing implemented that. Every read path returned
+ * whatever the query produced, so any authenticated caller could fetch any row
+ * by id — and {@code id} is a dense integer sequence. The sentence was
+ * accurate as a statement of intent and false as a statement of behavior for
+ * as long as the entity existed. See
+ * {@code docs/audits/post-by-id-authorization.md}, and T-31 in
+ * {@code SYSTEM_TRAPS_AND_PATTERNS.md}: a comment describes intent; only the
+ * code describes behavior. If you change the rule, change
+ * {@code PostReadAuthorizer} and let this paragraph point at it — do not
+ * restate the rule here where it cannot be executed.</p>
  *
  * <p>{@code zipBucket} (first 3 chars of postcode) is a cheap pre-filter for
  * the community-discover JPQL — by-radius scans hit only rows matching the
