@@ -603,7 +603,17 @@ public class PostService {
 
         Post t = new Post();
         t.setRequesterEmail(requesterEmail.trim().toLowerCase());
-        t.setGroupId(incoming.getGroupId()); // null = community/personal scope
+        // Scope. Null = community/personal. When set, the requester must
+        // actually belong to the target group: the value arrives straight off
+        // the request body, so without this any signed-in user could write a
+        // post onto an arbitrary group's board by supplying its id. The
+        // authoredAsGroupId block immediately below has validated its own
+        // group reference since it shipped; this one never did.
+        // GroupPostService.requireGroupMembership closed the identical hole on
+        // the chat side in the 2026-07-06 location audit — same shape, same
+        // 400-unknown / 403-non-member split.
+        requireGroupMembershipForWrite(incoming.getGroupId(), t.getRequesterEmail());
+        t.setGroupId(incoming.getGroupId());
 
         // authoredAsGroup attribution — when set, the requester must be
         // an admin (or owner) of the target group. Misconfigured clients
@@ -1202,6 +1212,23 @@ public class PostService {
      */
     private void requireGroupMembership(String groupId, String viewerEmail) {
         if (!readAuthorizer.isMemberOfGroup(groupId, viewerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You are not a member of this group");
+        }
+    }
+
+    /**
+     * Write-side scope gate for {@link #create}. A null/blank groupId is the
+     * community/personal scope and is always allowed. Otherwise the group
+     * must exist (400, matching the {@code authoredAsGroupId} arm beside it)
+     * and the author must belong to it (403).
+     */
+    private void requireGroupMembershipForWrite(String groupId, String requesterEmail) {
+        if (groupId == null || groupId.isBlank()) return;
+        Group group = groupRepo.findByGroupId(groupId.trim())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "groupId references an unknown group"));
+        if (!readAuthorizer.isMemberOfGroup(group.getGroupId(), requesterEmail)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You are not a member of this group");
         }
