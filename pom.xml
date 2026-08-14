@@ -174,6 +174,18 @@
 						<path>
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok</artifactId>
+							<!--
+								Version pinned EXPLICITLY, not inherited. Maven resolves a
+								versionless entry from the parent's dependencyManagement
+								perfectly well; IntelliJ's Maven importer does not. It writes
+								the literal version string it sees into .idea/compiler.xml,
+								and with none present it writes "unknown" — a path to a jar
+								that does not exist. Combined with useClasspath="false" there
+								is no fallback, so Lombok stops running in the IDE compiler
+								and every generated accessor reads as "cannot find symbol"
+								against source nobody touched.
+							-->
+							<version>${lombok.version}</version>
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
