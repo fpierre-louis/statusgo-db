@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.dto.SubmitResourceRequest;
 import io.sitprep.sitprepapi.repo.ResourceListingRepo;
 import jakarta.transaction.Transactional;
+import io.sitprep.sitprepapi.constant.ResourceCategory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -123,9 +124,28 @@ public class ResourceListingService {
         return t.isEmpty() ? null : t;
     }
 
+    /**
+     * Trim + lowercase, then validate against {@link ResourceCategory} — the
+     * same set {@code ResourceSeeder} writes from.
+     *
+     * <p>An unrecognized category is <b>rejected with 400</b> rather than
+     * coerced to {@code other}. The category comes from a fixed chip set, so
+     * any other value is a client defect; coercing would hide it and quietly
+     * recreate the free-text drift this vocabulary exists to end. Same call,
+     * and the same reasoning, as {@code PostService.create} rejecting an
+     * unknown {@code authoredAsGroupId} with 400 instead of silently
+     * stripping the attribution.</p>
+     *
+     * <p>Absent or blank stays permissive — {@code other} — because omitting
+     * the field is not a defect.</p>
+     */
     private static String normalizeCategory(String c) {
-        String t = trimOrNull(c);
-        return t == null ? "other" : t.toLowerCase();
+        String normalized = ResourceCategory.normalize(c);
+        if (!ResourceCategory.isValid(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unknown resource category: " + normalized);
+        }
+        return normalized;
     }
 
     /** Great-circle distance in km between two lat/lng points. */

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.ResourceCategory;
 import io.sitprep.sitprepapi.domain.ResourceListing;
 import io.sitprep.sitprepapi.repo.ResourceListingRepo;
 import org.slf4j.Logger;
@@ -40,7 +41,13 @@ public class ResourceSeeder implements CommandLineRunner {
                 "After a federally declared disaster, apply for help with "
                         + "housing, repairs, and essential needs.",
                 "https://www.disasterassistance.gov");
-        seed("official:redcross-classes", "CPR & first-aid classes", "medical",
+        // NOT "medical": someone filtering Medical during an emergency is
+        // asking where to get care, and a class signup is not care. "other" is
+        // an interim placement — this is preparedness education and probably
+        // belongs with the guides rather than on a board whose unit is an
+        // actionable endpoint (a number to call, an address to go to). Logged
+        // as an open question rather than given a category of its own.
+        seed("official:redcross-classes", "CPR & first-aid classes", ResourceCategory.OTHER,
                 "The Red Cross runs low-cost and often free training. A few "
                         + "hours now is worth a lot in an emergency.",
                 "https://www.redcross.org/take-a-class");
@@ -48,6 +55,20 @@ public class ResourceSeeder implements CommandLineRunner {
 
     private void seed(String sourceKey, String title, String category,
                       String description, String contact) {
+        // The seeder writes through repo.save() rather than
+        // ResourceListingService, so service-side validation cannot reach it.
+        // That is precisely how the seeded vocabulary (hotline / recovery)
+        // drifted from the submit sheet's nine chips in the first place.
+        // Asserting here keeps both writers honest against one definition:
+        // a typo or an un-chipped category fails the boot that introduced it,
+        // not silently months later on a filter row that has no chip for it.
+        if (!ResourceCategory.isValid(category)) {
+            throw new IllegalStateException(
+                    "ResourceSeeder category '" + category + "' for " + sourceKey
+                            + " is not in ResourceCategory.values(). Add the chip in "
+                            + "ResourceSubmitSheet.jsx and the icon in "
+                            + "ResourceBoardPage.jsx, or use an existing value.");
+        }
         if (repo.findBySourceKey(sourceKey).isPresent()) return;
         ResourceListing r = new ResourceListing();
         r.setSourceKey(sourceKey);
