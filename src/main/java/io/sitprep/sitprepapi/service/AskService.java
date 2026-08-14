@@ -554,7 +554,7 @@ public class AskService {
         d.setVoteScore(q.getVoteScore());
         d.setViewCount(q.getViewCount());
         d.setAnswerCount(q.getAnswerCount());
-        d.setImageKeys(q.getImageKeys());
+        d.setImageKeys(publicImageUrls(q.getImageKeys()));
         d.setAcceptedAnswerId(q.getAcceptedAnswerId());
         d.setHasAcceptedAnswer(q.getAcceptedAnswerId() != null);
         d.setAcceptedAnswerExcerpt(q.getAcceptedAnswerExcerpt());
@@ -592,8 +592,8 @@ public class AskService {
                 AskTipDto::setAuthorProfileImageUrl);
         d.setTitle(t.getTitle());
         d.setBody(t.getBody());
-        d.setCoverImageKey(t.getCoverImageKey());
-        d.setImageKeys(t.getImageKeys());
+        d.setCoverImageKey(DtoImages.cover(t.getCoverImageKey()));
+        d.setImageKeys(publicImageUrls(t.getImageKeys()));
         d.setTags(t.getTags());
         d.setHazardTags(t.getHazardTags());
         d.setLatitude(t.getLatitude());
@@ -874,6 +874,30 @@ public class AskService {
                 answerRepo.findById(acceptedId)
                         .map(a -> excerptOf(a.getBody()))
                         .orElse(null));
+    }
+
+    /**
+     * Stored image keys → browser-loadable URLs.
+     *
+     * Every other image-bearing DTO in the service already does this
+     * (PostDto, GroupPost, profile avatars) via PublicCdn/DtoImages. Ask
+     * shipped RAW KEYS, so the frontend received "post/abc.jpg" and — with no
+     * CDN base configured client-side — rendered it as a relative path that
+     * 404s. A broken-image icon on a question the user had just successfully
+     * uploaded a photo to.
+     *
+     * Resolving server-side is the convention and the right layer: the
+     * backend owns where the bytes live, and the client should never have to
+     * know the bucket's public hostname.
+     */
+    private static List<String> publicImageUrls(List<String> keys) {
+        if (keys == null || keys.isEmpty()) return List.of();
+        List<String> out = new ArrayList<>(keys.size());
+        for (String k : keys) {
+            String url = DtoImages.cover(k);
+            if (url != null) out.add(url);
+        }
+        return out;
     }
 
     private static Instant sinceFor(String window) {
