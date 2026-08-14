@@ -42,6 +42,9 @@ public class AskQuestionDto {
     private long viewCount;
     private int answerCount;
 
+    /** Photo attachments, in order. Same shape as AskTipDto.imageKeys. */
+    private List<String> imageKeys;
+
     private Long acceptedAnswerId;
     private boolean hasAcceptedAnswer;
     /**

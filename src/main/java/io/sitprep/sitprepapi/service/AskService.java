@@ -85,6 +85,7 @@ public class AskService {
         q.setBody(in.getBody().trim());
         q.setTags(normalizeTagSet(in.getTags()));
         q.setHazardTags(normalizeHazardSet(in.getHazardTags()));
+        if (in.getImageKeys() != null) q.setImageKeys(new ArrayList<>(in.getImageKeys()));
         q.setLatitude(in.getLatitude());
         q.setLongitude(in.getLongitude());
 
@@ -138,6 +139,10 @@ public class AskService {
         if (in.getBody() != null && !in.getBody().isBlank()) q.setBody(in.getBody().trim());
         if (in.getTags() != null) q.setTags(normalizeTagSet(in.getTags()));
         if (in.getHazardTags() != null) q.setHazardTags(normalizeHazardSet(in.getHazardTags()));
+        // Null means "not mentioned"; an empty list means "remove them". The
+        // frontend's inline editor echoes the whole DTO, so omitting this
+        // guard would silently drop attachments on a title-only edit.
+        if (in.getImageKeys() != null) q.setImageKeys(new ArrayList<>(in.getImageKeys()));
         q.setEditedAt(Instant.now());
         return toDto(q, actorEmail, activeHazardsFor(actorEmail));
     }
@@ -510,6 +515,7 @@ public class AskService {
         d.setVoteScore(q.getVoteScore());
         d.setViewCount(q.getViewCount());
         d.setAnswerCount(q.getAnswerCount());
+        d.setImageKeys(q.getImageKeys());
         d.setAcceptedAnswerId(q.getAcceptedAnswerId());
         d.setHasAcceptedAnswer(q.getAcceptedAnswerId() != null);
         d.setAcceptedAnswerExcerpt(q.getAcceptedAnswerExcerpt());

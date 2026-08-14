@@ -7,7 +7,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -95,6 +97,22 @@ public class AskQuestion {
     private int answerCount = 0;
 
     /** Set when the asker marks one answer accepted. Only one accepted answer per Q. */
+    /**
+     * Photo attachments. Mirrors {@code AskTip.imageKeys} exactly — same
+     * collection shape, same column names, same ordering — so the two do not
+     * drift into separate conventions.
+     *
+     * ⚠ @ElementCollection binds the PHYSICAL table name, so
+     * {@code ask_question_image_keys} must exist (V57) before this mapping
+     * loads. Compiling is not the same as the schema existing.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "ask_question_image_keys",
+            joinColumns = @JoinColumn(name = "question_id"))
+    @Column(name = "image_key", length = 256)
+    @OrderColumn(name = "ord")
+    private List<String> imageKeys = new ArrayList<>();
+
     @Column(name = "accepted_answer_id")
     private Long acceptedAnswerId;
 
