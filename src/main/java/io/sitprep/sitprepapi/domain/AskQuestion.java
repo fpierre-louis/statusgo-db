@@ -98,6 +98,22 @@ public class AskQuestion {
     @Column(name = "accepted_answer_id")
     private Long acceptedAnswerId;
 
+    /**
+     * First line of the accepted answer, denormalised so the list can render
+     * it without loading answers per row.
+     *
+     * SERVER-DERIVED ONLY. Never bind this from a request body — the read DTO
+     * doubles as the write body on create/edit, so it arrives on the wire but
+     * must be ignored there. {@code AskService.excerptOf} is the only writer.
+     *
+     * Null means no accepted answer. Kept in sync on all FOUR paths that can
+     * change it: accept, un-accept, delete-answer, and edit-answer. Missing the
+     * last one would leave the old text on the list after the answer was
+     * rewritten — a stale excerpt is worse than no excerpt.
+     */
+    @Column(name = "accepted_answer_excerpt", length = 200)
+    private String acceptedAnswerExcerpt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

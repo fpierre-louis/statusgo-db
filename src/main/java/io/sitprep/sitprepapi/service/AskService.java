@@ -38,6 +38,9 @@ public class AskService {
 
     private static final int MAX_PAGE = 50;
     private static final int DEFAULT_PAGE = 20;
+    /** accepted_answer_excerpt is VARCHAR(200); leave room for the ellipsis. */
+    private static final int EXCERPT_MAX = 180;
+
     private static final int SEARCH_CAP = 60;
 
     /** Used by FE list endpoints to communicate the active hazard set. */
@@ -174,8 +177,13 @@ public class AskService {
         if (isBlank(body)) bad("Answer body is required");
         a.setBody(body.trim());
         a.setEditedAt(Instant.now());
-        Long acceptedId = questionRepo.findById(a.getQuestionId())
-                .map(AskQuestion::getAcceptedAnswerId).orElse(null);
+        AskQuestion q = questionRepo.findById(a.getQuestionId()).orElse(null);
+        Long acceptedId = q == null ? null : q.getAcceptedAnswerId();
+        // The fourth path. Editing the ACCEPTED answer changes the text the
+        // list is quoting, and nothing else here would notice.
+        if (q != null && Objects.equals(acceptedId, answerId)) {
+            q.setAcceptedAnswerExcerpt(excerptOf(a.getBody()));
+        }
         return toAnswerDto(a, actorEmail, acceptedId);
     }
 
@@ -190,6 +198,9 @@ public class AskService {
         questionRepo.findById(a.getQuestionId()).ifPresent(q -> {
             if (Objects.equals(q.getAcceptedAnswerId(), answerId)) {
                 q.setAcceptedAnswerId(null);
+                // Clear the excerpt in the same breath. An excerpt quoting a
+                // row that no longer exists is the worst of the states.
+                q.setAcceptedAnswerExcerpt(null);
             }
         });
     }
@@ -210,6 +221,7 @@ public class AskService {
         } else {
             q.setAcceptedAnswerId(answerId);
         }
+        syncAcceptedExcerpt(q);
         return toDto(q, actorEmail, activeHazardsFor(actorEmail));
     }
 
@@ -500,6 +512,7 @@ public class AskService {
         d.setAnswerCount(q.getAnswerCount());
         d.setAcceptedAnswerId(q.getAcceptedAnswerId());
         d.setHasAcceptedAnswer(q.getAcceptedAnswerId() != null);
+        d.setAcceptedAnswerExcerpt(q.getAcceptedAnswerExcerpt());
         d.setCreatedAt(q.getCreatedAt());
         d.setUpdatedAt(q.getUpdatedAt());
         d.setEditedAt(q.getEditedAt());
@@ -782,6 +795,40 @@ public class AskService {
             if (b.contains(x.toLowerCase(Locale.ROOT))) return true;
         }
         return false;
+    }
+
+    /**
+     * First line of an answer, trimmed to fit {@code accepted_answer_excerpt}.
+     *
+     * Collapses whitespace so a body that opens with a hard-wrapped paragraph
+     * still yields one readable line, and cuts on a word boundary rather than
+     * mid-word. Null in, null out — that is how the excerpt gets cleared.
+     */
+    static String excerptOf(String body) {
+        if (body == null) return null;
+        String flat = body.replaceAll("\\s+", " ").trim();
+        if (flat.isEmpty()) return null;
+        if (flat.length() <= EXCERPT_MAX) return flat;
+        String cut = flat.substring(0, EXCERPT_MAX - 1);
+        int lastSpace = cut.lastIndexOf(' ');
+        if (lastSpace > EXCERPT_MAX / 2) cut = cut.substring(0, lastSpace);
+        return cut + "\u2026";
+    }
+
+    /**
+     * Re-derive a question's excerpt from whatever answer is accepted right
+     * now. Single funnel so the four call sites cannot drift apart.
+     */
+    private void syncAcceptedExcerpt(AskQuestion q) {
+        Long acceptedId = q.getAcceptedAnswerId();
+        if (acceptedId == null) {
+            q.setAcceptedAnswerExcerpt(null);
+            return;
+        }
+        q.setAcceptedAnswerExcerpt(
+                answerRepo.findById(acceptedId)
+                        .map(a -> excerptOf(a.getBody()))
+                        .orElse(null));
     }
 
     private static Instant sinceFor(String window) {

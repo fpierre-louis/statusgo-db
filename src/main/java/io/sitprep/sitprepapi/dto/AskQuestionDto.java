@@ -44,6 +44,11 @@ public class AskQuestionDto {
 
     private Long acceptedAnswerId;
     private boolean hasAcceptedAnswer;
+    /**
+     * First line of the accepted answer. Read-only: server-derived, and
+     * ignored if a client sends it back on create/edit.
+     */
+    private String acceptedAnswerExcerpt;
 
     private Instant createdAt;
     private Instant updatedAt;
