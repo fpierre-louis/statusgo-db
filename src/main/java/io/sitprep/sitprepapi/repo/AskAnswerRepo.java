@@ -21,6 +21,14 @@ public interface AskAnswerRepo extends JpaRepository<AskAnswer, Long> {
     List<Object[]> countByQuestionIdIn(@Param("ids") Collection<Long> ids);
 
     @Transactional
+    /** Ids only — needed to clean up the answers' OWN votes before they go. */
+    @Query("SELECT a.id FROM AskAnswer a WHERE a.questionId = :questionId")
+    List<Long> findIdsByQuestionId(@Param("questionId") Long questionId);
+
+    @Modifying
+    @Query("DELETE FROM AskAnswer a WHERE a.questionId = :questionId")
+    int deleteByQuestionId(@Param("questionId") Long questionId);
+
     @Modifying
     @Query("UPDATE AskAnswer a SET a.voteScore = a.voteScore + :delta WHERE a.id = :id")
     int bumpVoteScore(@Param("id") Long id, @Param("delta") int delta);

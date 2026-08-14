@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.AskBookmark;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +14,19 @@ public interface AskBookmarkRepo extends JpaRepository<AskBookmark, Long> {
 
     Optional<AskBookmark> findByUserEmailAndTargetTypeAndTargetKey(
             String userEmail, String targetType, String targetKey);
+
+    /**
+     * Every bookmark on one target, across all users. targetKey is a STRING
+     * because guides are slugs — numeric ids are stored stringified.
+     */
+    @Modifying
+    @Query("DELETE FROM AskBookmark b WHERE b.targetType = :tt AND b.targetKey = :key")
+    int deleteAllForTarget(@Param("tt") String targetType, @Param("key") String targetKey);
+
+    @Modifying
+    @Query("DELETE FROM AskBookmark b WHERE b.targetType = :tt AND b.targetKey IN :keys")
+    int deleteAllForTargets(@Param("tt") String targetType,
+                            @Param("keys") Collection<String> targetKeys);
 
     void deleteByUserEmailAndTargetTypeAndTargetKey(
             String userEmail, String targetType, String targetKey);

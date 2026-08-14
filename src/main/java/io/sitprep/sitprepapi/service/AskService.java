@@ -147,11 +147,40 @@ public class AskService {
         return toDto(q, actorEmail, activeHazardsFor(actorEmail));
     }
 
+    /**
+     * Delete a question AND everything that pointed at it.
+     *
+     * None of these references are JPA relations — {@code AskAnswer.questionId}
+     * is a plain Long, and votes/bookmarks are polymorphic (targetType +
+     * target id), so there is no cascade and no foreign key to lean on.
+     * Deleting the row alone left answers, their votes, the question's own
+     * votes, and every user's bookmark behind forever.
+     *
+     * The visible symptom was a dead entry in someone's Saved tab —
+     * {@code listBookmarks} hands back raw rows for the client to resolve, so
+     * a bookmark outliving its question resolves to nothing. That was the
+     * cheap tell for an integrity problem that was otherwise invisible.
+     *
+     * Children first, then the parent. There are no FK constraints to enforce
+     * the ordering, but a partial failure that leaves a parent without its
+     * children is easier to reason about than the reverse.
+     */
     @Transactional
     public void deleteQuestion(Long id, String actorEmail) {
         AskQuestion q = questionRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Question not found"));
         ensureAuthor(q.getAuthorEmail(), actorEmail);
+
+        List<Long> answerIds = answerRepo.findIdsByQuestionId(id);
+        if (!answerIds.isEmpty()) {
+            voteRepo.deleteAllForTargets("answer", answerIds);
+            bookmarkRepo.deleteAllForTargets("answer",
+                    answerIds.stream().map(String::valueOf).toList());
+            answerRepo.deleteByQuestionId(id);
+        }
+        voteRepo.deleteAllForTarget("question", id);
+        bookmarkRepo.deleteAllForTarget("question", String.valueOf(id));
+
         questionRepo.delete(q);
     }
 
@@ -197,6 +226,11 @@ public class AskService {
         AskAnswer a = answerRepo.findById(answerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Answer not found"));
         ensureAuthor(a.getAuthorEmail(), actorEmail);
+        // An answer carries votes of its own, and the bookmark vocabulary
+        // permits "answer" as a target — so it orphans the same way a question
+        // does, one level down.
+        voteRepo.deleteAllForTarget("answer", answerId);
+        bookmarkRepo.deleteAllForTarget("answer", String.valueOf(answerId));
         answerRepo.delete(a);
         questionRepo.bumpAnswerCount(a.getQuestionId(), -1);
         // If this was the accepted answer, clear the accept flag.
@@ -291,11 +325,16 @@ public class AskService {
         return toDto(t, actorEmail, activeHazardsFor(actorEmail));
     }
 
+    /** Same orphan cleanup as deleteQuestion; tips have votes and bookmarks. */
     @Transactional
     public void deleteTip(Long id, String actorEmail) {
         AskTip t = tipRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tip not found"));
         ensureAuthor(t.getAuthorEmail(), actorEmail);
+
+        voteRepo.deleteAllForTarget("tip", id);
+        bookmarkRepo.deleteAllForTarget("tip", String.valueOf(id));
+
         tipRepo.delete(t);
     }
 
