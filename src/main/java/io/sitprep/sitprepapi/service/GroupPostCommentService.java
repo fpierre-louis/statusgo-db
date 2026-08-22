@@ -94,6 +94,7 @@ public class GroupPostCommentService {
         c.setPostId(dto.getPostId());
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
+        c.setParentCommentId(resolveParent(dto.getParentCommentId(), dto.getPostId()));
         // @CreatedDate/@LastModifiedDate auditing populates timestamp/updatedAt
 
         GroupPostComment saved = commentRepo.save(c);
@@ -429,7 +430,27 @@ public class GroupPostCommentService {
         d.setUpdatedAt(c.getUpdatedAt());
         d.setEditedAt(c.getEditedAt());
         d.setEdited(c.getEditedAt() != null);
+        d.setParentCommentId(c.getParentCommentId());
         return d;
+    }
+
+    /**
+     * Resolve the parent a new reply hangs off, enforcing the one-level depth
+     * cap. IDENTICAL to {@code PostCommentService.resolveParent} on purpose —
+     * the two comment families are kept behaviourally as well as structurally
+     * in lockstep so the eventual merge collapses them without a semantic
+     * decision to make. Full reasoning lives on that copy and in V59.
+     *
+     * <p>A reply to a reply re-points at the root; an unknown parent, or one on
+     * a different post, yields a top-level comment rather than a cross-thread
+     * reply.</p>
+     */
+    private Long resolveParent(Long requestedParentId, Long postId) {
+        if (requestedParentId == null) return null;
+        return commentRepo.findById(requestedParentId)
+                .filter(p -> java.util.Objects.equals(p.getPostId(), postId))
+                .map(p -> p.getParentCommentId() != null ? p.getParentCommentId() : p.getId())
+                .orElse(null);
     }
 
     private GroupPostCommentDto toDto(GroupPostComment c, Map<String, UserInfo> userByEmail) {

@@ -18,11 +18,16 @@ import java.time.Instant;
  * collapse {@code comment} + {@code task_comment} into one table with a
  * mechanical migration.
  *
- * <p>Replies use the same content-prefix convention {@link GroupPostComment} already
- * uses ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}). No
- * {@code parent_comment_id} column — threading is content-side and the FE
- * (forked from {@code PostComments.js}) renders the quote block by parsing
- * the prefix. Zero schema cost for replies.</p>
+ * <p><b>Replies carry a real parent reference</b> ({@link #parentCommentId},
+ * V59). The prior convention was a content prefix
+ * ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}) parsed by the
+ * FE — zero schema cost, and it could not nest, could not be permalinked,
+ * could not be collapsed, and duplicated text that went stale when the parent
+ * was edited. It also COMPOUNDED: each reply re-quoted the whole quoted chain
+ * above it, so the prefix grew with depth while the message stayed one word.</p>
+ *
+ * <p>Pre-V59 comments keep their prefix and no parent id. The FE prefix parser
+ * still handles them; see the migration for why 8 rows were not backfilled.</p>
  */
 @Setter
 @Getter
@@ -32,7 +37,8 @@ import java.time.Instant;
         name = "task_comment",
         indexes = {
                 @Index(name = "idx_task_comment_task_id", columnList = "task_id"),
-                @Index(name = "idx_task_comment_updated_at", columnList = "updated_at")
+                @Index(name = "idx_task_comment_updated_at", columnList = "updated_at"),
+                @Index(name = "idx_task_comment_parent_comment_id", columnList = "parent_comment_id")
         }
 )
 public class PostComment {
@@ -65,4 +71,25 @@ public class PostComment {
     /** User-initiated edit moment (explicit). Null on never-edited comments. */
     @Column(name = "edited_at")
     private Instant editedAt;
+
+    /**
+     * The comment this one replies to. Null on a top-level comment and on every
+     * pre-V59 row.
+     *
+     * <p>Plain scalar rather than {@code @ManyToOne}, matching how
+     * {@code Post.parentPostId} models the repost pointer: the reply needs the
+     * id, never the object graph, and a lazy association here would issue a
+     * query per row on a thread render.</p>
+     *
+     * <p><b>DELETE OF THE PARENT SETS THIS NULL</b> (FK {@code ON DELETE SET
+     * NULL}), promoting the reply to top level. Not cascade — a comment's
+     * replies are not its author's property, and a moderator removing one
+     * comment must not silently delete a stranger's answer under it.</p>
+     *
+     * <p><b>DEPTH IS CAPPED AT ONE</b> in the service, not the schema: a reply
+     * to a reply is re-pointed at the root. See
+     * {@code PostCommentService.resolveParent}.</p>
+     */
+    @Column(name = "parent_comment_id")
+    private Long parentCommentId;
 }

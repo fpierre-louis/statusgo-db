@@ -23,6 +23,15 @@ public class PostCommentDto {
     private Long id;
     private String tempId;                       // optimistic correlation
     private Long postId;
+    /**
+     * The comment this one replies to. Null on a top-level comment and on every
+     * pre-V59 row, which still carries the legacy "> Replying to …" prefix in
+     * {@link #content} instead.
+     *
+     * <p>Depth is capped at one: a reply to a reply is stored against the ROOT,
+     * so a client can render exactly two levels and never has to recurse.</p>
+     */
+    private Long parentCommentId;
 
     // Author
     private String author;                       // email

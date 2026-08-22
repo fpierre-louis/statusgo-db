@@ -107,6 +107,7 @@ public class PostCommentService {
         c.setPostId(dto.getPostId());
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
+        c.setParentCommentId(resolveParent(dto.getParentCommentId(), dto.getPostId()));
         // @CreatedDate / @LastModifiedDate auditing populates timestamp/updatedAt
 
         PostComment saved = commentRepo.save(c);
@@ -440,7 +441,40 @@ public class PostCommentService {
         d.setUpdatedAt(c.getUpdatedAt());
         d.setEditedAt(c.getEditedAt());
         d.setEdited(c.getEditedAt() != null);
+        d.setParentCommentId(c.getParentCommentId());
         return d;
+    }
+
+    /**
+     * Resolve the parent a new reply should hang off, enforcing the depth cap.
+     *
+     * <p><b>DEPTH IS CAPPED AT ONE — root plus replies, and nothing deeper.</b>
+     * A reply whose target is itself a reply is re-pointed at the ROOT rather
+     * than rejected, which is what Instagram and Nextdoor both do: the reader
+     * wanted to answer inside this conversation, and refusing the write to
+     * protect a tree shape they cannot see would be a worse answer than
+     * flattening it.</p>
+     *
+     * <p>The cap is enforced HERE rather than as a schema CHECK because a
+     * constraint cannot see the grandparent without a recursive query on every
+     * insert. Keeping it in the service also means raising the cap later is a
+     * code change, not a migration.</p>
+     *
+     * <p>The prod data is the argument for capping at all. Under the old
+     * content-prefix convention a third-level reply rendered
+     * {@code "> Replying to X: > > Replying to X: > > Replying to Y: ..."} —
+     * the quote chain grew with depth while the message stayed one word.</p>
+     *
+     * <p>Returns null — a top-level comment — when the id is unknown or points
+     * at a different post. A reply cannot cross threads, and silently accepting
+     * one would put a comment in a conversation its author never opened.</p>
+     */
+    private Long resolveParent(Long requestedParentId, Long postId) {
+        if (requestedParentId == null) return null;
+        return commentRepo.findById(requestedParentId)
+                .filter(p -> java.util.Objects.equals(p.getPostId(), postId))
+                .map(p -> p.getParentCommentId() != null ? p.getParentCommentId() : p.getId())
+                .orElse(null);
     }
 
     private PostCommentDto toDto(PostComment c, Map<String, UserInfo> userByEmail) {
