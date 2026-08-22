@@ -1,0 +1,59 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+--  HELD — NOT IN src/main/resources/db/migration/. DO NOT MOVE WITHOUT A GO.
+--
+--  Flyway applies anything in the migration directory on the next boot, so
+--  this deliberately lives outside it. Moving the file IS the approval.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Drop the machine-written rows from `task_tags`, leaving it strictly
+-- user-authored. This is the destructive half of V62, split out because data
+-- migrations are hard-gated.
+--
+-- ── EXACT COUNTS, measured on prod after V62 applied (2026-08-22) ──────────
+--
+--   task_tags total now                    36,379 rows
+--
+--   TO BE DELETED                          36,378 rows across 12,126 posts
+--     system-alert                         12,126
+--     nws                                  12,097
+--     flood                                10,386
+--     tornado                               1,711
+--     usgs                                     29
+--     earthquake                               29
+--
+--   TO BE KEPT                                  1 row
+--     pillar:supplies  (task 7582, kind='task', francisd.plouis@gmail.com,
+--                       "Build a go bag") — the only user-authored tag in the
+--                       table. Whether `pillar:*` is a vocabulary anyone still
+--                       wants is a separate question; this migration does not
+--                       answer it, it just declines to delete someone's data
+--                       while cleaning up the machine's.
+--
+-- ── WHY THIS IS SAFE TO RUN, AND WHY IT WAS ALSO SAFE TO HOLD ─────────────
+-- The dispatcher stopped writing these tags in the SAME DEPLOY as V62
+-- (AlertDispatchService.buildAutoPostTask now sets sourceKey + hazardTags).
+-- So the rows below are frozen: they do not grow whether this runs today or
+-- never. Every value being deleted has already been backfilled into
+-- `task_hazard_tags` / `task.source_key`, verified after V62:
+--     flood 10,386 · tornado 1,711 · earthquake 29   = 12,126 hazard rows
+--     nws 12,097 · usgs 29                            = 12,126 source values
+--     0 posts carry a hazard with no source.
+--
+-- `system-alert` is the one value with no direct replacement, by design: it is
+-- now expressed by `source_key` being non-null and machine-owned. Nothing is
+-- lost — the same 12,126 posts are identifiable by `source_key IN ('nws','usgs')`.
+--
+-- ── VERIFY BEFORE AND AFTER ───────────────────────────────────────────────
+--   BEFORE: SELECT tag, count(*) FROM task_tags GROUP BY tag ORDER BY 2 DESC;
+--   AFTER : expect exactly one row — pillar:supplies, count 1.
+--
+-- Re-runnable: the WHERE clause is value-scoped, so a second run deletes zero.
+-- Dry-run it the same way every migration in this repo now is — BEGIN, run,
+-- inspect, ROLLBACK — because Flyway is disabled under both test profiles and
+-- `mvn package` validates no SQL.
+
+DELETE FROM task_tags
+ WHERE tag IN ('system-alert', 'nws', 'usgs', 'flood', 'tornado', 'earthquake');
+
+-- Deliberately NOT dropping the table or the column. `Post.tags` survives as
+-- the user-authored topic channel; it just stops being three channels at once.
