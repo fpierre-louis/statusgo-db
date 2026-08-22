@@ -1,13 +1,8 @@
--- ═══════════════════════════════════════════════════════════════════════════
---  HELD — NOT IN src/main/resources/db/migration/. DO NOT MOVE WITHOUT A GO.
+-- Machine-written tags leave `task_tags`, which becomes user-authored only.
 --
---  Flyway applies anything in the migration directory on the next boot, so
---  this deliberately lives outside it. Moving the file IS the approval.
--- ═══════════════════════════════════════════════════════════════════════════
---
--- Drop the machine-written rows from `task_tags`, leaving it strictly
--- user-authored. This is the destructive half of V62, split out because data
--- migrations are hard-gated.
+-- The destructive half of V62. It was held outside db/migration/ until owner
+-- approval (2026-08-22) — moving the file WAS the approval, which is why there
+-- was no flag to forget.
 --
 -- ── EXACT COUNTS, measured on prod after V62 applied (2026-08-22) ──────────
 --
@@ -43,14 +38,16 @@
 -- now expressed by `source_key` being non-null and machine-owned. Nothing is
 -- lost — the same 12,126 posts are identifiable by `source_key IN ('nws','usgs')`.
 --
--- ── VERIFY BEFORE AND AFTER ───────────────────────────────────────────────
---   BEFORE: SELECT tag, count(*) FROM task_tags GROUP BY tag ORDER BY 2 DESC;
---   AFTER : expect exactly one row — pillar:supplies, count 1.
+-- ── MEASURED, NOT ASSUMED ─────────────────────────────────────────────────
+-- BEFORE (prod, immediately prior to applying):
+--   task_tags total                36,379
+--   posts resolvable by source_key 12,126
+-- Dry-run inside a rolled-back transaction returned DELETE 36378, leaving 1.
 --
 -- Re-runnable: the WHERE clause is value-scoped, so a second run deletes zero.
--- Dry-run it the same way every migration in this repo now is — BEGIN, run,
--- inspect, ROLLBACK — because Flyway is disabled under both test profiles and
--- `mvn package` validates no SQL.
+-- Dry-run the same way every migration in this repo now is — BEGIN, run,
+-- inspect, ROLLBACK — because Flyway is disabled under BOTH test profiles and
+-- `mvn package` validates no SQL at all. See the T-39 trap draft.
 
 DELETE FROM task_tags
  WHERE tag IN ('system-alert', 'nws', 'usgs', 'flood', 'tornado', 'earthquake');
