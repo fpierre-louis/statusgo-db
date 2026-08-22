@@ -381,9 +381,59 @@ public class Post {
     @Column(name = "pinned_by", length = 128)
     private String pinnedBy;
 
-    /** Emergency pin auto-expiry — the design's expiresAt. Null = no expiry. */
+    /**
+     * Emergency pin auto-expiry — how long this post stays at the TOP of the
+     * feed. Null = no expiry.
+     *
+     * <p><b>CORRECTED 2026-08-22: this is NOT "the design's expiresAt", which
+     * is what this comment used to claim.</b> Pinning is a ranking decision the
+     * product makes; {@link #effectiveUntil} is when the advisory stops being
+     * true, which the issuer states. They diverge in the ordinary case — a
+     * 24-hour pin on a three-day flood warning — and rendering the pin window
+     * as "In effect until…" would put a ranking decision in front of a reader
+     * as a public-safety fact.</p>
+     */
     @Column(name = "pinned_until")
     private Instant pinnedUntil;
+
+    /**
+     * {@code official} only — when the advisory stops being in effect.
+     * Null = "until further notice", the honest default for an advisory with
+     * no stated end.
+     *
+     * <p><b>Derived for dispatched alerts, captured for composed ones.</b> The
+     * value was already on the wire and already stored before this field
+     * existed: {@code AlertPost.expiresAt} is populated from the NWS
+     * {@code ends}/{@code expires} in {@code AlertDispatchService}. It was
+     * simply never copied onto the post, so the feed never saw it.
+     * {@code AgencyAlertService} takes an explicit value instead — a city
+     * writing "boil order until Thursday" has no upstream feed to derive
+     * from.</p>
+     *
+     * <p>Distinct from {@link #pinnedUntil} (feed placement) and from
+     * {@code sponsoredUntil} (paid placement). Three windows, three meanings.</p>
+     */
+    @Column(name = "effective_until")
+    private Instant effectiveUntil;
+
+    /**
+     * {@code marketplace} only — free-form item condition ("Like new").
+     *
+     * <p>Column is {@code item_condition}: CONDITION is a reserved word in SQL
+     * and a bare {@code condition} column forces quoting in every hand-written
+     * query forever. The Java name stays the domain word.</p>
+     *
+     * <p>Not an enum. When the composer's chip set is decided the vocabulary
+     * belongs beside {@code ResourceCategory} in Java, where BOTH writers can
+     * read it — a Postgres CHECK is invisible to the second writer, which is
+     * how the resource board ended up with two vocabularies.</p>
+     */
+    @Column(name = "item_condition", length = 40)
+    private String condition;
+
+    /** {@code marketplace} only — where/how to collect ("Porch, 400 N & Main"). */
+    @Column(name = "pickup_note", length = 160)
+    private String pickupNote;
 
     /** civic_report only — reported|acknowledged|scheduled|resolved (CivicStatus wire). */
     @Column(name = "civic_status", length = 16)

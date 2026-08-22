@@ -135,6 +135,12 @@ public class AgencyAlertService {
         post.setDescription(body == null ? "" : body);
         post.setStatus(PostStatus.OPEN);
         post.setPriority(PostPriority.URGENT);
+        // CAPTURED, NOT DERIVED (V60). A dispatched NWS alert carries its own
+        // end time; a human-composed one does not — a city writing "boil order
+        // until Thursday" has no upstream feed to read it from, so the composer
+        // states it. Null stays valid and renders as "until further notice",
+        // which is the honest reading of an advisory with no stated end.
+        post.setEffectiveUntil(req == null ? null : req.effectiveUntil());
         post.setLatitude(group.getJurisdictionLat() == null ? group.getLatitude() : group.getJurisdictionLat());
         post.setLongitude(group.getJurisdictionLng() == null ? group.getLongitude() : group.getJurisdictionLng());
         Post savedPost = postRepo.save(post);

@@ -396,6 +396,13 @@ public class AlertDispatchService {
         t.setDescription(fillBody(tpl.body, a));
         t.setPriority(PostPriority.URGENT);
         t.setStatus(PostStatus.OPEN);
+        // DERIVED, NOT CAPTURED (V60). The alert's own end time has been on the
+        // wire and stored on AlertPost.expiresAt all along — it was simply never
+        // copied onto the post, so the feed could not say when a warning stops
+        // being in effect and the FE's official/alert strip had to return null.
+        // Same parse as the AlertPost write below, from the same field, so the
+        // two records cannot disagree about when this alert ends.
+        t.setEffectiveUntil(parseInstantOrNull(a.endsAt()));
         t.setLatitude(coord[1]);   // lat
         t.setLongitude(coord[0]);  // lng
         // groupId left null → community scope

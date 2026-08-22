@@ -344,7 +344,31 @@ public record PostDto(
             // citizen card mirrors the canonical's status without a write-fanout.
             // Null for canonical/non-merged rows.
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            String canonicalStatus
+            String canonicalStatus,
+            // official only — when the ADVISORY stops being in effect. NOT the
+            // pin window (`pinned` above is feed placement) and not
+            // sponsoredUntil (paid placement). Three windows, three meanings;
+            // conflating them renders a ranking decision as a safety fact.
+            //
+            // Derived for dispatched alerts from AlertPost.expiresAt (the NWS
+            // ends/expires, which has been stored all along and never copied
+            // onto the post), captured explicitly for agency-composed ones.
+            // NON_NULL so every non-official post omits it entirely.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Instant effectiveUntil,
+            // marketplace only — the two facts a listing card and the thread's
+            // fact block both asked for and neither could render.
+            //
+            // These sit HERE rather than beside `price` / `paymentMethods` at
+            // the top level, and the reason is consistency, not convenience:
+            // every OTHER per-kind field already lives on this record —
+            // officialTier, civicStatus, source, readMinutes. `price` is
+            // top-level because it predates this record, not because top-level
+            // is where per-kind facts belong.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String condition,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String pickupNote
     ) {
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -362,6 +386,7 @@ public record PostDto(
             String claimingId = isCivic && !isBlank(t.getClaimingAgencyGroupId())
                     ? t.getClaimingAgencyGroupId().trim() : null;
             String claimState = isCivic ? (claimingId != null ? "claimed" : "unclaimed") : null;
+            boolean isMarketplace = "marketplace".equals(t.getKind());
             return new CommunityExtras(
                     feedItemType(t), trim(t.getOfficialTier()),
                     trim(t.getCivicCategory()), trim(t.getCivicStatus()),
@@ -371,7 +396,12 @@ public record PostDto(
                     claimState, claimingId,
                     // Slice 3 — the merge marker rides the entity mirror (no query);
                     // canonicalStatus is read-through, folded later in withEngagement.
-                    isCivic ? t.getMergedIntoPostId() : null, null);
+                    isCivic ? t.getMergedIntoPostId() : null, null,
+                    t.getEffectiveUntil(),
+                    // Guarded on kind so a stray value on a non-marketplace row
+                    // cannot surface a Condition line on an ask.
+                    isMarketplace ? trim(t.getCondition()) : null,
+                    isMarketplace ? trim(t.getPickupNote()) : null);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -387,13 +417,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -402,27 +432,41 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote);
+        }
+
+        /**
+         * Fold in the advisory's effective window.
+         *
+         * <p>Used by the dispatch path, which learns the expiry from the NWS
+         * feed rather than from the post row. Kept as a wither so the copy
+         * shape matches every other fold on this record.</p>
+         */
+        public CommunityExtras withEffectiveUntil(Instant until) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus,
+                    until, condition, pickupNote);
         }
 
         /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
         public CommunityExtras withCanonicalStatus(String status) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }
