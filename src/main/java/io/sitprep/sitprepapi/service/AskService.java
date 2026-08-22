@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.*;
 import io.sitprep.sitprepapi.repo.*;
@@ -958,17 +959,18 @@ public class AskService {
         return out;
     }
 
-    private static final Set<String> ALLOWED_HAZARDS = Set.of(
-            "hurricane", "wildfire", "earthquake", "blizzard", "flood", "tornado", "heat", "smoke");
-
+    /**
+     * Hazard normalization now reads the SHARED vocabulary
+     * ({@link HazardType}) instead of a private literal set.
+     *
+     * <p>The private set said {@code heat}; {@code RiskProfileService} says
+     * {@code extreme_heat}. Same hazard, two spellings, in two files that never
+     * imported each other — so a heat hazard arriving from the risk profile was
+     * silently dropped here, during exactly the weather when heat questions
+     * should pin to the top. {@code HazardType.parse} accepts it as an alias,
+     * which is why this is a fix and not just a refactor.</p>
+     */
     private static Set<String> normalizeHazardSet(Collection<String> in) {
-        if (in == null) return new HashSet<>();
-        Set<String> out = new HashSet<>();
-        for (String t : in) {
-            if (t == null) continue;
-            String norm = t.trim().toLowerCase(Locale.ROOT);
-            if (ALLOWED_HAZARDS.contains(norm)) out.add(norm);
-        }
-        return out;
+        return new HashSet<>(HazardType.normalize(in));
     }
 }

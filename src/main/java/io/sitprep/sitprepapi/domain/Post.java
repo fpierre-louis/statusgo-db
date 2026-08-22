@@ -237,10 +237,54 @@ public class Post {
     @OrderColumn(name = "ord")
     private List<String> imageKeys = new ArrayList<>();
 
+    /**
+     * USER-AUTHORED topic tags, and strictly that as of V62.
+     *
+     * <p>This column used to carry three unrelated channels at once —
+     * provenance, hazard, and topic — because it was the only untyped string
+     * set on the entity. Machine writers no longer touch it: the dispatcher
+     * writes {@link #sourceKey} and {@link #hazardTags} instead.</p>
+     *
+     * <p><b>Do not put a machine-written value here again.</b> If a new writer
+     * needs to classify a post, it needs its own typed channel — that is the
+     * whole lesson of the 12,126 rows V62 moved out.</p>
+     */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "task_tags", joinColumns = @JoinColumn(name = "task_id"))
     @Column(name = "tag")
     private Set<String> tags = new HashSet<>();
+
+    /**
+     * Hazard classification — one shared vocabulary ({@link io.sitprep.sitprepapi.constant.HazardType}).
+     *
+     * <p><b>Split out of {@link #tags} in V62.</b> Before that, `task_tags` was
+     * three channels sharing one untyped column: provenance
+     * ({@code system-alert}, {@code nws}, {@code usgs}), hazard
+     * ({@code flood}, {@code tornado}, {@code earthquake}) and — in exactly one
+     * row — a namespaced {@code pillar:supplies} that someone reached for
+     * BECAUSE the column had no namespace. That single row was the tell.</p>
+     *
+     * <p>A collection rather than a scalar even though every backfilled row
+     * carries exactly one: an NWS alert can legitimately be both a flood and a
+     * wind event, and modelling the current data instead of the domain is how
+     * you buy a second migration.</p>
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "task_hazard_tags", joinColumns = @JoinColumn(name = "task_id"))
+    @Column(name = "hazard", length = 32)
+    private Set<String> hazardTags = new HashSet<>();
+
+    /**
+     * Where this post came from — {@code nws} | {@code usgs} | {@code agency} |
+     * {@code user}. Null on rows predating V62 that no backfill could classify.
+     *
+     * <p><b>Scalar, and the data says so.</b> Every one of the 12,126 machine
+     * posts in production carries exactly ONE source tag; not a single row has
+     * two. Provenance was multi-valued only because it was sharing a
+     * {@code Set<String>} with hazard, which genuinely is.</p>
+     */
+    @Column(name = "source_key", length = 24)
+    private String sourceKey;
 
     /**
      * Repost / quote-post pointer — the post this row quotes. Wired to

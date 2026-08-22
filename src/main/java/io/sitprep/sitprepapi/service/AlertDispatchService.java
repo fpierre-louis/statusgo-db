@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Sentry;
+import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.domain.AlertPost;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostPriority;
@@ -406,11 +407,24 @@ public class AlertDispatchService {
         t.setLatitude(coord[1]);   // lat
         t.setLongitude(coord[0]);  // lng
         // groupId left null → community scope
-        Set<String> tags = new HashSet<>();
-        tags.add("system-alert");
-        if (tpl.hazardType != null) tags.add(tpl.hazardType);
-        if (a.source() != null) tags.add(a.source().toLowerCase(Locale.ROOT));
-        t.setTags(tags);
+
+        // ── V62: THREE TYPED CHANNELS, NOT ONE UNTYPED SET ────────────────
+        // This used to write three strings into `tags`: "system-alert", the
+        // hazard, and the source. One Set<String> carrying provenance AND
+        // hazard AND (elsewhere) user topics, with nothing able to tell them
+        // apart — 12,126 posts' worth in production before it was caught.
+        //
+        // `tags` is now strictly user-authored and the machine writes here:
+        t.setSourceKey(a.source() == null ? null : a.source().toLowerCase(Locale.ROOT));
+        // Through HazardType so the dispatcher cannot introduce a spelling the
+        // rest of the app does not recognise. An unmapped template hazard is
+        // DROPPED rather than stored raw — a value only one writer understands
+        // is how the four vocabularies happened.
+        t.setHazardTags(new HashSet<>(HazardType.normalize(List.of(
+                tpl.hazardType == null ? "" : tpl.hazardType))));
+        // NOTE: "system-alert" is not replaced by a tag — it is now expressed
+        // by `sourceKey` being non-null and machine-owned. A separate boolean
+        // would be a third way to say the same thing.
         return t;
     }
 
