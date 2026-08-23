@@ -189,7 +189,13 @@ public class PushPolicyService {
     // Helpers
     // -------------------------------------------------------------------
 
-    private static Lane defaultLaneFor(Category c) {
+    /**
+     * Package-private rather than private so the lane a category is DECLARED
+     * to have can be asserted in a test. The mention defect was a category
+     * declaring Lane B and receiving Lane A behaviour, which no test could see
+     * while this was unreachable.
+     */
+    static Lane defaultLaneFor(Category c) {
         return switch (c) {
             // Lane A — interruptive, bounded categories per policy doc
             case NWS_SEVERE_EXTREME, USGS_QUAKE_MAJOR, WILDFIRE_NEAR,

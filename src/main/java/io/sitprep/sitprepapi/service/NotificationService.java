@@ -65,6 +65,20 @@ public class NotificationService {
     }
 
     /**
+     * The mention type string, as ONE literal shared by the emitter
+     * ({@code GroupPostService}) and both readers here.
+     *
+     * <p>A string constant rather than a convention because the convention
+     * failed: the emitter sent a spelling neither reader accepted, an
+     * unmapped type maps to a null Category, and a null Category skips the
+     * policy branches entirely instead of erroring. The failure mode of a
+     * mistyped notification type is a SILENT WRONG BRANCH, so the type has to
+     * be a thing the compiler can check rather than a thing a reviewer can
+     * notice. Same reasoning as {@code HazardType}, one layer down.</p>
+     */
+    public static final String TYPE_POST_MENTION = "post_mention";
+
+    /**
      * Decide push lane for an outgoing notification by mapping the
      * legacy free-form {@code notificationType} string onto a structured
      * {@link Category}. Returns null when the type isn't mapped — caller
@@ -75,7 +89,7 @@ public class NotificationService {
      * the policy chokepoint. Future call sites should pass {@link Category}
      * directly (overload below) so this best-effort lookup isn't needed.</p>
      */
-    private Category mapTypeToCategory(String notificationType) {
+    static Category mapTypeToCategory(String notificationType) {
         if (notificationType == null) return null;
         return switch (notificationType.toLowerCase(Locale.ROOT)) {
             // Group / household alert flips. The fan-out doesn't
@@ -83,7 +97,7 @@ public class NotificationService {
             // to ORG; household-specific flips can pass Category directly
             // via the overload to opt into critical-bypass quiet hours.
             case "alert", "group_status" -> Category.GROUP_ALERT_ORG;
-            case "post_notification", "post_mention" -> Category.MENTION;
+            case "post_notification", TYPE_POST_MENTION -> Category.MENTION;
             case "comment_on_post", "comment_on_task" -> Category.COMMENT_REPLY;
             case "new_member" -> Category.NEW_MEMBER;
             case "pending_member" -> Category.PENDING_MEMBER_REQUEST;
@@ -1259,7 +1273,7 @@ public class NotificationService {
             case "comment_on_task":
             case "comment_thread_reply":
                 return "COMMENT_REPLY";
-            case "post_mention":
+            case TYPE_POST_MENTION:
                 return "MENTION";
             default:
                 return "SYSTEM";

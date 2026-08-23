@@ -589,6 +589,22 @@ public class GroupPostService {
             // Targeted "mentioned you" push — same delivery path (still mute-
             // aware; an inbox row is written even when muted) but a distinct
             // type + body so the FE can style it and the count is separable.
+            //
+            // THE TYPE STRING MUST BE ONE A READER ACCEPTS. Until 2026-08-22 this
+            // sent a spelling NOTHING accepted: mapTypeToCategory takes
+            // post_notification / post_mention, categoryForType takes post_mention,
+            // and the FE's LEGACY_TYPE_VIS takes post_notification. An unmapped
+            // type yields a null Category, and a null Category leaves `lane` null
+            // -- which skips BOTH the Lane.DROP branch and the Lane.B branch and
+            // falls through to a full FCM send. So the one category the policy doc
+            // calls 'not an emergency' was the only social category pushing with no
+            // quiet hours, no per-category opt-out and no rate cap, landing as APNs
+            // 'SYSTEM' with the FE's fallback bell.
+            //
+            // Fixed by SHRINKING the vocabulary rather than aliasing: send a string
+            // both readers already take. Adding a fifth spelling to the maps would
+            // have made the next writer's job harder, which is the mechanism T-40
+            // is about.
             if (!mentionedLower.isEmpty()) {
                 String mentionBody = String.format("%s mentioned you in %s: '%s'",
                         authorFirst, group.getGroupName(), snippet);
@@ -596,7 +612,7 @@ public class GroupPostService {
                 for (UserInfo user : mentionedUsers) {
                     notificationService.deliverPresenceAwareForGroup(
                             user.getUserEmail(), title, mentionBody, authorFirst, authorProfile,
-                            "mention_notification", post.getGroupId(), targetUrl, String.valueOf(post.getId()),
+                            NotificationService.TYPE_POST_MENTION, post.getGroupId(), targetUrl, String.valueOf(post.getId()),
                             user.getFcmtoken(),
                             post.getGroupId(),
                             /* categoryOverride */ null,
