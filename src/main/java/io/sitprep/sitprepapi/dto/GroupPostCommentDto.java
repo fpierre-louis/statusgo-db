@@ -74,4 +74,16 @@ public class GroupPostCommentDto {
      * as plain text rather than a link.</p>
      */
     private List<MentionDto> mentions;
+
+    /**
+     * The author's stable account id, alongside their name and avatar.
+     *
+     * <p>Added 2026-08-22 with @-mentions. The enrichment below already loads
+     * the {@code UserInfo} to fill in the name, so this costs nothing extra --
+     * and without it the frontend builds its participant map from these DTO
+     * fields and ends up holding people it can NAME but cannot REFERENCE. The
+     * mention typeahead's first tier is "people already in this thread", which
+     * would have been silently empty.</p>
+     */
+    private String authorUserId;
 }

@@ -483,6 +483,7 @@ public class GroupPostCommentService {
                 d.setAuthorFirstName(u.getUserFirstName());
                 d.setAuthorLastName(u.getUserLastName());
                 d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
+                d.setAuthorUserId(u.getId());
             }
         }
         return d;
@@ -494,6 +495,7 @@ public class GroupPostCommentService {
             d.setAuthorFirstName(u.getUserFirstName());
             d.setAuthorLastName(u.getUserLastName());
             d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
+            d.setAuthorUserId(u.getId());
         });
     }
 
