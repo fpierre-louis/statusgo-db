@@ -11,6 +11,8 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Setter
 @Getter
@@ -65,4 +67,25 @@ public class GroupPostComment {
      */
     @Column(name = "parent_comment_id")
     private Long parentCommentId;
+
+    /**
+     * Ids of accounts mentioned in {@link #content}, denormalized from the
+     * {@code @[uid:...]} tokens the content carries.
+     *
+     * <p><b>Content is the source of truth; this is the index.</b> The write
+     * path re-derives this list from the content on every create and update, so
+     * the two cannot disagree -- there is no path that sets one without the
+     * other. It exists because the notify path needs "who was mentioned"
+     * without parsing prose, and because "threads where I was mentioned" should
+     * be an indexed lookup rather than a scan.</p>
+     *
+     * <p>EAGER to match the sibling collections on these entities, and because
+     * a thread render reads every comment's mentions at once -- lazy would turn
+     * one page of comments into one query per comment.</p>
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "comment_mentions", joinColumns = @JoinColumn(name = "comment_id"))
+    @Column(name = "mentioned_user_id")
+    @OrderColumn(name = "ord")
+    private List<String> mentionedUserIds = new ArrayList<>();
 }

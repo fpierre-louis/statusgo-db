@@ -62,11 +62,21 @@ public class GroupPost {
 
     private int commentsCount = 0;
 
+    /**
+     * Ids of accounts mentioned in {@link #content}. Held EMAILS until V64,
+     * when mentions stopped being display text and became a token reference;
+     * the column was renamed with the meaning so a reader cannot mistake one
+     * for the other.
+     *
+     * <p>Re-derived from the content's {@code @[uid:...]} tokens on every
+     * write -- see {@code PostComment.mentionedUserIds} for why the content is
+     * the source of truth and this is the index.</p>
+     */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "group_post_mentions", joinColumns = @JoinColumn(name = "group_post_id"))
-    @Column(name = "mentions")
+    @Column(name = "mentioned_user_id")
     @OrderColumn(name = "ord")
-    private List<String> mentions = new ArrayList<>();
+    private List<String> mentionedUserIds = new ArrayList<>();
 
     /**
      * Optional shared location (message §D — "Share location" composer row).

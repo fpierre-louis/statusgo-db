@@ -52,7 +52,8 @@ class GroupPostSecurityTest {
                 mock(GroupPostReactionService.class),
                 mock(GroupReadStateRepo.class),
                 mock(GroupPostThreadPresenceService.class),
-                mock(PublisherPublishAuditService.class));
+                mock(PublisherPublishAuditService.class),
+                mock(MentionService.class));
         // createPost registers an afterCommit synchronization on success.
         TransactionSynchronizationManager.initSynchronization();
     }

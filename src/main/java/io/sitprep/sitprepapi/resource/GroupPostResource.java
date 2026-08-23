@@ -38,7 +38,6 @@ public class GroupPostResource {
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "mentions", required = false) List<String> mentions,
             @RequestParam(value = "latitude", required = false) Double latitude,
             @RequestParam(value = "longitude", required = false) Double longitude,
             @RequestParam(value = "locationLabel", required = false) String locationLabel
@@ -52,7 +51,6 @@ public class GroupPostResource {
         postDto.setGroupName(groupName);
         postDto.setImageKey(imageKey);
         postDto.setTags(tags);
-        postDto.setMentions(mentions);
         postDto.setLatitude(latitude);
         postDto.setLongitude(longitude);
         postDto.setLocationLabel(locationLabel);
@@ -138,8 +136,7 @@ public class GroupPostResource {
             @RequestParam("groupName") String groupName,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "removeImage", required = false) Boolean removeImage,
-            @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "mentions", required = false) List<String> mentions
+            @RequestParam(value = "tags", required = false) List<String> tags
     ) {
         String actor = AuthUtils.requireAuthenticatedEmail();
 
@@ -156,7 +153,8 @@ public class GroupPostResource {
         post.setGroupId(groupId);
         post.setGroupName(groupName);
         post.setTags(tags);
-        post.setMentions(mentions);
+        // Mentions are re-derived from content by the service -- see
+        // GroupPostService.applyMentions.
         post.setEditedAt(Instant.now());
 
         // Image lifecycle on edit:

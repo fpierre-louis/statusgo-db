@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -53,6 +54,7 @@ public class PostCommentService {
     private final NotificationService notificationService;
     private final PostCommentReactionService reactionService;
     private final PostReadAuthorizer readAuthorizer;
+    private final MentionService mentionService;
 
     public PostCommentService(PostCommentRepo commentRepo,
                               PostRepo taskRepo,
@@ -60,7 +62,8 @@ public class PostCommentService {
                               WebSocketMessageSender ws,
                               NotificationService notificationService,
                               PostCommentReactionService reactionService,
-                              PostReadAuthorizer readAuthorizer) {
+                              PostReadAuthorizer readAuthorizer,
+                              MentionService mentionService) {
         this.commentRepo = commentRepo;
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
@@ -68,6 +71,7 @@ public class PostCommentService {
         this.notificationService = notificationService;
         this.reactionService = reactionService;
         this.readAuthorizer = readAuthorizer;
+        this.mentionService = mentionService;
     }
 
     /**
@@ -108,6 +112,9 @@ public class PostCommentService {
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
         c.setParentCommentId(resolveParent(dto.getParentCommentId(), dto.getPostId()));
+        // Derived from content, never taken from the client: the tokens ARE
+        // the declaration, so there is no second list to disagree with them.
+        c.setMentionedUserIds(MentionToken.extractIds(dto.getContent()));
         // @CreatedDate / @LastModifiedDate auditing populates timestamp/updatedAt
 
         PostComment saved = commentRepo.save(c);
@@ -129,6 +136,11 @@ public class PostCommentService {
                     notifyPostAuthorOnNewComment(saved, out);
                 } catch (Exception e) {
                     log.error("Notification fan-out failed for new task comment id={}", saved.getId(), e);
+                }
+                try {
+                    notifyMentioned(saved, out, saved.getMentionedUserIds());
+                } catch (Exception e) {
+                    log.error("Mention fan-out failed for new task comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -155,9 +167,13 @@ public class PostCommentService {
             }
         }
 
+        // Captured BEFORE the overwrite -- the edit notification is a diff, and
+        // after setContent the old mention set is gone.
+        final String previousContent = existing.getContent();
         if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
             existing.setContent(dto.getContent());
         }
+        existing.setMentionedUserIds(MentionToken.extractIds(existing.getContent()));
         existing.setEditedAt(Instant.now());
 
         PostComment saved = commentRepo.save(existing);
@@ -175,6 +191,17 @@ public class PostCommentService {
                     ws.sendNewPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for edit task comment id={}", saved.getId(), e);
+                }
+                try {
+                    // ONLY what the edit ADDED. Re-notifying every mention on
+                    // every edit would make a typo fix indistinguishable from
+                    // being mentioned, and would hand anyone a way to ping
+                    // someone repeatedly by editing one comment. Removing a
+                    // mention notifies nobody -- there is no event there.
+                    notifyMentioned(saved, out,
+                            mentionService.newlyMentioned(previousContent, saved.getContent()));
+                } catch (Exception e) {
+                    log.error("Mention fan-out failed for edited task comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -442,6 +469,7 @@ public class PostCommentService {
         d.setEditedAt(c.getEditedAt());
         d.setEdited(c.getEditedAt() != null);
         d.setParentCommentId(c.getParentCommentId());
+        d.setMentions(mentionService.resolve(c.getMentionedUserIds()));
         return d;
     }
 
@@ -521,6 +549,14 @@ public class PostCommentService {
             return;
         }
 
+        // A post author who was ALSO @-mentioned gets the mention push instead
+        // of this one, never both. Same rule the group fan-out uses: the more
+        // specific notification wins and the generic one steps aside.
+        if (mentionService.emailsFor(savedComment.getMentionedUserIds()).stream()
+                .anyMatch(e -> e.equalsIgnoreCase(taskAuthorEmail))) {
+            return;
+        }
+
         Optional<UserInfo> ownerOpt = userInfoRepo.findByUserEmail(taskAuthorEmail);
         if (ownerOpt.isEmpty()) return;
 
@@ -537,7 +573,8 @@ public class PostCommentService {
                 ? "New comment on \"" + snippet(task.getTitle(), 60) + "\""
                 : "New comment on your post";
 
-        String body = commenterName + " commented: " + snippet(enrichedDto.getContent(), 80);
+        String body = commenterName + " commented: "
+                + snippet(mentionService.toPlainText(enrichedDto.getContent()), 80);
         String iconUrl = enrichedDto.getAuthorProfileImageUrl();
         String targetUrl = "/community/tasks/" + task.getId();
 
@@ -561,6 +598,61 @@ public class PostCommentService {
                 owner.getFcmtoken(),
                 actorUserId
         );
+    }
+
+    /**
+     * "X mentioned you" -- one push per mentioned account, Lane B.
+     *
+     * <p><b>No badge, no count.</b> Lane B writes an inbox row and nothing
+     * numeric; a mention is a message, not a score. The anti-vision rules out
+     * anything that turns being mentioned into a metric, which is why this
+     * sends a notification and increments nothing.</p>
+     *
+     * <p>Callers pass the id set they want notified: every mention on create,
+     * only the newly added ones on edit.</p>
+     */
+    private void notifyMentioned(PostComment saved, PostCommentDto enriched, List<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) return;
+
+        List<String> emails = mentionService.emailsFor(userIds);
+        if (emails.isEmpty()) return;
+
+        Post task = taskRepo.findById(saved.getPostId()).orElse(null);
+        if (task == null) return;
+
+        String mentionerName = enriched.getAuthorFirstName() != null
+                ? enriched.getAuthorFirstName()
+                : "Someone";
+        // Resolved before truncation -- a push body must never carry a raw
+        // token, and slicing one in half would leave an unresolvable fragment.
+        String body = mentionerName + " mentioned you: "
+                + snippet(mentionService.toPlainText(enriched.getContent()), 80);
+        String title = (task.getTitle() != null && !task.getTitle().isBlank())
+                ? snippet(task.getTitle(), 60)
+                : "A post you follow";
+        String targetUrl = "/community/tasks/" + task.getId();
+        String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(saved.getAuthor())
+                .map(UserInfo::getId)
+                .orElse(null);
+
+        for (String email : emails) {
+            // Mentioning yourself is not an event.
+            if (saved.getAuthor() != null && saved.getAuthor().equalsIgnoreCase(email)) continue;
+            userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
+                    notificationService.deliverPresenceAware(
+                            u.getUserEmail(),
+                            title,
+                            body,
+                            mentionerName,
+                            enriched.getAuthorProfileImageUrl(),
+                            NotificationService.TYPE_POST_MENTION,
+                            String.valueOf(task.getId()),
+                            targetUrl,
+                            null,
+                            u.getFcmtoken(),
+                            actorUserId
+                    ));
+        }
     }
 
     private String snippet(String content, int maxLen) {

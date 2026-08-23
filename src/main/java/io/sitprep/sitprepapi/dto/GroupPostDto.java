@@ -45,7 +45,12 @@ public class GroupPostDto {
     private Instant updatedAt;
 
     private List<String> tags;
-    private List<String> mentions;
+    /**
+     * Resolved @-mentions, newest shape (V64). Was {@code List<String>} of
+     * emails, which made the FE responsible for turning an address into a name
+     * and leaked an email onto a public surface to do it.
+     */
+    private List<MentionDto> mentions;
     private int commentsCount;
 
     /**

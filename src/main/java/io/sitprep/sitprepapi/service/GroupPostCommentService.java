@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.GroupPostComment;
+import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.DtoImages;
@@ -41,6 +42,7 @@ public class GroupPostCommentService {
     private final NotificationService notificationService;
     private final GroupPostCommentReactionService reactionService;
     private final GroupPostService postService;
+    private final MentionService mentionService;
 
     public GroupPostCommentService(
             GroupPostCommentRepo commentRepo,
@@ -49,7 +51,8 @@ public class GroupPostCommentService {
             WebSocketMessageSender ws,
             NotificationService notificationService,
             GroupPostCommentReactionService reactionService,
-            GroupPostService postService
+            GroupPostService postService,
+            MentionService mentionService
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
@@ -58,6 +61,7 @@ public class GroupPostCommentService {
         this.notificationService = notificationService;
         this.reactionService = reactionService;
         this.postService = postService;
+        this.mentionService = mentionService;
     }
 
     /**
@@ -95,6 +99,8 @@ public class GroupPostCommentService {
         c.setAuthor(dto.getAuthor().trim());
         c.setContent(dto.getContent());
         c.setParentCommentId(resolveParent(dto.getParentCommentId(), dto.getPostId()));
+        // Derived from content, never taken from the client -- see PostComment.
+        c.setMentionedUserIds(MentionToken.extractIds(dto.getContent()));
         // @CreatedDate/@LastModifiedDate auditing populates timestamp/updatedAt
 
         GroupPostComment saved = commentRepo.save(c);
@@ -119,6 +125,11 @@ public class GroupPostCommentService {
                     notifyPostAuthorOnNewComment(saved, out);
                 } catch (Exception e) {
                     log.error("Notification fan-out failed for new comment id={}", saved.getId(), e);
+                }
+                try {
+                    notifyMentioned(saved, out, saved.getMentionedUserIds());
+                } catch (Exception e) {
+                    log.error("Mention fan-out failed for new comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -145,9 +156,12 @@ public class GroupPostCommentService {
             }
         }
 
+        // Captured BEFORE the overwrite -- the edit notification is a diff.
+        final String previousContent = existing.getContent();
         if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
             existing.setContent(dto.getContent());
         }
+        existing.setMentionedUserIds(MentionToken.extractIds(existing.getContent()));
         existing.setEditedAt(Instant.now());
 
         GroupPostComment saved = commentRepo.save(existing);
@@ -165,6 +179,13 @@ public class GroupPostCommentService {
                     ws.sendNewGroupPostComment(saved.getPostId(), out);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for edit comment id={}", saved.getId(), e);
+                }
+                try {
+                    // ONLY what the edit ADDED -- see PostCommentService for why.
+                    notifyMentioned(saved, out,
+                            mentionService.newlyMentioned(previousContent, saved.getContent()));
+                } catch (Exception e) {
+                    log.error("Mention fan-out failed for edited comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -431,6 +452,7 @@ public class GroupPostCommentService {
         d.setEditedAt(c.getEditedAt());
         d.setEdited(c.getEditedAt() != null);
         d.setParentCommentId(c.getParentCommentId());
+        d.setMentions(mentionService.resolve(c.getMentionedUserIds()));
         return d;
     }
 
@@ -495,6 +517,13 @@ public class GroupPostCommentService {
             return;
         }
 
+        // A post author who was ALSO @-mentioned gets the mention push instead
+        // of this one, never both.
+        if (mentionService.emailsFor(savedComment.getMentionedUserIds()).stream()
+                .anyMatch(e -> e.equalsIgnoreCase(postAuthorEmail))) {
+            return;
+        }
+
         Optional<UserInfo> ownerOpt = userInfoRepo.findByUserEmail(postAuthorEmail);
         if (ownerOpt.isEmpty()) return;
 
@@ -509,7 +538,8 @@ public class GroupPostCommentService {
             title = "New comment in " + post.getGroupName();
         }
 
-        String body = commenterName + " commented: " + snippet(enrichedDto.getContent());
+        String body = commenterName + " commented: "
+                + snippet(mentionService.toPlainText(enrichedDto.getContent()));
         String iconUrl = enrichedDto.getAuthorProfileImageUrl();
 
         // Deep-link to the post. Service worker already prefers targetUrl first.
@@ -537,6 +567,45 @@ public class GroupPostCommentService {
                 owner.getFcmtoken(),
                 actorUserId
         );
+    }
+
+    /**
+     * "X mentioned you" -- one push per mentioned account, Lane B. Mirrors
+     * {@code PostCommentService.notifyMentioned}; see that method for the
+     * create-vs-edit rule and the no-metric constraint.
+     */
+    private void notifyMentioned(GroupPostComment saved, GroupPostCommentDto enriched, List<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) return;
+
+        List<String> emails = mentionService.emailsFor(userIds);
+        if (emails.isEmpty()) return;
+
+        GroupPost post = postRepo.findById(saved.getPostId()).orElse(null);
+        if (post == null) return;
+
+        String mentionerName = enriched.getAuthorFirstName() != null
+                ? enriched.getAuthorFirstName()
+                : "Someone";
+        String body = mentionerName + " mentioned you: "
+                + snippet(mentionService.toPlainText(enriched.getContent()));
+        String title = (post.getGroupName() != null && !post.getGroupName().isBlank())
+                ? post.getGroupName()
+                : "You were mentioned";
+        String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();
+        String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(saved.getAuthor())
+                .map(UserInfo::getId)
+                .orElse(null);
+
+        for (String email : emails) {
+            if (saved.getAuthor() != null && saved.getAuthor().equalsIgnoreCase(email)) continue;
+            userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
+                    notificationService.deliverPresenceAware(
+                            u.getUserEmail(), title, body, mentionerName,
+                            enriched.getAuthorProfileImageUrl(),
+                            NotificationService.TYPE_POST_MENTION,
+                            String.valueOf(post.getId()), targetUrl, null,
+                            u.getFcmtoken(), actorUserId));
+        }
     }
 
     private String snippet(String content) {

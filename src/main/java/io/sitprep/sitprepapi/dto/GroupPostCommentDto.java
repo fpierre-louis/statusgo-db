@@ -64,4 +64,14 @@ public class GroupPostCommentDto {
      * emoji on this comment. Drives the filled-vs-outline heart icon.
      */
     private boolean viewerThanked;
+
+    /**
+     * Resolved @-mentions in {@link #content}, in the order they appear.
+     *
+     * <p>The FE does NOT parse content for mentions. It renders the tokens by
+     * looking each id up in this list, which is what keeps the resolution rule
+     * server-side and singular. An entry with {@code deleted=true} is rendered
+     * as plain text rather than a link.</p>
+     */
+    private List<MentionDto> mentions;
 }

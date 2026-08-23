@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.GroupReadState;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -55,6 +56,7 @@ public class GroupPostService {
     private final GroupReadStateRepo groupReadStateRepo;
     private final GroupPostThreadPresenceService threadPresenceService;
     private final PublisherPublishAuditService publisherPublishAuditService;
+    private final MentionService mentionService;
 
     @Autowired
     public GroupPostService(GroupPostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
@@ -63,7 +65,8 @@ public class GroupPostService {
                        GroupPostReactionService reactionService,
                        GroupReadStateRepo groupReadStateRepo,
                        GroupPostThreadPresenceService threadPresenceService,
-                       PublisherPublishAuditService publisherPublishAuditService) {
+                       PublisherPublishAuditService publisherPublishAuditService,
+                       MentionService mentionService) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -73,6 +76,7 @@ public class GroupPostService {
         this.groupReadStateRepo = groupReadStateRepo;
         this.threadPresenceService = threadPresenceService;
         this.publisherPublishAuditService = publisherPublishAuditService;
+        this.mentionService = mentionService;
     }
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
@@ -91,7 +95,7 @@ public class GroupPostService {
         post.setGroupName(postDto.getGroupName());
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
-        post.setMentions(postDto.getMentions());
+        post.setMentionedUserIds(MentionToken.extractIds(postDto.getContent()));
         post.setLatitude(postDto.getLatitude());
         post.setLongitude(postDto.getLongitude());
         post.setLocationLabel(postDto.getLocationLabel());
@@ -263,7 +267,7 @@ public class GroupPostService {
         post.setContent(dto.getContent());
         post.setEditedAt(Instant.now());
         post.setTags(dto.getTags());
-        post.setMentions(dto.getMentions());
+        post.setMentionedUserIds(MentionToken.extractIds(dto.getContent()));
 
         // imageKey present → replace; absent → clear (treats omission as
         // "remove image"). Editors that want to leave the image untouched
@@ -533,7 +537,10 @@ public class GroupPostService {
             // INSTEAD of the generic post push, so they aren't double-notified.
             Set<String> memberEmailsLower = memberEmails.stream()
                     .filter(Objects::nonNull).map(e -> e.trim().toLowerCase()).collect(Collectors.toSet());
-            Set<String> mentionedLower = (post.getMentions() == null ? List.<String>of() : post.getMentions()).stream()
+            // Ids -> emails: the notify path addresses people by email
+            // everywhere else, and the mention itself is stored by id so a
+            // rename or an email change cannot unmake it.
+            Set<String> mentionedLower = mentionService.emailsFor(post.getMentionedUserIds()).stream()
                     .filter(Objects::nonNull).map(e -> e.trim().toLowerCase())
                     .filter(e -> !e.isBlank())
                     .filter(memberEmailsLower::contains)
@@ -561,8 +568,13 @@ public class GroupPostService {
             String actorUserId = authorOpt.map(UserInfo::getId).orElse(null);
 
             String title = group.getGroupName();
-            String snippet = post.getContent() == null ? "" :
-                    (post.getContent().length() > 50 ? post.getContent().substring(0, 50) + "..." : post.getContent());
+            // RESOLVE BEFORE TRUNCATING. A push body is the one surface a
+            // reader cannot scroll to fix, so it must never show a raw
+            // @[uid:...] token -- and truncating first could slice a token in
+            // half and leave a fragment that resolves to nothing at all.
+            String plain = mentionService.toPlainText(post.getContent());
+            String snippet = plain == null ? "" :
+                    (plain.length() > 50 ? plain.substring(0, 50) + "..." : plain);
             String body = String.format("%s posted in %s: '%s'", authorFirst, group.getGroupName(), snippet);
 
             String baseTargetUrl = GroupUrlUtil.getGroupTargetUrl(group);
@@ -666,7 +678,7 @@ public class GroupPostService {
         }
         dto.setReactions(reactions != null ? reactions : new HashMap<>());
         dto.setTags(post.getTags() != null ? post.getTags() : new ArrayList<>());
-        dto.setMentions(post.getMentions() != null ? post.getMentions() : new ArrayList<>());
+        dto.setMentions(mentionService.resolve(post.getMentionedUserIds()));
         dto.setLatitude(post.getLatitude());
         dto.setLongitude(post.getLongitude());
         dto.setLocationLabel(post.getLocationLabel());
