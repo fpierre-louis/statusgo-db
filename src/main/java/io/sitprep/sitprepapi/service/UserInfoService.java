@@ -273,6 +273,7 @@ public class UserInfoService {
 
         return userInfoRepo.findByUserEmailIn(normalized).stream()
                 .map(u -> new ProfileSummaryDto(
+                        u.getId(),
                         u.getUserEmail(),
                         u.getUserFirstName(),
                         u.getUserLastName(),
