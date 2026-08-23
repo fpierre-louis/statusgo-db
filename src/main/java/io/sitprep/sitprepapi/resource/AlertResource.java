@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.AlertFeedResponse;
+import io.sitprep.sitprepapi.service.AlertFeedService;
 import io.sitprep.sitprepapi.service.AlertIngestService;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +34,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AlertResource {
 
     private final AlertIngestService ingest;
+    private final AlertFeedService feedService;
 
-    public AlertResource(AlertIngestService ingest) {
+    public AlertResource(AlertIngestService ingest, AlertFeedService feedService) {
         this.ingest = ingest;
+        this.feedService = feedService;
     }
 
     /**
@@ -69,6 +73,24 @@ public class AlertResource {
      * Open for now since the data is public; can tighten to admin-only
      * later if abuse becomes a concern.
      */
+    /**
+     * Card-shaped alert feed for a coordinate.
+     *
+     * <p>The surface the hazard redesign consumes. Unlike {@code /active},
+     * which returns the normalized wire shape, this returns
+     * {@link AlertFeedResponse} — plain-language copy separated from the
+     * official text, tier and life-threatening status passed through from the
+     * dispatch pipeline, the match reason on every card, and the coverage
+     * caveat on every response.</p>
+     */
+    @GetMapping("/feed")
+    public ResponseEntity<AlertFeedResponse> feed(
+            @RequestParam("lat") double lat,
+            @RequestParam("lng") double lng
+    ) {
+        return ResponseEntity.ok(feedService.feedFor(lat, lng));
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<Snapshot> refresh() {
         ingest.refreshNow();

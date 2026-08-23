@@ -196,11 +196,24 @@ public class RiskProfileService {
     }
 
     /**
-     * Active Severe/Extreme hazard alerts currently in effect within
-     * {@link #ALERT_RADIUS_MI} of the coordinates, from the in-memory ingest
-     * cache. Only geometry-bearing (location-verified) alerts are kept — this
-     * drops broad FEMA declarations that the point filter includes
-     * unconditionally, so an alert elsewhere can't upgrade this household.
+     * Active Severe/Extreme hazard alerts currently in effect at the
+     * household's coordinates, from the in-memory ingest cache.
+     *
+     * <p><b>Location-verified only</b> — an alert somewhere else must never
+     * upgrade this household's readiness to "act now". The definition of
+     * "verified" changed with audit P0-4: it used to mean
+     * {@code geometry != null}, which was written to exclude broad FEMA
+     * declarations and did. It also excluded <b>40 of the 75 live Severe NWS
+     * alerts (53%)</b> — every Extreme Heat Warning, Red Flag Warning and
+     * Flood Watch in the country — because NWS targets those by UGC zone
+     * rather than by polygon. A Phoenix household under an Extreme Heat
+     * Warning got no upgrade at all.</p>
+     *
+     * <p>{@code getSnapshotForPoint} now does the verification itself: it
+     * matches polygons by radius and zone-only alerts by UGC containment, and
+     * only falls through to "include" for a row with no geometry AND no codes.
+     * That residue is exactly the FEMA case the old filter was aimed at, so
+     * excluding by source says what was actually meant.</p>
      */
     private List<ActiveAlertDto> activeAlertsFor(double[] coords) {
         if (coords == null) return List.of();
@@ -208,7 +221,7 @@ public class RiskProfileService {
                 alertIngestService.getSnapshotForPoint(coords[0], coords[1], ALERT_RADIUS_MI);
         if (snap == null || snap.alerts() == null) return List.of();
         return snap.alerts().stream()
-                .filter(a -> a.geometry() != null)           // location-verified only
+                .filter(a -> !"FEMA".equalsIgnoreCase(a.source()))   // recovery context, not an active threat
                 .filter(a -> isSevereOrExtreme(a.severity()))
                 .limit(MAX_ACTIVE_ALERTS)
                 .map(RiskProfileService::toActiveAlert)

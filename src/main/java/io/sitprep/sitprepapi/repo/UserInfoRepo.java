@@ -87,11 +87,21 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
      * A bounding-box pre-filter on (lastKnownLat, lastKnownLng) is the
      * natural next optimization once the user base outgrows a single
      * in-memory scan.</p>
+     *
+     * <p><b>{@code since} bounds how old a fix may be (audit P1-3).</b> This
+     * query previously had no time bound at all — even though
+     * {@link #findInBoundingBox} directly below has always taken one. Combined
+     * with the deliberate no-auto-refresh geolocation policy
+     * (docs/location/LOCATION_FRESHNESS.md), that meant a life-safety push
+     * could be targeted on a coordinate captured at an airport months ago:
+     * the user gets a warning for a place they are not, and misses the one for
+     * where they are. An unknown-age location is not a location.</p>
      */
     @Query("SELECT u FROM UserInfo u " +
            "WHERE u.fcmtoken IS NOT NULL AND u.fcmtoken <> '' " +
-           "AND u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL")
-    List<UserInfo> findPushablesWithLocation();
+           "AND u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL " +
+           "AND u.lastKnownLocationAt IS NOT NULL AND u.lastKnownLocationAt > :since")
+    List<UserInfo> findPushablesWithLocation(@Param("since") Instant since);
 
     @Query("SELECT u FROM UserInfo u " +
            "WHERE u.lastKnownLat BETWEEN :latMin AND :latMax " +

@@ -86,10 +86,15 @@ class RiskProfileServiceTest {
         home.setLatitude(35.46);
         home.setLongitude(-97.51);
         when(savedLocationService.homeFor("owner@x.com")).thenReturn(Optional.of(home));
-        AlertIngestService.NormalizedAlert alert = new AlertIngestService.NormalizedAlert(
-                "X1", "NWS", "Severe", "Tornado Warning for Oklahoma County",
-                "A tornado warning is in effect.", "Oklahoma County, OK",
-                "2026-07-09T21:00:00Z", "2026-07-09T21:30:00Z", Map.of("type", "Polygon"));
+        AlertIngestService.NormalizedAlert alert = TestAlerts.nws("Tornado Warning")
+                .id("X1")
+                .headline("Tornado Warning for Oklahoma County")
+                .description("A tornado warning is in effect.")
+                .area("Oklahoma County, OK")
+                .startedAt("2026-07-09T21:00:00Z").endsAt("2026-07-09T21:30:00Z")
+                .geometry(Map.of("type", "Polygon"))
+                .ugc(List.of("OKC109")).same(List.of("040109"))
+                .build();
         when(alertIngestService.getSnapshotForPoint(anyDouble(), anyDouble(), anyDouble()))
                 .thenReturn(new AlertIngestService.Snapshot(List.of(alert), Instant.EPOCH, Instant.EPOCH));
 
@@ -113,9 +118,12 @@ class RiskProfileServiceTest {
         home.setLatitude(35.46);
         home.setLongitude(-97.51);
         when(savedLocationService.homeFor("owner@x.com")).thenReturn(Optional.of(home));
-        AlertIngestService.NormalizedAlert minor = new AlertIngestService.NormalizedAlert(
-                "X2", "NWS", "Moderate", "Wind Advisory", "Breezy afternoon.", "OK",
-                null, null, Map.of("type", "Polygon"));
+        AlertIngestService.NormalizedAlert minor = TestAlerts.nws("Wind Advisory")
+                .id("X2").severity("Moderate")
+                .headline("Wind Advisory").description("Breezy afternoon.").area("OK")
+                .geometry(Map.of("type", "Polygon"))
+                .ugc(List.of("OKZ025")).same(List.of("040109"))
+                .build();
         when(alertIngestService.getSnapshotForPoint(anyDouble(), anyDouble(), anyDouble()))
                 .thenReturn(new AlertIngestService.Snapshot(List.of(minor), Instant.EPOCH, Instant.EPOCH));
 

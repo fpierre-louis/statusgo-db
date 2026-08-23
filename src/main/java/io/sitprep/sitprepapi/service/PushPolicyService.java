@@ -259,9 +259,23 @@ public class PushPolicyService {
     private static boolean isCriticalBypass(Category category, String severity) {
         if (!CRITICAL_BYPASS.contains(category)) return false;
         return switch (category) {
-            // NWS Severe + Extreme is the umbrella; only Extreme bypasses
-            // quiet hours per the policy doc.
-            case NWS_SEVERE_EXTREME -> "Extreme".equalsIgnoreCase(severity);
+            // NWS Severe AND Extreme both bypass quiet hours (widened
+            // 2026-08-22 with audit P1-4).
+            //
+            // The policy doc said Extreme only. That reads reasonable and is
+            // wrong on the data: NWS rates a **Flash Flood Warning** "Severe",
+            // and most flash-flood deaths happen at night, in vehicles — so
+            // the one category the narrow rule deferred to 7am is among the
+            // most time-critical things we send. "Extreme" is also rarer than
+            // it sounds; a Tornado Warning earns it, a Flash Flood Warning
+            // does not.
+            //
+            // What makes this safe rather than a blanket loosening: only
+            // warning-tier alerts reach this path at all now. P0-3 gates
+            // dispatch on the template's `tier`, so watches and advisories
+            // never get here regardless of the severity NWS stamped on them.
+            case NWS_SEVERE_EXTREME ->
+                    "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
             // USGS major (M5.5+); M6.0+ bypasses.
             case USGS_QUAKE_MAJOR -> {
                 if (severity == null) yield false;

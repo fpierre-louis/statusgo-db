@@ -125,6 +125,37 @@ app:
     # override per environment if the tag ever rotates.
     amazon-associate-tag: ${APP_COMMERCE_AMAZON_ASSOCIATE_TAG:sitprep0f-20}
 
+# --- ALERTS (NWS / USGS / FEMA ingest + zone resolution) ---
+# Declared here rather than left as bare @Value defaults so the tunables are
+# discoverable (audit P2-6 — `alerts.ingest.intervalMs` had been driving the
+# poll cadence for months with no entry in this file).
+alerts:
+  ingest:
+    # Poll cadence, ms. NWS answers `cache-control: max-age=5`, so this is our
+    # constraint, not theirs. 5 min is the memory-pressure baseline; each poll
+    # deserializes several hundred KB across three sources. Raise to 600000 on
+    # a pressured dyno. Floor is whatever NWS rate limits accept (~30s).
+    intervalMs: ${ALERTS_INGEST_INTERVAL_MS:300000}
+    initialDelayMs: ${ALERTS_INGEST_INITIAL_DELAY_MS:60000}
+    # Fetch once at boot so the first request has data. Set false anywhere a
+    # process should not reach the public APIs — the test profile does.
+    primeOnStartup: ${ALERTS_INGEST_PRIME_ON_STARTUP:true}
+  zones:
+    # UGC zone resolution (audit P0-4). 82% of NWS alerts carry no polygon and
+    # are targeted by zone code instead; this resolves a user's coordinate to
+    # its zones so those alerts can be matched rather than broadcast.
+    #
+    # Turning this OFF does not hide alerts — matching degrades to the
+    # state-prefix tier and then to include-all, which is the pre-fix
+    # behaviour. It exists as a kill switch if api.weather.gov/points ever
+    # becomes a liability, not as a feature flag.
+    enabled: ${ALERTS_ZONES_ENABLED:true}
+  push:
+    # How old a location fix may be and still be used for push targeting
+    # (audit P1-3). Geolocation never auto-refreshes by policy, so without a
+    # bound a warning gets aimed at where someone was, not where they are.
+    locationMaxAgeDays: ${ALERTS_PUSH_LOCATION_MAX_AGE_DAYS:14}
+
 # --- STRIPE (organization subscriptions) ---
 # A missing key keeps billing dormant without blocking application startup.
 # Agency and Premium Agency remain sales-led; only Group and Business use

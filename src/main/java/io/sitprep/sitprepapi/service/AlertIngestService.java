@@ -15,9 +15,12 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -61,19 +64,68 @@ public class AlertIngestService {
             "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson";
 
     /**
-     * FEMA OpenFEMA disaster declarations — only currently-active ones
-     * ({@code incidentEndDate eq null}). Dedup at normalize-time on
-     * {@code femaDeclarationString} since FEMA emits one row per
-     * designated county (a single hurricane can produce 30+ rows).
-     * {@code $top=500} is generous — typical active set is well under
-     * 200 nationwide. {@code $orderby=declarationDate desc} puts recent
-     * declarations first so the dedup picks them.
+     * FEMA OpenFEMA disaster declarations.
+     *
+     * <p><b>{@code incidentEndDate eq null} is not "active" (audit P1-2).</b>
+     * Measured 2026-08-22: it returns <b>628 rows</b>, deduping to 299
+     * disasters, of which <b>211 were declared 3+ years ago</b> — the oldest a
+     * Kentucky fire complex from <b>November 2000</b>. 296 of the 299 are Fire
+     * Management Assistance grants, which FEMA routinely never closes out. The
+     * old comment on this constant claimed "typical active set is well under
+     * 200 nationwide"; it was wrong by 3x and the filter was wrong in kind.</p>
+     *
+     * <p>The real recency signals are on the row and were being ignored:
+     * {@code declarationDate}, {@code disasterCloseoutDate},
+     * {@code iaProgramDeclared} / {@code ihProgramDeclared},
+     * {@code lastIAFilingDate}. The frontend has filtered on all of them
+     * correctly since it shipped ({@code emergencyApis.isActiveRecovery}); the
+     * server never did. See {@link #isActiveRecovery}.</p>
+     *
+     * <p><b>The base query itself was wrong, not just under-filtered.</b>
+     * Verified against the live API on 2026-08-22:</p>
+     *
+     * <pre>
+     *   $filter=incidentEndDate eq null
+     *           and (iaProgramDeclared eq true or ihProgramDeclared eq true)
+     *   -> count: 0
+     * </pre>
+     *
+     * <p>Those two conditions are mutually exclusive. FEMA leaves
+     * {@code incidentEndDate} null mostly on Fire Management Assistance grants
+     * — which reimburse a <i>state</i> for firefighting costs and offer a
+     * household nothing — while the major disaster declarations that do offer
+     * Individual Assistance get an end date. So the old query could not have
+     * returned a single row a person could act on, no matter what we filtered
+     * it down to afterwards. It returned 299 things nobody could use.</p>
+     *
+     * <p>Replaced with a <b>recency + assistance</b> query, filtered
+     * server-side: 359 live rows, including real recent declarations
+     * (DR-4922-MS severe storms, DR-4932-WV flooding). {@link #isActiveRecovery}
+     * then applies the two conditions OData cannot express well — closeout and
+     * the IA filing deadline.</p>
+     *
+     * <p>{@code $top} + {@code $skip} paginate — the old {@code $top=500} was a
+     * silent truncation of 128 rows, and the set only grows.</p>
      */
-    private static final String FEMA_ACTIVE_URL =
+    private static final int FEMA_PAGE_SIZE = 500;
+
+    /** {@code %s} is the ISO date 18 months back; {@code %d} the skip offset. */
+    private static final String FEMA_QUERY_FMT =
             "https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries"
-                    + "?$filter=incidentEndDate%20eq%20null"
-                    + "&$orderby=declarationDate%20desc"
-                    + "&$top=500";
+                    + "?$filter=declarationDate%%20ge%%20%%27%s%%27"
+                    + "%%20and%%20(iaProgramDeclared%%20eq%%20true"
+                    + "%%20or%%20ihProgramDeclared%%20eq%%20true)"
+                    + "&$orderby=declarationDate%%20desc"
+                    + "&$top=" + FEMA_PAGE_SIZE + "&$skip=%d";
+
+    /** Stop after this many pages — a guard against an unbounded upstream. */
+    private static final int FEMA_MAX_PAGES = 6;
+
+    /**
+     * How recent a declaration must be to count as active recovery. Mirrors
+     * the frontend's 18-month window so the two agree.
+     */
+    private static final Duration FEMA_RECENT_WINDOW = Duration.ofDays(18 * 30);
 
     /** NWS asks for a User-Agent identifying the consumer. */
     private static final String USER_AGENT =
@@ -88,6 +140,20 @@ public class AlertIngestService {
     private final ObjectMapper json = new ObjectMapper();
 
     /**
+     * Resolves UGC zone codes for the 82% of alerts that ship no polygon
+     * (audit P0-4). Read path uses it to answer "does this zone contain the
+     * user"; the ingest tick warms centroids for the dispatch path.
+     */
+    private final NwsZoneService zoneService;
+
+    @org.springframework.beans.factory.annotation.Value("${alerts.ingest.primeOnStartup:true}")
+    private boolean primeOnStartupEnabled = true;
+
+    public AlertIngestService(NwsZoneService zoneService) {
+        this.zoneService = zoneService;
+    }
+
+    /**
      * Latest snapshot. AtomicReference so the scheduled writer and the
      * resource-thread readers don't need a lock — they swap whole
      * snapshot objects.
@@ -96,12 +162,25 @@ public class AlertIngestService {
             new AtomicReference<>(Snapshot.empty());
 
     /**
-     * Force a poll on startup so the first request after boot has data
-     * to serve. Without this, the cache is empty until the first
-     * scheduled tick (5 min after boot).
+     * Force a poll on startup so the first request after boot has data to
+     * serve. Without this, the cache is empty until the first scheduled tick.
+     *
+     * <p><b>Gated by {@code alerts.ingest.primeOnStartup}, false in the test
+     * profile.</b> Every Spring-context test booted this, so a plain
+     * {@code mvn package} fired real requests at api.weather.gov,
+     * earthquake.usgs.gov and fema.gov from whatever machine ran it — a
+     * laptop, CI, a Heroku build dyno. That predates the alert epic and was
+     * ~3 requests; P0-4's zone warming briefly made it ~900 before P1-11
+     * bounded it. Neither is something a build should do: the eventual
+     * consequence is a rate-limit block, and a block on api.weather.gov takes
+     * the whole alert pipeline down.</p>
      */
     @PostConstruct
     public void primeOnStartup() {
+        if (!primeOnStartupEnabled) {
+            log.info("AlertIngest: startup prime disabled (alerts.ingest.primeOnStartup=false)");
+            return;
+        }
         // Prime in a separate thread so a slow upstream doesn't block app
         // startup. If a prime fails, the @Scheduled tick will retry.
         new Thread(() -> {
@@ -180,34 +259,84 @@ public class AlertIngestService {
                 Instant.now()
         );
         latest.set(next);
+
+        // Queue centroid resolution for any zone we haven't seen before, so
+        // the dispatch tick (which runs 5 min behind and must not block on an
+        // upstream call inside its transaction) finds them already cached.
+        // Steady-state this queues nothing — the set of active zones barely
+        // moves between polls.
+        // ONE zone per alert, not all of them. resolveDispatchCoord wants a
+        // single representative coordinate and takes the first zone that has
+        // one, so warming every code an alert lists multiplied the work by
+        // ~3.5x for no benefit — 909 fetches where 254 would do.
+        Set<String> zones = new HashSet<>();
+        for (NormalizedAlert a : merged) {
+            if (a.geometry() == null && a.ugc() != null && !a.ugc().isEmpty()) {
+                zones.add(a.ugc().get(0));
+            }
+        }
+        zoneService.warmZones(zones);
     }
 
     private List<NormalizedAlert> pollNws() throws Exception {
         long started = System.currentTimeMillis();
-        JsonNode root = fetchJson(NWS_ACTIVE_URL, "application/geo+json");
-        JsonNode features = root.path("features");
-        if (!features.isArray()) {
+        List<NormalizedAlert> normalized = parseNwsFeed(fetchJson(NWS_ACTIVE_URL, "application/geo+json"));
+        log.info("AlertIngest: NWS poll OK — {} alerts ingested in {}ms",
+                normalized.size(), System.currentTimeMillis() - started);
+        return normalized;
+    }
+
+    /**
+     * Parse a NWS {@code /alerts/active} FeatureCollection into normalized
+     * alerts. Split out from {@link #pollNws()} so the parse can be exercised
+     * against a captured live feed without a network call — the regression
+     * contract for audit P0-4 is "does the real feed still normalize the way
+     * we measured", which a hand-built fixture cannot answer.
+     */
+    List<NormalizedAlert> parseNwsFeed(JsonNode root) {
+        JsonNode features = root == null ? null : root.path("features");
+        if (features == null || !features.isArray()) {
             log.warn("AlertIngest: NWS response had no 'features' array; " +
                     "treating as empty for this tick.");
             return List.of();
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(features.size());
+        int nonActual = 0;
         Iterator<JsonNode> it = features.elements();
         while (it.hasNext()) {
             JsonNode f = it.next();
             try {
-                normalized.add(normalizeNws(f));
+                NormalizedAlert a = normalizeNws(f);
+
+                // DROP anything that is not a real alert (audit P0-3).
+                //
+                // `/alerts/active` is not filtered by status, and the measured
+                // 2026-08-22 feed contained a live `status: Test` row. Nothing
+                // downstream checks — so a test Tornado Warning would have
+                // matched a template, produced an auto-post, and fired an APNs
+                // time-sensitive push. The FE's own direct query has always
+                // passed `status=actual`; the server-side poll never did.
+                if (a.status() != null && !"Actual".equalsIgnoreCase(a.status())) {
+                    nonActual++;
+                    continue;
+                }
+                normalized.add(a);
             } catch (Exception ex) {
                 // Skip individual feature parse errors — don't drop the
                 // whole batch because one alert was malformed.
                 log.debug("AlertIngest: skipped malformed NWS feature: {}", ex.getMessage());
             }
         }
-
-        log.info("AlertIngest: NWS poll OK — {} alerts ingested in {}ms",
-                normalized.size(), System.currentTimeMillis() - started);
+        if (nonActual > 0) {
+            log.info("AlertIngest: dropped {} non-Actual NWS message(s) (test/exercise/draft)", nonActual);
+        }
         return normalized;
+    }
+
+    /** Install a snapshot directly, bypassing the network (tests only). */
+    void setSnapshotForTest(List<NormalizedAlert> alerts) {
+        latest.set(new Snapshot(List.copyOf(alerts), Instant.now(), Instant.now()));
     }
 
     /**
@@ -233,25 +362,39 @@ public class AlertIngestService {
      */
     private List<NormalizedAlert> pollFema() throws Exception {
         long started = System.currentTimeMillis();
-        JsonNode root = fetchJson(FEMA_ACTIVE_URL, "application/json");
-        JsonNode rows = root.path("DisasterDeclarationsSummaries");
-        if (!rows.isArray()) {
-            log.warn("AlertIngest: FEMA response had no 'DisasterDeclarationsSummaries' array.");
-            return List.of();
-        }
 
-        // Group by declaration string. LinkedHashMap preserves insertion
-        // order, which is API order (declarationDate desc) — first row
-        // per disaster wins for metadata, subsequent rows append areas.
         java.util.LinkedHashMap<String, FemaAccum> byDecl = new java.util.LinkedHashMap<>();
-        Iterator<JsonNode> it = rows.elements();
-        while (it.hasNext()) {
-            JsonNode r = it.next();
-            String key = textOrNull(r, "femaDeclarationString");
-            if (key == null) continue;
-            FemaAccum acc = byDecl.computeIfAbsent(key, k -> new FemaAccum(r));
-            String area = textOrNull(r, "designatedArea");
-            if (area != null && !acc.areas.contains(area)) acc.areas.add(area);
+        int totalRows = 0, skippedStale = 0;
+
+        for (int page = 0; page < FEMA_MAX_PAGES; page++) {
+            JsonNode root = fetchJson(femaPageUrl(page), "application/json");
+            JsonNode rows = root.path("DisasterDeclarationsSummaries");
+            if (!rows.isArray()) {
+                log.warn("AlertIngest: FEMA response had no 'DisasterDeclarationsSummaries' array.");
+                break;
+            }
+            if (rows.isEmpty()) break;
+            totalRows += rows.size();
+
+            Iterator<JsonNode> it = rows.elements();
+            while (it.hasNext()) {
+                JsonNode r = it.next();
+                String key = textOrNull(r, "femaDeclarationString");
+                if (key == null) continue;
+                if (!byDecl.containsKey(key) && !isActiveRecovery(r)) {
+                    skippedStale++;
+                    continue;
+                }
+                FemaAccum acc = byDecl.computeIfAbsent(key, k -> new FemaAccum(r));
+                String area = textOrNull(r, "designatedArea");
+                if (area != null && !acc.areas.contains(area)) acc.areas.add(area);
+            }
+
+            if (rows.size() < FEMA_PAGE_SIZE) break;   // last page
+            if (page == FEMA_MAX_PAGES - 1) {
+                log.warn("AlertIngest: FEMA paging stopped at the {}-page cap; "
+                        + "some declarations were not read.", FEMA_MAX_PAGES);
+            }
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(byDecl.size());
@@ -263,9 +406,63 @@ public class AlertIngestService {
             }
         }
 
-        log.info("AlertIngest: FEMA poll OK — {} disasters ingested ({} rows) in {}ms",
-                normalized.size(), rows.size(), System.currentTimeMillis() - started);
+        log.info("AlertIngest: FEMA poll OK — {} active disasters from {} rows "
+                        + "({} rows dropped as not-active-recovery) in {}ms",
+                normalized.size(), totalRows, skippedStale, System.currentTimeMillis() - started);
         return normalized;
+    }
+
+    /** Page URL for the recency + assistance query. Package-private for tests. */
+    static String femaPageUrl(int page) {
+        String since = java.time.LocalDate.ofInstant(
+                Instant.now().minus(FEMA_RECENT_WINDOW), java.time.ZoneOffset.UTC).toString();
+        return String.format(Locale.ROOT, FEMA_QUERY_FMT, since, page * FEMA_PAGE_SIZE);
+    }
+
+    /**
+     * Is this declaration something a person could still act on?
+     *
+     * <p>Port of the frontend's {@code isActiveRecovery}
+     * ({@code emergencyApis.js}), which has been correct since it shipped
+     * while the server ingested everything. Four conditions, all from fields
+     * already on the row:</p>
+     *
+     * <ul>
+     *   <li>offers individual help — {@code ihProgramDeclared} or
+     *       {@code iaProgramDeclared}. Also enforced server-side in the query;
+     *       kept here as defence in depth, because the query is a string and
+     *       this is not;</li>
+     *   <li>not closed out;</li>
+     *   <li>declared within {@link #FEMA_RECENT_WINDOW};</li>
+     *   <li>its IA filing deadline, where one exists, has not passed.</li>
+     * </ul>
+     */
+    static boolean isActiveRecovery(JsonNode r) {
+        if (r == null) return false;
+
+        boolean offersHelp = r.path("ihProgramDeclared").asBoolean(false)
+                || r.path("iaProgramDeclared").asBoolean(false);
+        if (!offersHelp) return false;
+
+        if (textOrNull(r, "disasterCloseoutDate") != null) return false;
+
+        Instant declared = parseFemaDate(textOrNull(r, "declarationDate"));
+        if (declared == null) return false;
+        if (declared.isBefore(Instant.now().minus(FEMA_RECENT_WINDOW))) return false;
+
+        Instant lastFiling = parseFemaDate(textOrNull(r, "lastIAFilingDate"));
+        if (lastFiling != null && lastFiling.isBefore(Instant.now())) return false;
+
+        return true;
+    }
+
+    /** FEMA dates are ISO-8601 with a zone; tolerate anything unparseable. */
+    private static Instant parseFemaDate(String iso) {
+        if (iso == null || iso.isBlank()) return null;
+        try { return java.time.OffsetDateTime.parse(iso).toInstant(); }
+        catch (Exception ignored) { }
+        try { return Instant.parse(iso); }
+        catch (Exception ignored) { return null; }
     }
 
     private List<NormalizedAlert> pollUsgs() throws Exception {
@@ -336,17 +533,44 @@ public class AlertIngestService {
                 ? null
                 : json.convertValue(geomNode, Map.class);
 
+        // UGC / SAME — the targeting keys for the 82% of alerts that ship no
+        // polygon. Both live under `properties.geocode` and were previously
+        // dropped at this normalizer, which is what made a zone-only alert
+        // indistinguishable from an alert with no location at all.
+        JsonNode geocode = p.path("geocode");
+        List<String> ugc = stringList(geocode.path("UGC"));
+        List<String> same = stringList(geocode.path("SAME"));
+
         return new NormalizedAlert(
                 id,
                 "NWS",
+                textOrNull(p, "event"),
                 textOrNull(p, "severity"),
+                textOrNull(p, "urgency"),
+                textOrNull(p, "certainty"),
+                textOrNull(p, "messageType"),
+                textOrNull(p, "status"),
+                textOrNull(p, "response"),
                 headline,
                 textOrNull(p, "description"),
                 textOrNull(p, "areaDesc"),
                 isoOrNull(p, "onset", "effective", "sent"),
                 isoOrNull(p, "ends", "expires"),
-                geometry
+                geometry,
+                ugc,
+                same
         );
+    }
+
+    /** GeoJSON string array -> immutable List, empty when absent or malformed. */
+    private static List<String> stringList(JsonNode arr) {
+        if (arr == null || !arr.isArray() || arr.isEmpty()) return List.of();
+        List<String> out = new ArrayList<>(arr.size());
+        for (JsonNode n : arr) {
+            String s = n.asText("");
+            if (!s.isEmpty()) out.add(s);
+        }
+        return List.copyOf(out);
     }
 
     /**
@@ -395,13 +619,32 @@ public class AlertIngestService {
         return new NormalizedAlert(
                 id,
                 "FEMA",
-                "Severe",   // see pollFema() Javadoc — federal declarations are by definition major
+                /* event */ null,   // FEMA has no NWS-style product vocabulary
+                // "Minor" on the CAP scale — "minimal to no known threat to
+                // life or property" — which is what a recovery declaration
+                // actually is (audit P1-2). This was hard-coded "Severe" with
+                // the reasoning that a federal declaration is by definition a
+                // major event. True of the EVENT, false of the ALERT: the
+                // disaster already happened, and what remains is an assistance
+                // programme. Meanwhile `severity` is the field every consumer
+                // routes on, so 299 declarations — 211 of them 3+ years old —
+                // were passing CrisisBand's Severe+Extreme gate and driving a
+                // red life-safety band on a calm day. Downgrading here is what
+                // stops that, rather than each consumer special-casing FEMA.
+                "Minor",
+                /* urgency */ null, /* certainty */ null, /* messageType */ null,
+                /* status */ null, /* response */ null,
                 headline,
                 title,
                 area,
                 textOrNull(r, "incidentBeginDate"),
                 textOrNull(r, "incidentEndDate"),  // null for active declarations
-                /* geometry */ null
+                /* geometry */ null,
+                // FEMA rows carry county/state NAMES, not UGC or SAME codes.
+                // They are genuinely unlocated as far as this pipeline is
+                // concerned — see the FEMA branch of getSnapshotForPoint.
+                List.of(),
+                List.of()
         );
     }
 
@@ -443,13 +686,20 @@ public class AlertIngestService {
         return new NormalizedAlert(
                 id,
                 "USGS",
+                /* event */ null,   // quakes carry magnitude, not a product name
                 severity,
+                /* urgency */ null, /* certainty */ null, /* messageType */ null,
+                /* status */ null, /* response */ null,
                 headline,
                 textOrNull(p, "title"),
                 place,
                 startedAt,
                 /* endsAt */ null, // quakes are point-in-time
-                geometry
+                geometry,
+                // USGS quakes always carry a Point geometry, so zone matching
+                // never applies to them.
+                List.of(),
+                List.of()
         );
     }
 
@@ -495,19 +745,141 @@ public class AlertIngestService {
     public Snapshot getSnapshotForPoint(double lat, double lng, double radiusMi) {
         Snapshot s = latest.get();
         double radiusKm = radiusMi * 1.609344;
+
+        // Zone codes covering this coordinate. Empty means "we don't know" —
+        // NOT "no zones apply" — and the ladder below degrades accordingly.
+        Set<String> userZones = zoneService.zoneCodesForPoint(lat, lng);
+        Set<String> userStates = statePrefixes(userZones);
+
         List<NormalizedAlert> filtered = new ArrayList<>();
         for (NormalizedAlert a : s.alerts) {
-            double[] coord = firstCoord(a.geometry);
-            if (coord == null) {
-                // Geometry-less alert: include by default. Coarse but safe —
-                // these are usually broad-impact (e.g. statewide advisories).
-                filtered.add(a);
-                continue;
-            }
-            double distKm = haversineKm(lat, lng, coord[1], coord[0]);
-            if (distKm <= radiusKm) filtered.add(a);
+            if (matchesPoint(a, lat, lng, radiusKm, userZones, userStates)) filtered.add(a);
         }
         return new Snapshot(List.copyOf(filtered), Instant.now(), s.lastSuccessAt);
+    }
+
+    /**
+     * Does this alert apply at this coordinate?
+     *
+     * <p>Three tiers, most precise first (audit P0-4 / P1-1). Before this,
+     * there was one rule — "has geometry? radius-test it; otherwise include" —
+     * which returned <b>554 alerts / 307 KB</b> to a Salt Lake City user of
+     * which <b>exactly one</b> was near them, because 553 of the 554 had no
+     * geometry and took the include-everything branch.</p>
+     *
+     * <ol>
+     *   <li><b>Polygon.</b> Unchanged coordinate/radius test. Applies to the
+     *       ~18% of alerts NWS ships with geometry plus every USGS quake.</li>
+     *   <li><b>Zone code.</b> The alert's UGC set intersected with the codes
+     *       covering the user's point. Exact, and it is what NWS intends —
+     *       {@code AZZ560} either contains you or it does not. Note this
+     *       deliberately ignores {@code radiusMi}: a zone is a containment
+     *       question, not a distance one, and pretending otherwise is what
+     *       made the radius parameter meaningless.</li>
+     *   <li><b>State prefix.</b> When the point lookup failed, fall back to
+     *       the first two characters of the UGC ({@code AZ}Z560). Coarse, but
+     *       it turns "every alert in the country" into "every alert in your
+     *       state" for free, with no network call.</li>
+     * </ol>
+     *
+     * <p>An alert with no geometry, no UGC and no state to compare against is
+     * still <b>included</b>. That is the FEMA case — those rows carry county
+     * and state <i>names</i>, never codes. Including them is wrong in the
+     * small (a Utah user sees a Florida declaration) and right in the large:
+     * this method must never be the reason a real alert is not shown. Fixing
+     * FEMA properly is audit P1-2, which filters the set down at ingest.</p>
+     */
+    private static boolean matchesPoint(NormalizedAlert a,
+                                        double lat,
+                                        double lng,
+                                        double radiusKm,
+                                        Set<String> userZones,
+                                        Set<String> userStates) {
+        return matchTypeFor(a, lat, lng, radiusKm, userZones, userStates) != null;
+    }
+
+    /**
+     * <b>Why</b> this alert applies at this point, or null when it does not.
+     *
+     * <p>Same ladder as {@link #matchesPoint}, returning the tier that matched
+     * rather than a boolean. The frontend needs this: an alert matched by
+     * polygon is "this covers your street", one matched by state prefix is
+     * "somewhere in your state", and a broadcast row is "we could not tell".
+     * Rendering all three identically is how a nationwide FEMA row reads as
+     * local news.</p>
+     */
+    static MatchType matchTypeFor(NormalizedAlert a,
+                                  double lat,
+                                  double lng,
+                                  double radiusKm,
+                                  Set<String> userZones,
+                                  Set<String> userStates) {
+        // Tier 1 — real geometry.
+        double[] coord = firstCoord(a.geometry());
+        if (coord != null) {
+            return haversineKm(lat, lng, coord[1], coord[0]) <= radiusKm
+                    ? MatchType.POLYGON : null;
+        }
+
+        List<String> ugc = a.ugc();
+        if (ugc == null || ugc.isEmpty()) {
+            return MatchType.BROADCAST;   // nothing to match on — see Javadoc
+        }
+
+        // Tier 2 — exact zone containment.
+        if (!userZones.isEmpty()) {
+            for (String code : ugc) {
+                if (userZones.contains(code.toUpperCase(Locale.ROOT))) return MatchType.ZONE;
+            }
+            // The user's zones ARE known and this alert does not target any of
+            // them. That is a definite no, not an unknown.
+            return null;
+        }
+
+        // Tier 3 — state prefix, when the point lookup was unavailable.
+        if (!userStates.isEmpty()) {
+            for (String code : ugc) {
+                if (code.length() >= 2
+                        && userStates.contains(code.substring(0, 2).toUpperCase(Locale.ROOT))) {
+                    return MatchType.STATE_PREFIX;
+                }
+            }
+            return null;
+        }
+
+        return MatchType.BROADCAST;
+    }
+
+    /** How an alert came to be considered relevant to a coordinate. */
+    public enum MatchType {
+        POLYGON("polygon"),
+        ZONE("zone"),
+        STATE_PREFIX("state_prefix"),
+        BROADCAST("broadcast");
+
+        private final String wire;
+        MatchType(String wire) { this.wire = wire; }
+        public String wire() { return wire; }
+    }
+
+    /** Zone codes covering a point, for consumers that also need the match reason. */
+    public Set<String> zoneCodesForPoint(double lat, double lng) {
+        return zoneService.zoneCodesForPoint(lat, lng);
+    }
+
+    /** {@code {AZZ560, AZC007}} -> {@code {AZ}}. Exposed alongside the above. */
+    public static Set<String> statePrefixesOf(Set<String> zoneCodes) {
+        return statePrefixes(zoneCodes);
+    }
+
+    /** {@code {AZZ560, AZC007}} -> {@code {AZ}}. */
+    private static Set<String> statePrefixes(Set<String> zoneCodes) {
+        if (zoneCodes == null || zoneCodes.isEmpty()) return Set.of();
+        Set<String> out = new HashSet<>(2);
+        for (String c : zoneCodes) {
+            if (c != null && c.length() >= 2) out.add(c.substring(0, 2).toUpperCase(Locale.ROOT));
+        }
+        return out;
     }
 
     /**
@@ -593,13 +965,95 @@ public class AlertIngestService {
     public record NormalizedAlert(
             String id,
             String source,
+            /**
+             * The NWS product name, verbatim — {@code "Extreme Heat Warning"},
+             * {@code "Red Flag Warning"}, {@code "Evacuation Immediate"}.
+             *
+             * <p><b>This is a controlled vocabulary of 111 values</b>
+             * ({@code api.weather.gov/alerts/types}) and it is the only honest
+             * key for template matching. The dispatcher used to substring-match
+             * a template's event word against the {@code headline}, which
+             * matched <b>26 of 310 live alerts (8.4%)</b> and mismatched a
+             * further 19% of those — "Flood" is a substring of "Flood
+             * <i>Watch</i>", so watches were dispatched with warning copy
+             * (audit P0-2, P0-3).</p>
+             *
+             * <p>Null for USGS and FEMA, which have no equivalent.</p>
+             */
+            String event,
             String severity,
+            /**
+             * CAP {@code urgency} — {@code Immediate | Expected | Future | Past | Unknown}.
+             *
+             * <p><b>{@code Past} means the alert is no longer a live
+             * instruction.</b> Measured on the 2026-08-22 feed: all five
+             * {@code Past} alerts were cancellations or supersessions
+             * ("The Extreme Heat Warning has been cancelled", "…has been
+             * replaced"). Dispatching one sends safety copy for a hazard that
+             * has been called off.</p>
+             *
+             * <p>{@code Future} is the watch shape — it is how CAP says
+             * "not yet", which is the distinction that used to live only
+             * inside a raw title string (audit P0-3).</p>
+             */
+            String urgency,
+            /**
+             * CAP {@code certainty} — {@code Observed | Likely | Possible |
+             * Unlikely | Unknown}. {@code Possible} is the other half of the
+             * watch shape: 11 of the 12 {@code Possible} alerts in the
+             * measured feed were Watch products.
+             */
+            String certainty,
+            /** CAP {@code messageType} — {@code Alert | Update | Cancel | Ack | Error}. */
+            String messageType,
+            /**
+             * CAP {@code status} — {@code Actual | Exercise | System | Test |
+             * Draft}. Anything but {@code Actual} is dropped at ingest; see
+             * {@link #parseNwsFeed}.
+             */
+            String status,
+            /**
+             * CAP {@code response} — {@code Shelter | Evacuate | Avoid |
+             * Execute | Prepare | Monitor | AllClear | None}. NWS's own
+             * one-word answer to "what do I do", and
+             * <b>{@code AllClear} means the danger has passed.</b>
+             */
+            String response,
             String headline,
             String description,
             String area,
             String startedAt,
             String endsAt,
             /** Raw GeoJSON geometry (map of {type, coordinates}), or null. */
-            Object geometry
+            Object geometry,
+            /**
+             * NWS UGC zone codes this alert targets — {@code ["AZZ560"]},
+             * {@code ["ORZ691", "WAZ690"]}. Empty for non-NWS sources.
+             *
+             * <p><b>This is the targeting key for 82% of alerts</b> (audit
+             * P0-4). Measured on the live feed: 254 of 310 active alerts carry
+             * no polygon, and <b>100% of those carry UGC</b>. NWS uses
+             * polygons for short-fuse storm-based products and zone codes for
+             * long-duration area-wide ones, so treating a null geometry as
+             * "location unknown" mislabelled every Extreme Heat Warning, Red
+             * Flag Warning and Flood Watch in the country.</p>
+             *
+             * <p>The first two characters are the state
+             * ({@code AZ}Z560), which is what makes the no-network fallback in
+             * {@link #getSnapshotForPoint} possible.</p>
+             *
+             * <p>{@code affectedZones} is deliberately NOT carried alongside
+             * this: it is the same codes expressed as URLs
+             * ({@code .../zones/forecast/AZZ560}), and storing one fact twice
+             * is how two fields start disagreeing.</p>
+             */
+            List<String> ugc,
+            /**
+             * SAME (county FIPS) codes — {@code ["004007"]}. Also 100% present
+             * on NWS alerts. Carried for consumers that key on county rather
+             * than zone; {@link #getSnapshotForPoint} matches on {@link #ugc}
+             * alone, which was verified sufficient.
+             */
+            List<String> same
     ) {}
 }

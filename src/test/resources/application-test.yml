@@ -26,3 +26,21 @@ spring:
     show-sql: false
   # Firebase Admin SDK init is still driven from the main config, but we
   # don't need a real project for the context-loads smoke test.
+
+# --- ALERTS: no live upstream traffic from a test JVM ---
+# The Spring-context smoke tests boot the real AlertIngestService, whose
+# @PostConstruct prime fetches NWS + USGS + FEMA for real. That predates the
+# alert epic and was ~3 requests. Zone warming (audit P0-4) turned it into
+# ~900: the first prime queues a centroid fetch for every distinct UGC zone in
+# the national feed, which is real traffic against api.weather.gov from
+# whatever machine happens to run `mvn package`.
+#
+# Disabling zones here is the narrow fix for the part this epic added. The
+# ingest prime itself still reaches out — a separate, pre-existing problem
+# worth its own pass.
+alerts:
+  ingest:
+    # No live NWS / USGS / FEMA calls from a test JVM.
+    primeOnStartup: false
+  zones:
+    enabled: false

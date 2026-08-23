@@ -1,20 +1,18 @@
 {
-  "_comment": "Auto-post body templates per alert source × severity. Loaded by AlertDispatchService at boot; editable without redeploy. Placeholders: {name}, {mag}, {distance}, {direction}, {duration}. Spec: docs/ALERTS_INTEGRATION.md 'Templates per source'. Copy reviewed 2026-04-30 for everyday-language tone — stay imperative + concrete, drop bureaucratic phrasing.",
+  "_comment": "Auto-post + push copy per alert source. Loaded by AlertDispatchService at boot; editable without a redeploy. Placeholders: {mag}, {place} — and ONLY those two. An unresolved slot has its whole sentence dropped at dispatch and is logged + Sentry-captured (audit P0-5, where a literal \"{distance}mi {direction}\" reached an APNs push). {distance}/{direction} are gone for good: distance is per-recipient and the push is one batched multicast for up to 500 people, so it cannot be personalised without abandoning the batch. {name} is gone because it resolved to the word \"Warning\". Spec: docs/ALERTS_INTEGRATION.md. Copy target is 6th-8th grade reading level — action first, no acronyms, no meteorological jargon. Measured against the live feed in AlertTemplateCoverageTest.",
+
+  "_matching": "NWS templates match on `eventAny` — the EXACT product name from api.weather.gov/alerts/types (111 values). This replaced substring-matching the headline (audit P0-2), which matched only 26 of 310 live alerts and gave 19% of those the wrong copy: 'Flood' is a substring of 'Flood Watch', so watches dispatched as warnings. Exact names also mean a future NWS rename fails the coverage test instead of silently disabling a hazard — which is exactly what happened when 'Excessive Heat Warning' became 'Extreme Heat Warning' and heat alerts went dark.",
+
+  "_tiers": "`tier` is warning | watch. Only `warning` earns a push (AlertDispatchService.isLifeThreatening); a watch gets a feed post and nothing that interrupts. This is the structural version of the Watch/Warning distinction that previously lived only inside a raw title string. Advisories are deliberately absent: they are Attention-mode per ALERTS_INTEGRATION.md, and giving them a template would put them in the push path.",
 
   "templates": [
+
+    "--- NWS · WARNING tier · take action now ---",
+
     {
       "source": "NWS",
-      "event": "Hurricane",
-      "severity": ["Severe", "Extreme"],
-      "hazardType": "hurricane",
-      "headline": "Hurricane warning",
-      "body": "Hurricane {name} is on the way. Bring loose stuff inside, fill up on water, charge your phones, and look at your evacuation plan now.",
-      "askTag": "Hurricane"
-    },
-    {
-      "source": "NWS",
-      "event": "Tornado",
-      "severity": ["Severe", "Extreme"],
+      "eventAny": ["Tornado Warning", "Extreme Wind Warning"],
+      "tier": "warning",
       "hazardType": "tornado",
       "headline": "Tornado warning",
       "body": "Tornado spotted. Get to the lowest floor and an inside room with no windows — right now.",
@@ -22,8 +20,17 @@
     },
     {
       "source": "NWS",
-      "event": "Flash Flood",
-      "severity": ["Severe", "Extreme"],
+      "eventAny": ["Severe Thunderstorm Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Severe thunderstorm warning",
+      "body": "Damaging wind and hail are moving in. Go inside now, stay off the road, and keep away from windows.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Flash Flood Warning", "Flash Flood Statement"],
+      "tier": "warning",
       "hazardType": "flood",
       "headline": "Flash flood warning",
       "body": "Flash flood happening now. Turn around, don't drown. Get to higher ground.",
@@ -31,79 +38,330 @@
     },
     {
       "source": "NWS",
-      "event": "Flood",
-      "severity": ["Severe", "Extreme"],
+      "eventAny": ["Flood Warning", "Flood Statement"],
+      "tier": "warning",
       "hazardType": "flood",
       "headline": "Flood warning",
-      "body": "Flood warning. Move what you can to higher floors. Don't drive through water — turn around, don't drown.",
+      "body": "Flooding is happening. Move what you can upstairs. Never drive through water — turn around, don't drown.",
       "askTag": "Flood"
     },
     {
       "source": "NWS",
-      "event": "Winter Storm",
-      "severity": ["Severe", "Extreme"],
-      "hazardType": "blizzard",
-      "headline": "Winter storm warning",
-      "body": "Winter storm coming. Make sure you have water, food, and a way to stay warm. Power may go out — check on neighbors who live alone.",
-      "askTag": "Blizzard"
+      "eventAny": ["Hurricane Warning", "Typhoon Warning"],
+      "tier": "warning",
+      "hazardType": "hurricane",
+      "headline": "Hurricane warning",
+      "body": "A hurricane is on the way. Bring loose things inside, fill up on water, charge your phones, and look at your evacuation plan now.",
+      "askTag": "Hurricane"
     },
     {
       "source": "NWS",
-      "event": "Blizzard",
-      "severity": ["Severe", "Extreme"],
+      "eventAny": ["Tropical Storm Warning", "Storm Warning"],
+      "tier": "warning",
+      "hazardType": "hurricane",
+      "headline": "Tropical storm warning",
+      "body": "Strong winds and heavy rain are coming. Bring loose things inside, charge your phones, and fill up on water.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Blizzard Warning"],
+      "tier": "warning",
       "hazardType": "blizzard",
       "headline": "Blizzard warning",
-      "body": "Blizzard warning. Stay off the roads. Have a backup way to keep warm, plus food and water. Check on neighbors who live alone.",
+      "body": "Stay off the roads. Have food, water, and a backup way to stay warm. Check on neighbors who live alone.",
       "askTag": "Blizzard"
     },
     {
       "source": "NWS",
-      "event": "Excessive Heat",
-      "severity": ["Severe", "Extreme"],
-      "hazardType": "heat",
-      "headline": "Dangerous heat",
-      "body": "Dangerous heat today. Drink water, find air conditioning, and skip outdoor exercise. Check on older neighbors and anyone without AC.",
-      "askTag": "Heat"
+      "eventAny": ["Winter Storm Warning", "Ice Storm Warning", "Snow Squall Warning", "Lake Effect Snow Warning"],
+      "tier": "warning",
+      "hazardType": "blizzard",
+      "headline": "Winter storm warning",
+      "body": "Heavy snow or ice is coming. Get water, food, and a way to stay warm. Power may go out — check on neighbors who live alone.",
+      "askTag": "Blizzard"
     },
     {
       "source": "NWS",
-      "event": "Fire Weather",
-      "severity": ["Severe", "Extreme"],
+      "eventAny": ["Extreme Cold Warning"],
+      "tier": "warning",
+      "hazardType": "blizzard",
+      "headline": "Dangerous cold",
+      "body": "Cold this bad can hurt you in minutes. Stay inside, cover every bit of skin if you go out, and check on older neighbors.",
+      "askTag": "Blizzard"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Extreme Heat Warning"],
+      "tier": "warning",
+      "hazardType": "heat",
+      "headline": "Dangerous heat",
+      "body": "Heat this high can make you sick fast. Drink water, find air conditioning, and skip outdoor work. Check on older neighbors and anyone without AC.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Red Flag Warning", "Extreme Fire Danger"],
+      "tier": "warning",
       "hazardType": "wildfire",
-      "headline": "Fire weather warning",
-      "body": "Conditions are right for fast-spreading fires. No outdoor burning. Pack a small bag with essentials in case you have to leave quickly.",
+      "headline": "Fire danger is high",
+      "body": "Any fire that starts today will spread fast. Don't burn anything outside. Pack a small bag in case you have to leave quickly.",
       "askTag": "Wildfire"
     },
     {
-      "source": "USGS",
-      "minMag": 5.5,
+      "source": "NWS",
+      "eventAny": ["Fire Warning"],
+      "tier": "warning",
+      "hazardType": "wildfire",
+      "headline": "Fire warning",
+      "body": "A fire is burning near you. Get your go-bag, keep your phone on, and be ready to leave the moment you're told to.",
+      "askTag": "Wildfire"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["High Wind Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "High wind warning",
+      "body": "Strong winds can bring down trees and power lines. Bring loose things inside and stay away from downed lines.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Dust Storm Warning", "Blowing Dust Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Dust storm warning",
+      "body": "You may not be able to see the road. If you're driving, pull all the way off, turn your lights off, and keep your foot off the brake.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Avalanche Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Avalanche warning",
+      "body": "Stay off and out from under steep slopes. Don't travel in the backcountry today.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Tsunami Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Tsunami warning",
+      "body": "Leave the beach and low ground now. Get high up or far inland on foot if you can. Don't wait to see the water.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Volcano Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Volcano warning",
+      "body": "Follow what local officials tell you. Stay inside, close windows and vents, and wear a mask if there's ash in the air.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Earthquake Warning"],
+      "tier": "warning",
       "hazardType": "earthquake",
-      "headline": "Earthquake felt nearby",
-      "body": "M{mag} earthquake about {distance}mi {direction}. Look around for damage to your home. Check for gas smell and water leaks.",
+      "headline": "Earthquake warning",
+      "body": "Drop, cover, and hold on. Stay away from windows. Expect more shaking after the first.",
       "askTag": "Earthquake"
     },
     {
+      "source": "NWS",
+      "eventAny": ["Air Quality Alert", "Dense Smoke Advisory"],
+      "tier": "warning",
+      "hazardType": "smoke",
+      "headline": "Unhealthy air",
+      "body": "Stay inside and keep windows shut. Set your AC to recirculate. Wear an N95 if you have to go out.",
+      "askTag": "Wildfire"
+    },
+
+    "--- NWS · WARNING tier · civil / non-weather emergencies relayed through NWS ---",
+    "These are IPAWS-originated messages a local authority pushed through the NWS dissemination path. Coverage is inconsistent by jurisdiction, so their PRESENCE is not a guarantee and their ABSENCE is not an all-clear — but when one arrives it is the single most important thing on the screen. See the P0-6 note in the epic tracker.",
+
+    {
+      "source": "NWS",
+      "eventAny": ["Evacuation Immediate"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Leave now",
+      "body": "Officials are telling people in your area to get out now. Take your go-bag, your medicines, and your people. Don't wait to pack more.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Shelter In Place Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Stay where you are",
+      "body": "Go inside now and stay there. Shut all doors and windows, turn off fans and AC, and wait for officials to say it's safe.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Civil Danger Warning", "Local Area Emergency", "Civil Emergency Message", "Law Enforcement Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Emergency in your area",
+      "body": "Officials have sent an emergency message for your area. Read it, do what it says, and stay off the phone unless you need help.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Hazardous Materials Warning", "Nuclear Power Plant Warning", "Radiological Hazard Warning"],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Chemical or radiation danger",
+      "body": "Go inside now. Shut doors, windows, and vents, and turn off anything pulling in outside air. Wait for officials to say it's safe.",
+      "askTag": null
+    },
+
+    "--- NWS · WATCH tier · get ready, do not interrupt ---",
+
+    {
+      "source": "NWS",
+      "eventAny": ["Tornado Watch"],
+      "tier": "watch",
+      "hazardType": "tornado",
+      "headline": "Tornado watch",
+      "body": "Tornadoes are possible today. Pick the room you'd go to — lowest floor, no windows — and keep your phone charged.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Severe Thunderstorm Watch"],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "Severe thunderstorm watch",
+      "body": "Strong storms are possible today. Bring loose things inside and keep your phone charged.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Flash Flood Watch", "Flood Watch"],
+      "tier": "watch",
+      "hazardType": "flood",
+      "headline": "Flood watch",
+      "body": "Flooding is possible. Move anything valuable up off the floor and plan a route that avoids low roads.",
+      "askTag": "Flood"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Hurricane Watch", "Typhoon Watch", "Tropical Storm Watch", "Storm Watch"],
+      "tier": "watch",
+      "hazardType": "hurricane",
+      "headline": "Hurricane watch",
+      "body": "A storm may reach you in about two days. Fill up on water and gas, refill medicines, and read your evacuation plan now.",
+      "askTag": "Hurricane"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Winter Storm Watch"],
+      "tier": "watch",
+      "hazardType": "blizzard",
+      "headline": "Winter storm watch",
+      "body": "Heavy snow or ice is possible. Stock up on food and water, and get a backup way to stay warm before it starts.",
+      "askTag": "Blizzard"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Extreme Cold Watch", "Freeze Watch", "Freeze Warning"],
+      "tier": "watch",
+      "hazardType": "blizzard",
+      "headline": "Hard freeze coming",
+      "body": "Cover outdoor pipes and let faucets drip. Bring in pets and plants, and get warm layers ready.",
+      "askTag": "Blizzard"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Extreme Heat Watch"],
+      "tier": "watch",
+      "hazardType": "heat",
+      "headline": "Dangerous heat coming",
+      "body": "It's going to get dangerously hot. Find a cool place you can go, stock up on water, and plan to check on older neighbors.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Fire Weather Watch"],
+      "tier": "watch",
+      "hazardType": "wildfire",
+      "headline": "Fire weather watch",
+      "body": "Conditions may turn dangerous for fire. Don't burn anything outside, and put a small go-bag by the door.",
+      "askTag": "Wildfire"
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["High Wind Watch"],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "High wind watch",
+      "body": "Strong winds are possible. Bring loose things inside and expect the power may go out.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Avalanche Watch"],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "Avalanche watch",
+      "body": "Avalanche danger is rising. Put off backcountry trips and check conditions before you go anywhere near steep slopes.",
+      "askTag": null
+    },
+    {
+      "source": "NWS",
+      "eventAny": ["Tsunami Watch", "Tsunami Advisory"],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "Tsunami watch",
+      "body": "A tsunami may be coming. Stay off the beach, know your route to high ground, and keep your phone on.",
+      "askTag": null
+    },
+
+    "--- USGS ---",
+
+    {
+      "source": "USGS",
+      "minMag": 5.5,
+      "tier": "warning",
+      "hazardType": "earthquake",
+      "headline": "Earthquake felt nearby",
+      "body": "Magnitude {mag} earthquake — {place}. Check your home for damage. Smell for gas and look for water leaks.",
+      "askTag": "Earthquake"
+    },
+
+    "--- FEMA · recovery context, never a push ---",
+
+    {
       "source": "FEMA",
       "incidentTypeAny": ["Hurricane", "Severe Storm", "Severe Storm(s)", "Coastal Storm"],
+      "tier": "watch",
       "hazardType": "hurricane",
       "headline": "FEMA disaster declared",
-      "body": "FEMA declared a disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
+      "body": "FEMA declared a disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
       "askTag": "Hurricane"
     },
     {
       "source": "FEMA",
       "incidentTypeAny": ["Fire"],
+      "tier": "watch",
       "hazardType": "wildfire",
       "headline": "FEMA wildfire disaster declared",
-      "body": "FEMA declared a wildfire disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
+      "body": "FEMA declared a wildfire disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
       "askTag": "Wildfire"
     },
     {
       "source": "FEMA",
       "_fallback": true,
+      "tier": "watch",
       "hazardType": "other",
       "headline": "FEMA disaster declared",
-      "body": "FEMA declared a disaster in your area. You may qualify for help with housing, repairs, or other recovery costs — fema.gov/assistance",
+      "body": "FEMA declared a disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
       "askTag": null
     }
   ]

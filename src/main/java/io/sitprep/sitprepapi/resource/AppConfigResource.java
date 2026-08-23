@@ -65,6 +65,18 @@ public class AppConfigResource {
      * not user-specific and the endpoint must succeed even before
      * sign-in so the welcome flow can render correctly.</p>
      */
+    /**
+     * The alerts radius, for server-side consumers.
+     *
+     * <p>Exists so {@code AlertCardDto.radiusMi} reads this value rather than
+     * carrying a copy of it (audit P1-7). Three layers already disagreed by
+     * 50x — 250 mi in the API default, 50 here, 5 hardcoded on two frontend
+     * surfaces — and a hand-copied literal in the DTO would have made four.</p>
+     */
+    public static int alertsRadiusMi() {
+        return RADIUS_MI.get("alerts");
+    }
+
     @GetMapping("/defaults")
     public ResponseEntity<Map<String, Object>> getDefaults() {
         Map<String, Object> body = Map.of(

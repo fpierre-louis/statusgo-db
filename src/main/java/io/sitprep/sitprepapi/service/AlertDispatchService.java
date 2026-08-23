@@ -17,6 +17,7 @@ import io.sitprep.sitprepapi.service.NominatimGeocodeService.Place;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -83,12 +85,34 @@ public class AlertDispatchService {
     /** Safety cap on a single alert's push fan-out. */
     private static final int MAX_PUSH_RECIPIENTS = 500;
 
+    /**
+     * How old a user's location fix may be and still be used for push
+     * targeting (audit P1-3).
+     *
+     * <p>Geolocation never auto-refreshes by policy — the cached coord is what
+     * the app reads until an explicit user gesture replaces it
+     * (docs/location/LOCATION_FRESHNESS.md). So without a bound, "last known
+     * location" can be arbitrarily old, and a life-safety push gets aimed at
+     * where someone was rather than where they are.</p>
+     *
+     * <p>14 days is a compromise, and worth naming as one: too short and a
+     * user who has not opened the app in a fortnight silently stops receiving
+     * warnings for their own home; too long and we are guessing. It is
+     * property-driven so it can be tuned without a redeploy.</p>
+     */
+    @Value("${alerts.push.locationMaxAgeDays:14}")
+    private int locationMaxAgeDays = 14;
+
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
     private final PostService taskService;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final NotificationService notificationService;
+    /** Zone centroids for the 82% of alerts that ship no polygon (audit P0-4). */
+    private final NwsZoneService zoneService;
+    /** Per-recipient send decision — honours the hazard opt-outs (audit P1-4). */
+    private final PushPolicyService pushPolicyService;
     private final ObjectMapper json = new ObjectMapper();
 
     private List<DispatchTemplate> templates = List.of();
@@ -98,13 +122,17 @@ public class AlertDispatchService {
                                 PostService taskService,
                                 UserInfoRepo userInfoRepo,
                                 NominatimGeocodeService geocode,
-                                NotificationService notificationService) {
+                                NotificationService notificationService,
+                                NwsZoneService zoneService,
+                                PushPolicyService pushPolicyService) {
         this.ingest = ingest;
         this.alertPostRepo = alertPostRepo;
         this.taskService = taskService;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.notificationService = notificationService;
+        this.zoneService = zoneService;
+        this.pushPolicyService = pushPolicyService;
     }
 
     @PostConstruct
@@ -124,7 +152,13 @@ public class AlertDispatchService {
             List<DispatchTemplate> loaded = new ArrayList<>(arr.size());
             Iterator<JsonNode> it = arr.elements();
             while (it.hasNext()) {
-                loaded.add(DispatchTemplate.fromJson(it.next()));
+                JsonNode n = it.next();
+                // The templates array carries bare strings as section headings
+                // ("--- NWS · WATCH tier ---"). JSON has no comments and this
+                // file is meant to be read and edited by hand, so the headings
+                // earn their keep; skipping non-objects is the cost.
+                if (!n.isObject()) continue;
+                loaded.add(DispatchTemplate.fromJson(n));
             }
             this.templates = List.copyOf(loaded);
             log.info("AlertDispatch: loaded {} dispatch templates", templates.size());
@@ -213,11 +247,27 @@ public class AlertDispatchService {
         for (NormalizedAlert a : snap.alerts()) {
             try {
                 if (a.id() == null || a.id().isBlank()) continue;
+
+                // An alert can arrive carrying its own retraction. Skip those
+                // before anything else — see isStillInForce.
+                if (!isStillInForce(a)) continue;
+
                 String alertId = a.source() + "-" + a.id();
 
-                // Geometry-required for v1 (FEMA declarations bucketed
-                // separately in a future state-keyed flow).
-                double[] coord = firstCoord(a.geometry());
+                // A representative coordinate for this alert. Polygon first;
+                // for the 82% of alerts that ship none, fall back to the
+                // centroid of a UGC zone they target (audit P0-4).
+                //
+                // This gate used to be `if (coord == null) continue;`, which
+                // meant every zone-only alert was silently skipped — no
+                // auto-post, no push. Measured: that dropped 40 of the 75
+                // live Severe alerts, including every Extreme Heat Warning
+                // and Red Flag Warning in the country.
+                //
+                // FEMA rows still fall through here and that is correct: they
+                // carry county NAMES, not codes, so there is genuinely nothing
+                // to resolve. Their state-keyed flow is separate work.
+                double[] coord = resolveDispatchCoord(a);
                 if (coord == null) continue;
 
                 // Reverse-geocode → zipBucket. Skip silently when the
@@ -255,9 +305,10 @@ public class AlertDispatchService {
                 // Fires exactly once per alert, all-time: the
                 // (alertId, geocellId) dedup above means this branch is
                 // reached only when a NEW AlertPost is created.
-                if (isLifeThreatening(a)) {
+                if (isLifeThreatening(a, tpl)) {
                     if (pushCandidates == null) {
-                        pushCandidates = userInfoRepo.findPushablesWithLocation();
+                        pushCandidates = userInfoRepo.findPushablesWithLocation(
+                                Instant.now().minus(Duration.ofDays(locationMaxAgeDays)));
                     }
                     pushSevereAlert(a, tpl, coord, pushCandidates);
                 }
@@ -390,11 +441,10 @@ public class AlertDispatchService {
         // newer alert replaces it) and renders the "Pinned by your area"
         // strip — replacing the old sticky top alert band.
         t.setKind("alert-update");
-        // Title and body filled from the template, with simple slot
-        // substitution. {name} pulls from headline; {mag}/{distance}
-        // are USGS-specific (parsed from headline).
+        // Title and body from the template. fillBody substitutes {mag} and
+        // {place} and guarantees no unresolved slot survives (audit P0-5).
         t.setTitle(tpl.headline);
-        t.setDescription(fillBody(tpl.body, a));
+        t.setDescription(fillBody(tpl, a));
         t.setPriority(PostPriority.URGENT);
         t.setStatus(PostStatus.OPEN);
         // DERIVED, NOT CAPTURED (V60). The alert's own end time has been on the
@@ -428,39 +478,150 @@ public class AlertDispatchService {
         return t;
     }
 
-    private static String fillBody(String body, NormalizedAlert a) {
+    /**
+     * Used only when a template's body AND its headline are both unusable.
+     * Plain, true, and actionable without knowing which hazard it is.
+     */
+    static final String LAST_RESORT_BODY = "Check local alerts for what to do.";
+
+    /** Any {@code {slot}} the substitution pass did not resolve. */
+    private static final java.util.regex.Pattern UNRESOLVED_SLOT =
+            java.util.regex.Pattern.compile("\\{[A-Za-z_][A-Za-z0-9_]*\\}");
+
+    /**
+     * Fill a template body's slots from the alert.
+     *
+     * <h3>Why {@code {distance}} / {@code {direction}} are gone (audit P0-5)</h3>
+     *
+     * <p>They were never substituted. {@code fillBody} documented the choice —
+     * "not computed in v1; leave the slot as a literal so future iterations can
+     * fill it" — and the literal string
+     * {@code "M6.2 earthquake about {distance}mi {direction}."} reached an APNs
+     * time-sensitive push that breaks through Focus modes.</p>
+     *
+     * <p><b>They cannot be computed where this runs.</b> Distance is a property
+     * of a (alert, recipient) pair, and this body is built once and handed to
+     * {@code sendHazardAlertBatch} as a single FCM MulticastMessage for up to
+     * 500 recipients. Personalising it means abandoning the batch for N
+     * sequential sends inside a transaction — a real regression in the
+     * life-safety path to gain a number the alert already expresses better.</p>
+     *
+     * <p>So {@code {place}} replaces them, filled from the alert's own area.
+     * USGS already ships a human-anchored location — <i>"14km E of Encinitas,
+     * CA"</i> — which beats "23mi NE" with no reference point, and is true for
+     * every recipient in the batch.</p>
+     *
+     * <h3>{@code {name}} is also gone</h3>
+     *
+     * <p>{@code inferAlertName} took the second token of the headline when the
+     * first was "Hurricane". Real NWS headlines read <i>"Hurricane Warning
+     * issued August 30 at 5:00AM EDT by NWS Miami FL"</i> — so the second token
+     * is <b>"Warning"</b>, and the copy rendered <i>"Hurricane Warning is on
+     * the way."</i> The storm name is not reliably in the headline; the
+     * template no longer claims it.</p>
+     */
+    static String fillBody(DispatchTemplate tpl, NormalizedAlert a) {
+        if (tpl == null) return "";
+        return fillBody(tpl.body, a, tpl.headline);
+    }
+
+    /**
+     * @param plainFallback the copy to fall back to if sanitising removes
+     *   every sentence. <b>Must be our own plain-language string</b> — see
+     *   {@link #sanitizeSlots}.
+     */
+    static String fillBody(String body, NormalizedAlert a, String plainFallback) {
         if (body == null) return "";
-        String headline = a.headline() == null ? "" : a.headline();
+        String headline = a == null || a.headline() == null ? "" : a.headline();
         String filled = body;
-        // {name}: pull a "name" from the NWS headline (best-effort —
-        // headlines typically read "Hurricane Helene warning" so we
-        // capture the second word for hurricanes; fall back to the
-        // hazard type word).
-        filled = filled.replace("{name}", inferAlertName(headline));
-        // {mag}: USGS magnitude from the headline format "M5.6 — ..."
+
         Double mag = parseUsgsMag(headline);
         if (mag != null) {
             filled = filled.replace("{mag}", String.format(Locale.ROOT, "%.1f", mag));
         }
-        // {distance} / {direction}: not computed in v1; leave the slot
-        // as a literal so future iterations can fill it without a
-        // template change.
-        return filled;
+
+        String place = a == null ? null : a.area();
+        if (place != null && !place.isBlank()) {
+            filled = filled.replace("{place}", place.trim());
+        }
+
+        return sanitizeSlots(filled, plainFallback);
     }
 
-    private static String inferAlertName(String headline) {
-        if (headline == null || headline.isBlank()) return "";
-        // Crude: split by spaces, take the second token if the first
-        // is a known hazard noun (Hurricane Helene → Helene).
-        String[] parts = headline.trim().split("\\s+");
-        if (parts.length >= 2) {
-            String head = parts[0].toLowerCase(Locale.ROOT);
-            if (head.equals("hurricane") || head.equals("tropical")) {
-                return parts[1].replaceAll("[^A-Za-z0-9]", "");
-            }
+    /**
+     * Guarantee no unresolved slot ever reaches a user.
+     *
+     * <p>The template set is clean today and there is a test asserting it. This
+     * exists anyway because {@code alert-dispatch-templates.json} is edited by
+     * hand <b>without a redeploy</b> — so "the templates are correct" is a
+     * property of the current file, not of the system. P0-5 was exactly this
+     * failure, and the fix is not worth much if the next hand-edit can
+     * reintroduce it.</p>
+     *
+     * <p>An unresolved slot removes <b>the whole sentence containing it</b>,
+     * not just the token: deleting the token alone leaves "about mi ." which
+     * reads as a rendering bug and is arguably worse than the brace.</p>
+     *
+     * <h3>The fallback is our copy, never the wire text</h3>
+     *
+     * <p>If sanitising removes every sentence, this falls back to
+     * {@code plainFallback} — the <b>template's own headline</b> ("Dangerous
+     * heat"), which we authored and measured for reading level.</p>
+     *
+     * <p>It deliberately does <b>not</b> fall back to
+     * {@code NormalizedAlert.headline()}. That is the raw NWS wire string —
+     * <i>"Extreme Heat Warning issued August 22 at 11:42AM MST until August 29
+     * at 8:00PM MST by NWS Phoenix AZ"</i> — carrying the issuing office and
+     * two absolute timestamps. It was the first version of this method, and it
+     * meant the safety net for a broken template was to reintroduce the exact
+     * jargon P0-1 through P0-3 exist to remove, on the rare path instead of the
+     * common one. A degraded path is still a user-facing path.</p>
+     */
+    static String sanitizeSlots(String filled, String plainFallback) {
+        if (filled == null) return "";
+        if (!UNRESOLVED_SLOT.matcher(filled).find()) {
+            return collapseSpaces(filled);
         }
-        return "";
+
+        // Split on sentence ends, keeping the terminator with its sentence.
+        String[] sentences = filled.split("(?<=[.!?])\\s+");
+        StringBuilder kept = new StringBuilder();
+        List<String> dropped = new ArrayList<>();
+        for (String sentence : sentences) {
+            if (UNRESOLVED_SLOT.matcher(sentence).find()) {
+                dropped.add(sentence.trim());
+                continue;
+            }
+            if (kept.length() > 0) kept.append(' ');
+            kept.append(sentence.trim());
+        }
+
+        String result = collapseSpaces(kept.toString());
+        if (result.isBlank()) {
+            result = collapseSpaces(plainFallback == null ? "" : plainFallback);
+        }
+        if (result.isBlank()) {
+            // Both the body and our own headline are unusable. Say something
+            // true and plain rather than nothing or wire text.
+            result = LAST_RESORT_BODY;
+        }
+
+        // A template bug should be loud. It is editable without a deploy, so
+        // the log line is how anyone finds out it happened.
+        log.warn("AlertDispatch: template body had unresolved slot(s) {} — dropped that sentence. "
+                + "Fix alert-dispatch-templates.json.", dropped);
+        try { Sentry.captureMessage("Alert template contained an unresolved slot: " + dropped); }
+        catch (Throwable ignored) {}
+
+        return result;
     }
+
+    private static String collapseSpaces(String s) {
+        return s == null ? "" : s.replaceAll("\\s{2,}", " ").trim();
+    }
+
+    /** Package-visible alias so the feed mapper can read magnitude too. */
+    static Double parseUsgsMagnitude(String headline) { return parseUsgsMag(headline); }
 
     private static Double parseUsgsMag(String headline) {
         if (headline == null) return null;
@@ -481,18 +642,81 @@ public class AlertDispatchService {
 
     /**
      * Whether an alert warrants an FCM push, not just a feed post.
-     * v1: NWS warnings at Severe or Extreme severity — the "take cover
-     * now" tier (Tornado / Flash Flood / Hurricane / etc. Warnings).
-     * USGS quakes are excluded: the shaking has already happened, so
-     * the feed post is sufficient and a push would be after-the-fact
-     * noise. A per-template {@code push} flag is the natural way to
-     * make this configurable later.
+     *
+     * <p><b>Keyed on the template's tier, not on CAP severity</b> (audit
+     * P0-3). Severity was the wrong instrument: NWS rates a <i>Flood
+     * Watch</i> "Severe" — the same value a Flood <i>Warning</i> carries —
+     * so a severity gate could not tell "flooding is possible tonight" from
+     * "flooding is happening now", and pushed both. The product name knows
+     * the difference, and {@code tier} is that distinction made explicit in
+     * the one place the copy is authored.
+     *
+     * <p>USGS quakes are excluded: the shaking has already happened, so the
+     * feed post is sufficient and a push would be after-the-fact noise.
+     * FEMA declarations are recovery context and are all watch-tier.
      */
-    private static boolean isLifeThreatening(NormalizedAlert a) {
-        if (a == null || a.source() == null || a.severity() == null) return false;
+    /**
+     * Is this alert still telling people to do something?
+     *
+     * <p>Two CAP fields say "no", and both were being dropped at the
+     * normalizer (audit P0-3):</p>
+     *
+     * <ul>
+     *   <li><b>{@code response == AllClear}</b> — the alert exists to say the
+     *       danger has passed.</li>
+     *   <li><b>{@code urgency == Past}</b> — the alert is retrospective.</li>
+     * </ul>
+     *
+     * <p>This is not theoretical. On the measured 2026-08-22 feed, all five
+     * {@code Past} alerts were retractions, three of them also
+     * {@code AllClear}, and one of those was an <b>Extreme Heat Warning whose
+     * headline reads "The Extreme Heat Warning has been cancelled."</b> With
+     * P0-2's exact-event matching that row matches the "Dangerous heat"
+     * template, which is warning-tier — so without this gate it would have
+     * sent an APNs time-sensitive push telling people to seek air
+     * conditioning for a warning that had just been called off. The other two
+     * {@code Past} rows are supersessions ("…has been replaced"), which
+     * {@code AllClear} alone does not catch, which is why both fields are
+     * checked rather than one.</p>
+     *
+     * <p>Note this is a different question from expiry. An alert can be
+     * within its {@code endsAt} window and still be a retraction; that is
+     * exactly what these five were.</p>
+     */
+    static boolean isStillInForce(NormalizedAlert a) {
+        if (a == null) return false;
+        if ("AllClear".equalsIgnoreCase(a.response())) return false;
+        if ("Past".equalsIgnoreCase(a.urgency())) return false;
+        return true;
+    }
+
+    /**
+     * Cross-check the template's declared tier against the alert's own CAP
+     * shape, and refuse the mismatch.
+     *
+     * <p>Exact-event matching (P0-2) already prevents a Watch product from
+     * reaching Warning copy, so in a correct configuration this never fires.
+     * It exists because {@code alert-dispatch-templates.json} is edited by
+     * hand without a deploy: the one thing standing between a mis-typed
+     * {@code "tier": "warning"} on a Watch product and an interruptive push is
+     * a human noticing. CAP already knows the answer —
+     * {@code certainty: Possible} and {@code urgency: Future} are how the
+     * issuer says "not yet" — so we ask it rather than trusting our own
+     * config.</p>
+     */
+    static boolean tierMatchesAlertShape(NormalizedAlert a, DispatchTemplate tpl) {
+        if (a == null || tpl == null) return false;
+        if (!tpl.isWarningTier()) return true;   // watch copy is never the dangerous direction
+        if ("Possible".equalsIgnoreCase(a.certainty())) return false;
+        if ("Future".equalsIgnoreCase(a.urgency())) return false;
+        return true;
+    }
+
+    static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl) {
+        if (a == null || a.source() == null || tpl == null) return false;
         if (!"NWS".equalsIgnoreCase(a.source())) return false;
-        return "Severe".equalsIgnoreCase(a.severity())
-                || "Extreme".equalsIgnoreCase(a.severity());
+        if (!isStillInForce(a)) return false;
+        return tpl.isWarningTier() && tierMatchesAlertShape(a, tpl);
     }
 
     /**
@@ -534,6 +758,33 @@ public class AlertDispatchService {
         }
         if (nearby.isEmpty()) return;
 
+        // ── PUSH POLICY (audit P1-4) ──────────────────────────────────────
+        // Until now this path never consulted PushPolicyService, so the three
+        // hazard toggles on /account/alert-preferences — "NWS weather alerts",
+        // "Earthquakes", "Wildfires nearby" — were decorative. A user who
+        // unchecked one still got the push. The categories existed, the
+        // evaluate() chokepoint existed, and nothing connected them.
+        //
+        // Only Lane A recipients receive the push. Warning-tier alerts carry
+        // the critical bypass, so quiet hours still do not suppress a
+        // life-safety warning (see PushPolicyService.isCriticalBypass) — the
+        // change here is that an explicit opt-out is finally honoured, which
+        // is a stronger user signal than a quiet window.
+        PushPolicyService.Category category = pushCategoryFor(a, tpl);
+        List<UserInfo> laneA = new ArrayList<>(nearby.size());
+        int suppressed = 0;
+        for (UserInfo u : nearby) {
+            PushPolicyService.Lane lane =
+                    pushPolicyService.evaluate(u.getUserEmail(), category, a.severity());
+            if (lane == PushPolicyService.Lane.A) laneA.add(u); else suppressed++;
+        }
+        if (suppressed > 0) {
+            log.info("AlertDispatch: {} of {} nearby user(s) suppressed by push policy for {}",
+                    suppressed, nearby.size(), a.source() + "-" + a.id());
+        }
+        if (laneA.isEmpty()) return;
+        nearby = laneA;
+
         String title = (tpl != null && tpl.headline != null && !tpl.headline.isBlank())
                 ? tpl.headline
                 : "Severe weather alert nearby";
@@ -550,12 +801,32 @@ public class AlertDispatchService {
     }
 
     /**
+     * Which preference toggle governs this alert.
+     *
+     * <p>Maps to the categories {@code PushPolicyService} already defines and
+     * {@code AlertPreferencesPage} already renders — this is the wiring that
+     * was missing, not a new vocabulary. Hazard type is the discriminator
+     * because it is what the user sees on the settings screen: someone who
+     * mutes "Wildfires nearby" means the Red Flag Warning, whichever office
+     * issued it.</p>
+     */
+    static PushPolicyService.Category pushCategoryFor(NormalizedAlert a, DispatchTemplate tpl) {
+        if (a != null && "USGS".equalsIgnoreCase(a.source())) {
+            return PushPolicyService.Category.USGS_QUAKE_MAJOR;
+        }
+        if (tpl != null && HazardType.WILDFIRE.wire().equals(tpl.hazardType)) {
+            return PushPolicyService.Category.WILDFIRE_NEAR;
+        }
+        return PushPolicyService.Category.NWS_SEVERE_EXTREME;
+    }
+
+    /**
      * Push body — prefer the curated template body (concise safety
      * guidance), fall back to the raw NWS headline.
      */
     private static String buildPushBody(NormalizedAlert a, DispatchTemplate tpl) {
         if (tpl != null && tpl.body != null && !tpl.body.isBlank()) {
-            return fillBody(tpl.body, a);
+            return fillBody(tpl, a);
         }
         return a.headline() != null ? a.headline() : "Tap for safety steps.";
     }
@@ -583,39 +854,103 @@ public class AlertDispatchService {
     }
 
     /**
-     * First [lon, lat] coord from a GeoJSON geometry. Mirrors
-     * {@code AlertIngestService.firstCoord} but inlined here since
-     * that method is private.
+     * A representative {@code [lon, lat]} for an alert, or null when it has no
+     * location this pipeline can resolve.
+     *
+     * <p>Polygon first, then the centroid of the first UGC zone we have warmed
+     * (audit P0-4). {@link NwsZoneService#centroidForZone} is cache-only and
+     * non-blocking by design — a zone not yet warmed returns null here and the
+     * alert dispatches on a later tick, which is a bounded delay on a 5-minute
+     * cron rather than a 200 ms upstream call inside this transaction.</p>
+     */
+    private double[] resolveDispatchCoord(NormalizedAlert a) {
+        double[] fromGeometry = centroidOfGeometry(a.geometry());
+        if (fromGeometry != null) return fromGeometry;
+
+        if (a.ugc() == null) return null;
+        for (String ugc : a.ugc()) {
+            Optional<double[]> centroid = zoneService.centroidForZone(ugc);
+            if (centroid.isPresent()) {
+                double[] latLng = centroid.get();
+                return new double[] { latLng[1], latLng[0] };   // -> [lon, lat]
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Representative {@code [lon, lat]} for a GeoJSON geometry — the mean of
+     * every vertex (audit P1-3).
+     *
+     * <p>This replaced a {@code firstCoord} helper that took <b>the first
+     * vertex of the first ring</b> (now deleted). That coordinate is an arbitrary corner of the
+     * polygon, and it was doing three jobs: placing the auto-post, and
+     * centring an 80 km push radius. On a long county-spanning warning
+     * polygon the first vertex can sit tens of miles from the affected
+     * population, so the push circle was offset by that much — reaching people
+     * outside the warning and missing people inside it.</p>
+     *
+     * <p>Same arithmetic as {@link NwsZoneService#centroidOf}, over a {@code
+     * Map} rather than a {@code JsonNode} because that is the shape the ingest
+     * normalizer stores. Not an area centroid, deliberately: a vertex mean is
+     * stable, cheap, has no degenerate cases, and is strictly closer to the
+     * affected area than a corner.</p>
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static double[] firstCoord(Object geom) {
+    static double[] centroidOfGeometry(Object geom) {
         if (!(geom instanceof Map)) return null;
-        Map m = (Map) geom;
-        Object type = m.get("type");
-        Object coords = m.get("coordinates");
-        if (!(type instanceof String) || coords == null) return null;
-        try {
-            switch ((String) type) {
-                case "Point": {
-                    List<Number> p = (List<Number>) coords;
-                    return new double[] { p.get(0).doubleValue(), p.get(1).doubleValue() };
-                }
-                case "Polygon": {
-                    List<List<List<Number>>> rings = (List<List<List<Number>>>) coords;
-                    List<Number> v = rings.get(0).get(0);
-                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
-                }
-                case "MultiPolygon": {
-                    List<List<List<List<Number>>>> polys = (List<List<List<List<Number>>>>) coords;
-                    List<Number> v = polys.get(0).get(0).get(0);
-                    return new double[] { v.get(0).doubleValue(), v.get(1).doubleValue() };
-                }
-                default:
-                    return null;
+        Object coords = ((Map) geom).get("coordinates");
+        if (coords == null) return null;
+        double[] acc = new double[2];
+        int[] n = new int[1];
+        accumulateCoords(coords, acc, n);
+        if (n[0] == 0) return null;
+        return new double[] { acc[0] / n[0], acc[1] / n[0] };   // [lon, lat]
+    }
+
+    /**
+     * Walk arbitrarily-nested coordinate lists down to [lon, lat] pairs.
+     *
+     * <p><b>Skips a ring's closing vertex.</b> GeoJSON requires a linear ring
+     * to repeat its first position as its last, so a naive vertex mean
+     * double-counts that corner and pulls the centroid toward it. On a
+     * 500-vertex NWS polygon the bias is negligible; on a simple 5-point county
+     * box it moves the result by a fifth of the polygon's width — and a box is
+     * exactly the shape a hand-drawn warning tends to be.</p>
+     */
+    @SuppressWarnings("rawtypes")
+    private static void accumulateCoords(Object node, double[] acc, int[] n) {
+        if (!(node instanceof List)) return;
+        List list = (List) node;
+        if (list.isEmpty()) return;
+        if (list.get(0) instanceof Number) {
+            if (list.size() >= 2) {
+                acc[0] += ((Number) list.get(0)).doubleValue();
+                acc[1] += ((Number) list.get(1)).doubleValue();
+                n[0]++;
             }
-        } catch (Exception ex) {
-            return null;
+            return;
         }
+        int size = list.size();
+        // A ring: first element is itself a coordinate pair, and the last
+        // repeats the first. Drop the duplicate.
+        if (size > 1 && isCoordPair(list.get(0)) && samePosition(list.get(0), list.get(size - 1))) {
+            size--;
+        }
+        for (int i = 0; i < size; i++) accumulateCoords(list.get(i), acc, n);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private static boolean isCoordPair(Object o) {
+        return o instanceof List && ((List) o).size() >= 2 && ((List) o).get(0) instanceof Number;
+    }
+
+    @SuppressWarnings("rawtypes")
+    private static boolean samePosition(Object a, Object b) {
+        if (!isCoordPair(a) || !isCoordPair(b)) return false;
+        List la = (List) a, lb = (List) b;
+        return ((Number) la.get(0)).doubleValue() == ((Number) lb.get(0)).doubleValue()
+                && ((Number) la.get(1)).doubleValue() == ((Number) lb.get(1)).doubleValue();
     }
 
     /**
@@ -636,10 +971,14 @@ public class AlertDispatchService {
     // Template DTO
     // ---------------------------------------------------------------
 
+    static final String TIER_WARNING = "warning";
+
     static final class DispatchTemplate {
         final String source;
-        final String event;
-        final List<String> severity;
+        /** Exact NWS product names this template covers. */
+        final List<String> eventAny;
+        /** {@code warning} | {@code watch} — drives push eligibility. */
+        final String tier;
         final List<String> incidentTypeAny;
         final Double minMag;
         final boolean fallback;
@@ -648,12 +987,12 @@ public class AlertDispatchService {
         final String body;
         final String askTag;
 
-        DispatchTemplate(String source, String event, List<String> severity,
+        DispatchTemplate(String source, List<String> eventAny, String tier,
                          List<String> incidentTypeAny, Double minMag, boolean fallback,
                          String hazardType, String headline, String body, String askTag) {
             this.source = source;
-            this.event = event;
-            this.severity = severity;
+            this.eventAny = eventAny;
+            this.tier = tier;
             this.incidentTypeAny = incidentTypeAny;
             this.minMag = minMag;
             this.fallback = fallback;
@@ -663,33 +1002,40 @@ public class AlertDispatchService {
             this.askTag = askTag;
         }
 
+        /**
+         * Does this template describe this alert?
+         *
+         * <p><b>NWS matches on the exact product name</b>, not on a substring
+         * of the headline (audit P0-2). The old rule asked whether the
+         * template's event word appeared anywhere in the headline, which
+         * failed in both directions at once: it matched only 26 of 310 live
+         * alerts because "Excessive Heat" is not a product NWS issues any
+         * more, and it over-matched because "Flood" is a substring of "Flood
+         * Watch" — so 5 of those 26 were watches dispatched as warnings.</p>
+         */
         boolean matchesAlert(NormalizedAlert a) {
             if (a == null || a.source() == null) return false;
             if (!source.equalsIgnoreCase(a.source())) return false;
             if (fallback) return true;
 
             String headline = a.headline() == null ? "" : a.headline();
-            String headlineLower = headline.toLowerCase(Locale.ROOT);
 
-            // Event substring match (NWS templates carry an `event`
-            // field; we look it up in the headline since NormalizedAlert
-            // doesn't carry the raw NWS `event` property separately).
-            if (event != null && !event.isBlank()
-                    && !headlineLower.contains(event.toLowerCase(Locale.ROOT))) {
-                return false;
+            // NWS: exact product name, case-insensitive. A template that
+            // declares eventAny matches nothing else, so an alert whose
+            // product we have no copy for is simply not dispatched — which is
+            // the honest outcome, and is what makes the coverage test able to
+            // catch a rename.
+            if (eventAny != null && !eventAny.isEmpty()) {
+                if (a.event() == null || a.event().isBlank()) return false;
+                boolean hit = eventAny.stream().anyMatch(e -> e.equalsIgnoreCase(a.event()));
+                if (!hit) return false;
             }
 
-            // Severity match (NWS).
-            if (severity != null && !severity.isEmpty()) {
-                if (a.severity() == null) return false;
-                boolean sevOk = severity.stream()
-                        .anyMatch(s -> s.equalsIgnoreCase(a.severity()));
-                if (!sevOk) return false;
-            }
-
-            // FEMA incidentType — substring match against headline
-            // (which we constructed as "{incidentType} — {title}").
+            // FEMA incidentType — still a substring match against the headline
+            // we constructed as "{incidentType} — {title}". FEMA has no
+            // controlled product vocabulary to match exactly against.
             if (incidentTypeAny != null && !incidentTypeAny.isEmpty()) {
+                String headlineLower = headline.toLowerCase(Locale.ROOT);
                 boolean any = incidentTypeAny.stream()
                         .anyMatch(it -> headlineLower.contains(it.toLowerCase(Locale.ROOT)));
                 if (!any) return false;
@@ -704,11 +1050,16 @@ public class AlertDispatchService {
             return true;
         }
 
+        /** Warning-tier copy interrupts; watch-tier copy does not. */
+        boolean isWarningTier() {
+            return TIER_WARNING.equalsIgnoreCase(tier);
+        }
+
         static DispatchTemplate fromJson(JsonNode n) {
             return new DispatchTemplate(
                     text(n, "source"),
-                    text(n, "event"),
-                    stringArray(n, "severity"),
+                    stringArray(n, "eventAny"),
+                    text(n, "tier"),
                     stringArray(n, "incidentTypeAny"),
                     n.has("minMag") ? n.get("minMag").asDouble() : null,
                     n.path("_fallback").asBoolean(false),
