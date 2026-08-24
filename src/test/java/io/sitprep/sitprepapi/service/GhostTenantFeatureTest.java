@@ -217,9 +217,27 @@ class GhostTenantFeatureTest {
         groupRepo.saveAndFlush(g);
 
         String valid = outreachTokenService.generateToken(g.getGroupId(), "mayor@testville.gov");
-        // Flip the final signature char — invalidates the HMAC (guaranteed different).
-        char last = valid.charAt(valid.length() - 1);
-        String tampered = valid.substring(0, valid.length() - 1) + (last == 'A' ? 'B' : 'A');
+
+        // Tamper with the FIRST signature character, not the last.
+        //
+        // This used to flip the last character, commented "guaranteed
+        // different". It is not. Base64url packs 6 bits per character, and a
+        // 256-bit HMAC is 43 characters — so the final character carries only 4
+        // significant bits and 2 bits of padding the decoder throws away. Any
+        // last char in {A,B,C,D} shares the same significant nibble, so the
+        // "tampered" token decoded to the identical signature bytes, validated,
+        // and opt-out returned 200 instead of 400. Measured at roughly one run
+        // in fifteen: a security test that passed a forged token, in a repo
+        // where a failing test on Heroku is a rollback rather than a warning.
+        //
+        // The first signature character has all six bits significant, so
+        // changing it always changes signature byte 0. Deterministic.
+        int sigStart = valid.lastIndexOf('.') + 1;
+        char first = valid.charAt(sigStart);
+        String tampered = valid.substring(0, sigStart)
+                + (first == 'A' ? 'B' : 'A')
+                + valid.substring(sigStart + 1);
+        assertThat(tampered).isNotEqualTo(valid);
 
         ResponseEntity<String> resp = publicOutreachResource.optOut(tampered);
 
