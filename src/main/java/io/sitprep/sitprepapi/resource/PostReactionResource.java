@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.service.PostReactionService;
+import io.sitprep.sitprepapi.service.ThreadAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,9 +33,12 @@ import java.util.Map;
 public class PostReactionResource {
 
     private final PostReactionService service;
+    private final ThreadAccessService threadAccess;
 
-    public PostReactionResource(PostReactionService service) {
+    public PostReactionResource(PostReactionService service,
+                                ThreadAccessService threadAccess) {
         this.service = service;
+        this.threadAccess = threadAccess;
     }
 
     @PostMapping
@@ -42,6 +46,7 @@ public class PostReactionResource {
             @PathVariable Long postId,
             @RequestBody AddReactionRequest body) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessPost(postId, actor);
         Map<String, List<EmojiReactionDto>> reactions =
                 service.add(postId, actor, body == null ? null : body.emoji());
         return ResponseEntity.ok(reactions);
@@ -52,6 +57,7 @@ public class PostReactionResource {
             @PathVariable Long postId,
             @PathVariable String emoji) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessPost(postId, actor);
         // Path emoji is decoded by Spring; clients should encodeURIComponent.
         Map<String, List<EmojiReactionDto>> reactions = service.remove(postId, actor, emoji);
         return ResponseEntity.ok(reactions);
@@ -59,7 +65,7 @@ public class PostReactionResource {
 
     @GetMapping
     public ResponseEntity<Map<String, List<EmojiReactionDto>>> list(@PathVariable Long postId) {
-        AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessPost(postId, AuthUtils.requireAuthenticatedEmail());
         return ResponseEntity.ok(service.loadByPostId(postId));
     }
 

@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.service.GroupPostCommentService;
+import io.sitprep.sitprepapi.service.ThreadAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -31,15 +32,29 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/group-post-comments")
 public class GroupPostCommentResource {
     private final GroupPostCommentService commentService;
+    private final ThreadAccessService threadAccess;
 
     @Autowired
-    public GroupPostCommentResource(GroupPostCommentService commentService) {
+    public GroupPostCommentResource(GroupPostCommentService commentService,
+                                    ThreadAccessService threadAccess) {
         this.commentService = commentService;
+        this.threadAccess = threadAccess;
     }
 
+    /**
+     * Comment on a group chat post.
+     *
+     * <p>Overriding the author from the token blocks identity spoofing — you
+     * cannot comment <em>as</em> someone else. Until 2026-08-24 nothing blocked
+     * commenting <em>into</em> someone else's group: postId came off the body,
+     * ids are sequential, and the comment is delivered to every member of that
+     * group as a push notification. Signing your own name to it was the only
+     * constraint.</p>
+     */
     @PostMapping
     public ResponseEntity<GroupPostCommentDto> createComment(@RequestBody GroupPostCommentDto dto) {
         String author = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPost(dto == null ? null : dto.getPostId(), author);
         // Always trust the token over the body. An attacker can't post a
         // comment under another user's email even if the body says so.
         dto.setAuthor(author);

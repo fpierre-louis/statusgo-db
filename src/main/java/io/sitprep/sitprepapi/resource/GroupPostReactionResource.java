@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.service.GroupPostReactionService;
+import io.sitprep.sitprepapi.service.ThreadAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,9 +23,12 @@ import java.util.Map;
 public class GroupPostReactionResource {
 
     private final GroupPostReactionService service;
+    private final ThreadAccessService threadAccess;
 
-    public GroupPostReactionResource(GroupPostReactionService service) {
+    public GroupPostReactionResource(GroupPostReactionService service,
+                                     ThreadAccessService threadAccess) {
         this.service = service;
+        this.threadAccess = threadAccess;
     }
 
     @PostMapping
@@ -32,6 +36,7 @@ public class GroupPostReactionResource {
             @PathVariable Long postId,
             @RequestBody AddReactionRequest body) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPost(postId, actor);
         Map<String, List<EmojiReactionDto>> reactions =
                 service.add(postId, actor, body == null ? null : body.emoji());
         return ResponseEntity.ok(reactions);
@@ -42,6 +47,7 @@ public class GroupPostReactionResource {
             @PathVariable Long postId,
             @PathVariable String emoji) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPost(postId, actor);
         // Path emoji is decoded by Spring; clients should encodeURIComponent.
         Map<String, List<EmojiReactionDto>> reactions = service.remove(postId, actor, emoji);
         return ResponseEntity.ok(reactions);
@@ -49,7 +55,7 @@ public class GroupPostReactionResource {
 
     @GetMapping
     public ResponseEntity<Map<String, List<EmojiReactionDto>>> list(@PathVariable Long postId) {
-        AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPost(postId, AuthUtils.requireAuthenticatedEmail());
         return ResponseEntity.ok(service.loadByPostId(postId));
     }
 

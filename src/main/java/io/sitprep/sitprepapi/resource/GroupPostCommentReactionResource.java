@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
 import io.sitprep.sitprepapi.service.GroupPostCommentReactionService;
+import io.sitprep.sitprepapi.service.ThreadAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,9 +29,12 @@ import java.util.Map;
 public class GroupPostCommentReactionResource {
 
     private final GroupPostCommentReactionService service;
+    private final ThreadAccessService threadAccess;
 
-    public GroupPostCommentReactionResource(GroupPostCommentReactionService service) {
+    public GroupPostCommentReactionResource(GroupPostCommentReactionService service,
+                                            ThreadAccessService threadAccess) {
         this.service = service;
+        this.threadAccess = threadAccess;
     }
 
     @PostMapping
@@ -38,6 +42,7 @@ public class GroupPostCommentReactionResource {
             @PathVariable Long groupPostCommentId,
             @RequestBody AddReactionRequest body) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPostComment(groupPostCommentId, actor);
         Map<String, List<EmojiReactionDto>> reactions =
                 service.add(groupPostCommentId, actor, body == null ? null : body.emoji());
         return ResponseEntity.ok(reactions);
@@ -48,6 +53,7 @@ public class GroupPostCommentReactionResource {
             @PathVariable Long groupPostCommentId,
             @PathVariable String emoji) {
         String actor = AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPostComment(groupPostCommentId, actor);
         // Path emoji is decoded by Spring; clients should encodeURIComponent.
         Map<String, List<EmojiReactionDto>> reactions =
                 service.remove(groupPostCommentId, actor, emoji);
@@ -57,7 +63,8 @@ public class GroupPostCommentReactionResource {
     @GetMapping
     public ResponseEntity<Map<String, List<EmojiReactionDto>>> list(
             @PathVariable Long groupPostCommentId) {
-        AuthUtils.requireAuthenticatedEmail();
+        threadAccess.requireCanAccessGroupPostComment(
+                groupPostCommentId, AuthUtils.requireAuthenticatedEmail());
         return ResponseEntity.ok(service.loadByGroupPostCommentId(groupPostCommentId));
     }
 
