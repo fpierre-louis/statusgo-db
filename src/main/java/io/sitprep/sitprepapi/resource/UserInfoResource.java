@@ -314,14 +314,44 @@ public class UserInfoResource {
     }
 
     /**
+     * How many emails one batch lookup may resolve.
+     *
+     * <p>Sized for the job: this endpoint exists to render a roster or a comment
+     * thread in one round trip, and no group has thousands of members. The
+     * frontend sends one entry per visible person and nothing chunks above this.</p>
+     */
+    private static final int MAX_BATCH_EMAILS = 500;
+
+    /**
      * Batch profile lookup. Body: {@code { "emails": ["a@x", "b@y", ...] }}.
      * Returns one {@link ProfileSummaryDto} per known email; unknown/blank
      * emails are omitted. Replaces per-email fan-out on group rosters.
+     *
+     * <p><b>Bounded since 2026-08-24.</b> The list was unbounded, and "omitted
+     * when unknown" makes the response an oracle: post fifty thousand addresses
+     * and the ones that come back are SitPrep accounts, with their names and
+     * avatars attached. That is account enumeration at scale in a single
+     * request, and it walked straight around the deliberate opt-in discovery
+     * contract in {@link UserSearchResource} — exact-email match only,
+     * {@code searchable} opt-out, 30 lookups a minute.</p>
+     *
+     * <p><b>400 rather than a silent truncation.</b> Quietly resolving the first
+     * 500 of 600 would render a roster that looks complete and is not — the
+     * caller cannot tell the difference between "these are the members" and
+     * "these are some of them", which is the worse failure.</p>
+     *
+     * <p>Deliberately NOT filtered by {@code searchable}. That flag governs
+     * discovery by search; it does not mean "hide me from people I share a group
+     * with", and applying it here would blank out members of their own rosters.</p>
      */
     @PostMapping("/profiles/batch")
     public ResponseEntity<List<ProfileSummaryDto>> getProfilesBatch(@RequestBody BatchProfilesRequest request) {
         AuthUtils.requireAuthenticatedEmail();
-        List<String> emails = request == null ? List.of() : request.emails();
+        List<String> emails = request == null || request.emails() == null ? List.of() : request.emails();
+        if (emails.size() > MAX_BATCH_EMAILS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "At most " + MAX_BATCH_EMAILS + " emails per batch");
+        }
         return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails));
     }
 

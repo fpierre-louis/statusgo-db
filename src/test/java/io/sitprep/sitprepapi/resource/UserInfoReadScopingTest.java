@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -178,6 +179,32 @@ class UserInfoReadScopingTest {
         authenticateAs(STRANGER);
         assertFalse(resource.getUserById("u-1").getBody().has("fcmtoken"));
         assertFalse(resource.getUserByFirebaseUid("uid-1").getBody().has("fcmtoken"));
+    }
+
+    @Test
+    void batchLookupIsBoundedSoItCannotBeUsedToEnumerateAccounts() {
+        // Unknown emails are omitted from the response, which makes an unbounded
+        // list an oracle: post fifty thousand addresses, and whatever comes back
+        // is a SitPrep account with a name and an avatar attached.
+        authenticateAs(STRANGER);
+        List<String> tooMany = java.util.stream.IntStream.range(0, 501)
+                .mapToObj(i -> "u" + i + "@x.com").toList();
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> resource.getProfilesBatch(new UserInfoResource.BatchProfilesRequest(tooMany)));
+        // 400, not a silent truncation — a half-resolved roster looks complete.
+        assertEquals(HttpStatus.BAD_REQUEST, e.getStatusCode());
+        verify(userInfoService, never()).getProfileSummariesByEmails(any());
+    }
+
+    @Test
+    void aNormalSizedRosterStillResolves() {
+        authenticateAs(STRANGER);
+        List<String> roster = List.of("a@x.com", "b@x.com");
+        when(userInfoService.getProfileSummariesByEmails(roster)).thenReturn(List.of());
+        assertEquals(HttpStatus.OK,
+                resource.getProfilesBatch(new UserInfoResource.BatchProfilesRequest(roster)).getStatusCode());
+        verify(userInfoService).getProfileSummariesByEmails(roster);
     }
 
     @Test
