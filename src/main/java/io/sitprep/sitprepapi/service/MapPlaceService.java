@@ -46,7 +46,25 @@ public class MapPlaceService {
     public List<MapPlaceDto> forHousehold(Group household, String callerEmail) {
         List<MapPlaceDto> out = new ArrayList<>();
         String hid = household.getGroupId();
-        String ownerEmail = household.getOwnerEmail();
+
+        // THE OWNER-EMAIL FALLBACK ONLY APPLIES TO AN ACTUAL HOUSEHOLD.
+        //
+        // Both fallbacks below exist for household rows predating
+        // HouseholdBackfillRunner, which have no householdId yet. That is a
+        // reasonable bridge for a household and a data leak for anything else:
+        // hand this method a business or neighborhood group and both
+        // household-scoped queries necessarily return empty — no MeetingPlace or
+        // EvacuationPlan row can carry a non-household group id — so the
+        // fallbacks fire and return the group owner's PERSONAL meeting places
+        // and shelter destinations to whoever asked.
+        //
+        // MapPlaceResource now filters on groupType before calling here, so this
+        // is redundant with its caller today. It stays because the fallback is
+        // the dangerous half: the next caller of this service should not have to
+        // know that passing the wrong kind of group turns it into a disclosure.
+        String ownerEmail = "Household".equalsIgnoreCase(household.getGroupType())
+                ? household.getOwnerEmail()
+                : null;
 
         // A PLACE THAT EXISTS IS RETURNED EVEN WHEN IT CANNOT BE DRAWN.
         //
