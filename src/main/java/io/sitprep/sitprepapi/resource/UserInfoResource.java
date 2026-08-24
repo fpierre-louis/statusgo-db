@@ -1,5 +1,8 @@
 package io.sitprep.sitprepapi.resource;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.ApiMeta;
@@ -24,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * User profile CRUD.
@@ -49,19 +53,27 @@ public class UserInfoResource {
     private final BlockService blockService;
     private final PlatformAccessService platformAccessService;
     private final AdminAuditLogService adminAuditLogService;
+    /**
+     * The Spring-managed mapper, deliberately — the same instance the HTTP
+     * message converter uses, so the tree built in {@link #scopedToCaller} is
+     * byte-for-byte what the old entity response was, minus the removed keys.
+     */
+    private final ObjectMapper objectMapper;
 
     public UserInfoResource(UserInfoService userInfoService,
                             AccountDeletionService accountDeletionService,
                             FollowService followService,
                             BlockService blockService,
                             PlatformAccessService platformAccessService,
-                            AdminAuditLogService adminAuditLogService) {
+                            AdminAuditLogService adminAuditLogService,
+                            ObjectMapper objectMapper) {
         this.userInfoService = userInfoService;
         this.accountDeletionService = accountDeletionService;
         this.followService = followService;
         this.blockService = blockService;
         this.platformAccessService = platformAccessService;
         this.adminAuditLogService = adminAuditLogService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -88,28 +100,93 @@ public class UserInfoResource {
         return ResponseEntity.ok(userInfoService.getAllUsers());
     }
 
+    /**
+     * Fields on {@link UserInfo} that only the subject may read.
+     *
+     * <p>Until 2026-08-24 the three singular lookups below returned the raw
+     * entity to any signed-in caller, for any user. The bulk dump fifteen lines
+     * above requires {@link PlatformPermission#VIEW_PII} <em>and</em> writes an
+     * audit record for the same data — that contrast is what marks this as an
+     * oversight rather than a policy. {@code /email/{email}} made it enumerable
+     * without knowing an id, which also defeated the deliberate
+     * "exact-email lookup confirms existence but returns no profile" contract in
+     * {@link UserSearchResource}.</p>
+     *
+     * <p>Removed by subtraction rather than replaced with a hand-listed DTO. The
+     * entity carries 56 fields read across a dozen frontend call sites;
+     * enumerating the keepers risks dropping one a live roster depends on, while
+     * a denylist can only break a consumer of a field named here — and each one
+     * below was checked for cross-user readers first. It also makes the policy
+     * the reviewed artifact: adding a sensitive field later means adding a line
+     * here, not re-deriving a payload.</p>
+     *
+     * <p><b>{@code phone} is deliberately NOT on this list</b>, and it is the one
+     * loose end. MapView reads the subgroup owner's phone cross-user, on purpose,
+     * so an emergency contact is one tap away — removing it server-side would
+     * break that before the frontend could stop asking. It needs a coordinated
+     * change (read it from a group-scoped payload, which knows the caller is a
+     * member), not a unilateral strip. Flagged, not fixed.</p>
+     */
+    private static final Set<String> SELF_ONLY_FIELDS = Set.of(
+            // Push-spoofing primitive: hand this out and you can address
+            // notifications to someone else's device.
+            "fcmtoken",
+            // Live device location, and the reverse-geocoded zip built from it.
+            "lastKnownLat", "lastKnownLng", "lastKnownLocationAt", "lastKnownZip",
+            // Home address, and its coordinate. `latitude`/`longitude` are not
+            // fields — they are the delegating accessors over the embedded
+            // homeLocation, so they appear in JSON and must be named here too.
+            "address", "latitude", "longitude",
+            // The id every household route takes as a path variable. Handing it
+            // out turns an id-guessing defect into a lookup.
+            "baseHouseholdId",
+            // The user's own per-group location-privacy choices.
+            "groupLocationSharing",
+            // Private readiness answers.
+            "assessmentSummaryJson",
+            // Internal billing state, set by platform admins.
+            "subscriptionOverridePackage", "subscriptionOverrideExpiresAt",
+            "subscriptionOverrideReason", "subscriptionOverrideBy", "subscriptionOverrideAt"
+    );
+
     @GetMapping("/{id}")
-    public ResponseEntity<UserInfo> getUserById(@PathVariable String id) {
-        AuthUtils.requireAuthenticatedEmail();
+    public ResponseEntity<JsonNode> getUserById(@PathVariable String id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(u -> ResponseEntity.ok(scopedToCaller(u, caller)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/email/{email}")
-    public ResponseEntity<UserInfo> getUserByEmail(@PathVariable String email) {
-        AuthUtils.requireAuthenticatedEmail();
+    public ResponseEntity<JsonNode> getUserByEmail(@PathVariable String email) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserByEmail(email)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(u -> ResponseEntity.ok(scopedToCaller(u, caller)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/firebase/{uid}")
-    public ResponseEntity<UserInfo> getUserByFirebaseUid(@PathVariable String uid) {
-        AuthUtils.requireAuthenticatedEmail();
+    public ResponseEntity<JsonNode> getUserByFirebaseUid(@PathVariable String uid) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         return userInfoService.getUserByFirebaseUid(uid)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(u -> ResponseEntity.ok(scopedToCaller(u, caller)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * The user's own record verbatim; anyone else's with {@link #SELF_ONLY_FIELDS}
+     * removed.
+     *
+     * <p>Serializing to a tree and deleting keys, rather than nulling fields on
+     * the entity: an entity still attached to a persistence context would have
+     * those nulls written back by dirty checking, which turns a read endpoint
+     * into a silent data-loss bug. A tree cannot do that.</p>
+     */
+    private JsonNode scopedToCaller(UserInfo user, String caller) {
+        ObjectNode node = objectMapper.valueToTree(user);
+        boolean isSelf = caller != null && caller.equalsIgnoreCase(user.getUserEmail());
+        if (!isSelf) SELF_ONLY_FIELDS.forEach(node::remove);
+        return node;
     }
 
     /**
