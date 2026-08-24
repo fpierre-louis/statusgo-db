@@ -241,10 +241,26 @@ public class ShareResource {
             return ResponseEntity.status(302).headers(h).build();
         }
 
-        String title = group != null
+        // A CRAWLER GETS A NAME ONLY WHEN SOMEONE MEANT IT TO.
+        //
+        // This path used to render "<group name> on SitPrep · 4 members" for any
+        // id a bot User-Agent asked for. Households are Group rows, so pointing
+        // a crawler at a household id returned that family's name and size — to
+        // Facebook, Discord, iMessage and anything else that unfurls a link, and
+        // those previews are cached and indexed by third parties we do not
+        // control.
+        //
+        // An invite token IS the demonstration of intent: whoever holds it was
+        // given it. A bare group id is not, so it earns a name only for a group
+        // that is public by its own setting and is not somebody's household.
+        // Humans are unaffected — they 302 to the SPA above, where the sanitized
+        // GroupPreviewDto and the sign-in flow take over.
+        boolean nameable = group != null && (inviteId != null || isPubliclyListed(group));
+
+        String title = nameable
                 ? group.getGroupName() + " on SitPrep"
                 : "Join a circle on SitPrep";
-        String description = buildDescription(group);
+        String description = buildDescription(nameable ? group : null);
         String image = baseOrigin + "/images/sitprep-share-default.png";
         String html = renderOgHtml(title, description, image, shareUrl, spaUrl);
 
@@ -253,6 +269,23 @@ public class ShareResource {
         h.setCacheControl("public, max-age=300");
         h.add(HttpHeaders.VARY, "User-Agent");
         return ResponseEntity.ok().headers(h).body(html);
+    }
+
+    /**
+     * A circle a stranger could have found anyway: public by its own privacy
+     * setting, and not a household.
+     *
+     * <p>The household exclusion is not redundant with the privacy check.
+     * Households are Group rows created by CreateHouseholdGroup, which does not
+     * set privacy at all — so a household reads as neither "Private" nor
+     * "public", and any test written as {@code !isPrivate} would let every one
+     * of them through. The test is therefore for {@code public} explicitly, and
+     * households are excluded by type on top of it.</p>
+     */
+    private static boolean isPubliclyListed(Group group) {
+        if (group == null) return false;
+        if ("Household".equalsIgnoreCase(group.getGroupType())) return false;
+        return "public".equalsIgnoreCase(group.getPrivacy() == null ? "" : group.getPrivacy().trim());
     }
 
     private String buildDescription(Group group) {
