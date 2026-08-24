@@ -48,6 +48,14 @@ public class GroupResource {
     @Autowired
     private io.sitprep.sitprepapi.service.GroupMuteService groupMuteService;
 
+    /**
+     * The Spring-managed mapper, deliberately — the same instance the HTTP
+     * message converter uses, so a scoped read is byte-for-byte the old entity
+     * response minus the removed keys.
+     */
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
     @GetMapping("/admin")
     public List<Group> getGroupsByAdminEmail() {
         AuthUtils.requireAuthenticatedEmail();
@@ -111,10 +119,60 @@ public class GroupResource {
         return out;
     }
 
+    /**
+     * Fields on {@link Group} that only someone with a relationship to the group
+     * may read.
+     *
+     * <p>Until 2026-08-24 this route returned the raw entity to any signed-in
+     * caller. <b>Households are Group rows</b>, so for a household id that meant
+     * the family roster plus the home address and its coordinate, to anyone with
+     * an account. It also handed out the group code, which is how you join.</p>
+     *
+     * <p>Stripped rather than 403'd, because the answer for a non-member already
+     * exists and is public: {@code /api/groups/{id}/preview} deliberately serves
+     * exactly this reduced view to invitees who are not signed in. Refusing here
+     * would break the roughly twenty frontend call sites that use this route
+     * before anyone could check which of them are member-only surfaces; scoping
+     * the payload removes the leak and can break nothing that was not reading a
+     * roster it had no claim to.</p>
+     */
+    private static final java.util.Set<String> RELATIONSHIP_ONLY_FIELDS = java.util.Set.of(
+            // The roster. This is the finding.
+            "memberEmails", "adminEmails", "pendingMemberEmails", "ownerEmail",
+            // A household's home. `latitude`/`longitude` are the delegating
+            // accessors over the embedded homeLocation, not fields, so they need
+            // naming here too or they stay in the JSON.
+            "address", "latitude", "longitude", "zipCode",
+            // The join code.
+            "groupCode",
+            // Billing identity and the agency contact of record.
+            "stripeCustomerId", "stripeSubscriptionId", "subscriptionStatus",
+            "subscriptionOverrideTier", "officialContactEmail"
+    );
+
     @GetMapping("/{groupId}")
-    public Group getGroupById(@PathVariable String groupId) {
-        AuthUtils.requireAuthenticatedEmail();
-        return groupService.getGroupByPublicId(groupId);
+    public com.fasterxml.jackson.databind.JsonNode getGroupById(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Group group = groupService.getGroupByPublicId(groupId);
+        com.fasterxml.jackson.databind.node.ObjectNode node = objectMapper.valueToTree(group);
+        if (!hasRelationshipTo(group, caller)) {
+            RELATIONSHIP_ONLY_FIELDS.forEach(node::remove);
+        }
+        return node;
+    }
+
+    /**
+     * Owner, admin, member — or pending.
+     *
+     * <p>Pending is included deliberately, and is the part that is easy to get
+     * wrong: {@link GroupRole#fromGroup} resolves a pending request to
+     * {@code NONE}, so relying on it alone would strip the pending list from the
+     * one person who needs it, and the frontend's {@code roleOf} would render
+     * "Join" to someone whose request is already in.</p>
+     */
+    private boolean hasRelationshipTo(Group group, String caller) {
+        if (GroupRole.fromGroup(group, caller) != GroupRole.NONE) return true;
+        return containsCaseInsensitive(group == null ? null : group.getPendingMemberEmails(), caller);
     }
 
     /**
