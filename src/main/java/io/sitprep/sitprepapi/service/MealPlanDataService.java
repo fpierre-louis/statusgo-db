@@ -3,8 +3,6 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.MealPlan;
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.repo.MealPlanDataRepo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,8 +10,6 @@ import java.util.Optional;
 
 @Service
 public class MealPlanDataService {
-
-    private static final Logger logger = LoggerFactory.getLogger(MealPlanDataService.class);
 
     private final MealPlanDataRepo repository;
     private final HouseholdResolver householdResolver;
@@ -23,10 +19,8 @@ public class MealPlanDataService {
         this.householdResolver = householdResolver;
     }
 
-    public java.util.List<MealPlanData> getAllMealPlans() {
-        logger.info("Fetching all meal plans");
-        return repository.findAll();
-    }
+    // getAllMealPlans() removed with its only caller, the deleted dump-all
+    // route. See MealPlanDataResource for why.
 
     public Optional<MealPlanData> findByOwnerEmailCI(String ownerEmail) {
         return repository.findFirstByOwnerEmailIgnoreCase(norm(ownerEmail));

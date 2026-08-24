@@ -26,9 +26,8 @@ public class EmergencyContactGroupService {
         this.activationPlanUpdates = activationPlanUpdates;
     }
 
-    public List<EmergencyContactGroup> getAllGroups() {
-        return groupRepo.findAll();
-    }
+    // getAllGroups() removed with its only caller, the deleted dump-all route.
+    // See EmergencyContactGroupResource for why.
 
     public List<EmergencyContactGroup> getGroupsByOwnerEmail(String ownerEmail) {
         String email = ownerEmail == null ? null : ownerEmail.trim().toLowerCase();

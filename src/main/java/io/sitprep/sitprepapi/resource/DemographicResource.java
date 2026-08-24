@@ -27,12 +27,15 @@ public class DemographicResource {
         return ResponseEntity.ok(DemographicDto.from(demographicService.saveDemographic(demographic)));
     }
 
-    @GetMapping
-    public ResponseEntity<List<DemographicDto>> getAllDemographics() {
-        AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(demographicService.getAllDemographics()
-                .stream().map(DemographicDto::from).toList());
-    }
+    // GET /api/demographics (dump-all) was DELETED 2026-08-24.
+    //
+    // Auth-only, and it returned every household's infant / kid / teen / adult
+    // and pet counts alongside ownerEmail and householdId — a queryable index of
+    // which homes contain small children, and an ownerEmail → householdId map
+    // that made every id-taking household route below targetable. No FE caller.
+    //
+    // Do not re-add. A cross-tenant read belongs behind
+    // PlatformPermission.VIEW_PII with an audit record (UserInfoResource:80-81).
 
     @GetMapping("/owner")
     public ResponseEntity<DemographicDto> getDemographicForCurrentUser() {

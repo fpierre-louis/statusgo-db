@@ -134,9 +134,8 @@ public class DemographicService {
         }
     }
 
-    public List<Demographic> getAllDemographics() {
-        return demographicRepository.findAll();
-    }
+    // getAllDemographics() removed with its only caller, the deleted dump-all
+    // route. See DemographicResource for why.
 
     public Optional<Demographic> getDemographicForCurrentUser() {
         return demographicRepository.findByOwnerEmailIgnoreCase(AuthUtils.getCurrentUserEmail());

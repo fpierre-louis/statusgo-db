@@ -27,14 +27,19 @@ public class EmergencyContactGroupResource {
         this.access = access;
     }
 
-    @GetMapping
-    public List<EmergencyContactGroupDto> getAllGroups() {
-        // Dump-all is admin-only conceptually. Require auth at minimum;
-        // until a platform-admin role exists, any signed-in user can see
-        // it (which is still better than fully open).
-        AuthUtils.requireAuthenticatedEmail();
-        return groupService.getAllGroups().stream().map(EmergencyContactGroupDto::from).toList();
-    }
+    // GET /api/emergency-groups (dump-all) was DELETED 2026-08-24.
+    //
+    // It required only a signed-in caller, and returned every emergency contact
+    // of every user in the database — name, phone, home address, and
+    // `medicalInfo`, which the contact form invites free-text health detail into
+    // ("Allergic to penicillin"). One request, no id, whole table. The comment
+    // that used to sit here reasoned that auth-only was "still better than fully
+    // open"; with `/api/**` on permitAll (SecurityConfig:38-52) a free Firebase
+    // signup was the entire cost of entry.
+    //
+    // Do not re-add a dump route here. If a platform admin needs a cross-tenant
+    // read, the shape already exists one file over: UserInfoResource:80-81 gates
+    // on PlatformPermission.VIEW_PII *and* writes an AdminAuditLog record.
 
     /**
      * Fetch a user's contact groups. Household plan-sharing has members

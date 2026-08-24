@@ -5,20 +5,14 @@ import io.sitprep.sitprepapi.dto.MealPlanDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
 import io.sitprep.sitprepapi.util.AuthUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/mealPlans")
 @CrossOrigin(origins = "http://localhost:3000")
 public class MealPlanDataResource {
-
-    private static final Logger logger = LoggerFactory.getLogger(MealPlanDataResource.class);
 
     private final MealPlanDataService service;
     private final HouseholdAccessService access;
@@ -45,13 +39,13 @@ public class MealPlanDataResource {
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
-    /** Admin/dev helper (optional) */
-    @GetMapping
-    public List<MealPlanDto> getAll() {
-        AuthUtils.requireAuthenticatedEmail();
-        logger.info("Fetching all meal plans");
-        return service.getAllMealPlans().stream().map(MealPlanDto::from).toList();
-    }
+    // GET /api/mealPlans (dump-all, labelled "admin/dev helper") was DELETED
+    // 2026-08-24. Auth-only, no FE caller. Its real value to an attacker was not
+    // the menus: it was a complete ownerEmail → householdId map, which turns
+    // every id-taking household route into a lookup instead of a guess.
+    //
+    // Do not re-add. A cross-tenant read belongs behind
+    // PlatformPermission.VIEW_PII with an audit record (UserInfoResource:80-81).
 
     /** Idempotent create/update — owner is the verified caller. */
     @PostMapping
