@@ -434,14 +434,30 @@ public class PlanActivationService {
         }
 
         // This endpoint is un-authed (link possession), so the write boundary
-        // must not trust the payload: coordinates are bounds-checked, and when
-        // the owner targeted specific recipients, recipientEmail must resolve
-        // to one of them (owner included) — otherwise anyone holding a leaked
-        // link could inject a fake "I'm safe at X" for an arbitrary identity
-        // during a live emergency. Untargeted activations (bare share link,
-        // no recipient sets) keep the open link-possession contract.
-        GeoUtil.requireValidLatLng(req.lat(), req.lng());
+        // must not trust the payload: when the owner targeted specific
+        // recipients, recipientEmail must resolve to one of them (owner
+        // included) — otherwise anyone holding a leaked link could inject a
+        // fake "I'm safe at X" for an arbitrary identity during a live
+        // emergency. Untargeted activations (bare share link, no recipient
+        // sets) keep the open link-possession contract.
         requireRecipientAllowed(activation, recipientEmail);
+
+        // AN ACK IS A SAFETY STATUS FIRST AND A LOCATION SECOND.
+        //
+        // This used to call GeoUtil.requireValidLatLng, which throws — and
+        // therefore 400s the whole request — on a half-null pair, a non-finite
+        // value, or an out-of-range one. That meant a coordinate problem cost
+        // the person's entire "I'm safe", which is the wrong failure
+        // direction: the status is the payload that matters in an emergency
+        // and the coordinate is an enrichment on top of it.
+        //
+        // Now the coordinates degrade and the status always lands. A pair that
+        // does not validate is stored as no-location, exactly like a recipient
+        // who declined to share. Note this is not a weakening of the write
+        // boundary — nothing invalid is persisted either way, and bounds
+        // checking never defended against a *plausible* fake location anyway;
+        // requireRecipientAllowed above is the gate that does that work.
+        boolean plottable = GeoUtil.validLatLng(req.lat(), req.lng());
 
         PlanActivationAck ack = ackRepo
                 .findByActivationIdAndRecipientEmailIgnoreCase(activationId, recipientEmail)
@@ -458,8 +474,8 @@ public class PlanActivationService {
                     ack.setRecipientName(joinName(u.getUserFirstName(), u.getUserLastName())));
         }
         ack.setStatus(status);
-        ack.setLat(req.lat());
-        ack.setLng(req.lng());
+        ack.setLat(plottable ? req.lat() : null);
+        ack.setLng(plottable ? req.lng() : null);
         ack.setAckedAt(Instant.now());
 
         // Fast double-tap can race the upsert: thread A reads (miss), thread B reads (miss),

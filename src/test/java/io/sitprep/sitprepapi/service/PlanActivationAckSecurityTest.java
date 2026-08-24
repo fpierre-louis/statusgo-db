@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
@@ -173,17 +174,40 @@ class PlanActivationAckSecurityTest {
         verify(ackRepo, times(2)).save(any(PlanActivationAck.class));
     }
 
+    /**
+     * CHANGED 2026-08-24. This test previously asserted that a bad coordinate
+     * pair 400s the whole request and saves nothing
+     * ({@code outOfBoundsCoordinatesRejectedWith400}).
+     *
+     * That was the wrong failure direction: an ack is a safety status first and
+     * a location second, so a coordinate problem must not cost the person's
+     * "I'm safe" during a live emergency. The coordinates now degrade to null
+     * and the status always lands.
+     *
+     * Nothing invalid is persisted either way — this is a change in what
+     * happens to the STATUS, not to the coordinate. The anti-injection gate is
+     * {@code requireRecipientAllowed}, which is unchanged and still enforced
+     * (see the identity tests above); bounds checking never defended against a
+     * plausible fake location.
+     */
     @Test
-    void outOfBoundsCoordinatesRejectedWith400() {
+    void badCoordinatesDegradeToNoLocationButTheStatusStillLands() {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(activation()));
+        when(ackRepo.findByActivationIdAndRecipientEmailIgnoreCase(any(), any()))
+                .thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class,
-                () -> service.recordAck(ACT_ID, ack("anyone@x.com", 91.0, -84.39)));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.recordAck(ACT_ID, ack("anyone@x.com", 33.75, -181.0)));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.recordAck(ACT_ID, ack("anyone@x.com", 33.75, null)));
-        verify(ackRepo, never()).save(any());
+        // Out of range latitude, out of range longitude, and a half-null pair.
+        assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("anyone@x.com", 91.0, -84.39)));
+        assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("anyone@x.com", 33.75, -181.0)));
+        assertDoesNotThrow(() -> service.recordAck(ACT_ID, ack("anyone@x.com", 33.75, null)));
+
+        ArgumentCaptor<PlanActivationAck> saved = ArgumentCaptor.forClass(PlanActivationAck.class);
+        verify(ackRepo, times(3)).save(saved.capture());
+        for (PlanActivationAck a : saved.getAllValues()) {
+            assertEquals("safe", a.getStatus(), "the safety status must survive a bad coordinate");
+            assertNull(a.getLat(), "an invalid coordinate is stored as no-location, never as-is");
+            assertNull(a.getLng(), "an invalid coordinate is stored as no-location, never as-is");
+        }
     }
 
     @Test
