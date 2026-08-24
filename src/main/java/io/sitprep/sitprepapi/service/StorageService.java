@@ -50,6 +50,22 @@ public class StorageService {
 
     public record UploadResult(String imageId, String imageKey, String imageUrl) {}
 
+    /**
+     * What the bucket knows about an object's uploader.
+     *
+     * @param exists      false when the object is already gone — callers should
+     *                    treat a delete of it as a no-op, not a rejection
+     * @param uploaderTag {@link #uploaderTag(String)} of the uploader, or null
+     *                    for objects written before uploader stamping existed
+     */
+    public record ObjectOwner(boolean exists, String uploaderTag) {}
+
+    /**
+     * R2/S3 user-metadata key carrying the uploader. Lowercase deliberately —
+     * S3 lowercases metadata keys, so reading back any other casing returns null.
+     */
+    private static final String META_UPLOADER = "uploader";
+
     private final S3Client s3;
 
     @Value("${r2.bucket-name:sitprep-images}")
@@ -66,10 +82,67 @@ public class StorageService {
     }
 
     /**
+     * Stable, header-safe identifier for an uploader.
+     *
+     * <p>A SHA-256 of the lowercased email rather than the email itself, for two
+     * reasons. S3 user metadata rides in an HTTP header, so a non-ASCII address
+     * (RFC 6532 allows them) would fail the <em>upload</em> — and breaking the
+     * critical path to protect the cleanup path is the wrong trade. And it keeps
+     * user email addresses out of bucket object metadata, which nothing needs;
+     * the uploader is already in the application log if a human has to trace one.
+     *
+     * @return null for a blank email, so an unstamped object stays unstamped
+     */
+    public static String uploaderTag(String email) {
+        if (email == null || email.isBlank()) return null;
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(email.trim().toLowerCase().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : d) sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e); // every JRE ships it
+        }
+    }
+
+    /**
+     * Who uploaded the object behind this key or URL, for callers that need to
+     * authorize a delete.
+     *
+     * <p>Read-only. This does NOT gate {@link #delete(String)} — server-initiated
+     * cascades (deleting a post's photos with the post) legitimately remove
+     * objects the acting user never uploaded, so the check belongs at the
+     * request boundary, not here.</p>
+     */
+    public ObjectOwner ownerOf(String keyOrUrl) {
+        String key = keyOrUrl == null ? null : PublicCdn.toObjectKey(keyOrUrl.trim());
+        if (key == null || key.isBlank()) return new ObjectOwner(false, null);
+        try {
+            HeadObjectResponse head = s3.headObject(
+                    HeadObjectRequest.builder().bucket(bucketName).key(key).build());
+            Map<String, String> meta = head.metadata();
+            return new ObjectOwner(true, meta == null ? null : meta.get(META_UPLOADER));
+        } catch (NoSuchKeyException e) {
+            return new ObjectOwner(false, null);
+        } catch (S3Exception e) {
+            // R2 answers HEAD-on-missing with a bare 404 rather than the typed
+            // NoSuchKeyException the SDK models for GET, so match on status too.
+            if (e.statusCode() == 404) return new ObjectOwner(false, null);
+            log.error("R2 headObject failed for key={}: {}", key, e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
      * Resize, compress, and upload. Returns the imageId (UUID), the object
      * key to store on the entity, and the public URL for delivery.
+     *
+     * @param uploaderEmail stamped onto the object (hashed — see
+     *                      {@link #uploaderTag(String)}) so a later delete can be
+     *                      authorized against it
      */
-    public UploadResult upload(MultipartFile file, Scope scope) throws IOException {
+    public UploadResult upload(MultipartFile file, Scope scope, String uploaderEmail) throws IOException {
         if (file == null || file.isEmpty()) throw new IOException("Empty file");
         if (scope == null) throw new IllegalArgumentException("scope required");
 
@@ -85,7 +158,7 @@ public class StorageService {
         String imageId = UUID.randomUUID().toString();
         String key = scope.prefix + imageId + "." + optimized.extension();
 
-        putObject(key, optimized.bytes(), optimized.contentType());
+        putObject(key, optimized.bytes(), optimized.contentType(), uploaderTag(uploaderEmail));
         return new UploadResult(imageId, key, PublicCdn.toPublicUrl(key));
     }
 
@@ -136,16 +209,17 @@ public class StorageService {
         }
     }
 
-    private void putObject(String key, byte[] content, String contentType) {
+    private void putObject(String key, byte[] content, String contentType, String uploaderTag) {
         String ct = (contentType == null || contentType.isBlank())
                 ? "application/octet-stream" : contentType;
         try {
-            PutObjectRequest req = PutObjectRequest.builder()
+            PutObjectRequest.Builder b = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
                     .contentType(ct)
-                    .cacheControl("public, max-age=31536000, immutable")
-                    .build();
+                    .cacheControl("public, max-age=31536000, immutable");
+            if (uploaderTag != null) b.metadata(Map.of(META_UPLOADER, uploaderTag));
+            PutObjectRequest req = b.build();
             s3.putObject(req, RequestBody.fromBytes(content));
         } catch (Exception e) {
             log.error("R2 putObject failed for key={}: {}", key, e.getMessage());
