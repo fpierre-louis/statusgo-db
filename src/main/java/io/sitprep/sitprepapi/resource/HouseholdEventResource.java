@@ -41,12 +41,22 @@ public class HouseholdEventResource {
         this.access = access;
     }
 
+    /**
+     * The family's activity timeline — member names, emails and avatars.
+     *
+     * <p>Membership-gated since 2026-08-24. This was the one route in the file
+     * that checked only for a signed-in caller; the two below already gated with
+     * the same service, already injected in this class. Same file, same
+     * dependency, one line missing — which is what marks the whole class of
+     * findings in the 2026-08-24 authorization audit as omissions rather than
+     * decisions.</p>
+     */
     @GetMapping
     public ResponseEntity<List<HouseholdEventDto>> list(
             @PathVariable String householdId,
             @RequestParam(value = "since", required = false) String sinceIso,
             @RequestParam(value = "before", required = false) String beforeIso) {
-        AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(AuthUtils.requireAuthenticatedEmail(), householdId);
         Instant since = parse(sinceIso);
         Instant before = parse(beforeIso);
         return ResponseEntity.ok(service.list(householdId, since, before));
