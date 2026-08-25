@@ -19,7 +19,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -171,6 +173,65 @@ class GroupReadScopingTest {
         assertThrows(ResponseStatusException.class,
                 () -> readinessResource.getReadinessSummary(GROUP_ID));
         verify(readinessService, never()).buildReadinessSummary(anyString());
+    }
+
+    // ---- an unknown id must not answer "500" where it means "no such group" ----
+
+    @Test
+    void previewOfAnUnknownIdIs404NotAnExceptionPage() {
+        // GroupService signals a missing group with a bare RuntimeException.
+        // /preview used to let it escape as a 500 — on a PUBLIC route that
+        // invite recipients and link crawlers hit, which made the response
+        // answer the very question the 404 exists to refuse: 500 for one id,
+        // 200 for another, is a "does this id exist" oracle.
+        when(groupService.getGroupPreview(eq("nope"), any()))
+                .thenThrow(new RuntimeException("Group not found: nope"));
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> resource.getGroupPreview("nope"));
+        assertEquals(HttpStatus.NOT_FOUND, e.getStatusCode());
+    }
+
+    @Test
+    void previewOfAKnownIdStillWorksAnonymously() {
+        // The conversion must not swallow the happy path — this route serves
+        // people who have not signed in yet.
+        // A real record, not a mock — GroupPreviewDto is final, and a stub would
+        // not have told us anything the constructor does not.
+        io.sitprep.sitprepapi.dto.GroupPreviewDto dto =
+                new io.sitprep.sitprepapi.dto.GroupPreviewDto(
+                        GROUP_ID, "The Reyes household", "Household", "desc", "Private",
+                        "Ana Reyes", 1, 3, null, null, null, null, false,
+                        io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_NONE);
+        when(groupService.getGroupPreview(eq(GROUP_ID), any())).thenReturn(dto);
+
+        assertEquals(HttpStatus.OK, resource.getGroupPreview(GROUP_ID).getStatusCode());
+    }
+
+    @Test
+    void aConsideredStatusFromDeeperInTheStackIsNotLaunderedIntoA404() {
+        // Without the ResponseStatusException passthrough, a deliberate 403
+        // would come back as "no such group" — a gate's answer rewritten into a
+        // claim about existence.
+        when(groupService.getGroupPreview(eq("forbidden"), any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "nope"));
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> resource.getGroupPreview("forbidden"));
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
+    }
+
+    @Test
+    void theSiblingRouteStillConvertsTheSameWay() {
+        // lookup() and /preview now share one conversion; this pins that the
+        // extraction did not change the behaviour it was extracted from.
+        authenticateAs(ADMIN);
+        when(groupService.getGroupByPublicId("nope"))
+                .thenThrow(new RuntimeException("Group not found: nope"));
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> readinessResource.getReadinessSummary("nope"));
+        assertEquals(HttpStatus.NOT_FOUND, e.getStatusCode());
     }
 
     @Test

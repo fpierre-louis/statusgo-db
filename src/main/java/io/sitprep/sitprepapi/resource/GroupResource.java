@@ -198,7 +198,21 @@ public class GroupResource {
             @PathVariable String groupId
     ) {
         String viewer = AuthUtils.getCurrentUserEmail();
-        return ResponseEntity.ok(groupService.getGroupPreview(groupId, viewer));
+        // Through notFoundIfMissing, the same conversion lookup() uses.
+        //
+        // Until 2026-08-24 this called the service directly, so an unknown id
+        // escaped as GroupService's RuntimeException and rendered a 500 with a
+        // stack trace. lookup() had converted that to a 404 since it was
+        // written, explicitly "so we don't leak whether the id is taken" — and
+        // this is the one route where that mattered most: it is PUBLIC, it is
+        // the endpoint invite recipients and link crawlers hit, and a 500-vs-200
+        // split answers the question the 404 exists to refuse.
+        //
+        // The rule was written once and never reached its second reader. Sharing
+        // the helper is the fix; calling lookup() here as well would have worked
+        // and cost a second query on the one route bots hit hardest.
+        return ResponseEntity.ok(
+                notFoundIfMissing(() -> groupService.getGroupPreview(groupId, viewer)));
     }
 
     // ---------- Membership / role ops (admin or owner) ----------
@@ -497,11 +511,34 @@ public class GroupResource {
     }
 
     private Group lookup(String groupId) {
+        return notFoundIfMissing(() -> groupService.getGroupByPublicId(groupId));
+    }
+
+    /**
+     * Run a group lookup and turn "no such group" into a 404.
+     *
+     * <p>GroupService signals a missing group with a bare
+     * {@code RuntimeException("Group not found...")}, which Spring renders as a
+     * 500. Converting it to a 404 is deliberate: <b>it keeps the response from
+     * confirming whether an id is taken.</b> A 500 for one id and a 200 for
+     * another answers exactly the question a 404 refuses.</p>
+     *
+     * <p>Extracted from {@code lookup()} so the rule has one home. It had two
+     * readers and only one of them knew about it — {@code /preview} called the
+     * service directly and leaked 500s on a public route for as long as it
+     * existed.</p>
+     *
+     * <p>A {@link ResponseStatusException} passes through untouched. Without
+     * that, a considered 403 from deeper in the stack would be laundered into a
+     * 404 by the catch below — turning a gate's answer into a lie about
+     * existence.</p>
+     */
+    private <T> T notFoundIfMissing(java.util.function.Supplier<T> call) {
         try {
-            return groupService.getGroupByPublicId(groupId);
+            return call.get();
+        } catch (ResponseStatusException e) {
+            throw e;
         } catch (RuntimeException e) {
-            // GroupService throws RuntimeException("Group not found...") today.
-            // Convert to a 404 so we don't leak whether the id is taken.
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
         }
     }
