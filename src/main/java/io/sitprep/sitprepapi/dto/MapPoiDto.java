@@ -26,6 +26,7 @@ public record MapPoiDto(
         String verifiedKind,
         Integer memberCount,
         String viewerRole,  // OWNER | ADMIN | MEMBER | PENDING | NONE (for the Join CTA)
+        String ownerUserId, // agency follow target (agencies only; null otherwise)
         /**
          * The circle's own type — Household · Business · HOA/Neighborhood ·
          * Church · School … Free-form VARCHAR with no enum and no server
@@ -41,8 +42,24 @@ public record MapPoiDto(
          *
          * <p>Null for every non-group family.</p>
          */
+        /**
+         * The circle's own type — Household · Business · HOA/Neighborhood ·
+         * Church · School … Free-form VARCHAR with no enum and no server
+         * validation, so treat it as a label, not a closed set.
+         *
+         * <p><b>POSITION IS LOAD-BEARING AND THIS COMPONENT HAS ALREADY MOVED
+         * ONCE.</b> It was first declared between {@code viewerRole} and
+         * {@code ownerUserId} while every construction site passed it AFTER
+         * {@code ownerUserId}. Both are {@code String}, so javac accepted the
+         * swap and the build was green — and production served
+         * {@code ownerUserId: "Business"}, pointing the agency follow CTA at a
+         * group type instead of a user id. Adding a component between two of
+         * the same type in a positional record is a silent argument shift. If
+         * you add one, put it at the END, or re-read every call site.</p>
+         *
+         * <p>Null for every non-group family.</p>
+         */
         String groupType,
-        String ownerUserId, // agency follow target (agencies only; null otherwise)
 
         // ── mutual-aid (community Post) ─────────────────────────────────
         Long postId,
