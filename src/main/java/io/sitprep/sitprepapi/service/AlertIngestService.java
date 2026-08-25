@@ -553,6 +553,7 @@ public class AlertIngestService {
                 textOrNull(p, "response"),
                 headline,
                 textOrNull(p, "description"),
+                textOrNull(p, "instruction"),
                 textOrNull(p, "areaDesc"),
                 isoOrNull(p, "onset", "effective", "sent"),
                 isoOrNull(p, "ends", "expires"),
@@ -636,6 +637,7 @@ public class AlertIngestService {
                 /* status */ null, /* response */ null,
                 headline,
                 title,
+                /* instruction */ null,   // FEMA declarations carry no CAP instruction
                 area,
                 textOrNull(r, "incidentBeginDate"),
                 textOrNull(r, "incidentEndDate"),  // null for active declarations
@@ -692,6 +694,7 @@ public class AlertIngestService {
                 /* status */ null, /* response */ null,
                 headline,
                 textOrNull(p, "title"),
+                /* instruction */ null,   // USGS quakes carry no CAP instruction
                 place,
                 startedAt,
                 /* endsAt */ null, // quakes are point-in-time
@@ -1021,6 +1024,27 @@ public class AlertIngestService {
             String response,
             String headline,
             String description,
+            /**
+             * CAP {@code instruction} — the issuing office's own
+             * "what to do" prose, e.g. <i>"Use caution when driving
+             * high-profile vehicles."</i>
+             *
+             * <p><b>Carried, not yet surfaced.</b> This was dropped at ingest
+             * until 2026-08-25, which made {@code AlertCardDto.Official
+             * .instruction} permanently null and the audit's "promote the
+             * instruction when whatToDo is absent" fix impossible to write —
+             * there was no source to promote from.</p>
+             *
+             * <p><b>Do NOT render this verbatim without a rule.</b> Measured
+             * reading grade on the live feed runs 5.8 to 12.2
+             * (docs/audits/2026-08-22-alert-source-audit.md); Extreme Heat
+             * opens on a tautology and closes citing OSHA. What the promotion
+             * refuses to promote is an open product decision — see
+             * docs/epics/map-view-revamp/PHASE-2-2026-08-25.md §3.</p>
+             *
+             * <p>Null for USGS and FEMA, which have no equivalent.</p>
+             */
+            String instruction,
             String area,
             String startedAt,
             String endsAt,

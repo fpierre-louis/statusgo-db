@@ -144,8 +144,21 @@ public class AlertFeedService {
      * pipeline over it would leave no raw record to disclose.</p>
      */
     private static AlertCardDto.Official officialOf(NormalizedAlert a) {
+        // `instruction` was a hardcoded null here until 2026-08-25 — the DTO
+        // declared the field, the ingest dropped the source, and no client read
+        // it, so the audit's "promote the instruction when whatToDo is absent"
+        // fix rested on something that could never be non-null. It now carries
+        // what NWS actually sent.
+        //
+        // STILL NOT PROMOTED, AND THAT IS DELIBERATE. This puts the raw wire
+        // text where the existing "official wording" disclosure already shows
+        // raw wire text, which is the contract this DTO's own javadoc
+        // describes. Lifting it to the top level needs a rule for what it
+        // REFUSES to lift — live reading grade runs 5.8 to 12.2 — and that is
+        // an open product decision, not an implementation detail. See
+        // docs/epics/map-view-revamp/PHASE-2-2026-08-25.md §3.
         return new AlertCardDto.Official(
-                a.headline(), a.description(), null, issuedByOf(a.headline()));
+                a.headline(), a.description(), a.instruction(), issuedByOf(a.headline()));
     }
 
     /** {@code "... by NWS Phoenix AZ"} -> {@code "NWS Phoenix AZ"}. */

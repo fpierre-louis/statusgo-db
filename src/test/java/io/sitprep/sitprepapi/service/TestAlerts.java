@@ -67,6 +67,7 @@ final class TestAlerts {
         private String response;
         private String headline;
         private String description;
+        private String instruction;
         private String area;
         private String startedAt;
         private String endsAt;
@@ -85,6 +86,7 @@ final class TestAlerts {
         Builder response(String v) { this.response = v; return this; }
         Builder headline(String v) { this.headline = v; return this; }
         Builder description(String v) { this.description = v; return this; }
+        Builder instruction(String v) { this.instruction = v; return this; }
         Builder area(String v) { this.area = v; return this; }
         Builder startedAt(String v) { this.startedAt = v; return this; }
         Builder endsAt(String v) { this.endsAt = v; return this; }
@@ -95,7 +97,7 @@ final class TestAlerts {
         NormalizedAlert build() {
             return new NormalizedAlert(
                     id, source, event, severity, urgency, certainty, messageType,
-                    status, response, headline, description, area,
+                    status, response, headline, description, instruction, area,
                     startedAt, endsAt, geometry, ugc, same);
         }
     }
