@@ -368,6 +368,7 @@ public class PlanActivationService {
         return new MapPoiDto(
                 id, family, "proprietary:activation", name, lat, lng, null,
                 null, null, null, null, null,     // verified..ownerUserId
+                null,                             // groupType — activation places are not circles
                 null, null, address, placeLabel,  // postId, kind, description(=address), placeLabel
                 null, null, null, null            // category, website, externalMapUrl, attribution
         );

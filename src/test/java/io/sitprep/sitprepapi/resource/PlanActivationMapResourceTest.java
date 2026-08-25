@@ -33,7 +33,9 @@ class PlanActivationMapResourceTest {
 
     private static final MapPoiDto POINT = new MapPoiDto(
             "activation:shelter:2", "shelter", "proprietary:activation", "Red Cross",
-            40.2, -111.2, null, null, null, null, null, null, null, null, "5 Safe Ave",
+            40.2, -111.2, null, null, null, null, null, null,
+            null,                 // groupType — an activation shelter is not a circle
+            null, null, "5 Safe Ave",
             "shelter-primary", null, null, null, null);
 
     @BeforeEach

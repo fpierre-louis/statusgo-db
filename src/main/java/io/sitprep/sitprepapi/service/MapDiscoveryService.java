@@ -119,6 +119,7 @@ public class MapDiscoveryService {
                     verified, verifiedKind, memberCount,
                     viewerRoleOf(g, viewer),
                     agency && owner != null ? owner.getId() : null,
+                    g.getGroupType(),         // so the layer knows WHICH circle it is drawing
                     null, null, null, null,   // aid fields
                     null, null, null, null    // external fields
             ));
@@ -141,6 +142,7 @@ public class MapDiscoveryService {
                         aidName(p),
                         lat, lng, round1(dist),
                         null, null, null, null, null,   // group/agency fields
+                        null,                           // groupType — aid posts are not circles
                         p.getId(), p.getKind(), p.getDescription(), p.getPlaceLabel(),
                         null, null, null, null          // external fields
                 ));
@@ -251,6 +253,7 @@ public class MapDiscoveryService {
                 p.id(), p.family(), p.source(), p.name(),
                 p.lat(), p.lng(), distanceKm,
                 p.verified(), p.verifiedKind(), p.memberCount(), p.viewerRole(), p.ownerUserId(),
+                p.groupType(),
                 p.postId(), p.kind(), p.description(), p.placeLabel(),
                 p.category(), p.website(), p.externalMapUrl(), p.attribution());
     }

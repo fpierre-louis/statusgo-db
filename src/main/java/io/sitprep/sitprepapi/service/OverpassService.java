@@ -146,6 +146,7 @@ public class OverpassService {
                     id, family, "overpass", name,
                     lat, lng, null,                 // distanceKm recomputed on read
                     null, null, null, null, null,   // group/agency fields
+                    null,                           // groupType — OSM amenities are not circles
                     null, null, null, null,         // aid fields
                     category, website, mapUrl,
                     "© OpenStreetMap contributors"  // attribution — REQUIRED for external
