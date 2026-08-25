@@ -56,10 +56,25 @@ public interface GroupRepo extends JpaRepository<Group, String> {
      * {@code findAll().stream()} scan — the (latitude, longitude) composite
      * index (Flyway V28) range-scans the box. `homeLocation.lat/lng` map to the
      * physical latitude/longitude columns the index covers.
+     *
+     * <p><b>Households are excluded structurally, not by their privacy flag.</b>
+     * This surface prints a guarantee to every viewer — "Public data only. Other
+     * people's locations are never shown here." — and before this predicate the
+     * only thing standing between a family's home coordinate and that map was one
+     * mutable string editable from a general settings screen. Two households were
+     * measured on it (2026-08-25). A household is never eligible here whatever
+     * {@code privacy} says, so the flag stops being load-bearing.</p>
+     *
+     * <p><b>The COALESCE is required, not defensive.</b> {@code groupType} is a
+     * nullable free-form varchar with no enum. In SQL {@code NULL <> 'household'}
+     * evaluates to NULL rather than TRUE, so a bare inequality would silently drop
+     * every group whose type was never set — removing real orgs from the community
+     * map to fix a household leak.</p>
      */
     @Query("""
         SELECT g FROM Group g
          WHERE LOWER(g.privacy) = 'public'
+           AND LOWER(COALESCE(g.groupType, '')) <> 'household'
            AND g.homeLocation.lat BETWEEN :minLat AND :maxLat
            AND g.homeLocation.lng BETWEEN :minLng AND :maxLng
         """)

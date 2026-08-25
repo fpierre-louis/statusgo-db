@@ -469,6 +469,34 @@ public class GroupService {
         }
         group.setMemberEmails(safeList(groupDetails.getMemberEmails()));
         group.setPendingMemberEmails(safeList(groupDetails.getPendingMemberEmails()));
+        // A household is never eligible for the public community map, and the
+        // privacy flag was the only thing that ever put one there. `GroupRepo`
+        // now excludes households from that query outright; this closes the
+        // write side so the flag cannot be flipped from the general group
+        // settings screen (ManageGroup.js:311), which is how the two known rows
+        // got there — both household create paths set "Private" correctly.
+        //
+        // GUARDS THE TRANSITION, DOES NOT COERCE THE VALUE. Forcing a household
+        // to "Private" here would be the smaller diff and would flip the two
+        // existing public rows lazily, on whatever unrelated save touched them
+        // next. That is a change to records and the owner's call, explicitly
+        // withheld. So an already-public household still saves — adding a member
+        // must not 409 — and only a NEW private→public move is refused.
+        //
+        // Reads BOTH types on purpose: setGroupType() ran above, so by this line
+        // group.getGroupType() is already the INCOMING value. Guarding on that
+        // alone would let one request retype a household and publish it in the
+        // same breath; guarding on the stored type alone would miss a group
+        // being turned into a household as it is published.
+        final boolean becomingHousehold =
+                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
+        final boolean wasPublic = "public".equalsIgnoreCase(group.getPrivacy());
+        final boolean wantsPublic = "public".equalsIgnoreCase(groupDetails.getPrivacy());
+        if ((isHousehold || becomingHousehold) && wantsPublic && !wasPublic) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A household cannot be made public. Households are never listed "
+                    + "on the community map.");
+        }
         group.setPrivacy(groupDetails.getPrivacy());
         group.setSubGroupIDs(safeList(groupDetails.getSubGroupIDs()));
         group.setParentGroupIDs(safeList(groupDetails.getParentGroupIDs()));
