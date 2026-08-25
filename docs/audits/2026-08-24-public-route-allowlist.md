@@ -1,7 +1,11 @@
 # A9 — the allowlist for flipping `/api/**` to `.authenticated()`
 
-**2026-08-24. Read-only. Nothing flipped.** This is the list the owner asked for
-before the flip, not the flip.
+**2026-08-24.** Written as scoping, before the flip. **The flip has since landed**
+— see §3, where all four open rows were settled, and §7 for what shipped.
+
+The original text is left intact rather than rewritten: it is the reasoning the
+decision was made on, and one of its own conclusions turned out to be wrong in a
+way worth keeping visible (§3.1).
 
 A1–A8 fixed instances. **A9 fixes the class**: while `/api/**` is `permitAll` and
 the auth filter never rejects, forgetting a gate produces a *working endpoint*
@@ -119,8 +123,11 @@ Also not on the original list.
 |---|---|
 | `GET /api/retail/products` | `/emergency-supplies` — App.js comments it *"Public supplies catalog — affiliate reviewers must reach it logged-out."* |
 | `GET /api/readiness/assessment/questions`, `POST /assessment/evaluate` | `/sitprep-quiz` (`EmergencyAssessment`), rendered without `ProtectedRoute` |
-| `POST /api/agency/requests` | `/agencies` (`AgencyLandingPage`), a public sales-lead surface; handler uses the nullable accessor ⚠ *no direct call site found in the page — verify before relying on this row* |
-| `POST /api/userinfo/firebase` | Account provisioning ⚠ — see §3 |
+| `POST /api/agency/requests` | ✅ **Verified.** The call site is `ClaimAgencyPage.jsx:102`, on the `/claim-agency` route, which renders without `ProtectedRoute` (`App.js:986-989`) — not `AgencyLandingPage`, where this row first looked for it. |
+
+**Removed from this table:** `POST /api/userinfo/firebase`. It was listed here as
+an allowlist candidate and it does not belong — it already requires a token. See
+§3.1, which is the one row in this document whose original reasoning was wrong.
 
 ---
 
@@ -161,16 +168,95 @@ the internet with no account.
 
 ---
 
-## 3 · Decide before flipping
+## 3 · The four open rows — all settled, none allowlisted
 
-Four routes where the honest answer is "this needs a human", not a guess.
+Every one resolved by evidence rather than judgment, which was not the expected
+outcome.
 
-| # | Route | The question |
-|---|---|---|
-| 3.1 | `POST /api/userinfo/firebase` | Account provisioning on first sign-in. A user **has** a Firebase token by the time this runs — Firebase auth completes first, then the app provisions the row — so it should survive the flip. **But if it 401s, nobody can create an account.** Verify against a real cold-start signup before flipping, not by reading. |
-| 3.2 | `GET /api/config/defaults` | Server-tunable radius defaults. `useAppDefaults` catches failures and falls back to bundled constants, so a 401 is **invisible** — the app looks fine and the server-side knob silently stops reaching logged-out surfaces. That is the exact failure its own header comment already describes having missed once. Cheap to allowlist; recommend allowlisting. |
-| 3.3 | `GET /api/verified-publishers`, `/{email}` | Only consumers are `MarketplacePage` and `BusinessProfilePage`, both behind `ProtectedRoute`. Safe to close — **unless** public business profiles are on the roadmap, which is a product call. |
-| 3.4 | `GET /api/alert-mode` | **No frontend caller found anywhere.** Either dead code or an untraced admin surface. Worth resolving on its own terms rather than being swept into an allowlist. |
+### 3.1 `POST /api/userinfo/firebase` — settled by test, and my reasoning was wrong
+
+The original entry said this "should survive the flip" because Firebase auth
+completes before provisioning runs, and asked for a cold-start test rather than a
+confident paragraph. **The test found the paragraph was confident about the wrong
+thing.**
+
+The route does not merely *happen* to receive a token. It **already requires
+one**:
+
+```
+UserInfoResource.java:540   String uid = AuthUtils.requireAuthenticatedUid();
+AuthUtils.java:100-107      throws 401 UNAUTHORIZED when the uid is null
+```
+
+The sweep that produced this document missed it because its gate list knew
+`requireAuthenticatedEmail` and not the `...Uid` variant — **trap T-47, in the
+document written to describe trap T-47.** Adding the variant (plus `ensureOwns`
+and `ensurePathOwnerIsCaller`) removed seven false positives from the list.
+
+`ColdStartSignupTest`, 5 tests, passing: an anonymous POST **already** 401s today
+under `permitAll`, so the flip cannot change it; and a brand-new UID with no prior
+row still provisions, with the absence asserted first so the cold path is
+genuinely cold.
+
+**Not allowlisted.** Signup is unaffected.
+
+*Limit, stated:* no real Firebase token is minted — the Admin SDK cannot verify
+one offline and `spring-security-test` is not on the classpath, and adding a test
+dependency immediately before a production deploy was the worse trade. So this
+covers authorization, which the flip changes, and not authentication, which it
+does not.
+
+### 3.2 `GET /api/config/defaults` — **not** allowlisted
+
+The public Ask pages import `src/ask/useActiveHazards.js`, which pulls
+`useMyActiveAlerts` from `CrisisBand` and **not** `useAppDefaults`. Every
+`useAppDefaults` importer — `FemaWeatherMVP`, `shared/alerts/useActiveHazards`,
+`LocationSheet`, `radiusOverride`, `MarketplacePage`, `CommunityFeed` — is behind
+`ProtectedRoute`.
+
+The earlier note argued for allowlisting because a 401 here is invisible. It is
+invisible *and harmless*: the hook falls back to bundled constants that are
+numerically identical to the server's values, which its own header comment says.
+Nothing to protect against.
+
+### 3.3 `GET /api/verified-publishers` — **not** allowlisted
+
+Both consumers (`MarketplacePage`, `BusinessProfilePage`) are behind
+`ProtectedRoute`. Whether public business profiles ship is product judgment; the
+row can be added the day they do, and until then it is one less open route.
+
+### 3.4 `GET /api/alert-mode` — **not** allowlisted
+
+Real service, cron-driven, **no frontend caller anywhere**: built and unwired.
+Nothing breaks. Whoever wires it makes the call then, with a reason.
+
+### 3.5 One ⚠ row the list flagged and got right
+
+`POST /api/agency/requests` **is** public. `/claim-agency` renders without
+`ProtectedRoute` (`App.js:986-989`) and `ClaimAgencyPage.jsx:102` posts it.
+**Allowlisted.**
+
+---
+
+## 3b · What shipped
+
+`SecurityConfig`: `/api/**` → `.authenticated()`, plus an explicit
+`HttpStatusEntryPoint(401)` — Spring answers 403 by default, and `AuthUtils` has
+always answered 401; two dialects of "not signed in" is a worse API than either.
+
+`SecurityConfigAllowlistTest` asserts **36 cases over the real filter chain on a
+real port**: 17 routes reachable anonymously, 17 refused, plus 401-not-403 and
+`/share/**` untouched. It asserts routes are not turned away at the door, not
+that they succeed — several correctly answer 400/404 for a nonsense id.
+
+Two matcher decisions worth not undoing:
+
+- Ask is listed **per-path, never `/api/ask/**`**. A wildcard would also open
+  `/api/ask/bookmarks`, which is per-user. There is a test for it.
+- **The acks split.** `POST /api/plans/activations/*/acks` is public — a recipient
+  checking in, possibly with no account. `GET` on the same path is the owner's
+  roll-up of everyone's coordinates and is not. Same path, different verb,
+  different answer.
 
 ---
 
