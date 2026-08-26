@@ -149,7 +149,8 @@ public class OverpassService {
                     null,                           // groupType — OSM amenities are not circles
                     null, null, null, null,         // aid fields
                     category, website, mapUrl,
-                    "© OpenStreetMap contributors"  // attribution — REQUIRED for external
+                    "© OpenStreetMap contributors", // attribution — REQUIRED for external
+                    null                            // an OSM amenity has no SitPrep logo
             ));
         }
         return out;

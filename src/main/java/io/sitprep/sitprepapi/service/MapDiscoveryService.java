@@ -121,7 +121,11 @@ public class MapDiscoveryService {
                     agency && owner != null ? owner.getId() : null,
                     g.getGroupType(),         // so the layer knows WHICH circle it is drawing
                     null, null, null, null,   // aid fields
-                    null, null, null, null    // external fields
+                    null, null, null, null,   // external fields
+                    // The circle's own uploaded logo, when it has one. Blank is
+                    // normalised to null here rather than at the client: an
+                    // empty string is a value, and a value means "draw it".
+                    blankToNull(g.getLogoImageUrl())
             ));
         }
 
@@ -144,7 +148,8 @@ public class MapDiscoveryService {
                         null, null, null, null, null,   // group/agency fields
                         null,                           // groupType — aid posts are not circles
                         p.getId(), p.getKind(), p.getDescription(), p.getPlaceLabel(),
-                        null, null, null, null          // external fields
+                        null, null, null, null,         // external fields
+                        null                            // an aid post is not a circle
                 ));
             }
         }
@@ -255,7 +260,13 @@ public class MapDiscoveryService {
                 p.verified(), p.verifiedKind(), p.memberCount(), p.viewerRole(), p.ownerUserId(),
                 p.groupType(),
                 p.postId(), p.kind(), p.description(), p.placeLabel(),
-                p.category(), p.website(), p.externalMapUrl(), p.attribution());
+                p.category(), p.website(), p.externalMapUrl(), p.attribution(),
+                p.logoImageUrl());
+    }
+
+    /** An empty string is a value, and a value means "draw it". Null means don't. */
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     /** Great-circle distance in kilometers. */

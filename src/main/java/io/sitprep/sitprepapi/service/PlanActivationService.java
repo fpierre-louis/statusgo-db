@@ -370,7 +370,8 @@ public class PlanActivationService {
                 null, null, null, null, null,     // verified..ownerUserId
                 null,                             // groupType — activation places are not circles
                 null, null, address, placeLabel,  // postId, kind, description(=address), placeLabel
-                null, null, null, null            // category, website, externalMapUrl, attribution
+                null, null, null, null,           // category, website, externalMapUrl, attribution
+                null                              // logoImageUrl — not a circle
         );
     }
 

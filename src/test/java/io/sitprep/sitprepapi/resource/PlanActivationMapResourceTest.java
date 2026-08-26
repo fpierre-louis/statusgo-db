@@ -36,7 +36,8 @@ class PlanActivationMapResourceTest {
             40.2, -111.2, null, null, null, null, null, null,
             null,                 // groupType — an activation shelter is not a circle
             null, null, "5 Safe Ave",
-            "shelter-primary", null, null, null, null);
+            "shelter-primary", null, null, null, null,
+            null);   // logoImageUrl
 
     @BeforeEach
     void setUp() {

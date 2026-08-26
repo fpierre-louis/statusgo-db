@@ -71,5 +71,27 @@ public record MapPoiDto(
         String category,
         String website,
         String externalMapUrl,
-        String attribution  // REQUIRED for external sources (OSM/FEMA license line)
+        String attribution,  // REQUIRED for external sources (OSM/FEMA license line)
+
+        /**
+         * The circle's own uploaded logo — {@code Group.logoImageUrl}.
+         *
+         * <p><b>Added 2026-08-26 so the map can draw a real identity.</b> Every
+         * other group surface renders through
+         * {@code GroupTypeIllustration}, whose cascade is
+         * {@code logoImageUrl → illustrated emblem → glyph}. The map could
+         * reach only the last rung, because this DTO carried no image field at
+         * all — so a city with a real seal on file drew a generic building.</p>
+         *
+         * <p>Null for every non-group family, and null for a group that has not
+         * uploaded one. <b>Null renders NOTHING</b> — the client falls to the
+         * emblem. It must never render an empty frame: a labelled slot with no
+         * value asserts the record has one and it is blank.</p>
+         *
+         * <p>Declared LAST, deliberately. See the {@code groupType} note above:
+         * inserting a {@code String} component between two other
+         * {@code String}s in a positional record is a silent argument shift
+         * that javac accepts and production serves.</p>
+         */
+        String logoImageUrl
 ) {}
