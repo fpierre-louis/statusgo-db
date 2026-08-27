@@ -19,6 +19,31 @@ Date: 2026-08-27
 - `PREPARE`/`MONITOR`: meeting-place and readiness CTAs may remain visible, but must not read as an official instruction.
 - `ALL_CLEAR`/cancel/expired/test/non-public: no ordinary public emergency CTA.
 
+## Runtime Wires
+
+`PlanActivation.activeSituation` is the canonical activation state for Home,
+group surfaces, deployed-plan pages, and map previews. Frontend surfaces may
+format it differently, but must not recompute official movement priority from
+`protectiveAction`, tier, severity, or raw alert text.
+
+- `requestedOperationalMode`: the mode the user/plan requested before official
+  movement rules are applied.
+- `operationalMode`: the resolved activation mode. `evacuate` resolves to
+  `EVACUATING`; `shelter_in_place` resolves to `SHELTERING`; `avoid_area` and
+  `follow_official_instruction` keep the requested mode but replace the primary
+  action.
+- `movementDirective`: one of `none`, `evacuate`, `shelter_in_place`,
+  `avoid_area`, or `follow_official_instruction`.
+- `primaryAction` / `primaryActionKind`: the CTA copy and machine-readable UI
+  route. Current action kinds are `meet`, `stay`, `prepare`, `shelter`,
+  `evacuate`, `avoid`, `official`, `recover`, and `normal`.
+- `suppressedAction` / `suppressedReason`: why ordinary saved-plan navigation is
+  secondary while official movement guidance is active.
+
+An expired, cancelled, ended, or superseded governing alert cannot continue to
+override the activation. Missing governing-alert context also fails closed to
+`movementDirective = none`, even if a stale directive string exists on the row.
+
 ## Map Preview Behavior
 
 Map previews must identify what they are previewing: planned meeting place, active destination, checked-in person, official hazard area, public resource, or unverified public place. A preview cannot use the same visual state for planned and confirmed locations.

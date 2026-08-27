@@ -57,6 +57,9 @@ public class PlanActivationResource {
                 request.evacPlanId(),
                 request.meetingMode(),
                 request.evacMode(),
+                request.operationalMode(),
+                request.movementDirective(),
+                request.governingAlert(),
                 request.messagePreview(),
                 request.location(),
                 request.recipients()

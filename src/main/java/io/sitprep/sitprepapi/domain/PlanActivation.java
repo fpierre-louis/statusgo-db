@@ -64,6 +64,29 @@ public class PlanActivation {
     @Column(name = "evac_mode")
     private String evacMode;
 
+    /** NORMAL | PREPARING | GATHERING | SHELTERING | EVACUATING | RECOVERY. */
+    @Column(name = "operational_mode")
+    private String operationalMode;
+
+    /** Resolved safety-contract movement directive for the governing alert. */
+    @Column(name = "movement_directive")
+    private String movementDirective;
+
+    @Column(name = "governing_alert_source")
+    private String governingAlertSource;
+
+    @Column(name = "governing_alert_id", length = 1024)
+    private String governingAlertId;
+
+    @Column(name = "governing_alert_event")
+    private String governingAlertEvent;
+
+    @Column(name = "governing_alert_headline", length = 1024)
+    private String governingAlertHeadline;
+
+    @Column(name = "governing_alert_lifecycle_state")
+    private String governingAlertLifecycleState;
+
     @Column(name = "message_preview", length = 2048)
     private String messagePreview;
 

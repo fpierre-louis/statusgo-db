@@ -100,5 +100,18 @@ available while approved SitPrep copy renders with visible SitPrep attribution.
 Added frontend alert-enrichment coverage proving old local fallback guidance is
 not revived when the backend safety contract says `official_only`.
 
-Still missing from this pass: active-situation CTA tests, resource-distribution
-tests, and frontend visual regression tests for the map safety drawer.
+Added active-situation CTA coverage:
+
+- Backend `PlanActivationMapServiceTest` proves `evacuate` and
+  `shelter_in_place` override saved meeting-place navigation only when a
+  non-terminal governing alert exists.
+- Backend coverage also proves `avoid_area` and
+  `follow_official_instruction` make official guidance primary without
+  inventing evacuation/shelter destination advice.
+- Frontend `activeSituation.test.js` proves the same fallback semantics when an
+  older or partial response must be normalized locally.
+- Frontend `mapSummaryModel.test.js` proves saved meeting/destination rows are
+  secondary under avoid/official guidance.
+
+Still missing from this pass: resource-distribution tests and frontend visual
+regression tests for the map safety drawer.

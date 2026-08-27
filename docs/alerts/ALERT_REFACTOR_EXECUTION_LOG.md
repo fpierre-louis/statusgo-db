@@ -56,8 +56,10 @@ compatibility metadata, and safety-review records. The initial pass stopped at
 remain unapproved and official-only.
 
 Active-plan ecosystem, meeting-place/check-in semantics, and resource-distribution
-planning were audited and documented, but their runtime DTO/migration changes
-were not implemented in this pass.
+planning were audited and documented in the first alert-safety pass. The
+activation-level runtime DTO/migration is now implemented in the Active
+Situation Contract Closeout below. Resource-distribution freshness/provenance
+and durable `AlertPost` decision snapshots remain separate release gates.
 
 ## Verification
 
@@ -86,7 +88,8 @@ were not implemented in this pass.
   presentation must remain audit-stable after template/policy changes. Hazard
   push notifications now carry a dispatch-time snapshot in `additionalData`, but
   `AlertPost` itself still does not store the full decision.
-- Add runtime active-situation contracts for household/group/resource semantics.
+- Extend the active-situation contract to group-driven alert activations and
+  resource-distribution freshness/provenance once those data contracts land.
 - Add frontend visual regression coverage for the safety drawer/map preview
   states once the UI consumes the new safety contract directly.
 
@@ -335,3 +338,40 @@ Verification:
 - `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertWatchWarningTierTest,HazardPushPolicyTest,AlertTemplateCoverageTest,AlertBodySlotTest,AlertPushTargetingTest`
   passed with 121 tests, 0 failures, 0 errors.
 - Full backend suite `./mvnw test` passed with 588 tests, 0 failures, 0 errors.
+
+## Active Situation Contract Closeout
+
+Added the activation-level runtime contract needed before the map/dashboard can
+share one emergency-state decision:
+
+- `PlanActivation` now stores normalized `operational_mode`,
+  `movement_directive`, and compact governing-alert identity/lifecycle fields.
+- `CreateActivationRequest` accepts those wires without requiring older callers
+  to send them.
+- Owner and recipient activation detail responses include `activeSituation`.
+- The service derives the resolved primary action from `movementDirective` only
+  when a non-terminal governing alert is present.
+- `evacuate` and `shelter_in_place` promote evacuation/shelter behavior and
+  suppress meeting-place navigation.
+- `avoid_area` and `follow_official_instruction` make official guidance primary
+  without inventing evacuation or shelter destination advice.
+- Missing, expired, ended, cancelled, canceled, or superseded governing alerts
+  fail closed to `movementDirective = none`.
+
+Frontend parity was tightened so the shared active-situation helper and map
+summary model preserve the same rules when an older or partial activation
+response is normalized locally.
+
+Focused verification:
+
+- Backend `./mvnw test -Dtest=PlanActivationMapServiceTest` passed with 24
+  tests, 0 failures, 0 errors.
+- Frontend `npm test -- src/shared/activeSituation/activeSituation.test.js src/map/data/mapSummaryModel.test.js`
+  passed with 21 tests, 0 failures, 0 errors.
+- Full backend suite `./mvnw test` passed with 590 tests, 0 failures, 0 errors.
+- Full frontend suite `npm test` passed with 30 files and 423 tests.
+- Frontend build `npm run build` passed, including public-leak and viewport
+  checks.
+- Frontend lint `npm run lint` still fails on pre-existing
+  `src/me/content/blogs/GuideLayout.test.jsx:22` (`__dirname` is not defined);
+  no active-situation files are reported.

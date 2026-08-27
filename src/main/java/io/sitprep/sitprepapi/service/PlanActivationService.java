@@ -116,6 +116,19 @@ public class PlanActivationService {
         a.setEvacPlanId(req.evacPlanId());
         a.setMeetingMode(req.meetingMode());
         a.setEvacMode(req.evacMode());
+        a.setOperationalMode(normalizeOperationalMode(
+                req.operationalMode(),
+                req.evacPlanId() != null,
+                req.meetingPlaceId() != null,
+                req.meetingMode()));
+        a.setMovementDirective(normalizeMovementDirective(req.movementDirective()));
+        if (req.governingAlert() != null) {
+            a.setGoverningAlertSource(trimToNull(req.governingAlert().source()));
+            a.setGoverningAlertId(trimToNull(req.governingAlert().id()));
+            a.setGoverningAlertEvent(trimToNull(req.governingAlert().event()));
+            a.setGoverningAlertHeadline(trimToNull(req.governingAlert().headline()));
+            a.setGoverningAlertLifecycleState(trimToNull(req.governingAlert().lifecycleState()));
+        }
         a.setMessagePreview(req.messagePreview());
 
         if (req.location() != null) {
@@ -381,6 +394,48 @@ public class PlanActivationService {
                 && !lat.isInfinite() && !lng.isInfinite();
     }
 
+    private static String normalizeOperationalMode(
+            String raw,
+            boolean hasEvacDestination,
+            boolean hasMeetingPlace,
+            String meetingMode
+    ) {
+        String key = raw == null ? "" : raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (Set.of("NORMAL", "PREPARING", "GATHERING", "SHELTERING", "EVACUATING", "RECOVERY").contains(key)) {
+            return key;
+        }
+        if (hasEvacDestination) return "EVACUATING";
+        if (hasMeetingPlace) return "GATHERING";
+        String meet = meetingMode == null ? "" : meetingMode.trim().toLowerCase(Locale.ROOT);
+        if ("stay-home".equals(meet) || "stay_home".equals(meet)) return "SHELTERING";
+        return "PREPARING";
+    }
+
+    private static String normalizeMovementDirective(String raw) {
+        String key = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        return switch (key) {
+            case "evacuate" -> "evacuate";
+            case "shelter_in_place" -> "shelter_in_place";
+            case "avoid_area" -> "avoid_area";
+            case "follow_official_instruction" -> "follow_official_instruction";
+            default -> "none";
+        };
+    }
+
+    private static String resolveEffectiveMode(String requested, String movementDirective) {
+        return switch (normalizeMovementDirective(movementDirective)) {
+            case "evacuate" -> "EVACUATING";
+            case "shelter_in_place" -> "SHELTERING";
+            default -> normalizeOperationalMode(requested, false, false, null);
+        };
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     // ── IDOR guards (activation-create) ──────────────────────────────────
     private void assertMeetingPlaceOwned(Long meetingPlaceId, String ownerEmail) {
         if (meetingPlaceId == null) return;
@@ -619,6 +674,7 @@ public class PlanActivationService {
             log.warn("activation {} go-bag snapshot failed: {}", a.getId(), e.getMessage());
         }
 
+        AckRollupDto ackRollup = computeAckRollup(acks);
         return new ActivationDetailDto(
                 a.getId(),
                 a.getOwnerUserId(),
@@ -635,7 +691,8 @@ public class PlanActivationService {
                 ecgs,
                 goBags,
                 acks,
-                computeAckRollup(acks)
+                ackRollup,
+                toActiveSituation(a, mp, ep, ackRollup)
         );
     }
 
@@ -723,8 +780,118 @@ public class PlanActivationService {
                 location, mp, ep, ecgs,
                 List.of(),  // goBags — a link holder never sees bag storage locations
                 List.of(),  // acks — a recipient never sees the roll-up
-                null        // ackRollup — owner/household audience only
+                null,       // ackRollup — owner/household audience only
+                toActiveSituation(a, mp, ep, null)
         );
+    }
+
+    private ActiveSituationDto toActiveSituation(
+            PlanActivation a,
+            MeetingPlaceSnapshotDto mp,
+            EvacuationPlanSnapshotDto ep,
+            AckRollupDto rollup
+    ) {
+        String requested = normalizeOperationalMode(
+                a.getOperationalMode(),
+                a.getEvacPlanId() != null,
+                a.getMeetingPlaceId() != null,
+                a.getMeetingMode());
+        GoverningAlertDto governingAlert = activeGoverningAlert(a);
+        String movement = governingAlert == null ? "none" : normalizeMovementDirective(a.getMovementDirective());
+        String effective = resolveEffectiveMode(requested, movement);
+        Instant now = Instant.now();
+        String primary;
+        String kind;
+        String suppressed = null;
+        String reason = null;
+
+        if ("avoid_area".equals(movement)) {
+            primary = "Avoid the affected area";
+            kind = "avoid";
+            if (mp != null || ep != null) {
+                suppressed = "Plan navigation";
+                reason = "Official movement guidance says to avoid the affected area.";
+            }
+        } else if ("follow_official_instruction".equals(movement)) {
+            primary = "Follow official instructions";
+            kind = "official";
+            if (mp != null || ep != null) {
+                suppressed = "Plan navigation";
+                reason = "Official movement guidance must be read before following saved destinations.";
+            }
+        } else if ("EVACUATING".equals(effective)) {
+            primary = ep != null
+                    ? "Go to the evacuation destination"
+                    : "Follow official evacuation instructions";
+            kind = "evacuate";
+            if (mp != null) {
+                suppressed = "Navigate to meeting place";
+                reason = "Official movement guidance is evacuation-first.";
+            }
+        } else if ("SHELTERING".equals(effective)) {
+            primary = "Shelter in place";
+            kind = "shelter";
+            if (mp != null) {
+                suppressed = "Navigate to meeting place";
+                reason = "Official movement guidance says to shelter in place.";
+            }
+        } else if ("GATHERING".equals(effective)) {
+            primary = mp != null ? "Go to the active meeting place" : "Stay where you are";
+            kind = mp != null ? "meet" : "stay";
+        } else if ("PREPARING".equals(effective)) {
+            primary = "Get ready and watch for updates";
+            kind = "prepare";
+        } else if ("RECOVERY".equals(effective)) {
+            primary = "Check in and start recovery steps";
+            kind = "recover";
+        } else {
+            primary = "Stay available for updates";
+            kind = "normal";
+        }
+
+        return new ActiveSituationDto(
+                a.getId(),
+                now.isAfter(a.getExpiresAt()) ? "closed" : "active",
+                a.getActivatedAt(),
+                a.getActivatedAt(),
+                requested,
+                effective,
+                movement,
+                mp,
+                ep,
+                governingAlert,
+                rollup,
+                primary,
+                kind,
+                suppressed,
+                reason
+        );
+    }
+
+    private GoverningAlertDto activeGoverningAlert(PlanActivation a) {
+        String lifecycle = trimToNull(a.getGoverningAlertLifecycleState());
+        String normalized = lifecycle == null ? null : lifecycle.trim().toLowerCase(Locale.ROOT);
+        if (isTerminalAlertLifecycle(normalized)) {
+            return null;
+        }
+        if (trimToNull(a.getGoverningAlertId()) == null
+                && trimToNull(a.getGoverningAlertHeadline()) == null
+                && trimToNull(a.getGoverningAlertEvent()) == null) {
+            return null;
+        }
+        return new GoverningAlertDto(
+                trimToNull(a.getGoverningAlertSource()),
+                trimToNull(a.getGoverningAlertId()),
+                trimToNull(a.getGoverningAlertEvent()),
+                trimToNull(a.getGoverningAlertHeadline()),
+                lifecycle
+        );
+    }
+
+    private static boolean isTerminalAlertLifecycle(String lifecycle) {
+        return "expired".equals(lifecycle) || "ended".equals(lifecycle)
+                || "cancelled".equals(lifecycle) || "canceled".equals(lifecycle)
+                || "superseded".equals(lifecycle);
     }
 
     private EmergencyContactGroupSnapshotDto toContactGroupSnapshotMinimal(EmergencyContactGroup g) {

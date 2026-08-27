@@ -252,7 +252,7 @@ class PlanActivationMapServiceTest {
         when(householdAccess.canReadPlanDataFor(OWNER, "victim@x.com")).thenReturn(false);
 
         CreateActivationRequest req = new CreateActivationRequest(
-                OWNER, 99L, null, null, null, null, null, null);
+                OWNER, 99L, null, null, null, null, null, null, null, null, null);
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.createActivation(req));
@@ -266,7 +266,7 @@ class PlanActivationMapServiceTest {
         when(householdAccess.canReadPlanDataFor(OWNER, "victim@x.com")).thenReturn(false);
 
         CreateActivationRequest req = new CreateActivationRequest(
-                OWNER, null, 77L, null, null, null, null, null);
+                OWNER, null, 77L, null, null, null, null, null, null, null, null);
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.createActivation(req));
@@ -286,7 +286,7 @@ class PlanActivationMapServiceTest {
         });
 
         CreateActivationRequest req = new CreateActivationRequest(
-                OWNER, 1L, null, null, null, null, null, null);
+                OWNER, 1L, null, null, null, null, null, null, null, null, null);
 
         assertDoesNotThrow(() -> service.createActivation(req));
         verify(activationRepo).save(any());
@@ -346,6 +346,150 @@ class PlanActivationMapServiceTest {
         assertNull(c.email());       // PII stripped
         // The recipient view must not even query the ack table.
         verify(ackRepo, never()).findByActivationIdOrderByAckedAtAsc(anyString());
+    }
+
+    @Test
+    void activeSituation_shelterDirectiveSuppressesMeetingNavigation() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("shelter_in_place");
+        a.setGoverningAlertSource("NWS");
+        a.setGoverningAlertId("urn:alert");
+        a.setGoverningAlertHeadline("Flash Flood Warning");
+        a.setGoverningAlertLifecycleState("active");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
+        assertEquals("SHELTERING", d.activeSituation().operationalMode());
+        assertEquals("Shelter in place", d.activeSituation().primaryAction());
+        assertEquals("Navigate to meeting place", d.activeSituation().suppressedAction());
+    }
+
+    @Test
+    void activeSituation_evacuationDirectivePromotesEvacDestination() {
+        PlanActivation a = activation(1L, 2L, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("evacuate");
+        a.setGoverningAlertSource("NWS");
+        a.setGoverningAlertId("urn:evac");
+        a.setGoverningAlertHeadline("Evacuation Immediate");
+        a.setGoverningAlertLifecycleState("updated");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+        when(evacuationPlanRepo.findById(2L)).thenReturn(Optional.of(evac(2L, OWNER, 40.2, -111.2)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("EVACUATING", d.activeSituation().operationalMode());
+        assertEquals("evacuate", d.activeSituation().primaryActionKind());
+        assertEquals("Red Cross Shelter", d.activeSituation().activeEvacuationDestination().shelterName());
+    }
+
+    @Test
+    void activeSituation_noneDirectiveDoesNotAlterGatheringPlan() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("none");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().operationalMode());
+        assertEquals("meet", d.activeSituation().primaryActionKind());
+    }
+
+    @Test
+    void activeSituation_missingGoverningAlertCannotOverridePlan() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("shelter_in_place");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().operationalMode());
+        assertEquals("none", d.activeSituation().movementDirective());
+        assertEquals("meet", d.activeSituation().primaryActionKind());
+    }
+
+    @Test
+    void activeSituation_genericGuidanceDoesNotCreateShelteringMode() {
+        PlanActivation a = activation(null, null, null, null, future());
+        a.setOperationalMode("PREPARING");
+        a.setMovementDirective("none");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("PREPARING", d.activeSituation().operationalMode());
+        assertEquals("prepare", d.activeSituation().primaryActionKind());
+    }
+
+    @Test
+    void activeSituation_avoidAreaDirectiveKeepsPlanNavigationSecondary() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("avoid_area");
+        a.setGoverningAlertSource("NWS");
+        a.setGoverningAlertId("urn:avoid");
+        a.setGoverningAlertHeadline("Flash Flood Warning");
+        a.setGoverningAlertLifecycleState("active");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
+        assertEquals("GATHERING", d.activeSituation().operationalMode());
+        assertEquals("avoid_area", d.activeSituation().movementDirective());
+        assertEquals("Avoid the affected area", d.activeSituation().primaryAction());
+        assertEquals("avoid", d.activeSituation().primaryActionKind());
+        assertEquals("Plan navigation", d.activeSituation().suppressedAction());
+    }
+
+    @Test
+    void activeSituation_followOfficialInstructionDirectiveDoesNotInventDestinationAdvice() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("follow_official_instruction");
+        a.setGoverningAlertSource("NWS");
+        a.setGoverningAlertId("urn:official");
+        a.setGoverningAlertHeadline("Civil Emergency Message");
+        a.setGoverningAlertLifecycleState("active");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().operationalMode());
+        assertEquals("follow_official_instruction", d.activeSituation().movementDirective());
+        assertEquals("Follow official instructions", d.activeSituation().primaryAction());
+        assertEquals("official", d.activeSituation().primaryActionKind());
+        assertEquals("Plan navigation", d.activeSituation().suppressedAction());
+    }
+
+    @Test
+    void activeSituation_terminalGoverningAlertNoLongerOverridesPlan() {
+        PlanActivation a = activation(1L, null, null, null, future());
+        a.setOperationalMode("GATHERING");
+        a.setMovementDirective("shelter_in_place");
+        a.setGoverningAlertSource("NWS");
+        a.setGoverningAlertId("urn:old");
+        a.setGoverningAlertHeadline("Expired warning");
+        a.setGoverningAlertLifecycleState("expired");
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
+
+        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+
+        assertEquals("GATHERING", d.activeSituation().operationalMode());
+        assertEquals("none", d.activeSituation().movementDirective());
+        assertNull(d.activeSituation().governingAlert());
     }
 
     @Test

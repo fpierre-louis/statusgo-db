@@ -23,6 +23,9 @@ public final class PlanActivationDtos {
             Long evacPlanId,
             String meetingMode,
             String evacMode,
+            String operationalMode,
+            String movementDirective,
+            GoverningAlertDto governingAlert,
             String messagePreview,
             LocationDto location,
             RecipientsRequest recipients
@@ -81,7 +84,39 @@ public final class PlanActivationDtos {
              * Responses board still reduces the streamed list client-side.
              * Owner/household audience only; null in the recipient projection.
              */
-            AckRollupDto ackRollup
+            AckRollupDto ackRollup,
+            /**
+             * Canonical Active Situation contract for every FE surface. Raw
+             * meeting/evac fields remain for detail rendering; this is the
+             * resolved instruction and mode.
+             */
+            ActiveSituationDto activeSituation
+    ) {}
+
+    public record ActiveSituationDto(
+            String id,
+            String status,
+            Instant activatedAt,
+            Instant updatedAt,
+            String requestedOperationalMode,
+            String operationalMode,
+            String movementDirective,
+            MeetingPlaceSnapshotDto activeMeetingPlace,
+            EvacuationPlanSnapshotDto activeEvacuationDestination,
+            GoverningAlertDto governingAlert,
+            AckRollupDto checkInSummary,
+            String primaryAction,
+            String primaryActionKind,
+            String suppressedAction,
+            String suppressedReason
+    ) {}
+
+    public record GoverningAlertDto(
+            String source,
+            String id,
+            String event,
+            String headline,
+            String lifecycleState
     ) {}
 
     public record AckRollupDto(

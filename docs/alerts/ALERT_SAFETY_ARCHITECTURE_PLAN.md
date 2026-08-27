@@ -34,9 +34,10 @@ Dispatch lives in `AlertDispatchService`. It loads `src/main/resources/templates
   listed below. CAP severity, urgency, certainty, response types, event codes,
   scope, sender, and source-system identity remain available as separate
   normalized fields.
-- Active Situation still needs to consume movement directives instead of reading
-  `protectiveAction` as if every shelter-like safety behavior were an official
-  shelter-in-place order.
+- Active Situation now consumes `movementDirective` through the plan activation
+  `activeSituation` DTO. It does not infer evacuation/shelter movement from
+  `protectiveAction`, tier, or severity; terminal or missing governing alerts
+  fail closed to ordinary plan behavior.
 - USGS earthquake handling is magnitude-only; impact metadata such as PAGER/MMI is not normalized.
 - Frontend active-situation surfaces consume active group alerts, external hazard feeds, plan activation state, and map POIs without one shared presentation contract.
 
@@ -113,6 +114,28 @@ magnitude-only earthquake alerts remain attention-mode.
 Current NWS event-name verification is documented in
 `NWS_EVENT_CATALOG_AUDIT.md`; the 2026-08-27 official alert-types response is
 saved as an offline test fixture.
+
+## Active Situation Contract
+
+`PlanActivationService` persists normalized activation wires on
+`plan_activations`: `operational_mode`, `movement_directive`, and compact
+governing-alert identity/lifecycle fields. Owner and recipient activation detail
+responses now include `activeSituation`, the shared FE/BE presentation contract
+for current mode, movement directive, primary action, suppressed saved-plan
+navigation, active meeting place, active evacuation destination, and caller-safe
+check-in summary.
+
+Runtime guardrails:
+
+- `evacuate` promotes evacuation/destination action and suppresses meeting-place
+  navigation when both are present.
+- `shelter_in_place` promotes shelter action and suppresses meeting-place
+  navigation.
+- `avoid_area` and `follow_official_instruction` do not invent a destination
+  mode; they surface official guidance first and keep saved plan navigation
+  secondary.
+- Missing, expired, ended, cancelled, canceled, or superseded governing alerts
+  cannot make a stored movement directive actionable.
 
 ## Auditability Snapshot Finding
 
