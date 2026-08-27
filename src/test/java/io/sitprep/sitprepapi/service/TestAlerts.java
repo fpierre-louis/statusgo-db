@@ -11,7 +11,7 @@ import java.util.List;
  * positional components, and the alert epic added five of them in three
  * sittings (P0-2 added {@code event}; P0-3 added {@code urgency},
  * {@code certainty}, {@code messageType}, {@code status}, {@code response};
- * P0-4 added {@code ugc} and {@code same}). Each addition broke every ad-hoc
+ * P0-4 added {@code ugc} and {@code same}; the CAP-references pass added {@code references}). Each addition broke every ad-hoc
  * constructor call in the test tree, which is churn that teaches nothing.</p>
  *
  * <p>Production builds this record in exactly three places — the three
@@ -74,6 +74,7 @@ final class TestAlerts {
         private Object geometry;
         private List<String> ugc = List.of();
         private List<String> same = List.of();
+        private List<String> references = List.of();
 
         Builder id(String v) { this.id = v; return this; }
         Builder source(String v) { this.source = v; return this; }
@@ -93,12 +94,14 @@ final class TestAlerts {
         Builder geometry(Object v) { this.geometry = v; return this; }
         Builder ugc(List<String> v) { this.ugc = v; return this; }
         Builder same(List<String> v) { this.same = v; return this; }
+        /** CAP `references` — the identifiers of the alerts this one replaces. */
+        Builder references(List<String> v) { this.references = v; return this; }
 
         NormalizedAlert build() {
             return new NormalizedAlert(
                     id, source, event, severity, urgency, certainty, messageType,
                     status, response, headline, description, instruction, area,
-                    startedAt, endsAt, geometry, ugc, same);
+                    startedAt, endsAt, geometry, ugc, same, references);
         }
     }
 }

@@ -985,11 +985,31 @@ public class AlertDispatchService {
         final String hazardType;
         final String headline;
         final String body;
+        /**
+         * The WHAT TO DO block: two or three short imperatives, action first,
+         * rendered as a numbered list on the alert detail.
+         *
+         * <p><b>This is SitPrep's own wording and the surface says so.</b> The
+         * issuing office's verbatim text stays in
+         * {@code AlertCardDto.Official.instruction} under its own heading —
+         * that separation is the whole rule. Measured reading grade on the live
+         * NWS feed runs 5.8 to 12.2 and the register is different, so promoting
+         * wire text into this slot would present it as reviewed plain-language
+         * guidance it is not.</p>
+         *
+         * <p>Null when a template predates the copy. A null renders NOTHING
+         * rather than a generic list — generic safety advice reads as specific
+         * to the incident, which is the failure the resolution order in
+         * {@code alert-dispatch-templates.json} (<i>exact (event, tier), then
+         * nothing</i>) exists to prevent.</p>
+         */
+        final List<String> steps;
         final String askTag;
 
         DispatchTemplate(String source, List<String> eventAny, String tier,
                          List<String> incidentTypeAny, Double minMag, boolean fallback,
-                         String hazardType, String headline, String body, String askTag) {
+                         String hazardType, String headline, String body,
+                         List<String> steps, String askTag) {
             this.source = source;
             this.eventAny = eventAny;
             this.tier = tier;
@@ -999,6 +1019,7 @@ public class AlertDispatchService {
             this.hazardType = hazardType;
             this.headline = headline;
             this.body = body;
+            this.steps = steps;
             this.askTag = askTag;
         }
 
@@ -1066,6 +1087,7 @@ public class AlertDispatchService {
                     text(n, "hazardType"),
                     text(n, "headline"),
                     text(n, "body"),
+                    stringArray(n, "steps"),
                     text(n, "askTag")
             );
         }

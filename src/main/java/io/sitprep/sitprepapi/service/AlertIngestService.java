@@ -541,6 +541,17 @@ public class AlertIngestService {
         List<String> ugc = stringList(geocode.path("UGC"));
         List<String> same = stringList(geocode.path("SAME"));
 
+        // CAP `references` — the alerts THIS message replaces. Same drop as UGC
+        // and SAME had: the normalizer read fifteen `properties.*` fields and
+        // never touched this one, so the supersession edge died here and the
+        // "Replaced by ..." surface had no source at all.
+        //
+        // Shape is an array of OBJECTS, not strings — {"@id", "identifier",
+        // "sender", "sent"} — so it needs its own extractor. `identifier` is in
+        // the SAME namespace as `properties.id` (both `urn:oid:2.49.0.1.840...`),
+        // which is what makes the edge joinable at all.
+        List<String> references = identifierList(p.path("references"));
+
         return new NormalizedAlert(
                 id,
                 "NWS",
@@ -559,8 +570,26 @@ public class AlertIngestService {
                 isoOrNull(p, "ends", "expires"),
                 geometry,
                 ugc,
-                same
+                same,
+                references
         );
+    }
+
+    /**
+     * CAP {@code references} -> the identifiers it names, empty when absent.
+     *
+     * <p>Tolerates the entries being bare strings as well as objects: the NWS
+     * GeoJSON ships objects, but the same field is a space-delimited string in
+     * raw CAP XML, and a future source may hand us either.</p>
+     */
+    private static List<String> identifierList(JsonNode arr) {
+        if (arr == null || !arr.isArray() || arr.isEmpty()) return List.of();
+        List<String> out = new ArrayList<>(arr.size());
+        for (JsonNode n : arr) {
+            String id = n.isObject() ? n.path("identifier").asText("") : n.asText("");
+            if (!id.isEmpty()) out.add(id);
+        }
+        return List.copyOf(out);
     }
 
     /** GeoJSON string array -> immutable List, empty when absent or malformed. */
@@ -646,7 +675,8 @@ public class AlertIngestService {
                 // They are genuinely unlocated as far as this pipeline is
                 // concerned — see the FEMA branch of getSnapshotForPoint.
                 List.of(),
-                List.of()
+                List.of(),
+                /* references */ List.of()   // no CAP supersession vocabulary
         );
     }
 
@@ -702,7 +732,8 @@ public class AlertIngestService {
                 // USGS quakes always carry a Point geometry, so zone matching
                 // never applies to them.
                 List.of(),
-                List.of()
+                List.of(),
+                /* references */ List.of()   // no CAP supersession vocabulary
         );
     }
 
@@ -1078,6 +1109,31 @@ public class AlertIngestService {
              * than zone; {@link #getSnapshotForPoint} matches on {@link #ugc}
              * alone, which was verified sufficient.
              */
-            List<String> same
+            List<String> same,
+            /**
+             * CAP {@code references} — the identifiers of the alerts THIS
+             * message replaces. Empty for the original of a series, and for
+             * every non-NWS source.
+             *
+             * <p><b>Measured on the live feed 2026-08-26: 73 of 252 active
+             * alerts carry one (29%), and all 73 are {@code messageType:
+             * Update}.</b> The identifiers share a namespace with
+             * {@link #id} ({@code urn:oid:2.49.0.1.840...}), which is what
+             * makes the edge joinable.</p>
+             *
+             * <p><b>And the direction matters, because only one end of the edge
+             * is ever in the snapshot.</b> Same measurement: <b>0 of 99
+             * referenced identifiers resolved inside the same response</b> —
+             * necessarily, because {@code /alerts/active} returns only ACTIVE
+             * alerts and a replaced alert is by definition no longer one.</p>
+             *
+             * <p>So the honest surface is the FORWARD edge — "this updates an
+             * earlier alert", drawn on the message we have — and not the
+             * reverse "replaced by X" the design mock draws on the old card,
+             * which would need a short history of recently-seen alerts that
+             * this service does not keep. See
+             * {@code AlertDerivations.supersessionIndex}.</p>
+             */
+            List<String> references
     ) {}
 }

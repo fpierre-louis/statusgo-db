@@ -78,6 +78,67 @@ public record AlertCardDto(
         /** Our plain-language action copy. Never the wire text. */
         String whatToDo,
 
+        /**
+         * The WHAT TO DO steps: two or three short imperatives, action first,
+         * rendered as a numbered list.
+         *
+         * <p><b>Ours, and the surface says so</b> — see {@link #precautionsSource}.
+         * Sourced from {@code alert-dispatch-templates.json}, matched on the
+         * exact NWS product name. <b>Null when no template covers the product</b>,
+         * and null renders nothing: generic safety advice reads as specific to
+         * the incident, which is worse than an honest gap. The issuing office's
+         * own instruction stays verbatim in {@link Official#instruction} under
+         * its own heading.</p>
+         */
+        List<String> precautions,
+
+        /**
+         * The attribution line for {@link #precautions} — who wrote the steps,
+         * and who issued the alert they are about. Null exactly when
+         * {@code precautions} is null, so a caller cannot render one without
+         * the other.
+         */
+        String precautionsSource,
+
+        /**
+         * {@code active} | {@code updated} | {@code superseded} | {@code expired},
+         * derived at serve time from CAP {@code messageType}, {@code response}
+         * and {@code expires}.
+         *
+         * <p><b>{@code active} is the absence of a chip</b> on the surface. Four
+         * values, three chips — a chip on every card spends the slot that makes
+         * the three exceptional states readable.</p>
+         */
+        String lifecycleState,
+
+        /**
+         * CAP {@code references} — the identifiers of the alerts this message
+         * REPLACES. Empty for the original of a series and for every non-NWS
+         * source.
+         *
+         * <p>This is the forward edge, and it is the one the wire actually
+         * supports. Measured 2026-08-26: 29% of live alerts carry it, and 0%
+         * of the identifiers resolve inside the same response — because
+         * {@code /alerts/active} returns only active alerts and a replaced one
+         * is no longer active. So a client can honestly say <i>"this updates an
+         * earlier alert"</i>; it cannot resolve that earlier alert's title
+         * without a history this service does not keep.</p>
+         */
+        List<String> replacesAlertIds,
+
+        /**
+         * The alert that replaced THIS one, when both ends happen to be in the
+         * same snapshot — {@code {id, title}} — and null otherwise.
+         *
+         * <p>Rare but real: a snapshot assembled while a cancellation is still
+         * in the active set. Null the rest of the time, and null renders
+         * nothing rather than a link that goes nowhere.</p>
+         *
+         * <p>The title is <b>joined per response, never stored</b>: a stored
+         * copy lets a retitled successor leave a stale string behind.</p>
+         */
+        SupersededBy supersededBy,
+
         Official official,
 
         Location location,
@@ -116,6 +177,10 @@ public record AlertCardDto(
      * record — the frontend puts it behind an "official wording" disclosure.
      * If our processing leaked into it there would be no raw record left.</p>
      */
+    /** The replacement edge, resolved. Both fields non-null or the record is. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SupersededBy(String alertId, String title) {}
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Official(
             String headline,
@@ -141,6 +206,27 @@ public record AlertCardDto(
              * row reads as local news, which is what Phase 1 measured.</p>
              */
             String matchType,
+
+            /**
+             * How precisely the ALERT knows its own extent:
+             * {@code exact} | {@code region} | {@code none}.
+             *
+             * <p>Distinct from {@link #matchType}, and the difference matters.
+             * {@code matchType} is how this alert matched <em>you</em>;
+             * {@code confidence} is what the alert knows about <em>itself</em>.
+             * An alert can carry a real polygon and still have matched you by
+             * zone. The map's edge treatment reads this field: a hard edge for
+             * {@code exact}, a dashed edge for {@code region}, no edge for
+             * {@code none}.</p>
+             */
+            String confidence,
+
+            /**
+             * A human area name, cut where a reader can see it was cut —
+             * "Uintah +4 more areas". Null rather than a guess when the wire
+             * says nothing.
+             */
+            String areaLabel,
             /** A specific place when the source names one, e.g. USGS's epicentre. */
             String place
     ) {}

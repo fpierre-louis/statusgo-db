@@ -87,12 +87,18 @@ public class AlertFeedService {
         Set<String> userZones = ingest.zoneCodesForPoint(lat, lng);
         Set<String> userStates = AlertIngestService.statePrefixesOf(userZones);
 
+        // Built from the WHOLE snapshot, not from the matched subset: an alert
+        // can be replaced by one that does not match this viewer's point, and
+        // the edge is a fact about the alert rather than about the reader.
+        Map<String, NormalizedAlert> supersededBy =
+                AlertDerivations.supersessionIndex(snap.alerts());
+
         List<AlertCardDto> cards = new ArrayList<>();
         for (NormalizedAlert a : snap.alerts()) {
             MatchType match = AlertIngestService.matchTypeFor(
                     a, lat, lng, radiusKm, userZones, userStates);
             if (match == null) continue;
-            cards.add(toCard(a, match, radiusMi));
+            cards.add(toCard(a, match, radiusMi, supersededBy.get(a.id())));
         }
 
         return new AlertFeedResponse(List.copyOf(cards), metaFor(snap));
@@ -108,6 +114,10 @@ public class AlertFeedService {
     }
 
     AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi) {
+        return toCard(a, match, radiusMi, null);
+    }
+
+    AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi, NormalizedAlert replacedBy) {
         Optional<DispatchTemplate> tplOpt = dispatch.matchForAlert(a);
         DispatchTemplate tpl = tplOpt.orElse(null);
 
@@ -116,6 +126,12 @@ public class AlertFeedService {
         // present wire text as if we had written it.
         String headline = tpl != null ? tpl.headline : null;
         String whatToDo = tpl != null ? AlertDispatchService.fillBody(tpl, a) : null;
+
+        // The numbered WHAT TO DO steps, and their attribution, travel together
+        // or not at all — a caller cannot render reviewed guidance without the
+        // line saying whose it is.
+        List<String> precautions = AlertDerivations.orNull(tpl == null ? null : tpl.steps);
+        String precautionsSource = precautions == null ? null : AlertDerivations.guidanceAttribution(a);
 
         return new AlertCardDto(
                 a.id(),
@@ -127,8 +143,29 @@ public class AlertFeedService {
                 a.event() != null && EVACUATION_PRODUCTS.contains(a.event()),
                 headline,
                 whatToDo,
+                precautions,
+                precautionsSource,
+                AlertDerivations.lifecycleState(a, Instant.now()),
+                // The FORWARD edge: what this message replaces. Real today —
+                // 29% of live alerts carry it.
+                a.references() == null || a.references().isEmpty()
+                        ? List.of()
+                        : List.copyOf(a.references()),
+                // The REVERSE edge: what replaced this message. Only when both
+                // ends are in the same snapshot, which is rare by construction
+                // — /alerts/active drops an alert the moment it is replaced.
+                replacedBy == null
+                        ? null
+                        : new AlertCardDto.SupersededBy(
+                                replacedBy.id(),
+                                AlertDerivations.supersededByTitle(replacedBy)),
                 officialOf(a),
-                new AlertCardDto.Location(a.area(), match.wire(), placeOf(a)),
+                new AlertCardDto.Location(
+                        a.area(),
+                        match.wire(),
+                        AlertDerivations.geometryConfidence(a),
+                        AlertDerivations.areaLabel(a),
+                        placeOf(a)),
                 radiusMi,
                 a.startedAt(),
                 a.endsAt(),                       // null stays null — see the DTO
