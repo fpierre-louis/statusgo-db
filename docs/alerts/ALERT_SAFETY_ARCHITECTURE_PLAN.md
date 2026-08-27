@@ -120,8 +120,11 @@ changes?
 PARTIALLY.
 
 The dispatched community post snapshots a title and description in `Post` at the
-time the dispatch tick creates it. `AlertPost` then stores only tracking fields:
-`alertId`, `hazardType`, `geocellId`, `postId`, `createdAt`, `expiresAt`, and
+time the dispatch tick creates it. Hazard push notifications now also carry a
+compact dispatch-time snapshot in `additionalData`: alert identity, lifecycle,
+normalized source parameters, and the `AlertSafetyPolicy.Decision` wires that
+produced the push. `AlertPost` still stores only tracking fields: `alertId`,
+`hazardType`, `geocellId`, `postId`, `createdAt`, `expiresAt`, and
 `resolvedAt`. It does not persist `protectiveAction`, `dispatchMode`,
 `guidanceMode`, compatibility, `policyVersion`, `templateVersion`, evidence
 version, or the complete `AlertSafetyPolicy.Decision`.
@@ -133,8 +136,8 @@ currently active alert can display a different structured safety interpretation
 after a template or policy change, even though an already-created post body will
 not rewrite itself.
 
-Recommended follow-up: add a narrow safety-decision snapshot to dispatched alert
-records before production approval is enabled. Minimum fields:
+Recommended follow-up: add a durable safety-decision snapshot to dispatched
+alert records before production approval is enabled. Minimum fields:
 `templateKey`, `templateVersion`, `safetyReview.status`, `policyVersion`,
 `protectiveAction`, `dispatchMode`, `guidanceMode`, `compatibility`,
 `capActions`, `decisionReason`, and evidence URLs or evidence version. Do not

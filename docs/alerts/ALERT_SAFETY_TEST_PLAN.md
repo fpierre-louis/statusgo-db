@@ -9,6 +9,8 @@ Date: 2026-08-27
 - Watch-shaped CAP data cannot receive warning/critical dispatch even if severity is `Severe`.
 - Template guidance is suppressed when compatibility is unknown or incompatible.
 - Official issuer `instruction` remains present when SitPrep guidance is suppressed.
+- Hazard push notification metadata carries alert identity, lifecycle, source
+  parameters, and the safety decision wires used at dispatch time.
 - Evidence host allowlist rejects unapproved provenance hosts.
 - Evidence host allowlist explicitly accepts intentional CDC/NRC hosts and
   rejects lookalikes such as `cdc.gov.example.com`.
@@ -62,6 +64,7 @@ Implemented backend safety regression coverage in `AlertSafetyPolicyTest` for:
   and `WEAHandling`.
 - Missing or unknown NWS impact parameters not forcing critical push.
 - CDC/NRC host validation and fake-host rejection.
+- Hazard notification safety snapshot serialization in `AlertPushTargetingTest`.
 
 Implemented backend template-wide coverage in `AlertTemplateCoverageTest` for:
 

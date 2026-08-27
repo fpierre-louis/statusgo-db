@@ -40,6 +40,9 @@ pretending it has been reviewed.
   `no_guidance`.
 - Extended `AlertCardDto` with a `safety` contract carrying dispatch mode,
   guidance mode, compatibility, protective actions, and reason.
+- Extended hazard push payloads and `NotificationLog.additionalData` with a
+  compact JSON safety snapshot: alert identity, lifecycle, CAP parameters, and
+  the `AlertSafetyPolicy.Decision` wires that produced the push.
 - Updated frontend alert enrichment to honor backend safety mode and avoid
   resurrecting local fallback guidance when the feed says official-only.
 
@@ -81,8 +84,10 @@ were not implemented in this pass.
   SitPrep-authored guidance is approved for production display.
 - Resolve the four blocked civil/law-enforcement templates with issuer- or
   jurisdiction-specific review.
-- Persist safety decision snapshots if historical alert presentation must remain
-  audit-stable after template/policy changes.
+- Persist durable database safety decision snapshots if historical alert
+  presentation must remain audit-stable after template/policy changes. Hazard
+  push notifications now carry a dispatch-time snapshot in `additionalData`, but
+  `AlertPost` itself still does not store the full decision.
 - Add runtime active-situation contracts for household/group/resource semantics.
 - Add frontend visual regression coverage for the safety drawer/map preview
   states once the UI consumes the new safety contract directly.
@@ -153,16 +158,19 @@ rationale for each production template row.
 
 Historical safety interpretation is only partially snapshotted. A dispatched
 `Post` keeps the title and description that were created at dispatch time, and
-`AlertPost` tracks source alert id, hazard type, geocell, post id, creation,
-expiry, and resolved timestamps. It does not persist the structured
-`AlertSafetyPolicy.Decision`, template version, policy version, evidence
-version, protective action, guidance mode, dispatch mode, or compatibility.
+hazard push notifications now carry a compact `additionalData` JSON snapshot of
+alert identity, lifecycle, source parameters, and the structured
+`AlertSafetyPolicy.Decision` wires that produced that push. `AlertPost` tracks
+source alert id, hazard type, geocell, post id, creation, expiry, and resolved
+timestamps. It does not persist the complete structured decision, template
+version, policy version, evidence version, protective action, guidance mode,
+dispatch mode, or compatibility.
 
 Therefore, reopening an already-created post does not rewrite its stored copy,
 but a live alert feed/card assembled after a policy or template change can
 produce a different structured safety decision for the same upstream alert.
-Recommended follow-up: add a safety-decision snapshot before any production
-template is marked `approved`.
+Recommended follow-up: add a durable safety-decision snapshot to alert dispatch
+records before any production template is marked `approved`.
 
 ## Pass 2 Verification
 
@@ -243,7 +251,7 @@ Pass 2B verification:
 
 Still out of scope: Active Situation/map UI, PAGER/MMI/ShakeMap normalization,
 additional NWS impact fields beyond the documented parameter names below,
-human approval, and dispatch snapshot persistence.
+human approval, and durable dispatch snapshot persistence.
 
 ## Pass 2C Closeout Corrections
 
@@ -281,3 +289,26 @@ Pass 2C focused verification:
 - Full backend suite `./mvnw test` passed with 581 tests, 0 failures, 0 errors.
   The run was executed outside the sandbox because embedded Tomcat tests require
   local port binding.
+
+## Notification Snapshot Closeout
+
+- `AlertDispatchService` now sends hazard push notifications with
+  `additionalData` containing alert source/id/event, severity/urgency/certainty,
+  message type, sent/effective/expires timestamps, lifecycle state, CAP
+  `references`, response types, normalized `parameters`, and the safety wires:
+  `dispatchMode`, `guidanceMode`, `compatibility`, `movementDirective`,
+  `reason`, and protective actions.
+- `NotificationService.sendHazardAlertBatch(...)` keeps the legacy overload and
+  adds an overload accepting the snapshot. The value is written to Android/Web
+  data, APNs custom data, and `NotificationLog.additionalData`.
+- This is not the durable DB audit snapshot described above. It makes delivered
+  notifications self-describing; it does not make historical `AlertPost` rows
+  immune to future template/policy reinterpretation.
+
+Verification:
+
+- `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertPushTargetingTest`
+  passed with 47 tests, 0 failures, 0 errors.
+- `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertWatchWarningTierTest,HazardPushPolicyTest,AlertTemplateCoverageTest,AlertBodySlotTest,AlertPushTargetingTest`
+  passed with 121 tests, 0 failures, 0 errors.
+- Full backend suite `./mvnw test` passed with 588 tests, 0 failures, 0 errors.

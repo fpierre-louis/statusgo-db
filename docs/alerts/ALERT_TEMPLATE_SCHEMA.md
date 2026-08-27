@@ -113,5 +113,7 @@ available and no guidance otherwise.
 
 Increment `safetyReview.version` whenever body, steps, protective action,
 compatibility metadata, dispatch mode, guidance mode, evidence, or review status
-changes. Historical safety decisions are not fully snapshotted today; see
-`ALERT_SAFETY_ARCHITECTURE_PLAN.md` for the auditability follow-up.
+changes. Hazard push notifications carry a compact dispatch-time safety snapshot
+in `NotificationLog.additionalData`, but historical alert-post records do not
+yet persist the full decision. See `ALERT_SAFETY_ARCHITECTURE_PLAN.md` for the
+durable auditability follow-up.

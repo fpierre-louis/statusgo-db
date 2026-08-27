@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.service.AlertDispatchService.DispatchTemplate;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.util.GeoUtil;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.within;
  */
 class AlertPushTargetingTest {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static AlertDispatchService dispatcher;
 
     @BeforeAll
@@ -196,6 +199,40 @@ class AlertPushTargetingTest {
         assertThat(body).isEqualTo(
                 "A magnitude 5.9 earthquake was reported near 14 km E of Encinitas, CA. "
                         + "Check people first, then check for hazards.");
+    }
+
+    @Test
+    void hazardNotificationMetadataCarriesLifecycleIdentityAndSafetyContract() throws Exception {
+        NormalizedAlert update = TestAlerts.nws("Flash Flood Warning")
+                .id("urn:oid:NEW")
+                .messageType("Update")
+                .references(List.of("urn:oid:OLD"))
+                .parameters(Map.of("flashFloodDamageThreat", List.of("CONSIDERABLE")))
+                .startedAt("2026-08-27T18:00:00Z")
+                .endsAt("2099-08-27T20:00:00Z")
+                .sent("2026-08-27T18:01:00Z")
+                .build();
+        AlertSafetyPolicy.Decision decision = new AlertSafetyPolicy.Decision(
+                AlertSafetyPolicy.DispatchMode.CRITICAL_PUSH,
+                AlertSafetyPolicy.GuidanceMode.OFFICIAL_ONLY,
+                AlertSafetyPolicy.Compatibility.COMPATIBLE,
+                java.util.Set.of(AlertSafetyPolicy.ProtectiveAction.AVOID),
+                AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION,
+                "structured_high_impact");
+
+        JsonNode node = MAPPER.readTree(dispatcher.hazardNotificationData(update, decision));
+
+        assertThat(node.path("source").asText()).isEqualTo("NWS");
+        assertThat(node.path("id").asText()).isEqualTo("urn:oid:NEW");
+        assertThat(node.path("messageType").asText()).isEqualTo("Update");
+        assertThat(node.path("references").get(0).asText()).isEqualTo("urn:oid:OLD");
+        assertThat(node.path("parameters").path("flashFloodDamageThreat").get(0).asText())
+                .isEqualTo("CONSIDERABLE");
+        assertThat(node.path("lifecycleState").asText()).isEqualTo(AlertDerivations.LIFECYCLE_UPDATED);
+        assertThat(node.path("safety").path("dispatchMode").asText()).isEqualTo("critical_push");
+        assertThat(node.path("safety").path("guidanceMode").asText()).isEqualTo("official_only");
+        assertThat(node.path("safety").path("movementDirective").asText())
+                .isEqualTo("follow_official_instruction");
     }
 
     // ==================================================================

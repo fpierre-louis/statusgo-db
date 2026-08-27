@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -803,9 +804,69 @@ public class AlertDispatchService {
         // Deep-link to the renamed hazards page. /Fema is still routed in
         // the FE as an alias (see App.js) for in-flight pushes; new ones
         // land on the canonical /hazards URL.
-        notificationService.sendHazardAlertBatch(nearby, title, body, referenceId, "/hazards");
+        notificationService.sendHazardAlertBatch(
+                nearby,
+                title,
+                body,
+                referenceId,
+                "/hazards",
+                hazardNotificationData(a, decision));
         log.info("AlertDispatch: severe-alert push for {} dispatched to {} nearby user(s)",
                 referenceId, nearby.size());
+    }
+
+    String hazardNotificationData(NormalizedAlert a, AlertSafetyPolicy.Decision decision) {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            put(payload, "source", a == null ? null : a.source());
+            put(payload, "id", a == null ? null : a.id());
+            put(payload, "event", a == null ? null : a.event());
+            put(payload, "headline", a == null ? null : a.headline());
+            put(payload, "severity", a == null ? null : a.severity());
+            put(payload, "urgency", a == null ? null : a.urgency());
+            put(payload, "certainty", a == null ? null : a.certainty());
+            put(payload, "messageType", a == null ? null : a.messageType());
+            put(payload, "sent", a == null ? null : a.sent());
+            put(payload, "startedAt", a == null ? null : a.startedAt());
+            put(payload, "effectiveAt", a == null ? null : a.startedAt());
+            put(payload, "expiresAt", a == null ? null : a.endsAt());
+            put(payload, "endsAt", a == null ? null : a.endsAt());
+            put(payload, "lifecycleState", AlertDerivations.lifecycleState(a, Instant.now()));
+            if (a != null && a.references() != null && !a.references().isEmpty()) {
+                payload.put("references", List.copyOf(a.references()));
+            }
+            if (a != null && a.responseTypes() != null && !a.responseTypes().isEmpty()) {
+                payload.put("responseTypes", List.copyOf(a.responseTypes()));
+            }
+            if (a != null && a.parameters() != null && !a.parameters().isEmpty()) {
+                payload.put("parameters", Map.copyOf(a.parameters()));
+            }
+            if (decision != null) {
+                Map<String, Object> safety = new LinkedHashMap<>();
+                put(safety, "dispatchMode", decision.dispatchMode() == null ? null : decision.dispatchMode().wire());
+                put(safety, "guidanceMode", decision.guidanceMode() == null ? null : decision.guidanceMode().wire());
+                put(safety, "compatibility", decision.compatibility() == null ? null : decision.compatibility().wire());
+                put(safety, "movementDirective", decision.movementDirective() == null ? null : decision.movementDirective().wire());
+                put(safety, "reason", decision.reason());
+                if (decision.capActions() != null && !decision.capActions().isEmpty()) {
+                    safety.put("protectiveActions", decision.capActions().stream()
+                            .map((x) -> x.name().toLowerCase(Locale.ROOT))
+                            .toList());
+                }
+                payload.put("safety", safety);
+            }
+            return json.writeValueAsString(payload);
+        } catch (Exception e) {
+            log.warn("AlertDispatch: failed to build hazard notification metadata for {}: {}",
+                    a == null ? "unknown" : a.source() + "-" + a.id(),
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private static void put(Map<String, Object> target, String key, Object value) {
+        if (value instanceof String s && s.isBlank()) return;
+        if (value != null) target.put(key, value);
     }
 
     /**

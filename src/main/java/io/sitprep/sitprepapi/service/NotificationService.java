@@ -1040,6 +1040,15 @@ public class NotificationService {
                                      String body,
                                      String referenceId,
                                      String targetUrl) {
+        sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl, null);
+    }
+
+    public void sendHazardAlertBatch(List<UserInfo> recipients,
+                                     String title,
+                                     String body,
+                                     String referenceId,
+                                     String targetUrl,
+                                     String additionalData) {
         if (recipients == null || recipients.isEmpty()) return;
 
         final String type = "hazard_alert";
@@ -1070,7 +1079,7 @@ public class NotificationService {
             String token = u.getFcmtoken();
             if (token == null || token.isEmpty()) {
                 saveLogRow(email, type, null, title, body, referenceId, targetUrl,
-                        false, "No token", null, null);
+                        additionalData, false, "No token", null, null, null);
                 continue;
             }
             batchTokens.add(token);
@@ -1090,6 +1099,7 @@ public class NotificationService {
                 .putData("targetUrl", safe(targetUrl))
                 .putData("title", safe(title))
                 .putData("body", safe(body))
+                .putData("additionalData", safe(additionalData))
                 .putData("channelId", channelForType(type))
                 .putData("category", categoryForType(type))
                 .setAndroidConfig(AndroidConfig.builder()
@@ -1098,7 +1108,7 @@ public class NotificationService {
                                 .setSound("default")
                                 .build())
                         .build())
-                .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl))
+                .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData))
                 .build();
 
         try {
@@ -1110,12 +1120,12 @@ public class NotificationService {
                 String token = batchTokens.get(i);
                 if (r.isSuccessful()) {
                     saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                            true, null, null, null);
+                            additionalData, true, null, null, null, null);
                 } else {
                     FirebaseMessagingException ex = r.getException();
                     String err = ex != null ? ex.getMessage() : "Unknown FCM error";
                     saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                            false, err, null, null);
+                            additionalData, false, err, null, null, null);
                     handleFcmDeliveryError(ex, u.getUserEmail(), token);
                 }
             }
@@ -1127,7 +1137,8 @@ public class NotificationService {
             // inbox still reflects the intent.
             for (int i = 0; i < batchUsers.size(); i++) {
                 saveLogRow(batchUsers.get(i).getUserEmail(), type, batchTokens.get(i),
-                        title, body, referenceId, targetUrl, false, e.getMessage(), null, null);
+                        title, body, referenceId, targetUrl, additionalData,
+                        false, e.getMessage(), null, null, null);
             }
         }
     }
@@ -1142,7 +1153,8 @@ public class NotificationService {
                                        String referenceId,
                                        String title,
                                        String body,
-                                       String targetUrl) {
+                                       String targetUrl,
+                                       String additionalData) {
         ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
                 .putHeader("apns-priority", "10");
         Aps.Builder apsBuilder = Aps.builder()
@@ -1157,6 +1169,7 @@ public class NotificationService {
         apsBuilder.putCustomData("targetUrl", safe(targetUrl));
         apsBuilder.putCustomData("title", safe(title));
         apsBuilder.putCustomData("body", safe(body));
+        apsBuilder.putCustomData("additionalData", safe(additionalData));
         apsBuilder.putCustomData("channelId", safe(channelForType(type)));
         apsBuilder.putCustomData("category", safe(categoryForType(type)));
         applyIosLockScreenAffordances(apsBuilder, type, referenceId);
