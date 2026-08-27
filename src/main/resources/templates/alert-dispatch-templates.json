@@ -1,25 +1,120 @@
 {
   "_comment": "Auto-post + push copy per alert source. Loaded by AlertDispatchService at boot; editable without a redeploy. Placeholders: {mag}, {place} — and ONLY those two. An unresolved slot has its whole sentence dropped at dispatch and is logged + Sentry-captured (audit P0-5, where a literal \"{distance}mi {direction}\" reached an APNs push). {distance}/{direction} are gone for good: distance is per-recipient and the push is one batched multicast for up to 500 people, so it cannot be personalised without abandoning the batch. {name} is gone because it resolved to the word \"Warning\". Spec: docs/ALERTS_INTEGRATION.md. Copy target is 6th-8th grade reading level — action first, no acronyms, no meteorological jargon. Measured against the live feed in AlertTemplateCoverageTest.",
   "_matching": "NWS templates match on `eventAny` — the EXACT product name from api.weather.gov/alerts/types (111 values). This replaced substring-matching the headline (audit P0-2), which matched only 26 of 310 live alerts and gave 19% of those the wrong copy: 'Flood' is a substring of 'Flood Watch', so watches dispatched as warnings. Exact names also mean a future NWS rename fails the coverage test instead of silently disabling a hazard — which is exactly what happened when 'Excessive Heat Warning' became 'Extreme Heat Warning' and heat alerts went dark.",
-  "_tiers": "`tier` is warning | watch. Only `warning` earns a push (AlertDispatchService.isLifeThreatening); a watch gets a feed post and nothing that interrupts. This is the structural version of the Watch/Warning distinction that previously lived only inside a raw title string. Advisories are deliberately absent: they are Attention-mode per ALERTS_INTEGRATION.md, and giving them a template would put them in the push path.",
+  "_tiers": "Legacy visual/copy grouping only. sitprep.dispatchMode is the authoritative dispatch policy once present.",
   "templates": [
-    "--- NWS · WARNING tier · take action now ---",
+    "# Warning tier - act now",
     {
       "source": "NWS",
       "eventAny": [
-        "Tornado Warning",
-        "Extreme Wind Warning"
+        "Tornado Warning"
       ],
       "tier": "warning",
       "hazardType": "tornado",
       "headline": "Tornado warning",
-      "body": "Tornado spotted. Get to the lowest floor and an inside room with no windows — right now.",
+      "body": "A tornado warning is in effect. Get to a basement or inside room away from windows now.",
       "steps": [
-        "Go to a basement, or an inside room on the lowest floor with no windows.",
-        "Cover your head and neck. A mattress or a heavy blanket helps.",
-        "Stay there until the warning ends — not just until it goes quiet."
+        "Go to a basement or inside room on the lowest floor.",
+        "Stay away from windows and protect your head.",
+        "Stay sheltered until the warning ends."
       ],
-      "askTag": "Hurricane"
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "What to Do During a Tornado",
+          "url": "https://www.weather.gov/safety/tornado-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Extreme Wind Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Extreme wind warning",
+      "body": "Extreme wind is expected or happening. Get inside a sturdy building and stay away from windows.",
+      "steps": [
+        "Go inside a sturdy building now.",
+        "Move to an interior room away from windows.",
+        "Stay away from downed power lines."
+      ],
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Extreme Wind Warning Wireless Emergency Alert",
+          "url": "https://www.weather.gov/wrn/wea360",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny",
+            "sitprep.dispatchMode"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a High Wind Event",
+          "url": "https://www.weather.gov/safety/wind-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 3,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -29,47 +124,289 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Severe thunderstorm warning",
-      "body": "Damaging wind and hail are moving in. Go inside now, stay off the road, and keep away from windows.",
+      "body": "A severe storm warning is in effect. Get inside, stay away from windows, and avoid travel.",
       "steps": [
-        "Get inside and stay off the road until it passes.",
-        "Keep away from windows, and don't use a corded phone.",
-        "Unplug what you can — a surge often follows a strike."
+        "Go inside a sturdy building.",
+        "Stay away from windows and large open rooms.",
+        "Do not drive unless officials tell you to move."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": true
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "What to Do During Severe Weather",
+          "url": "https://www.weather.gov/safety/thunderstorm-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Flash Flood Warning",
-        "Flash Flood Statement"
+        "Flash Flood Warning"
       ],
       "tier": "warning",
       "hazardType": "flood",
       "headline": "Flash flood warning",
-      "body": "Flash flood happening now. Turn around, don't drown. Get to higher ground.",
+      "body": "Flash flooding is imminent or happening. Move to higher ground and avoid flood water.",
       "steps": [
-        "Leave low ground now. Do not wait for the water to reach you.",
-        "Turn around, don't drown — six inches of moving water can knock you down.",
-        "Tell your household you're moving, then check in when you're clear."
+        "Move to higher ground if you are in a flood-prone place.",
+        "Never walk or drive through flood water.",
+        "Follow evacuation orders immediately."
       ],
-      "askTag": "Flood"
+      "askTag": "Flood",
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Evacuate",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": true
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Flood",
+          "url": "https://www.weather.gov/safety/flood-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Turn Around Don't Drown",
+          "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Flood Warning",
-        "Flood Statement"
+        "Flash Flood Statement"
+      ],
+      "tier": "warning",
+      "hazardType": "flood",
+      "headline": "Flash flood update",
+      "body": "Officials updated a flash flood alert. Read the official update before changing plans.",
+      "steps": [
+        "Check what changed in the official update.",
+        "Avoid flooded roads and low crossings.",
+        "Stay ready to move if officials tell you to."
+      ],
+      "askTag": "Flood",
+      "protectiveAction": "MONITOR",
+      "compatibleResponseTypes": [
+        "Monitor",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Flood",
+          "url": "https://www.weather.gov/safety/flood-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Turn Around Don't Drown",
+          "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Flood Warning"
       ],
       "tier": "warning",
       "hazardType": "flood",
       "headline": "Flood warning",
-      "body": "Flooding is happening. Move what you can upstairs. Never drive through water — turn around, don't drown.",
+      "body": "Flooding is happening or expected. Avoid flood water and be ready to leave if water rises.",
       "steps": [
-        "Move anything you can't lose to a higher floor.",
-        "Never drive through a flooded road. You cannot see how deep it is.",
-        "If the water is rising fast, leave early rather than late."
+        "Move valuables above possible water if there is time.",
+        "Never drive through a flooded road.",
+        "Leave immediately if officials tell you to evacuate."
       ],
-      "askTag": "Flood"
+      "askTag": "Flood",
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": true
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Flood",
+          "url": "https://www.weather.gov/safety/flood-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Turn Around Don't Drown",
+          "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Flood Statement"
+      ],
+      "tier": "warning",
+      "hazardType": "flood",
+      "headline": "Flood update",
+      "body": "Officials updated a flood alert. Read the update and keep avoiding flood water.",
+      "steps": [
+        "Check the official update for timing and roads.",
+        "Stay away from flooded roads and basements.",
+        "Keep listening in case the warning changes."
+      ],
+      "askTag": "Flood",
+      "protectiveAction": "MONITOR",
+      "compatibleResponseTypes": [
+        "Monitor",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Flood",
+          "url": "https://www.weather.gov/safety/flood-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Turn Around Don't Drown",
+          "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -80,30 +417,176 @@
       "tier": "warning",
       "hazardType": "hurricane",
       "headline": "Hurricane warning",
-      "body": "A hurricane is on the way. Bring loose things inside, fill up on water, charge your phones, and look at your evacuation plan now.",
+      "body": "Hurricane conditions are expected. Follow evacuation orders; otherwise stay inside away from windows.",
       "steps": [
-        "If officials told you to leave, go now — roads close before the storm arrives.",
-        "If you are staying, shelter in an inside room away from windows.",
-        "Fill water containers and charge everything while the power is still on."
+        "Leave now if officials told your area to evacuate.",
+        "If staying, move to an inside room away from windows.",
+        "Charge phones and fill water containers while you can."
       ],
-      "askTag": "Hurricane"
+      "askTag": "Hurricane",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Evacuate",
+        "Shelter"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Hurricane Safety",
+          "url": "https://www.weather.gov/safety/hurricane",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "FEMA / Ready.gov",
+          "title": "Evacuation",
+          "url": "https://www.ready.gov/evacuation",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "protectiveAction",
+            "sitprep.movementDirective",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Tropical Storm Warning",
-        "Storm Warning"
+        "Tropical Storm Warning"
       ],
       "tier": "warning",
       "hazardType": "hurricane",
       "headline": "Tropical storm warning",
-      "body": "Strong winds and heavy rain are coming. Bring loose things inside, charge your phones, and fill up on water.",
+      "body": "Tropical storm conditions are expected. Secure loose items, charge phones, and avoid travel.",
       "steps": [
-        "Bring in anything the wind can pick up.",
-        "Charge phones and fill water containers before the power goes.",
-        "Stay off the road once the wind builds."
+        "Bring in loose outdoor items.",
+        "Charge phones and check flashlights.",
+        "Stay off roads once winds or flooding begin."
       ],
-      "askTag": "Hurricane"
+      "askTag": "Hurricane",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Hurricane Safety",
+          "url": "https://www.weather.gov/safety/hurricane",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a High Wind Event",
+          "url": "https://www.weather.gov/safety/wind-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Storm Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Storm warning",
+      "body": "Dangerous storm-force winds are expected over water. Check the official alert before travel.",
+      "steps": [
+        "Avoid boating or shoreline travel in the warned area.",
+        "Secure loose outdoor items if winds reach land.",
+        "Follow local officials and marine warnings."
+      ],
+      "askTag": null,
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wind Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/wind-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -113,32 +596,154 @@
       "tier": "warning",
       "hazardType": "blizzard",
       "headline": "Blizzard warning",
-      "body": "Stay off the roads. Have food, water, and a backup way to stay warm. Check on neighbors who live alone.",
+      "body": "Travel may become dangerous or impossible. Stay put and keep heat, food, and water close.",
       "steps": [
-        "Do not travel. If you are already out, stay where you are.",
-        "Keep heat, water and food within reach in one room.",
-        "Check on anyone nearby who is alone or without heat."
+        "Do not travel unless officials say you must.",
+        "Keep heat, water, food, and medicine in one reachable place.",
+        "Check on nearby people who may not have heat."
       ],
-      "askTag": "Blizzard"
+      "askTag": "Blizzard",
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Winter Weather Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/winter-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
         "Winter Storm Warning",
         "Ice Storm Warning",
-        "Snow Squall Warning",
         "Lake Effect Snow Warning"
       ],
       "tier": "warning",
       "hazardType": "blizzard",
       "headline": "Winter storm warning",
-      "body": "Heavy snow or ice is coming. Get water, food, and a way to stay warm. Power may go out — check on neighbors who live alone.",
+      "body": "Heavy snow or ice is expected. Delay travel and get ready for power problems.",
       "steps": [
-        "Delay travel if you can. Ice forms on bridges first.",
-        "Keep a charged phone, a blanket and water in the car.",
-        "Expect the power to cut out — find your flashlights now."
+        "Delay travel until conditions improve.",
+        "Keep a charged phone, blanket, and water nearby.",
+        "Find flashlights before power problems begin."
       ],
-      "askTag": "Blizzard"
+      "askTag": "Blizzard",
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Winter Weather Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/winter-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Snow Squall Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "blizzard",
+      "headline": "Snow squall warning",
+      "body": "A short burst of snow can make roads suddenly unsafe. Avoid or delay driving now.",
+      "steps": [
+        "Avoid or delay driving until the squall passes.",
+        "If already driving, slow down and turn on headlights.",
+        "Leave extra space and do not slam on brakes."
+      ],
+      "askTag": "Blizzard",
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": true
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Snow Squall",
+          "url": "https://www.weather.gov/safety/winter-snow-squall",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -148,13 +753,48 @@
       "tier": "warning",
       "hazardType": "blizzard",
       "headline": "Dangerous cold",
-      "body": "Cold this bad can hurt you in minutes. Stay inside, cover every bit of skin if you go out, and check on older neighbors.",
+      "body": "Cold can injure exposed skin quickly. Stay inside, cover skin if you go out, and check heat.",
       "steps": [
-        "Cover every bit of skin before you go out. Frostbite can start in minutes.",
-        "Keep one room warm rather than the whole house.",
-        "Let taps drip so the pipes don't freeze."
+        "Stay inside if you can.",
+        "Cover exposed skin before going out.",
+        "Check on people nearby who may not have heat."
       ],
-      "askTag": "Blizzard"
+      "askTag": "Blizzard",
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During Extremely Cold Weather",
+          "url": "https://www.weather.gov/safety/cold-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -164,13 +804,48 @@
       "tier": "warning",
       "hazardType": "heat",
       "headline": "Dangerous heat",
-      "body": "Heat this high can make you sick fast. Drink water, find air conditioning, and skip outdoor work. Check on older neighbors and anyone without AC.",
+      "body": "Heat can make you sick fast. Get to a cool place, drink water, and avoid hard outdoor work.",
       "steps": [
-        "Stay inside during the hottest hours, and drink water before you feel thirsty.",
-        "Never leave a person or a pet in a parked car.",
-        "Check on older neighbours and anyone without air conditioning."
+        "Stay in air conditioning or shade during the hottest hours.",
+        "Drink water before you feel thirsty.",
+        "Never leave people or pets in a parked car."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Heat Safety",
+          "url": "https://www.weather.gov/safety/heat",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -181,13 +856,62 @@
       "tier": "warning",
       "hazardType": "wildfire",
       "headline": "Fire danger is high",
-      "body": "Any fire that starts today will spread fast. Don't burn anything outside. Pack a small bag in case you have to leave quickly.",
+      "body": "Fire weather is critical. Avoid sparks and be ready for official evacuation updates.",
       "steps": [
-        "No open flames and no sparks. Don't park on dry grass.",
-        "Pack your go bag now, in case you have to leave quickly.",
-        "Keep your phone on and loud — evacuation notices move fast."
+        "Do not burn or create sparks outside.",
+        "Keep vehicles off dry grass.",
+        "Review your evacuation plan and keep your phone reachable."
       ],
-      "askTag": "Wildfire"
+      "askTag": "Wildfire",
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Understanding Wildfire Warnings, Watches and Behavior",
+          "url": "https://www.weather.gov/safety/wildfire-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wildfire Hazards",
+          "url": "https://www.weather.gov/safety/wildfire-hazards",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -197,13 +921,61 @@
       "tier": "warning",
       "hazardType": "wildfire",
       "headline": "Fire warning",
-      "body": "A fire is burning near you. Get your go-bag, keep your phone on, and be ready to leave the moment you're told to.",
+      "body": "A fire emergency is reported near the warned area. Follow official instructions immediately.",
       "steps": [
-        "Leave now if you are told to. Don't wait to see the fire.",
-        "Close windows and doors on your way out.",
-        "Take your go bag, your medicines and your pets."
+        "Leave now if officials tell your area to evacuate.",
+        "If not told to leave, stay alert for updates.",
+        "Take medicine, pets, and your go bag if you evacuate."
       ],
-      "askTag": "Wildfire"
+      "askTag": "Wildfire",
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Evacuate",
+        "Prepare",
+        "Monitor",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wildfire Hazards",
+          "url": "https://www.weather.gov/safety/wildfire-hazards",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "FEMA / Ready.gov",
+          "title": "Evacuation",
+          "url": "https://www.ready.gov/evacuation",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "protectiveAction",
+            "sitprep.movementDirective",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -213,13 +985,60 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "High wind warning",
-      "body": "Strong winds can bring down trees and power lines. Bring loose things inside and stay away from downed lines.",
+      "body": "Strong winds are happening or expected. Get inside and stay away from trees and power lines.",
       "steps": [
-        "Bring in bins, furniture and anything loose outside.",
-        "Park away from trees and power lines.",
-        "Take extra care in a high-sided vehicle."
+        "Go inside a sturdy building.",
+        "Stay away from trees and downed power lines.",
+        "If driving, slow down and watch high-profile vehicles."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a High Wind Event",
+          "url": "https://www.weather.gov/safety/wind-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wind Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/wind-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -230,13 +1049,49 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Dust storm warning",
-      "body": "You may not be able to see the road. If you're driving, pull all the way off, turn your lights off, and keep your foot off the brake.",
+      "body": "Visibility may drop suddenly. If driving, pull off the road and keep brake lights off.",
       "steps": [
-        "If you are driving, pull fully off the road, stop, and turn your lights OFF.",
-        "Keep your foot off the brake, so nobody follows your lights into the lane.",
-        "Stay inside with the windows shut until it passes."
+        "Pull as far off the road as you safely can.",
+        "Stop, set the brake, and turn lights off.",
+        "Stay inside with windows closed if you are not driving."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a High Wind Event",
+          "url": "https://www.weather.gov/safety/wind-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -246,13 +1101,49 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Avalanche warning",
-      "body": "Stay off and out from under steep slopes. Don't travel in the backcountry today.",
+      "body": "Avalanche danger is high. Avoid avalanche terrain and the slopes below it.",
       "steps": [
-        "Stay off steep slopes, and out from under them.",
-        "Cancel backcountry plans — conditions will not hold.",
-        "Tell someone your route and when you expect to be back."
+        "Avoid avalanche terrain today.",
+        "Stay out from below steep slopes and runout paths.",
+        "Check your local avalanche center before any mountain travel."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Avalanche Safety",
+          "url": "https://www.weather.gov/safety/winter-avalanche",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -262,13 +1153,60 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Tsunami warning",
-      "body": "Leave the beach and low ground now. Get high up or far inland on foot if you can. Don't wait to see the water.",
+      "body": "Dangerous coastal flooding may happen. Move to high ground or inland if you are in a hazard zone.",
       "steps": [
-        "Move inland or to high ground now. On foot is often faster.",
-        "Do not go to the shore to look.",
-        "Stay away until officials say it is over — a later wave can be bigger."
+        "Move inland or to high ground if you are near the water.",
+        "Stay out of the water and away from beaches.",
+        "Stay away until officials say the danger has passed."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "EVACUATE",
+      "compatibleResponseTypes": [
+        "Evacuate",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Tsunami",
+          "url": "https://www.weather.gov/safety/tsunami-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Tsunami Hazards",
+          "url": "https://www.weather.gov/safety/tsunami-hazards",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -278,13 +1216,61 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Volcano warning",
-      "body": "Follow what local officials tell you. Stay inside, close windows and vents, and wear a mask if there's ash in the air.",
+      "body": "A volcano hazard alert is active. Follow official instructions; ash may require staying inside.",
       "steps": [
-        "Follow the evacuation instructions from local officials now.",
-        "Close windows and doors. Ash gets into everything.",
-        "Cover your mouth and nose if you have to go outside."
+        "Follow evacuation or shelter instructions from officials.",
+        "If ash is falling, close doors, windows, and vents.",
+        "Avoid driving in ash unless you must."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Volcanic Ash and Ashfall",
+          "url": "https://www.weather.gov/safety/airquality-volcanic-ash",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "U.S. Geological Survey",
+          "title": "Volcanic Ash Impacts and Mitigation",
+          "url": "https://volcanoes.usgs.gov/volcanic_ash/",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -294,33 +1280,153 @@
       "tier": "warning",
       "hazardType": "earthquake",
       "headline": "Earthquake warning",
-      "body": "Drop, cover, and hold on. Stay away from windows. Expect more shaking after the first.",
+      "body": "Shaking may be starting or continuing. Drop, cover, and hold on.",
       "steps": [
-        "Drop, cover and hold on.",
-        "Stay away from windows until the shaking stops.",
-        "Expect aftershocks. If you smell gas, get out before touching any switch."
+        "Drop, cover, and hold on.",
+        "Stay away from windows and outside walls.",
+        "After shaking stops, check for injuries and hazards."
       ],
-      "askTag": "Earthquake"
+      "askTag": "Earthquake",
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Execute"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "U.S. Geological Survey",
+          "title": "Earthquake Facts and Earthquake Fantasy",
+          "url": "https://www.usgs.gov/programs/earthquake-hazards/earthquake-facts-earthquake-fantasy",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Air Quality Alert",
+        "Air Quality Alert"
+      ],
+      "tier": "warning",
+      "hazardType": "smoke",
+      "headline": "Air quality alert",
+      "body": "Air quality may be unhealthy. Check the official alert and reduce heavy outdoor activity.",
+      "steps": [
+        "Check which pollutant and group the official alert names.",
+        "Reduce long or heavy outdoor activity.",
+        "Move activity indoors if the air bothers you."
+      ],
+      "askTag": null,
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "feed",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "AirNow / U.S. EPA",
+          "title": "Using the Air Quality Index",
+          "url": "https://www.airnow.gov/aqi/aqi-basics/using-air-quality-index/",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
         "Dense Smoke Advisory"
       ],
       "tier": "warning",
       "hazardType": "smoke",
-      "headline": "Unhealthy air",
-      "body": "Stay inside and keep windows shut. Set your AC to recirculate. Wear an N95 if you have to go out.",
+      "headline": "Dense smoke advisory",
+      "body": "Smoke may make the air unhealthy. Stay indoors when you can and keep smoky air out.",
       "steps": [
-        "Keep windows and doors shut, and stay indoors if you can.",
-        "Skip outdoor exercise today.",
-        "Run an air conditioner or filter on recirculate."
+        "Keep windows and doors closed when smoke is heavy.",
+        "Set air systems to recirculate if you can.",
+        "Use a well-fitting N95 if you must be outside in smoke."
       ],
-      "askTag": "Wildfire"
+      "askTag": "Wildfire",
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "U.S. Environmental Protection Agency",
+          "title": "Reduce Your Smoke Exposure",
+          "url": "https://www.epa.gov/wildfires/reduce-your-smoke-exposure",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
-    "--- NWS · WARNING tier · civil / non-weather emergencies relayed through NWS ---",
-    "These are IPAWS-originated messages a local authority pushed through the NWS dissemination path. Coverage is inconsistent by jurisdiction, so their PRESENCE is not a guarantee and their ABSENCE is not an all-clear — but when one arrives it is the single most important thing on the screen. See the P0-6 note in the epic tracker.",
     {
       "source": "NWS",
       "eventAny": [
@@ -329,13 +1435,47 @@
       "tier": "warning",
       "hazardType": "other",
       "headline": "Leave now",
-      "body": "Officials are telling people in your area to get out now. Take your go-bag, your medicines, and your people. Don't wait to pack more.",
+      "body": "Officials are telling people in the warned area to leave now. Follow the route in the official alert.",
       "steps": [
-        "Leave now, by the route officials named.",
-        "Take your go bag, your medicines and your pets. Nothing else.",
-        "Tell your household you're moving, then check in when you're clear."
+        "Leave by the route officials name.",
+        "Take medicine, IDs, pets, and your go bag.",
+        "Tell your household where you are going when safe."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "EVACUATE",
+      "compatibleResponseTypes": [
+        "Evacuate"
+      ],
+      "incompatibleResponseTypes": [
+        "Shelter",
+        "Avoid",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "evacuate",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "FEMA / Ready.gov",
+          "title": "Evacuation",
+          "url": "https://www.ready.gov/evacuation",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "protectiveAction",
+            "sitprep.movementDirective",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -344,53 +1484,489 @@
       ],
       "tier": "warning",
       "hazardType": "other",
-      "headline": "Stay where you are",
-      "body": "Go inside now and stay there. Shut all doors and windows, turn off fans and AC, and wait for officials to say it's safe.",
+      "headline": "Shelter in place",
+      "body": "Officials are telling people in the warned area to shelter in place. Go inside and follow the alert.",
       "steps": [
-        "Go inside now and stay there.",
-        "Close all windows and doors, and turn off fans and air conditioning.",
-        "Wait for the all-clear from officials before you open up."
+        "Go inside and bring people and pets with you.",
+        "Close doors and windows.",
+        "Follow the official alert for ventilation or sealing steps."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "SHELTER",
+      "compatibleResponseTypes": [
+        "Shelter"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Avoid",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "shelter_in_place",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "FEMA / Ready.gov",
+          "title": "Shelter",
+          "url": "https://www.ready.gov/shelter",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Civil Danger Warning",
-        "Local Area Emergency",
-        "Civil Emergency Message",
+        "Civil Danger Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Civil danger warning",
+      "body": "Officials sent a danger warning for your area. Read the official alert and do what it says.",
+      "steps": [
+        "Read the official instruction before acting.",
+        "Avoid the affected area if officials say to.",
+        "Keep your phone available for updates."
+      ],
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "National Weather Service Non-Weather Emergency Products Specification",
+          "url": "https://www.weather.gov/directives/sym/pd01017013curr.pdf",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny",
+            "blockedReason"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "blocked",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "blockedReason": "Civil danger warnings are intentionally broad; SitPrep cannot safely infer shelter, evacuation, or avoidance without issuer-specific instruction."
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Local Area Emergency"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Local emergency",
+      "body": "Officials sent a local emergency alert. Read the official instruction before changing plans.",
+      "steps": [
+        "Read the official alert.",
+        "Follow the action named by local officials.",
+        "Keep listening for updates."
+      ],
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "National Weather Service Non-Weather Emergency Products Specification",
+          "url": "https://www.weather.gov/directives/sym/pd01017013curr.pdf",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny",
+            "blockedReason"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "blocked",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "blockedReason": "Local Area Emergency has no single protective action across jurisdictions."
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Civil Emergency Message"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Civil emergency message",
+      "body": "Local officials sent an emergency message. Use the official text as the instruction.",
+      "steps": [
+        "Read the official message.",
+        "Follow the official action exactly.",
+        "Keep your phone available for updates."
+      ],
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "National Weather Service Non-Weather Emergency Products Specification",
+          "url": "https://www.weather.gov/directives/sym/pd01017013curr.pdf",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny",
+            "blockedReason"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "blocked",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "blockedReason": "Civil Emergency Message is a relay format, not a stable hazard/action template."
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
         "Law Enforcement Warning"
       ],
       "tier": "warning",
       "hazardType": "other",
-      "headline": "Emergency in your area",
-      "body": "Officials have sent an emergency message for your area. Read it, do what it says, and stay off the phone unless you need help.",
+      "headline": "Law enforcement warning",
+      "body": "Law enforcement sent a warning for the area. Follow the official instruction exactly.",
       "steps": [
-        "Follow the instruction in the message from local officials.",
-        "Stay off the roads so responders can move.",
-        "Keep your phone on for updates."
+        "Read the official instruction before acting.",
+        "Avoid the affected area unless told otherwise.",
+        "Do not share unverified details."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "National Weather Service Non-Weather Emergency Products Specification",
+          "url": "https://www.weather.gov/directives/sym/pd01017013curr.pdf",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny",
+            "blockedReason"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "blocked",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "blockedReason": "Law enforcement instructions can conflict with generic movement or shelter advice."
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Hazardous Materials Warning",
-        "Nuclear Power Plant Warning",
+        "Hazardous Materials Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Hazardous materials warning",
+      "body": "A hazardous materials alert is active. Follow the official instruction; it may tell you to leave or shelter.",
+      "steps": [
+        "Follow the official alert before choosing to leave or shelter.",
+        "If told to shelter, close windows, doors, and vents.",
+        "If told to evacuate, leave by the route officials name."
+      ],
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "Avoid"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "National Weather Service Non-Weather Emergency Products Specification",
+          "url": "https://www.weather.gov/directives/sym/pd01017013curr.pdf",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "Centers for Disease Control and Prevention",
+          "title": "Shelter in Place for a Chemical Emergency",
+          "url": "https://www.cdc.gov/chemical-emergencies/response/shelter-in-place.html",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        },
+        {
+          "agency": "Centers for Disease Control and Prevention",
+          "title": "Evacuate in a Chemical Emergency",
+          "url": "https://www.cdc.gov/chemical-emergencies/response/evacuation.html",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Nuclear Power Plant Warning"
+      ],
+      "tier": "warning",
+      "hazardType": "other",
+      "headline": "Nuclear plant warning",
+      "body": "A nuclear plant alert is active. Follow official instructions before leaving or sheltering.",
+      "steps": [
+        "Read the official alert before acting.",
+        "If told to stay inside, move to the middle of the building or basement.",
+        "Stay tuned for official updates."
+      ],
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "NWS API Alert Types",
+          "url": "https://api.weather.gov/alerts/types",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "eventAny"
+          ]
+        },
+        {
+          "agency": "U.S. Nuclear Regulatory Commission",
+          "title": "Emergency Preparedness and Response",
+          "url": "https://www.nrc.gov/about-nrc/emerg-preparedness",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]",
+            "sitprep.movementDirective"
+          ]
+        },
+        {
+          "agency": "U.S. Environmental Protection Agency",
+          "title": "Radiation Emergencies and Preparedness",
+          "url": "https://www.epa.gov/radtown/radiation-emergencies-and-preparedness",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[1]",
+            "steps[2]",
+            "sitprep.movementDirective"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
         "Radiological Hazard Warning"
       ],
       "tier": "warning",
       "hazardType": "other",
-      "headline": "Chemical or radiation danger",
-      "body": "Go inside now. Shut doors, windows, and vents, and turn off anything pulling in outside air. Wait for officials to say it's safe.",
+      "headline": "Radiological hazard warning",
+      "body": "A radiation hazard alert is active. Get official instructions and follow them exactly.",
       "steps": [
-        "Go inside, close everything, and turn off fans and air conditioning.",
-        "Move to an inside room with the fewest windows.",
-        "Do not go outside until officials say it is safe."
+        "Read the official alert before acting.",
+        "If told to shelter, get inside and move away from windows.",
+        "Stay tuned until officials say it is safe."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "HAZARD_SPECIFIC",
+      "compatibleResponseTypes": [
+        "Shelter",
+        "Evacuate",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "critical_push",
+        "guidanceMode": "official_only",
+        "movementDirective": "follow_official_instruction",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "U.S. Environmental Protection Agency",
+          "title": "Radiation Emergencies and Preparedness",
+          "url": "https://www.epa.gov/radtown/radiation-emergencies-and-preparedness",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[1]",
+            "steps[2]",
+            "sitprep.movementDirective"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
-    "--- NWS · WATCH tier · get ready, do not interrupt ---",
+    "# Watch tier - prepare",
     {
       "source": "NWS",
       "eventAny": [
@@ -399,13 +1975,49 @@
       "tier": "watch",
       "hazardType": "tornado",
       "headline": "Tornado watch",
-      "body": "Tornadoes are possible today. Pick the room you'd go to — lowest floor, no windows — and keep your phone charged.",
+      "body": "Tornadoes are possible. Pick your shelter room now and keep alerts where you can hear them.",
       "steps": [
-        "Decide now where you would shelter: lowest floor, inside room, no windows.",
-        "Keep your phone on and loud.",
-        "Bring in loose items so you can move fast later."
+        "Choose a basement or inside room away from windows.",
+        "Keep your phone charged and alerts on.",
+        "Be ready to move there fast if a warning is issued."
       ],
-      "askTag": "Hurricane"
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "What to Do During a Tornado",
+          "url": "https://www.weather.gov/safety/tornado-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -415,13 +2027,49 @@
       "tier": "watch",
       "hazardType": "other",
       "headline": "Severe thunderstorm watch",
-      "body": "Strong storms are possible today. Bring loose things inside and keep your phone charged.",
+      "body": "Severe storms are possible. Plan to get inside quickly if a warning is issued.",
       "steps": [
-        "Plan to be inside when it arrives.",
-        "Charge your phone now.",
-        "Secure anything outside that can blow around."
+        "Bring loose outdoor items inside.",
+        "Charge your phone.",
+        "Plan where you will go if the storm becomes severe."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "What to Do During Severe Weather",
+          "url": "https://www.weather.gov/safety/thunderstorm-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -432,32 +2080,165 @@
       "tier": "watch",
       "hazardType": "flood",
       "headline": "Flood watch",
-      "body": "Flooding is possible. Move anything valuable up off the floor and plan a route that avoids low roads.",
+      "body": "Flooding is possible. Plan a route to higher ground and avoid low roads.",
       "steps": [
-        "Work out your route to higher ground before you need it.",
-        "Move vehicles off low ground.",
-        "Don't plan on driving through water later."
+        "Plan how you would reach higher ground.",
+        "Move vehicles away from low spots if you can.",
+        "Keep checking for warnings or evacuation orders."
       ],
-      "askTag": "Flood"
+      "askTag": "Flood",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Flood",
+          "url": "https://www.weather.gov/safety/flood-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
         "Hurricane Watch",
         "Typhoon Watch",
-        "Tropical Storm Watch",
-        "Storm Watch"
+        "Tropical Storm Watch"
       ],
       "tier": "watch",
       "hazardType": "hurricane",
-      "headline": "Hurricane watch",
-      "body": "A storm may reach you in about two days. Fill up on water and gas, refill medicines, and read your evacuation plan now.",
+      "headline": "Tropical cyclone watch",
+      "body": "Tropical storm or hurricane conditions are possible. Review your plan and watch for evacuation updates.",
       "steps": [
-        "Fill water containers, charge devices and fuel up now.",
-        "Decide whether you are leaving or staying, and tell your household.",
-        "Watch for an evacuation notice — a watch often becomes one."
+        "Review where you would go if told to evacuate.",
+        "Refill medicine, water, and fuel if you can.",
+        "Secure outdoor items before winds arrive."
       ],
-      "askTag": "Hurricane"
+      "askTag": "Hurricane",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Hurricane Safety",
+          "url": "https://www.weather.gov/safety/hurricane",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "FEMA / Ready.gov",
+          "title": "Evacuation",
+          "url": "https://www.ready.gov/evacuation",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "protectiveAction",
+            "sitprep.movementDirective",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Storm Watch"
+      ],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "Storm watch",
+      "body": "Storm-force winds are possible over water. Check the official alert before marine or coastal travel.",
+      "steps": [
+        "Avoid planning boat travel in the watch area.",
+        "Check official marine and local updates.",
+        "Secure loose items if strong winds may reach land."
+      ],
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "feed",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wind Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/wind-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -467,31 +2248,154 @@
       "tier": "watch",
       "hazardType": "blizzard",
       "headline": "Winter storm watch",
-      "body": "Heavy snow or ice is possible. Stock up on food and water, and get a backup way to stay warm before it starts.",
+      "body": "Heavy snow or ice is possible. Stock up before roads get difficult.",
       "steps": [
-        "Get what you need before the roads turn.",
-        "Charge devices and find your flashlights.",
+        "Get food, water, and medicine before roads worsen.",
+        "Charge devices and find flashlights.",
         "Plan to stay put once it starts."
       ],
-      "askTag": "Blizzard"
+      "askTag": "Blizzard",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Winter Weather Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/winter-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Extreme Cold Watch",
+        "Extreme Cold Watch"
+      ],
+      "tier": "watch",
+      "hazardType": "blizzard",
+      "headline": "Extreme cold watch",
+      "body": "Dangerous cold is possible. Plan how people will stay warm and limit time outside.",
+      "steps": [
+        "Find warm layers before the cold arrives.",
+        "Check that heat works where people will sleep.",
+        "Plan check-ins for anyone who may lose heat."
+      ],
+      "askTag": "Blizzard",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Prepare for Cold Weather",
+          "url": "https://www.weather.gov/safety/cold-before",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
         "Freeze Watch",
         "Freeze Warning"
       ],
       "tier": "watch",
       "hazardType": "blizzard",
-      "headline": "Hard freeze coming",
-      "body": "Cover outdoor pipes and let faucets drip. Bring in pets and plants, and get warm layers ready.",
+      "headline": "Freeze watch or warning",
+      "body": "Freezing temperatures may damage pets, plants, pipes, or outdoor water systems.",
       "steps": [
-        "Protect pipes, pets and plants tonight.",
-        "Find your warm layers before you need them.",
-        "Check that your heat works."
+        "Bring pets inside.",
+        "Cover sensitive plants if there is time.",
+        "Protect pipes and outdoor water lines."
       ],
-      "askTag": "Blizzard"
+      "askTag": "Blizzard",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Prepare for Cold Weather",
+          "url": "https://www.weather.gov/safety/cold-before",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -501,13 +2405,49 @@
       "tier": "watch",
       "hazardType": "heat",
       "headline": "Dangerous heat coming",
-      "body": "It's going to get dangerously hot. Find a cool place you can go, stock up on water, and plan to check on older neighbors.",
+      "body": "Dangerous heat is possible. Find a cool place and plan around the hottest hours.",
       "steps": [
-        "Plan indoor time for the hottest hours.",
-        "Start drinking water now, not once it is hot.",
-        "Find somewhere cool you can go if home gets too warm."
+        "Plan indoor time during the hottest hours.",
+        "Stock water and check cooling options.",
+        "Check on older adults and people without cooling."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Heat Safety",
+          "url": "https://www.weather.gov/safety/heat",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -517,13 +2457,49 @@
       "tier": "watch",
       "hazardType": "wildfire",
       "headline": "Fire weather watch",
-      "body": "Conditions may turn dangerous for fire. Don't burn anything outside, and put a small go-bag by the door.",
+      "body": "Critical fire weather is possible. Avoid sparks and review your evacuation plan.",
       "steps": [
-        "Pack a go bag today.",
-        "Clear dry leaves and brush away from the house.",
-        "Keep your phone on for evacuation notices."
+        "Avoid outdoor burning or spark-producing work.",
+        "Review two ways out of your area.",
+        "Keep your phone available for official updates."
       ],
-      "askTag": "Wildfire"
+      "askTag": "Wildfire",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Understanding Wildfire Warnings, Watches and Behavior",
+          "url": "https://www.weather.gov/safety/wildfire-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -533,13 +2509,49 @@
       "tier": "watch",
       "hazardType": "other",
       "headline": "High wind watch",
-      "body": "Strong winds are possible. Bring loose things inside and expect the power may go out.",
+      "body": "Strong winds are possible. Secure loose items and plan to avoid exposed places.",
       "steps": [
-        "Secure or bring in anything loose outside.",
-        "Charge devices in case the power goes out.",
-        "Put off any rooftop or ladder work."
+        "Bring in or tie down loose outdoor items.",
+        "Avoid rooftop or ladder work.",
+        "Charge devices in case power goes out."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Wind Warnings, Watches and Advisories",
+          "url": "https://www.weather.gov/safety/wind-ww",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
@@ -549,96 +2561,456 @@
       "tier": "watch",
       "hazardType": "other",
       "headline": "Avalanche watch",
-      "body": "Avalanche danger is rising. Put off backcountry trips and check conditions before you go anywhere near steep slopes.",
+      "body": "Avalanche danger may rise. Check the local forecast before going near steep slopes.",
       "steps": [
-        "Check the forecast before any backcountry travel.",
-        "Avoid steep slopes and the runout below them.",
-        "Carry a beacon, probe and shovel — and know how to use them."
+        "Check your local avalanche forecast.",
+        "Change plans if steep terrain is mentioned.",
+        "Carry beacon, shovel, and probe if you travel in avalanche terrain."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Avalanche Safety",
+          "url": "https://www.weather.gov/safety/winter-avalanche",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
     {
       "source": "NWS",
       "eventAny": [
-        "Tsunami Watch",
-        "Tsunami Advisory"
+        "Tsunami Watch"
       ],
       "tier": "watch",
       "hazardType": "other",
       "headline": "Tsunami watch",
-      "body": "A tsunami may be coming. Stay off the beach, know your route to high ground, and keep your phone on.",
+      "body": "A distant tsunami is possible. Stay updated and be ready to act if the alert changes.",
       "steps": [
-        "Stay off the beach and out of the water.",
-        "Work out your route to high ground.",
-        "Keep listening — a watch can become a warning quickly."
+        "Get updates from official sources.",
+        "Know your route to high ground if you are near the coast.",
+        "Be ready to act if a warning is issued."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Tsunami",
+          "url": "https://www.weather.gov/safety/tsunami-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Tsunami Hazards",
+          "url": "https://www.weather.gov/safety/tsunami-hazards",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
     },
-    "--- USGS ---",
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Tsunami Advisory"
+      ],
+      "tier": "watch",
+      "hazardType": "other",
+      "headline": "Tsunami advisory",
+      "body": "Strong currents or waves may be dangerous near water. Stay out of the water and off beaches.",
+      "steps": [
+        "Stay out of the water.",
+        "Stay away from beaches and waterways.",
+        "Follow local officials and keep checking updates."
+      ],
+      "askTag": null,
+      "protectiveAction": "AVOID",
+      "compatibleResponseTypes": [
+        "Avoid",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "During a Tsunami",
+          "url": "https://www.weather.gov/safety/tsunami-during",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Tsunami Hazards",
+          "url": "https://www.weather.gov/safety/tsunami-hazards",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      }
+    },
+    "# Non-NWS providers",
     {
       "source": "USGS",
-      "minMag": 5.5,
+      "eventAny": [],
       "tier": "warning",
       "hazardType": "earthquake",
-      "headline": "Earthquake felt nearby",
-      "body": "Magnitude {mag} earthquake — {place}. Check your home for damage. Smell for gas and look for water leaks.",
+      "headline": "Earthquake reported nearby",
+      "body": "A magnitude {mag} earthquake was reported near {place}. Check people first, then check for hazards.",
       "steps": [
-        "Check yourself and the people with you for injuries first.",
-        "Expect aftershocks. Drop, cover and hold on when one hits.",
-        "If you smell gas, get outside before touching any switch."
+        "Check yourself and people nearby for injuries.",
+        "Expect aftershocks; drop, cover, and hold on if shaking starts.",
+        "If you smell gas, get outside before using switches."
       ],
-      "askTag": "Earthquake"
+      "askTag": "Earthquake",
+      "protectiveAction": "ASSESS",
+      "compatibleResponseTypes": [
+        "Assess",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "attention",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "Ready.gov",
+          "title": "Earthquakes",
+          "url": "https://www.ready.gov/earthquakes",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        },
+        {
+          "agency": "U.S. Geological Survey",
+          "title": "Earthquake Facts and Earthquake Fantasy",
+          "url": "https://www.usgs.gov/programs/earthquake-hazards/earthquake-facts-earthquake-fantasy",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body"
+          ]
+        },
+        {
+          "agency": "U.S. Geological Survey",
+          "title": "PAGER FAQ",
+          "url": "https://earthquake.usgs.gov/data/pager/faq.php",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "futureImpactNormalization"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 2,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "minMag": 5.5
     },
-    "--- FEMA · recovery context, never a push ---",
     {
       "source": "FEMA",
+      "eventAny": [],
+      "tier": "watch",
+      "hazardType": "hurricane",
+      "headline": "FEMA disaster declared",
+      "body": "FEMA declared a disaster in your area. You may be able to apply for official recovery help.",
+      "steps": [
+        "Use official FEMA or DisasterAssistance.gov channels.",
+        "Save photos and receipts for damage and repairs.",
+        "Check whether your county is listed for individual help."
+      ],
+      "askTag": "Hurricane",
+      "protectiveAction": "ASSESS",
+      "compatibleResponseTypes": [
+        "Assess",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "feed",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Individual Assistance",
+          "url": "https://www.fema.gov/assistance/individual",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "After Applying for Assistance",
+          "url": "https://www.fema.gov/assistance/individual/after-applying",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Designated Areas",
+          "url": "https://www.fema.gov/disaster/declarations",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
       "incidentTypeAny": [
         "Hurricane",
         "Severe Storm",
         "Severe Storm(s)",
         "Coastal Storm"
-      ],
-      "tier": "watch",
-      "hazardType": "hurricane",
-      "headline": "FEMA disaster declared",
-      "body": "FEMA declared a disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
-      "steps": [
-        "Photograph the damage before you clean anything up.",
-        "Keep receipts for repairs and for anywhere you have to stay.",
-        "Apply through the channel named in the declaration — not a link someone sends you."
-      ],
-      "askTag": "Hurricane"
+      ]
     },
     {
       "source": "FEMA",
-      "incidentTypeAny": [
-        "Fire"
-      ],
+      "eventAny": [],
       "tier": "watch",
       "hazardType": "wildfire",
       "headline": "FEMA wildfire disaster declared",
-      "body": "FEMA declared a wildfire disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
+      "body": "FEMA declared a wildfire disaster in your area. Official recovery help may be available.",
       "steps": [
-        "Photograph the damage before you clean anything up.",
-        "Keep receipts for repairs and for anywhere you have to stay.",
-        "Apply through the channel named in the declaration — not a link someone sends you."
+        "Use official FEMA or DisasterAssistance.gov channels.",
+        "Save photos and receipts for damage and repairs.",
+        "Check whether your county is listed for individual help."
       ],
-      "askTag": "Wildfire"
+      "askTag": "Wildfire",
+      "protectiveAction": "ASSESS",
+      "compatibleResponseTypes": [
+        "Assess",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "feed",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Individual Assistance",
+          "url": "https://www.fema.gov/assistance/individual",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "After Applying for Assistance",
+          "url": "https://www.fema.gov/assistance/individual/after-applying",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Designated Areas",
+          "url": "https://www.fema.gov/disaster/declarations",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "incidentTypeAny": [
+        "Fire"
+      ]
     },
     {
       "source": "FEMA",
-      "_fallback": true,
+      "eventAny": [],
       "tier": "watch",
       "hazardType": "other",
       "headline": "FEMA disaster declared",
-      "body": "FEMA declared a disaster in your area. You may be able to get help with housing, repairs, or other costs — fema.gov/assistance",
+      "body": "FEMA declared a disaster in your area. Check official channels for recovery details.",
       "steps": [
-        "Photograph the damage before you clean anything up.",
-        "Keep receipts for repairs and for anywhere you have to stay.",
-        "Apply through the channel named in the declaration — not a link someone sends you."
+        "Use official FEMA or DisasterAssistance.gov channels.",
+        "Save photos and receipts if you have damage.",
+        "Check whether your county is listed for individual help."
       ],
-      "askTag": null
+      "askTag": null,
+      "protectiveAction": "ASSESS",
+      "compatibleResponseTypes": [
+        "Assess",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "feed",
+        "guidanceMode": "official_only",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Individual Assistance",
+          "url": "https://www.fema.gov/assistance/individual",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "After Applying for Assistance",
+          "url": "https://www.fema.gov/assistance/individual/after-applying",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[1]"
+          ]
+        },
+        {
+          "agency": "Federal Emergency Management Agency",
+          "title": "Designated Areas",
+          "url": "https://www.fema.gov/disaster/declarations",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "source_verified",
+        "version": 1,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": null
+      },
+      "_fallback": true
     }
   ],
-  "_steps": "`steps` is the WHAT TO DO block: two or three short imperatives, action first, shown as a numbered list on the alert detail. It is SITPREP'S OWN WORDING and the surface says so — 'SitPrep guidance for {event} - not the issuer's wording' - with the issuing office's verbatim text kept separately under Official wording. That separation is the whole rule: the issuing office's prose runs Flesch-Kincaid grade 5.8 to 12.2 and is a different register, so promoting it into this slot would present wire text as reviewed plain-language guidance. Drafted from the public safety guidance the NWS and Ready.gov publish for each product; NOT invented hazard advice. REVIEW GATE: a human must read every line before this ships to users - it is safety copy, and the failure mode is someone following it. Resolution order is exact (event, tier), then nothing: there is deliberately no generic fallback, because generic safety advice reads as specific to the incident."
+  "_steps": "`steps` is the WHAT TO DO block: two or three short imperatives, action first, shown as a numbered list on the alert detail. It is SITPREP'S OWN WORDING and the surface says so — 'SitPrep guidance for {event} - not the issuer's wording' - with the issuing office's verbatim text kept separately under Official wording. That separation is the whole rule: the issuing office's prose runs Flesch-Kincaid grade 5.8 to 12.2 and is a different register, so promoting it into this slot would present wire text as reviewed plain-language guidance. Drafted from the public safety guidance the NWS and Ready.gov publish for each product; NOT invented hazard advice. REVIEW GATE: a human must read every line before this ships to users - it is safety copy, and the failure mode is someone following it. Resolution order is exact (event, tier), then nothing: there is deliberately no generic fallback, because generic safety advice reads as specific to the incident.",
+  "_safetyReview": "Pass 2 source verification only. Production templates must not be marked approved without explicit human review."
 }

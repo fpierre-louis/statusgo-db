@@ -90,8 +90,8 @@ class AlertBodySlotTest {
         String body = AlertDispatchService.fillBody(t, quake);
         assertThat(body).doesNotContain("{distance}").doesNotContain("{direction}");
         assertThat(body).isEqualTo(
-                "Magnitude 6.2 earthquake — 14 km E of Encinitas, CA. "
-                        + "Check your home for damage. Smell for gas and look for water leaks.");
+                "A magnitude 6.2 earthquake was reported near 14 km E of Encinitas, CA. "
+                        + "Check people first, then check for hazards.");
     }
 
     @ParameterizedTest(name = "USGS place shape: {0}")
@@ -102,13 +102,13 @@ class AlertBodySlotTest {
     })
     void placeReadsCorrectlyForBothUsgsLocationShapes(String place) {
         // USGS `place` is sometimes "N km DIR of X" and sometimes a bare region.
-        // The copy uses an em-dash clause so neither shape produces a broken
-        // sentence — "hit Scotia Sea" and "near 14 km E of X" both read wrong.
+        // The copy names USGS's place string without inventing a recipient
+        // distance or direction from the batched push path.
         NormalizedAlert quake = TestAlerts.usgs("M5.6 — " + place).area(place).build();
         String body = AlertDispatchService.fillBody(
                 dispatcher.matchForAlert(quake).orElseThrow(), quake);
 
-        assertThat(body).startsWith("Magnitude 5.6 earthquake — " + place + ".");
+        assertThat(body).startsWith("A magnitude 5.6 earthquake was reported near " + place + ".");
         assertThat(body).doesNotContain("{");
     }
 
@@ -254,7 +254,7 @@ class AlertBodySlotTest {
         String body = AlertDispatchService.fillBody(
                 dispatcher.matchForAlert(hurricane).orElseThrow(), hurricane);
 
-        assertThat(body).startsWith("A hurricane is on the way.");
+        assertThat(body).startsWith("Hurricane conditions are expected.");
         assertThat(body).doesNotContain("Hurricane Warning is on the way");
         assertThat(body).doesNotContain("{");
     }

@@ -170,8 +170,8 @@ class AlertPushTargetingTest {
 
         assertThat(body).doesNotContain("{");
         assertThat(body).isEqualTo(
-                "Damaging wind and hail are moving in. Go inside now, stay off the road, "
-                        + "and keep away from windows.");
+                "A severe storm warning is in effect. Get inside, stay away from windows, "
+                        + "and avoid travel.");
         assertThat(tpl.isWarningTier()).as("and it is push-worthy at all").isTrue();
     }
 
@@ -194,8 +194,8 @@ class AlertPushTargetingTest {
         // Every recipient of this batch is within 80 km of the epicentre, and
         // the body names where it was — no recipient-specific number needed.
         assertThat(body).isEqualTo(
-                "Magnitude 5.9 earthquake — 14 km E of Encinitas, CA. "
-                        + "Check your home for damage. Smell for gas and look for water leaks.");
+                "A magnitude 5.9 earthquake was reported near 14 km E of Encinitas, CA. "
+                        + "Check people first, then check for hazards.");
     }
 
     // ==================================================================

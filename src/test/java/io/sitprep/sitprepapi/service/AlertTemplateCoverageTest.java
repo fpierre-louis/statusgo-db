@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.charset.StandardCharsets;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -17,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -179,7 +182,7 @@ class AlertTemplateCoverageTest {
         // not exist, which looks like coverage and is not.
         Set<String> real;
         try (InputStream in = AlertTemplateCoverageTest.class
-                .getResourceAsStream("/fixtures/nws-alert-types-2026-08-22.json")) {
+                .getResourceAsStream("/fixtures/nws-alert-types-2026-08-27.json")) {
             assertThat(in).as("NWS product-type fixture present").isNotNull();
             JsonNode types = MAPPER.readTree(in).path("eventTypes");
             real = new LinkedHashSet<>();
@@ -284,6 +287,242 @@ class AlertTemplateCoverageTest {
         }
     }
 
+    @Test
+    void everyProductionTemplateHasPass2SafetyMetadataOrABlockReason() throws Exception {
+        Set<String> reviewStates = Set.of("draft", "source_verified", "blocked", "approved");
+        Set<String> dispatchModes = Set.of("critical_push", "attention", "prepare", "feed", "suppress");
+        Set<String> guidanceModes = Set.of("supplement_official", "official_only", "no_guidance");
+        Set<String> allowedEvidenceSupports = Set.of(
+                "eventAny", "incidentTypeAny", "_fallback",
+                "body", "steps[0]", "steps[1]", "steps[2]",
+                "askTag", "protectiveAction", "blockedReason",
+                "sitprep.dispatchMode", "sitprep.guidanceMode",
+                "sitprep.movementDirective", "sitprep.impactAware",
+                "futureImpactNormalization");
+        int count = 0;
+
+        for (JsonNode node : productionTemplateNodes()) {
+            count++;
+            DispatchTemplate t = DispatchTemplate.fromJson(node);
+            String name = templateName(node);
+
+            assertThat(t.protectiveAction).as("%s protectiveAction", name).isNotNull();
+            assertThat(t.compatibleResponseTypes).as("%s compatibleResponseTypes", name).isNotEmpty();
+            assertThat(t.incompatibleResponseTypes).as("%s incompatibleResponseTypes", name).isNotEmpty();
+            assertThat(t.sitprep).as("%s sitprep metadata", name).isNotNull();
+            assertThat(t.sitprep.dispatchMode).as("%s dispatchMode", name).isIn(dispatchModes);
+            assertThat(t.sitprep.guidanceMode).as("%s guidanceMode", name).isIn(guidanceModes);
+            assertThat(t.sitprep.movementDirective)
+                    .as("%s movementDirective", name)
+                    .isIn("none", "evacuate", "shelter_in_place", "avoid_area", "follow_official_instruction");
+            assertThat(t.safetyReview).as("%s safetyReview", name).isNotNull();
+            assertThat(t.safetyReview.status).as("%s safetyReview.status", name).isIn(reviewStates);
+            assertThat(t.safetyReview.version).as("%s safetyReview.version", name).isPositive();
+            assertThat(t.safetyReview.sourceVerifiedAt)
+                    .as("%s safetyReview.sourceVerifiedAt", name)
+                    .isNotBlank();
+            assertThat(t.safetyReview.approvedAt)
+                    .as("%s safetyReview.approvedAt", name)
+                    .isNull();
+
+            boolean blocked = "blocked".equals(t.safetyReview.status);
+            if (blocked) {
+                assertThat(node.path("blockedReason").asText())
+                        .as("%s blockedReason", name)
+                        .isNotBlank();
+            } else {
+                assertThat(t.evidence).as("%s evidence", name).isNotEmpty();
+            }
+            for (AlertDispatchService.EvidenceMetadata evidence : t.evidence) {
+                assertThat(evidence.supports).as("%s evidence supports for %s", name, evidence.title)
+                        .isNotEmpty()
+                        .allSatisfy(support -> assertThat(allowedEvidenceSupports)
+                                .as("%s evidence support token %s", name, support)
+                                .contains(support));
+            }
+        }
+
+        assertThat(count).as("production template count after Pass 2B splits").isEqualTo(52);
+    }
+
+    @Test
+    void productionTemplatesUseOnlyApprovedEvidenceHostsAndNoHumanApproval() throws Exception {
+        for (JsonNode node : productionTemplateNodes()) {
+            DispatchTemplate t = DispatchTemplate.fromJson(node);
+            String name = templateName(node);
+            assertThat(t.safetyReview.status)
+                    .as("%s must not be marked human-approved by Pass 2", name)
+                    .isNotEqualTo("approved");
+
+            for (AlertDispatchService.EvidenceMetadata evidence : t.evidence) {
+                assertThat(evidence.hostAllowed())
+                        .as("%s evidence URL host is not explicitly allowed: %s", name, evidence.url)
+                        .isTrue();
+            }
+        }
+    }
+
+    @Test
+    void productionCompatibilityValuesAreKnownCapResponseValues() throws Exception {
+        for (JsonNode node : productionTemplateNodes()) {
+            DispatchTemplate t = DispatchTemplate.fromJson(node);
+            for (String value : concat(t.compatibleResponseTypes, t.incompatibleResponseTypes)) {
+                assertThat(AlertSafetyPolicy.actionFromResponse(value))
+                        .as("%s uses unsupported responseType %s", templateName(node), value)
+                        .isNotEqualTo(AlertSafetyPolicy.ProtectiveAction.UNKNOWN);
+            }
+        }
+    }
+
+    @Test
+    void knownUnsafeGroupingsHaveDedicatedTemplatesNow() {
+        DispatchTemplate tornado = dispatcher.matchForAlert(nws("Tornado Warning", "Extreme")).orElseThrow();
+        DispatchTemplate extremeWind = dispatcher.matchForAlert(nws("Extreme Wind Warning", "Extreme")).orElseThrow();
+        assertThat(extremeWind.headline).isEqualTo("Extreme wind warning");
+        assertThat(extremeWind.body).doesNotContainIgnoringCase("tornado");
+        assertThat(extremeWind).isNotSameAs(tornado);
+
+        DispatchTemplate tropicalStorm = dispatcher.matchForAlert(nws("Tropical Storm Warning", "Severe")).orElseThrow();
+        DispatchTemplate storm = dispatcher.matchForAlert(nws("Storm Warning", "Severe")).orElseThrow();
+        assertThat(storm.headline).isEqualTo("Storm warning");
+        assertThat(storm.body).doesNotContainIgnoringCase("tropical");
+        assertThat(storm).isNotSameAs(tropicalStorm);
+
+        DispatchTemplate winter = dispatcher.matchForAlert(nws("Winter Storm Warning", "Severe")).orElseThrow();
+        DispatchTemplate snowSquall = dispatcher.matchForAlert(nws("Snow Squall Warning", "Severe")).orElseThrow();
+        assertThat(snowSquall.headline).isEqualTo("Snow squall warning");
+        assertThat(snowSquall.body).containsIgnoringCase("roads");
+        assertThat(snowSquall).isNotSameAs(winter);
+
+        DispatchTemplate tsunamiWatch = dispatcher.matchForAlert(nws("Tsunami Watch", "Severe")).orElseThrow();
+        DispatchTemplate tsunamiAdvisory = dispatcher.matchForAlert(nws("Tsunami Advisory", "Severe")).orElseThrow();
+        assertThat(tsunamiWatch.headline).isEqualTo("Tsunami watch");
+        assertThat(tsunamiAdvisory.headline).isEqualTo("Tsunami advisory");
+        assertThat(tsunamiAdvisory.protectiveAction).isEqualTo(AlertSafetyPolicy.ProtectiveAction.AVOID);
+        assertThat(tsunamiAdvisory).isNotSameAs(tsunamiWatch);
+
+        DispatchTemplate cold = dispatcher.matchForAlert(nws("Extreme Cold Watch", "Severe")).orElseThrow();
+        DispatchTemplate freeze = dispatcher.matchForAlert(nws("Freeze Warning", "Severe")).orElseThrow();
+        assertThat(cold.headline).isEqualTo("Extreme cold watch");
+        assertThat(freeze.headline).isEqualTo("Freeze watch or warning");
+        assertThat(cold).isNotSameAs(freeze);
+    }
+
+    @Test
+    void knownUnsafeWordingDoesNotReturn() {
+        DispatchTemplate thunderstorm = dispatcher
+                .matchForAlert(nws("Severe Thunderstorm Warning", "Severe"))
+                .orElseThrow();
+        String thunderstormCopy = String.join(" ", thunderstorm.body, String.join(" ", thunderstorm.steps));
+        assertThat(thunderstormCopy).doesNotContainIgnoringCase("unplug");
+        assertThat(thunderstormCopy).doesNotContainIgnoringCase("damaging wind and hail are moving in");
+
+        DispatchTemplate tornado = dispatcher.matchForAlert(nws("Tornado Warning", "Extreme")).orElseThrow();
+        assertThat(tornado.body).doesNotContainIgnoringCase("spotted");
+        assertThat(tornado.askTag).as("no tornado Ask guide exists yet").isNull();
+
+        DispatchTemplate wind = dispatcher.matchForAlert(nws("Extreme Wind Warning", "Extreme")).orElseThrow();
+        String windCopy = String.join(" ", wind.body, String.join(" ", wind.steps));
+        assertThat(windCopy).doesNotContainIgnoringCase("basement");
+        assertThat(windCopy).doesNotContainIgnoringCase("lowest floor");
+
+        DispatchTemplate quake = dispatcher.matchForAlert(TestAlerts.usgs("M6.2 — Scotia Sea").build())
+                .orElseThrow();
+        assertThat(quake.headline).isEqualTo("Earthquake reported nearby");
+        assertThat(quake.headline).doesNotContainIgnoringCase("felt");
+    }
+
+    @Test
+    void extremeWindHasProductSpecificProvenanceWithoutTornadoShelterCopy() {
+        DispatchTemplate wind = dispatcher.matchForAlert(nws("Extreme Wind Warning", "Extreme")).orElseThrow();
+        String windCopy = String.join(" ", wind.body, String.join(" ", wind.steps));
+
+        assertThat(wind.evidence)
+                .anySatisfy(evidence -> {
+                    assertThat(evidence.title).contains("Extreme Wind Warning");
+                    assertThat(evidence.url).isEqualTo("https://www.weather.gov/wrn/wea360");
+                    assertThat(evidence.supports).contains("eventAny", "sitprep.dispatchMode");
+                });
+        assertThat(windCopy).doesNotContainIgnoringCase("basement");
+        assertThat(windCopy).doesNotContainIgnoringCase("lowest floor");
+    }
+
+    @Test
+    void genericAirQualityDoesNotBorrowSmokeSpecificGuidance() {
+        DispatchTemplate generic = dispatcher.matchForAlert(nws("Air Quality Alert", "Unknown")).orElseThrow();
+        DispatchTemplate smoke = dispatcher.matchForAlert(nws("Dense Smoke Advisory", "Unknown")).orElseThrow();
+
+        assertThat(generic).isNotSameAs(smoke);
+        assertThat(generic.headline).isEqualTo("Air quality alert");
+        assertThat(generic.askTag).isNull();
+        assertThat(generic.sitprep.guidanceMode).isEqualTo("official_only");
+        assertThat(generic.body).doesNotContainIgnoringCase("smoke").doesNotContainIgnoringCase("N95");
+    }
+
+    @Test
+    void impactAwareTemplatesDefaultLowerUntilCapImpactDataEscalatesThem() {
+        for (String event : List.of(
+                "Severe Thunderstorm Warning",
+                "Flash Flood Warning",
+                "Flood Warning",
+                "Snow Squall Warning")) {
+            DispatchTemplate t = dispatcher.matchForAlert(nws(event, "Severe")).orElseThrow();
+            assertThat(t.sitprep.impactAware).as("%s impact-aware", event).isTrue();
+            assertThat(t.sitprep.dispatchMode).as("%s default dispatch", event).isEqualTo("attention");
+        }
+    }
+
+    @Test
+    void freezeWarningDoesNotBecomeCriticalBecauseItsNameSaysWarning() {
+        NormalizedAlert freeze = TestAlerts.nws("Freeze Warning")
+                .severity("Severe")
+                .urgency("Immediate")
+                .certainty("Likely")
+                .responseTypes(List.of("Prepare"))
+                .build();
+        DispatchTemplate t = dispatcher.matchForAlert(freeze).orElseThrow();
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(freeze, t);
+
+        assertThat(t.tier).isEqualTo("watch");
+        assertThat(decision.dispatchMode()).isEqualTo(AlertSafetyPolicy.DispatchMode.PREPARE);
+    }
+
+    @Test
+    void blockedCivilTemplatesRemainOfficialOnlyWithSemanticEvidence() {
+        for (String event : List.of(
+                "Civil Danger Warning",
+                "Local Area Emergency",
+                "Civil Emergency Message",
+                "Law Enforcement Warning")) {
+            DispatchTemplate t = dispatcher.matchForAlert(nws(event, "Severe")).orElseThrow();
+            assertThat(t.safetyReview.status).as("%s review status", event).isEqualTo("blocked");
+            assertThat(t.sitprep.guidanceMode).as("%s guidance", event).isEqualTo("official_only");
+            assertThat(t.sitprep.movementDirective).as("%s movement directive", event)
+                    .isEqualTo("follow_official_instruction");
+            assertThat(t.evidence).as("%s semantic evidence", event).isNotEmpty();
+        }
+    }
+
+    @Test
+    void humanReviewMatrixMatchesProductionTemplates() throws Exception {
+        String matrix = java.nio.file.Files.readString(
+                java.nio.file.Path.of("docs/alerts/ALERT_TEMPLATE_HUMAN_REVIEW_MATRIX.md"),
+                StandardCharsets.UTF_8);
+
+        Pattern heading = Pattern.compile("^## \\d+\\. (.+)$", Pattern.MULTILINE);
+        Matcher matcher = heading.matcher(matrix);
+        List<String> matrixNames = new ArrayList<>();
+        while (matcher.find()) matrixNames.add(matcher.group(1).trim());
+
+        List<String> templateNames = productionTemplateNodes().stream()
+                .map(AlertTemplateCoverageTest::templateName)
+                .toList();
+
+        assertThat(matrixNames).doesNotHaveDuplicates();
+        assertThat(templateNames).doesNotHaveDuplicates();
+        assertThat(matrixNames).containsExactlyElementsOf(templateNames);
+    }
+
     // ==================================================================
     // Against the real feed
     // ==================================================================
@@ -325,5 +564,40 @@ class AlertTemplateCoverageTest {
         dispatcher.matchForAlert(TestAlerts.usgs("M6.2 — Scotia Sea").build()).ifPresent(out::add);
         dispatcher.matchForAlert(TestAlerts.fema("Fire — SOME FIRE").build()).ifPresent(out::add);
         return out.stream().distinct().toList();
+    }
+
+    private static List<JsonNode> productionTemplateNodes() throws Exception {
+        List<JsonNode> out = new ArrayList<>();
+        try (InputStream in = AlertTemplateCoverageTest.class
+                .getResourceAsStream("/templates/alert-dispatch-templates.json")) {
+            assertThat(in).as("template resource present").isNotNull();
+            for (JsonNode node : MAPPER.readTree(in).path("templates")) {
+                if (node.isObject()) out.add(node);
+            }
+        }
+        return out;
+    }
+
+    private static List<String> concat(List<String> a, List<String> b) {
+        List<String> out = new ArrayList<>();
+        out.addAll(a == null ? List.of() : a);
+        out.addAll(b == null ? List.of() : b);
+        return out;
+    }
+
+    private static String templateName(JsonNode node) {
+        if (node.has("eventAny") && node.path("eventAny").isArray()
+                && node.path("eventAny").size() > 0) {
+            List<String> events = new ArrayList<>();
+            node.path("eventAny").forEach(event -> events.add(event.asText()));
+            return String.join(" / ", events);
+        }
+        if (node.has("incidentTypeAny") && node.path("incidentTypeAny").isArray()) {
+            List<String> types = new ArrayList<>();
+            node.path("incidentTypeAny").forEach(type -> types.add(type.asText()));
+            return "FEMA " + String.join(" / ", types);
+        }
+        if (node.path("_fallback").asBoolean(false)) return "FEMA fallback";
+        return node.path("source").asText() + " " + node.path("headline").asText();
     }
 }

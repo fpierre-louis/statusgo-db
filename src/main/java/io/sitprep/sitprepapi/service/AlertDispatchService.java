@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -287,8 +288,14 @@ public class AlertDispatchService {
                 Optional<DispatchTemplate> tplOpt = matchForAlert(a);
                 if (tplOpt.isEmpty()) continue;
                 DispatchTemplate tpl = tplOpt.get();
+                AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(a, tpl);
+                if (decision.dispatchMode() == AlertSafetyPolicy.DispatchMode.SUPPRESS) {
+                    log.info("AlertDispatch: suppressed {}-{} by safety policy ({})",
+                            a.source(), a.id(), decision.reason());
+                    continue;
+                }
 
-                Post body = buildAutoPostTask(a, tpl, coord);
+                Post body = buildAutoPostTask(a, tpl, decision, coord);
                 PostDto dto = taskService.create(body, SYSTEM_EMAIL);
 
                 AlertPost ap = new AlertPost();
@@ -305,12 +312,12 @@ public class AlertDispatchService {
                 // Fires exactly once per alert, all-time: the
                 // (alertId, geocellId) dedup above means this branch is
                 // reached only when a NEW AlertPost is created.
-                if (isLifeThreatening(a, tpl)) {
+                if (decision.criticalPush()) {
                     if (pushCandidates == null) {
                         pushCandidates = userInfoRepo.findPushablesWithLocation(
                                 Instant.now().minus(Duration.ofDays(locationMaxAgeDays)));
                     }
-                    pushSevereAlert(a, tpl, coord, pushCandidates);
+                    pushSevereAlert(a, tpl, decision, coord, pushCandidates);
                 }
 
                 created++;
@@ -434,17 +441,19 @@ public class AlertDispatchService {
     // Private helpers
     // ---------------------------------------------------------------
 
-    private Post buildAutoPostTask(NormalizedAlert a, DispatchTemplate tpl, double[] coord) {
+    private Post buildAutoPostTask(NormalizedAlert a,
+                                   DispatchTemplate tpl,
+                                   AlertSafetyPolicy.Decision decision,
+                                   double[] coord) {
         Post t = new Post();
         // Dispatched severe/extreme alerts are alert-update posts so the
         // community feed pins the freshest one to the top (~24h, or until a
         // newer alert replaces it) and renders the "Pinned by your area"
         // strip — replacing the old sticky top alert band.
         t.setKind("alert-update");
-        // Title and body from the template. fillBody substitutes {mag} and
-        // {place} and guarantees no unresolved slot survives (audit P0-5).
-        t.setTitle(tpl.headline);
-        t.setDescription(fillBody(tpl, a));
+        boolean sitprepGuidance = decision != null && decision.allowsSitPrepGuidance();
+        t.setTitle(sitprepGuidance ? tpl.headline : officialTitle(a, tpl));
+        t.setDescription(sitprepGuidance ? fillBody(tpl, a) : officialBody(a));
         t.setPriority(PostPriority.URGENT);
         t.setStatus(PostStatus.OPEN);
         // DERIVED, NOT CAPTURED (V60). The alert's own end time has been on the
@@ -684,10 +693,7 @@ public class AlertDispatchService {
      * exactly what these five were.</p>
      */
     static boolean isStillInForce(NormalizedAlert a) {
-        if (a == null) return false;
-        if ("AllClear".equalsIgnoreCase(a.response())) return false;
-        if ("Past".equalsIgnoreCase(a.urgency())) return false;
-        return true;
+        return AlertSafetyPolicy.lifecycleBlockReason(a) == null;
     }
 
     /**
@@ -715,8 +721,7 @@ public class AlertDispatchService {
     static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl) {
         if (a == null || a.source() == null || tpl == null) return false;
         if (!"NWS".equalsIgnoreCase(a.source())) return false;
-        if (!isStillInForce(a)) return false;
-        return tpl.isWarningTier() && tierMatchesAlertShape(a, tpl);
+        return AlertSafetyPolicy.evaluate(a, tpl).criticalPush();
     }
 
     /**
@@ -735,6 +740,7 @@ public class AlertDispatchService {
      */
     private void pushSevereAlert(NormalizedAlert a,
                                  DispatchTemplate tpl,
+                                 AlertSafetyPolicy.Decision decision,
                                  double[] coord,
                                  List<UserInfo> candidates) {
         if (candidates == null || candidates.isEmpty()) return;
@@ -785,10 +791,12 @@ public class AlertDispatchService {
         if (laneA.isEmpty()) return;
         nearby = laneA;
 
-        String title = (tpl != null && tpl.headline != null && !tpl.headline.isBlank())
-                ? tpl.headline
-                : "Severe weather alert nearby";
-        String body = truncate(buildPushBody(a, tpl), 160);
+        boolean sitprepGuidance = decision != null && decision.allowsSitPrepGuidance();
+        String title = sitprepGuidance
+                ? (tpl != null && tpl.headline != null && !tpl.headline.isBlank()
+                    ? tpl.headline : "Severe weather alert nearby")
+                : officialTitle(a, tpl);
+        String body = truncate(buildPushBody(a, tpl, decision), 160);
         String referenceId = a.source() + "-" + a.id();
 
         // One batched MulticastMessage instead of N sequential sends.
@@ -824,11 +832,29 @@ public class AlertDispatchService {
      * Push body — prefer the curated template body (concise safety
      * guidance), fall back to the raw NWS headline.
      */
-    private static String buildPushBody(NormalizedAlert a, DispatchTemplate tpl) {
-        if (tpl != null && tpl.body != null && !tpl.body.isBlank()) {
+    private static String buildPushBody(NormalizedAlert a,
+                                        DispatchTemplate tpl,
+                                        AlertSafetyPolicy.Decision decision) {
+        if (decision != null && decision.allowsSitPrepGuidance()
+                && tpl != null && tpl.body != null && !tpl.body.isBlank()) {
             return fillBody(tpl, a);
         }
-        return a.headline() != null ? a.headline() : "Tap for safety steps.";
+        return officialBody(a);
+    }
+
+    private static String officialTitle(NormalizedAlert a, DispatchTemplate tpl) {
+        if (a != null && a.event() != null && !a.event().isBlank()) return a.event();
+        if (a != null && a.headline() != null && !a.headline().isBlank()) return a.headline();
+        if (tpl != null && tpl.headline != null && !tpl.headline.isBlank()) return tpl.headline;
+        return "Alert nearby";
+    }
+
+    private static String officialBody(NormalizedAlert a) {
+        if (a == null) return "Open the official alert for details.";
+        if (a.instruction() != null && !a.instruction().isBlank()) return a.instruction();
+        if (a.description() != null && !a.description().isBlank()) return a.description();
+        if (a.headline() != null && !a.headline().isBlank()) return a.headline();
+        return "Open the official alert for details.";
     }
 
     private static String truncate(String s, int max) {
@@ -977,7 +1003,11 @@ public class AlertDispatchService {
         final String source;
         /** Exact NWS product names this template covers. */
         final List<String> eventAny;
-        /** {@code warning} | {@code watch} — drives push eligibility. */
+        /**
+         * {@code warning} | {@code watch}. Legacy copy/visual grouping only
+         * once {@code sitprep.dispatchMode} is present; safety policy owns
+         * interruptiveness.
+         */
         final String tier;
         final List<String> incidentTypeAny;
         final Double minMag;
@@ -1005,11 +1035,23 @@ public class AlertDispatchService {
          */
         final List<String> steps;
         final String askTag;
+        final AlertSafetyPolicy.ProtectiveAction protectiveAction;
+        final List<String> compatibleResponseTypes;
+        final List<String> incompatibleResponseTypes;
+        final SitprepTemplateMetadata sitprep;
+        final List<EvidenceMetadata> evidence;
+        final SafetyReviewMetadata safetyReview;
 
         DispatchTemplate(String source, List<String> eventAny, String tier,
                          List<String> incidentTypeAny, Double minMag, boolean fallback,
                          String hazardType, String headline, String body,
-                         List<String> steps, String askTag) {
+                         List<String> steps, String askTag,
+                         AlertSafetyPolicy.ProtectiveAction protectiveAction,
+                         List<String> compatibleResponseTypes,
+                         List<String> incompatibleResponseTypes,
+                         SitprepTemplateMetadata sitprep,
+                         List<EvidenceMetadata> evidence,
+                         SafetyReviewMetadata safetyReview) {
             this.source = source;
             this.eventAny = eventAny;
             this.tier = tier;
@@ -1021,6 +1063,12 @@ public class AlertDispatchService {
             this.body = body;
             this.steps = steps;
             this.askTag = askTag;
+            this.protectiveAction = protectiveAction;
+            this.compatibleResponseTypes = compatibleResponseTypes;
+            this.incompatibleResponseTypes = incompatibleResponseTypes;
+            this.sitprep = sitprep;
+            this.evidence = evidence;
+            this.safetyReview = safetyReview;
         }
 
         /**
@@ -1071,9 +1119,19 @@ public class AlertDispatchService {
             return true;
         }
 
-        /** Warning-tier copy interrupts; watch-tier copy does not. */
+        /** Legacy tier helper; dispatch policy may override this. */
         boolean isWarningTier() {
             return TIER_WARNING.equalsIgnoreCase(tier);
+        }
+
+        boolean isSafetyApproved() {
+            return safetyReview != null
+                    && "approved".equalsIgnoreCase(safetyReview.status)
+                    && safetyReview.approvedAt != null
+                    && !safetyReview.approvedAt.isBlank()
+                    && evidence != null
+                    && !evidence.isEmpty()
+                    && evidence.stream().allMatch(EvidenceMetadata::hostAllowed);
         }
 
         static DispatchTemplate fromJson(JsonNode n) {
@@ -1088,8 +1146,24 @@ public class AlertDispatchService {
                     text(n, "headline"),
                     text(n, "body"),
                     stringArray(n, "steps"),
-                    text(n, "askTag")
+                    text(n, "askTag"),
+                    protectiveAction(text(n, "protectiveAction")),
+                    stringArray(n, "compatibleResponseTypes"),
+                    stringArray(n, "incompatibleResponseTypes"),
+                    SitprepTemplateMetadata.fromJson(n.path("sitprep")),
+                    EvidenceMetadata.listFromJson(n.path("evidence")),
+                    SafetyReviewMetadata.fromJson(n.path("safetyReview"))
             );
+        }
+
+        private static AlertSafetyPolicy.ProtectiveAction protectiveAction(String raw) {
+            if (raw == null || raw.isBlank()) return null;
+            try {
+                return AlertSafetyPolicy.ProtectiveAction.valueOf(
+                        raw.trim().toUpperCase(Locale.ROOT));
+            } catch (Exception ignored) {
+                return AlertSafetyPolicy.ProtectiveAction.UNKNOWN;
+            }
         }
 
         private static String text(JsonNode n, String f) {
@@ -1103,6 +1177,123 @@ public class AlertDispatchService {
             List<String> out = new ArrayList<>(v.size());
             v.forEach(x -> out.add(x.asText()));
             return out;
+        }
+    }
+
+    static final class SitprepTemplateMetadata {
+        final String dispatchMode;
+        final String guidanceMode;
+        final String movementDirective;
+        final boolean impactAware;
+
+        private SitprepTemplateMetadata(String dispatchMode, String guidanceMode,
+                                        String movementDirective, boolean impactAware) {
+            this.dispatchMode = dispatchMode;
+            this.guidanceMode = guidanceMode;
+            this.movementDirective = movementDirective;
+            this.impactAware = impactAware;
+        }
+
+        static SitprepTemplateMetadata fromJson(JsonNode n) {
+            if (n == null || !n.isObject()) return null;
+            return new SitprepTemplateMetadata(
+                    DispatchTemplate.text(n, "dispatchMode"),
+                    DispatchTemplate.text(n, "guidanceMode"),
+                    DispatchTemplate.text(n, "movementDirective"),
+                    n.path("impactAware").asBoolean(false));
+        }
+    }
+
+    static final class SafetyReviewMetadata {
+        final String status;
+        final Integer version;
+        final String sourceVerifiedAt;
+        final String approvedAt;
+
+        private SafetyReviewMetadata(String status, Integer version,
+                                     String sourceVerifiedAt, String approvedAt) {
+            this.status = status;
+            this.version = version;
+            this.sourceVerifiedAt = sourceVerifiedAt;
+            this.approvedAt = approvedAt;
+        }
+
+        static SafetyReviewMetadata fromJson(JsonNode n) {
+            if (n == null || !n.isObject()) return null;
+            Integer version = n.has("version") && !n.get("version").isNull()
+                    ? n.get("version").asInt()
+                    : null;
+            String sourceVerifiedAt = DispatchTemplate.text(n, "sourceVerifiedAt");
+            if (sourceVerifiedAt == null) sourceVerifiedAt = DispatchTemplate.text(n, "reviewedAt");
+            return new SafetyReviewMetadata(
+                    DispatchTemplate.text(n, "status"),
+                    version,
+                    sourceVerifiedAt,
+                    DispatchTemplate.text(n, "approvedAt"));
+        }
+    }
+
+    static final class EvidenceMetadata {
+        private static final Set<String> ALLOWED_HOSTS = Set.of(
+                "weather.gov",
+                "www.weather.gov",
+                "api.weather.gov",
+                "ready.gov",
+                "www.ready.gov",
+                "fema.gov",
+                "www.fema.gov",
+                "usgs.gov",
+                "www.usgs.gov",
+                "earthquake.usgs.gov",
+                "volcanoes.usgs.gov",
+                "epa.gov",
+                "www.epa.gov",
+                "cdc.gov",
+                "www.cdc.gov",
+                "nrc.gov",
+                "www.nrc.gov",
+                "airnow.gov",
+                "www.airnow.gov"
+        );
+
+        final String agency;
+        final String title;
+        final String url;
+        final String checkedAt;
+        final List<String> supports;
+
+        private EvidenceMetadata(String agency, String title, String url,
+                                 String checkedAt, List<String> supports) {
+            this.agency = agency;
+            this.title = title;
+            this.url = url;
+            this.checkedAt = checkedAt;
+            this.supports = supports;
+        }
+
+        static List<EvidenceMetadata> listFromJson(JsonNode n) {
+            if (n == null || !n.isArray()) return List.of();
+            List<EvidenceMetadata> out = new ArrayList<>(n.size());
+            for (JsonNode item : n) {
+                if (!item.isObject()) continue;
+                out.add(new EvidenceMetadata(
+                        DispatchTemplate.text(item, "agency"),
+                        DispatchTemplate.text(item, "title"),
+                        DispatchTemplate.text(item, "url"),
+                        DispatchTemplate.text(item, "checkedAt"),
+                        DispatchTemplate.stringArray(item, "supports")));
+            }
+            return List.copyOf(out);
+        }
+
+        boolean hostAllowed() {
+            if (url == null || url.isBlank()) return false;
+            try {
+                String host = URI.create(url).getHost();
+                return host != null && ALLOWED_HOSTS.contains(host.toLowerCase(Locale.ROOT));
+            } catch (Exception ignored) {
+                return false;
+            }
         }
     }
 }

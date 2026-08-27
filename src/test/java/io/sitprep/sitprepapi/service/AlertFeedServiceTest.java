@@ -74,10 +74,13 @@ class AlertFeedServiceTest {
         assertThat(c.official().description()).isEqualTo("* WHAT...Dangerously hot conditions.");
         assertThat(c.official().issuedBy()).isEqualTo("NWS Phoenix AZ");
 
-        // And our copy is entirely separate — no wire text leaks into it.
-        assertThat(c.headline()).isEqualTo("Dangerous heat");
-        assertThat(c.whatToDo()).doesNotContain("issued August").doesNotContain("by NWS");
-        assertThat(c.headline()).isNotEqualTo(c.official().headline());
+        // And while templates await safety approval, our copy is absent rather
+        // than promoted unsafely. Official wording remains available.
+        assertThat(c.headline()).isNull();
+        assertThat(c.whatToDo()).isNull();
+        assertThat(c.precautions()).isNull();
+        assertThat(c.safety().guidanceMode()).isEqualTo("official_only");
+        assertThat(c.safety().reason()).isEqualTo("template_not_safety_approved");
     }
 
     @Test
@@ -92,6 +95,7 @@ class AlertFeedServiceTest {
         assertThat(c.official().headline()).isNotNull();
         assertThat(c.eventLabel()).as("still labelled, from the product name")
                 .isEqualTo("Small Craft Advisory");
+        assertThat(c.safety().guidanceMode()).isEqualTo("no_guidance");
     }
 
     // ==================================================================
@@ -191,6 +195,14 @@ class AlertFeedServiceTest {
         assertThat(card(TestAlerts.nwsWatch("Flood Watch").build(), MatchType.ZONE)
                 .isLifeThreatening()).isFalse();
         assertThat(card(TestAlerts.nws("Flood Warning").build(), MatchType.POLYGON)
+                .isLifeThreatening()).isFalse();
+        assertThat(card(TestAlerts.nws("Flood Warning")
+                        .responseTypes(List.of("Evacuate"))
+                        .build(), MatchType.POLYGON)
+                .isLifeThreatening()).isFalse();
+        assertThat(card(TestAlerts.nws("Flash Flood Warning")
+                        .parameters(Map.of("flashFloodDamageThreat", List.of("CATASTROPHIC")))
+                        .build(), MatchType.POLYGON)
                 .isLifeThreatening()).isTrue();
     }
 

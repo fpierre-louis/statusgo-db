@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * One place tests build a {@link NormalizedAlert}.
@@ -35,6 +36,8 @@ final class TestAlerts {
                 .messageType("Alert")
                 .status("Actual")
                 .response("Avoid")
+                .scope("Public")
+                .responseTypes(List.of("Avoid"))
                 .headline(event + " issued for somewhere")
                 .description("Body.")
                 .area("Area")
@@ -75,6 +78,14 @@ final class TestAlerts {
         private List<String> ugc = List.of();
         private List<String> same = List.of();
         private List<String> references = List.of();
+        private String sender;
+        private String sent;
+        private String scope = "Public";
+        private List<String> eventCodes = List.of();
+        private List<String> responseTypes = List.of();
+        private List<String> unknownResponseTypes = List.of();
+        private Map<String, List<String>> parameters = Map.of();
+        private String sourceSystem;
 
         Builder id(String v) { this.id = v; return this; }
         Builder source(String v) { this.source = v; return this; }
@@ -84,7 +95,11 @@ final class TestAlerts {
         Builder certainty(String v) { this.certainty = v; return this; }
         Builder messageType(String v) { this.messageType = v; return this; }
         Builder status(String v) { this.status = v; return this; }
-        Builder response(String v) { this.response = v; return this; }
+        Builder response(String v) {
+            this.response = v;
+            this.responseTypes = v == null ? List.of() : List.of(v);
+            return this;
+        }
         Builder headline(String v) { this.headline = v; return this; }
         Builder description(String v) { this.description = v; return this; }
         Builder instruction(String v) { this.instruction = v; return this; }
@@ -96,12 +111,22 @@ final class TestAlerts {
         Builder same(List<String> v) { this.same = v; return this; }
         /** CAP `references` — the identifiers of the alerts this one replaces. */
         Builder references(List<String> v) { this.references = v; return this; }
+        Builder sender(String v) { this.sender = v; return this; }
+        Builder sent(String v) { this.sent = v; return this; }
+        Builder scope(String v) { this.scope = v; return this; }
+        Builder eventCodes(List<String> v) { this.eventCodes = v; return this; }
+        Builder responseTypes(List<String> v) { this.responseTypes = v == null ? List.of() : v; return this; }
+        Builder unknownResponseTypes(List<String> v) { this.unknownResponseTypes = v == null ? List.of() : v; return this; }
+        Builder parameters(Map<String, List<String>> v) { this.parameters = v == null ? Map.of() : v; return this; }
+        Builder sourceSystem(String v) { this.sourceSystem = v; return this; }
 
         NormalizedAlert build() {
             return new NormalizedAlert(
                     id, source, event, severity, urgency, certainty, messageType,
                     status, response, headline, description, instruction, area,
-                    startedAt, endsAt, geometry, ugc, same, references);
+                    startedAt, endsAt, geometry, ugc, same, references,
+                    sender, sent, scope, eventCodes, responseTypes,
+                    unknownResponseTypes, parameters, sourceSystem);
         }
     }
 }

@@ -95,6 +95,10 @@ public class AlertFeedService {
 
         List<AlertCardDto> cards = new ArrayList<>();
         for (NormalizedAlert a : snap.alerts()) {
+            if (AlertSafetyPolicy.evaluate(a, dispatch.matchForAlert(a).orElse(null))
+                    .dispatchMode() == AlertSafetyPolicy.DispatchMode.SUPPRESS) {
+                continue;
+            }
             MatchType match = AlertIngestService.matchTypeFor(
                     a, lat, lng, radiusKm, userZones, userStates);
             if (match == null) continue;
@@ -120,17 +124,22 @@ public class AlertFeedService {
     AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi, NormalizedAlert replacedBy) {
         Optional<DispatchTemplate> tplOpt = dispatch.matchForAlert(a);
         DispatchTemplate tpl = tplOpt.orElse(null);
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(a, tpl);
 
         // Plain-language copy — ours, sanitised. Absent when no template covers
         // this product, which is honest: we would rather say nothing than
         // present wire text as if we had written it.
-        String headline = tpl != null ? tpl.headline : null;
-        String whatToDo = tpl != null ? AlertDispatchService.fillBody(tpl, a) : null;
+        String headline = decision.allowsSitPrepGuidance() ? tpl.headline : null;
+        String whatToDo = decision.allowsSitPrepGuidance()
+                ? AlertDispatchService.fillBody(tpl, a)
+                : null;
 
         // The numbered WHAT TO DO steps, and their attribution, travel together
         // or not at all — a caller cannot render reviewed guidance without the
         // line saying whose it is.
-        List<String> precautions = AlertDerivations.orNull(tpl == null ? null : tpl.steps);
+        List<String> precautions = decision.allowsSitPrepGuidance()
+                ? AlertDerivations.orNull(tpl == null ? null : tpl.steps)
+                : null;
         String precautionsSource = precautions == null ? null : AlertDerivations.guidanceAttribution(a);
 
         return new AlertCardDto(
@@ -170,7 +179,19 @@ public class AlertFeedService {
                 a.startedAt(),
                 a.endsAt(),                       // null stays null — see the DTO
                 ATTRIBUTION.get(a.source()),
-                detailOf(a));
+                detailOf(a),
+                safetyOf(decision));
+    }
+
+    private static AlertCardDto.Safety safetyOf(AlertSafetyPolicy.Decision decision) {
+        if (decision == null) return null;
+        return new AlertCardDto.Safety(
+                decision.dispatchMode().wire(),
+                decision.guidanceMode().wire(),
+                decision.compatibility().wire(),
+                decision.capActions().stream().map(Enum::name).toList(),
+                decision.movementDirective().wire(),
+                decision.reason());
     }
 
     /**

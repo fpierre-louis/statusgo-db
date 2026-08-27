@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -551,6 +552,9 @@ public class AlertIngestService {
         // the SAME namespace as `properties.id` (both `urn:oid:2.49.0.1.840...`),
         // which is what makes the edge joinable at all.
         List<String> references = identifierList(p.path("references"));
+        List<String> responseTypes = stringListFlexible(p.path("response"));
+        String response = responseTypes.isEmpty() ? textOrNull(p, "response") : responseTypes.get(0);
+        Map<String, List<String>> parameters = parameterMap(p.path("parameters"));
 
         return new NormalizedAlert(
                 id,
@@ -561,7 +565,7 @@ public class AlertIngestService {
                 textOrNull(p, "certainty"),
                 textOrNull(p, "messageType"),
                 textOrNull(p, "status"),
-                textOrNull(p, "response"),
+                response,
                 headline,
                 textOrNull(p, "description"),
                 textOrNull(p, "instruction"),
@@ -571,7 +575,15 @@ public class AlertIngestService {
                 geometry,
                 ugc,
                 same,
-                references
+                references,
+                textOrNull(p, "sender"),
+                textOrNull(p, "sent"),
+                textOrNull(p, "scope"),
+                stringListDeep(p.path("eventCode")),
+                responseTypes,
+                unknownResponseTypes(responseTypes),
+                parameters,
+                "NWS_API"
         );
     }
 
@@ -601,6 +613,63 @@ public class AlertIngestService {
             if (!s.isEmpty()) out.add(s);
         }
         return List.copyOf(out);
+    }
+
+    /** String or string-array -> immutable list, preserving CAP responseType cardinality. */
+    private static List<String> stringListFlexible(JsonNode n) {
+        if (n == null || n.isMissingNode() || n.isNull()) return List.of();
+        if (n.isArray()) return stringList(n);
+        String s = n.asText("");
+        return s.isBlank() ? List.of() : List.of(s);
+    }
+
+    /** Deep string extraction for object/array provider fields such as eventCode. */
+    private static List<String> stringListDeep(JsonNode n) {
+        if (n == null || n.isMissingNode() || n.isNull()) return List.of();
+        List<String> out = new ArrayList<>();
+        collectStrings(n, out);
+        return List.copyOf(out);
+    }
+
+    /**
+     * NWS `properties.parameters` -> immutable name/value lists. These are the
+     * machine-readable NWS extensions for impact-based warnings; keep original
+     * names such as `thunderstormDamageThreat` and let policy decide meaning.
+     */
+    private static Map<String, List<String>> parameterMap(JsonNode n) {
+        if (n == null || !n.isObject() || n.isEmpty()) return Map.of();
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        Iterator<Map.Entry<String, JsonNode>> fields = n.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            List<String> values = stringListDeep(field.getValue());
+            if (!values.isEmpty()) out.put(field.getKey(), values);
+        }
+        return Map.copyOf(out);
+    }
+
+    private static void collectStrings(JsonNode n, List<String> out) {
+        if (n == null || n.isMissingNode() || n.isNull()) return;
+        if (n.isTextual() || n.isNumber() || n.isBoolean()) {
+            String s = n.asText("");
+            if (!s.isBlank()) out.add(s);
+            return;
+        }
+        if (n.isArray() || n.isObject()) {
+            n.forEach(child -> collectStrings(child, out));
+        }
+    }
+
+    private static List<String> unknownResponseTypes(List<String> responseTypes) {
+        if (responseTypes == null || responseTypes.isEmpty()) return List.of();
+        List<String> unknown = new ArrayList<>();
+        for (String response : responseTypes) {
+            if (AlertSafetyPolicy.actionFromResponse(response)
+                    == AlertSafetyPolicy.ProtectiveAction.UNKNOWN) {
+                unknown.add(response);
+            }
+        }
+        return List.copyOf(unknown);
     }
 
     /**
@@ -676,7 +745,15 @@ public class AlertIngestService {
                 // concerned — see the FEMA branch of getSnapshotForPoint.
                 List.of(),
                 List.of(),
-                /* references */ List.of()   // no CAP supersession vocabulary
+                /* references */ List.of(),  // no CAP supersession vocabulary
+                /* sender */ null,
+                /* sent */ null,
+                /* scope */ "Public",
+                /* eventCodes */ List.of(),
+                /* responseTypes */ List.of(),
+                /* unknownResponseTypes */ List.of(),
+                /* parameters */ Map.of(),
+                "FEMA_OPENFEMA"
         );
     }
 
@@ -733,7 +810,15 @@ public class AlertIngestService {
                 // never applies to them.
                 List.of(),
                 List.of(),
-                /* references */ List.of()   // no CAP supersession vocabulary
+                /* references */ List.of(),  // no CAP supersession vocabulary
+                /* sender */ null,
+                /* sent */ startedAt,
+                /* scope */ "Public",
+                /* eventCodes */ List.of(),
+                /* responseTypes */ List.of("Assess"),
+                /* unknownResponseTypes */ List.of(),
+                /* parameters */ Map.of(),
+                "USGS_GEOJSON"
         );
     }
 
@@ -810,18 +895,17 @@ public class AlertIngestService {
      *       deliberately ignores {@code radiusMi}: a zone is a containment
      *       question, not a distance one, and pretending otherwise is what
      *       made the radius parameter meaningless.</li>
-     *   <li><b>State prefix.</b> When the point lookup failed, fall back to
-     *       the first two characters of the UGC ({@code AZ}Z560). Coarse, but
-     *       it turns "every alert in the country" into "every alert in your
-     *       state" for free, with no network call.</li>
+     *   <li><b>State prefix.</b> When at least a coarse point code is known,
+     *       fall back to the first two characters of the UGC ({@code AZ}Z560).
+     *       Coarse, but it turns "every alert in the country" into "every alert
+     *       in your state" for free, with no network call.</li>
      * </ol>
      *
-     * <p>An alert with no geometry, no UGC and no state to compare against is
-     * still <b>included</b>. That is the FEMA case — those rows carry county
-     * and state <i>names</i>, never codes. Including them is wrong in the
-     * small (a Utah user sees a Florida declaration) and right in the large:
-     * this method must never be the reason a real alert is not shown. Fixing
-     * FEMA properly is audit P1-2, which filters the set down at ingest.</p>
+     * <p>An alert with no geometry and no UGC is still <b>included</b>. That is
+     * the FEMA case — those rows carry county and state <i>names</i>, never
+     * codes. But an alert with UGC that cannot be matched to the point is not
+     * promoted to broadcast; it had targeting metadata, and we failed to prove
+     * the viewer is inside it.</p>
      */
     private static boolean matchesPoint(NormalizedAlert a,
                                         double lat,
@@ -881,7 +965,7 @@ public class AlertIngestService {
             return null;
         }
 
-        return MatchType.BROADCAST;
+        return null;
     }
 
     /** How an alert came to be considered relevant to a coordinate. */
@@ -1134,6 +1218,27 @@ public class AlertIngestService {
              * this service does not keep. See
              * {@code AlertDerivations.supersessionIndex}.</p>
              */
-            List<String> references
+            List<String> references,
+            /** CAP sender, where present. */
+            String sender,
+            /** CAP sent timestamp, where present. */
+            String sent,
+            /** CAP scope — Public | Restricted | Private, where present. */
+            String scope,
+            /** Provider event-code values, flattened for diagnostics/policy. */
+            List<String> eventCodes,
+            /** CAP responseType values. May be empty, single, or multiple. */
+            List<String> responseTypes,
+            /** Raw responseType values that SitPrep cannot normalize yet. */
+            List<String> unknownResponseTypes,
+            /**
+             * NWS provider parameters, flattened as original parameter-name to
+             * values. Empty for non-NWS sources. This carries real NWS fields
+             * such as `thunderstormDamageThreat`, `flashFloodDamageThreat`,
+             * `snowSquallImpact`, and `WEAHandling`.
+             */
+            Map<String, List<String>> parameters,
+            /** Feed/provider identity, e.g. NWS_API or USGS_GEOJSON. */
+            String sourceSystem
     ) {}
 }

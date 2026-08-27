@@ -166,7 +166,14 @@ public record AlertCardDto(
          */
         String sourceAttribution,
 
-        Detail detail
+        Detail detail,
+
+        /**
+         * Shared safety decision used by feed rendering and dispatch. Added at
+         * the end so the positional record does not silently shift existing
+         * same-typed fields.
+         */
+        Safety safety
 ) {
 
     /**
@@ -250,5 +257,20 @@ public record AlertCardDto(
             String declaredAt,
             /** e.g. {@code ["Individual Assistance", "Public Assistance"]}. */
             List<String> programsAvailable
+    ) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Safety(
+            String dispatchMode,
+            String guidanceMode,
+            String compatibility,
+            List<String> protectiveActions,
+            /**
+             * `none` for ordinary hazard guidance, or an official movement
+             * directive such as `evacuate` / `shelter_in_place` when the
+             * issuer or product semantics support that stronger claim.
+             */
+            String movementDirective,
+            String reason
     ) {}
 }
