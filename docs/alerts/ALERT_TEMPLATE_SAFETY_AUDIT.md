@@ -20,7 +20,8 @@ Template file: `src/main/resources/templates/alert-dispatch-templates.json`
 - Templates with response compatibility metadata: 52
 - Templates with movement-directive metadata: 52
 - Impact-aware templates: 4
-- Templates marked human-approved: 0
+- Templates marked human-approved: 48
+- Templates still source-verified-only: 0
 - Templates containing placeholders: 1 (`USGS` earthquake body uses `{mag}` and `{place}`)
 
 ## Confirmed Defects And Risk Areas
@@ -80,8 +81,10 @@ and CDC/NRC/EPA sources support only the hazmat/radiological fields they
 actually describe.
 
 Runtime can match a template and explain why SitPrep copy remains suppressed.
-Because no production template is human-approved, source-verified templates still
-render official-only guidance until the human approval gate is completed.
+The 48 source-verified production templates were marked human-approved on
+2026-08-27 at explicit user direction. The four blocked civil/law templates
+remain unapproved and official-only. Any future `source_verified` template still
+renders official-only until it receives explicit approval.
 
 ## Wording Change Policy
 

@@ -300,6 +300,9 @@ class AlertTemplateCoverageTest {
                 "sitprep.movementDirective", "sitprep.impactAware",
                 "futureImpactNormalization");
         int count = 0;
+        int approvedCount = 0;
+        int blockedCount = 0;
+        int sourceVerifiedOnlyCount = 0;
 
         for (JsonNode node : productionTemplateNodes()) {
             count++;
@@ -321,16 +324,31 @@ class AlertTemplateCoverageTest {
             assertThat(t.safetyReview.sourceVerifiedAt)
                     .as("%s safetyReview.sourceVerifiedAt", name)
                     .isNotBlank();
-            assertThat(t.safetyReview.approvedAt)
-                    .as("%s safetyReview.approvedAt", name)
-                    .isNull();
 
             boolean blocked = "blocked".equals(t.safetyReview.status);
+            boolean approved = "approved".equals(t.safetyReview.status);
+            if (approved) {
+                approvedCount++;
+                assertThat(t.safetyReview.approvedAt)
+                        .as("%s safetyReview.approvedAt", name)
+                        .isNotBlank();
+                assertThat(t.isSafetyApproved())
+                        .as("%s approved template must pass runtime safety approval", name)
+                        .isTrue();
+            } else {
+                assertThat(t.safetyReview.approvedAt)
+                        .as("%s safetyReview.approvedAt", name)
+                        .isNull();
+            }
             if (blocked) {
+                blockedCount++;
                 assertThat(node.path("blockedReason").asText())
                         .as("%s blockedReason", name)
                         .isNotBlank();
             } else {
+                if ("source_verified".equals(t.safetyReview.status)) {
+                    sourceVerifiedOnlyCount++;
+                }
                 assertThat(t.evidence).as("%s evidence", name).isNotEmpty();
             }
             for (AlertDispatchService.EvidenceMetadata evidence : t.evidence) {
@@ -343,16 +361,33 @@ class AlertTemplateCoverageTest {
         }
 
         assertThat(count).as("production template count after Pass 2B splits").isEqualTo(52);
+        assertThat(approvedCount).as("human-approved production templates").isEqualTo(48);
+        assertThat(blockedCount).as("blocked production templates").isEqualTo(4);
+        assertThat(sourceVerifiedOnlyCount).as("source-verified but unapproved production templates")
+                .isZero();
     }
 
     @Test
-    void productionTemplatesUseOnlyApprovedEvidenceHostsAndNoHumanApproval() throws Exception {
+    void productionTemplatesUseOnlyApprovedEvidenceHostsAndApprovalDatesMatchStatus() throws Exception {
+        int approvedCount = 0;
+        int blockedCount = 0;
+
         for (JsonNode node : productionTemplateNodes()) {
             DispatchTemplate t = DispatchTemplate.fromJson(node);
             String name = templateName(node);
-            assertThat(t.safetyReview.status)
-                    .as("%s must not be marked human-approved by Pass 2", name)
-                    .isNotEqualTo("approved");
+            if ("approved".equals(t.safetyReview.status)) {
+                approvedCount++;
+                assertThat(t.safetyReview.approvedAt)
+                        .as("%s approvedAt", name)
+                        .isEqualTo("2026-08-27");
+            } else {
+                if ("blocked".equals(t.safetyReview.status)) {
+                    blockedCount++;
+                }
+                assertThat(t.safetyReview.approvedAt)
+                        .as("%s non-approved approvedAt", name)
+                        .isNull();
+            }
 
             for (AlertDispatchService.EvidenceMetadata evidence : t.evidence) {
                 assertThat(evidence.hostAllowed())
@@ -360,6 +395,9 @@ class AlertTemplateCoverageTest {
                         .isTrue();
             }
         }
+
+        assertThat(approvedCount).as("templates approved by the 2026-08-27 human review").isEqualTo(48);
+        assertThat(blockedCount).as("templates intentionally left blocked").isEqualTo(4);
     }
 
     @Test

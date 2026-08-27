@@ -49,10 +49,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -110,10 +110,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 3,
+        "status": "approved",
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -162,10 +162,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -222,10 +222,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -282,10 +282,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -342,10 +342,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -402,10 +402,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -465,10 +465,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -530,10 +530,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -582,10 +582,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -633,10 +633,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -687,10 +687,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -739,10 +739,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -790,10 +790,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -841,10 +841,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -907,10 +907,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -971,10 +971,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1034,10 +1034,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1087,10 +1087,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1139,10 +1139,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1202,10 +1202,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1266,10 +1266,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1317,10 +1317,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1369,10 +1369,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1421,10 +1421,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1471,10 +1471,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1522,10 +1522,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1837,10 +1837,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1909,10 +1909,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -1960,10 +1960,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     "# Watch tier - prepare",
@@ -2013,10 +2013,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2065,10 +2065,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2117,10 +2117,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2182,10 +2182,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2234,10 +2234,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2286,10 +2286,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2338,10 +2338,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2391,10 +2391,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2443,10 +2443,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2495,10 +2495,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2547,10 +2547,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2599,10 +2599,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2663,10 +2663,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     {
@@ -2727,10 +2727,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       }
     },
     "# Non-NWS providers",
@@ -2795,10 +2795,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 2,
+        "status": "approved",
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       },
       "minMag": 5.5
     },
@@ -2862,10 +2862,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       },
       "incidentTypeAny": [
         "Hurricane",
@@ -2934,10 +2934,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       },
       "incidentTypeAny": [
         "Fire"
@@ -3003,10 +3003,10 @@
         }
       ],
       "safetyReview": {
-        "status": "source_verified",
-        "version": 1,
+        "status": "approved",
+        "version": 2,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": null
+        "approvedAt": "2026-08-27"
       },
       "_fallback": true
     }

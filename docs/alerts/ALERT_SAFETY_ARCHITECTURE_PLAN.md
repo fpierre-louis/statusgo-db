@@ -57,10 +57,12 @@ The policy should return structured `AlertSafetyDecision` fields: lifecycle elig
 response types, explicit SitPrep dispatch/guidance modes, evidence metadata, and
 safety-review metadata.
 
-The Pass 2 review deliberately stops at `source_verified` or `blocked`.
-Production rendering still requires `safetyReview.status = approved`, so
-source-verified templates continue to degrade to official issuer wording until a
-human reviewer approves them.
+The Pass 2 review initially stopped at `source_verified` or `blocked`.
+On 2026-08-27, the user explicitly approved the 48 source-verified production
+templates. Production rendering still requires `safetyReview.status = approved`;
+future source-verified-only templates continue to degrade to official issuer
+wording until a human reviewer approves them. The four civil/law templates
+remain blocked and official-only.
 
 Known unsafe groupings corrected in the production template file:
 

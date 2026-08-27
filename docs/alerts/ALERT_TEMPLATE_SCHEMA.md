@@ -25,7 +25,7 @@ runtime vocabulary is the one below.
 - `safetyReview.status`: Template certification state. Valid values are `draft`, `source_verified`, `blocked`, and `approved`.
 - `safetyReview.version`: Integer review version for the template wording and metadata.
 - `safetyReview.sourceVerifiedAt`: ISO date the cited sources and metadata were checked.
-- `safetyReview.approvedAt`: ISO date of later human approval, or `null`. Production templates in this pass must keep this `null`.
+- `safetyReview.approvedAt`: ISO date of human approval, or `null` when the template is not approved.
 
 ## Matching Fields
 
@@ -59,10 +59,13 @@ intentionally, one host at a time.
 - `draft`: Authored but not source-verified.
 - `source_verified`: The template wording is supported by cited official sources and has compatibility metadata, but has not been human-approved.
 - `blocked`: SitPrep-authored guidance must not be used because the source or action semantics are ambiguous.
-- `approved`: Reserved for explicit human safety approval. This pass does not mark production templates approved.
+- `approved`: Explicit human safety approval.
 
 Runtime production guidance still requires `approved`. `source_verified` keeps
 official issuer text available and suppresses SitPrep-authored guidance.
+After the 2026-08-27 user approval, 48 source-verified production templates are
+approved with `approvedAt = 2026-08-27`; the four civil/law rows remain
+`blocked` and unapproved.
 
 ## Placeholder Rules
 

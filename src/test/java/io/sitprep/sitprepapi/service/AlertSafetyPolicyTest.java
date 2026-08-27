@@ -71,17 +71,22 @@ class AlertSafetyPolicyTest {
     }
 
     @Test
-    void unapprovedTemplateSuppressesSitPrepGuidanceButCanStayCritical() {
-        AlertDispatchService dispatch =
-                new AlertDispatchService(null, null, null, null, null, null, null, null);
-        dispatch.loadTemplates();
+    void unapprovedTemplateSuppressesSitPrepGuidanceButCanStayCritical() throws Exception {
+        AlertDispatchService.DispatchTemplate template = reviewedTemplate(
+                "source_verified",
+                "EVACUATE",
+                List.of("Evacuate"),
+                List.of("Shelter", "AllClear"),
+                "critical_push",
+                "supplement_official",
+                "https://www.ready.gov/evacuation");
         NormalizedAlert alert = TestAlerts.nws("Evacuation Immediate")
                 .responseTypes(List.of("Evacuate"))
                 .instruction("Move to higher ground if officials tell you to.")
                 .build();
 
         AlertSafetyPolicy.Decision decision =
-                AlertSafetyPolicy.evaluate(alert, dispatch.matchForAlert(alert).orElseThrow());
+                AlertSafetyPolicy.evaluate(alert, template);
 
         assertThat(decision.dispatchMode()).isEqualTo(AlertSafetyPolicy.DispatchMode.CRITICAL_PUSH);
         assertThat(decision.guidanceMode()).isEqualTo(AlertSafetyPolicy.GuidanceMode.OFFICIAL_ONLY);

@@ -74,13 +74,16 @@ class AlertFeedServiceTest {
         assertThat(c.official().description()).isEqualTo("* WHAT...Dangerously hot conditions.");
         assertThat(c.official().issuedBy()).isEqualTo("NWS Phoenix AZ");
 
-        // And while templates await safety approval, our copy is absent rather
-        // than promoted unsafely. Official wording remains available.
-        assertThat(c.headline()).isNull();
-        assertThat(c.whatToDo()).isNull();
-        assertThat(c.precautions()).isNull();
-        assertThat(c.safety().guidanceMode()).isEqualTo("official_only");
-        assertThat(c.safety().reason()).isEqualTo("template_not_safety_approved");
+        // Approved SitPrep copy can render, but the official wire text remains
+        // separate and the attribution makes the substitution visible.
+        assertThat(c.headline()).isEqualTo("Dangerous heat");
+        assertThat(c.whatToDo()).contains("cool place");
+        assertThat(c.precautions()).isNotEmpty();
+        assertThat(c.precautionsSource())
+                .contains("SitPrep guidance")
+                .contains("not the issuer's wording");
+        assertThat(c.safety().guidanceMode()).isEqualTo("supplement_official");
+        assertThat(c.safety().reason()).isEqualTo("template_compatible");
     }
 
     @Test

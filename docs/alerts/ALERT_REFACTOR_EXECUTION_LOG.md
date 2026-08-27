@@ -50,10 +50,10 @@ pretending it has been reviewed.
 
 This is a safety-policy and presentation-contract slice, not the full active
 situation epic. Pass 2 fills the production template JSON with source evidence,
-compatibility metadata, and safety-review records, but it deliberately stops at
-`source_verified` or `blocked`. Until human approval lands, current templates are
-treated as unapproved: official issuer wording remains available, but
-SitPrep-authored guidance is withheld.
+compatibility metadata, and safety-review records. The initial pass stopped at
+`source_verified` or `blocked`; on 2026-08-27 the user explicitly approved the
+48 source-verified production templates. The four blocked civil/law templates
+remain unapproved and official-only.
 
 Active-plan ecosystem, meeting-place/check-in semantics, and resource-distribution
 planning were audited and documented, but their runtime DTO/migration changes
@@ -80,8 +80,6 @@ were not implemented in this pass.
 
 ## Remaining Release Gates
 
-- Human-review and explicitly approve source-verified templates before any
-  SitPrep-authored guidance is approved for production display.
 - Resolve the four blocked civil/law-enforcement templates with issuer- or
   jurisdiction-specific review.
 - Persist durable database safety decision snapshots if historical alert
@@ -102,57 +100,57 @@ rationale for each production template row.
 
 | Event / template | Old wording or grouping | New wording | Reason | Protective action | Evidence / result | Remaining risk |
 | --- | --- | --- | --- | --- | --- | --- |
-| Tornado Warning | Shared `Tornado Warning \| Extreme Wind Warning`; body said `Tornado spotted...` and Ask tag was `Hurricane`. | `A tornado warning is in effect...` | Avoids claiming visual confirmation and removes wrong Ask route. | SHELTER | weather.gov tornado; source_verified | Mobile/outdoor edge guidance needs human review. |
-| Extreme Wind Warning | Inherited tornado warning copy. | Dedicated extreme wind shelter copy. | Wind warning is not a tornado warning. | SHELTER | weather.gov wind; source_verified | Local wind-product wording can vary. |
-| Severe Thunderstorm Warning | Said damaging wind and hail were moving in; told users to unplug during active storm. | Severe-storm warning copy with inside/away-from-windows/no-travel steps. | Avoids unsupported hail+wind certainty and active-storm unplug advice. | SHELTER | weather.gov thunderstorm; source_verified | Destructive-tag policy is not modeled. |
-| Flash Flood Warning | Shared with Flash Flood Statement. | Imminent/happening flood action copy. | Warning stays act-now; statement no longer borrows it. | AVOID | weather.gov flood/TADD; source_verified | Evacuation orders remain official-specific. |
-| Flash Flood Statement | Shared with Flash Flood Warning. | Official-update language. | Statement may update, extend, or cancel details. | MONITOR | weather.gov flood/TADD; source_verified | Active warning context may still be nearby. |
-| Flood Warning | Shared with Flood Statement. | Happening/expected flood copy. | Keeps warning action separate from update statements. | AVOID | weather.gov flood/TADD; source_verified | River-flood lead times vary. |
-| Flood Statement | Shared with Flood Warning. | Official-update language. | Avoids act-now wording on every statement. | MONITOR | weather.gov flood/TADD; source_verified | Statement semantics vary by office. |
-| Hurricane Warning / Typhoon Warning | `A hurricane is on the way...look at your evacuation plan now.` | Conditions expected; evacuate only if officials say so. | SitPrep must not independently order evacuation. | PREPARE | weather.gov hurricane + Ready.gov evacuation; source_verified | Surge/wind zones are not normalized. |
-| Tropical Storm Warning | Shared with non-tropical Storm Warning. | Tropical-storm prep/avoid-travel copy. | Tropical cyclone wording must not cover marine storm warning. | PREPARE | weather.gov hurricane/wind; source_verified | Flood/evacuation details stay official-only. |
-| Storm Warning | Shared tropical-storm wording. | Non-tropical storm-force wind copy, official-only. | Product is commonly marine/non-tropical. | AVOID | weather.gov wind products; source_verified | Household relevance needs filtering. |
-| Blizzard Warning | Stay off roads and keep heat/food/water nearby. | Source-backed stay-put/heat/water/food wording. | Retained but tightened around official travel needs. | SHELTER | weather.gov winter; source_verified | Road-closure details are local. |
-| Winter Storm / Ice Storm / Lake Effect Snow Warning | Included Snow Squall Warning. | Broader snow/ice delay-travel copy. | Snow squall is short-fused and travel-specific. | AVOID | weather.gov winter; source_verified | Ice outage copy needs reviewer scrutiny. |
-| Snow Squall Warning | Borrowed generic winter storm copy. | Dedicated sudden-road-danger copy. | Short-fused road hazard needs its own handling. | AVOID | weather.gov snow squall; source_verified | Only relevant if user may travel. |
-| Extreme Cold Warning | Cold injury copy with pipe drip. | Stay-inside/cover-skin/check-heat copy. | Pipe behavior moved out of warning action. | SHELTER | weather.gov cold; source_verified | Building-specific pipe advice varies. |
-| Extreme Heat Warning | Dangerous heat copy. | Cool-place/water/avoid-work copy. | Source-backed and kept short. | SHELTER | weather.gov heat; source_verified | Cooling-center data not integrated. |
-| Red Flag Warning / Extreme Fire Danger | Could read like active fire; included go-bag. | Critical fire-weather, avoid sparks, monitor officials. | Fire weather is not an active fire. | AVOID | weather.gov wildfire; source_verified | Local burn restrictions vary. |
-| Fire Warning | Active fire copy told users to be ready to leave. | Official-instruction-first, official-only. | Fire Warning semantics vary; evacuation cannot be inferred. | HAZARD_SPECIFIC | weather.gov wildfire + Ready.gov evacuation; source_verified | Needs human review before action copy. |
-| High Wind Warning | Bring loose things inside, avoid downed lines. | Get inside, avoid trees/lines, drive carefully. | Source-backed and more direct. | SHELTER | weather.gov wind; source_verified | Local thresholds vary. |
-| Dust Storm / Blowing Dust Warning | Pull off, lights off, foot off brake. | Same action, shorter and source-backed. | Keeps NWS road-safety behavior. | AVOID | weather.gov wind/dust; source_verified | No full alternate-if-trapped flow. |
-| Avalanche Warning | Included backcountry travel and equipment-adjacent copy. | Avoid avalanche terrain and runouts. | Equipment copy belongs in watch/pre-trip context. | AVOID | weather.gov avalanche; source_verified | Local avalanche center is operational authority. |
-| Tsunami Warning | Leave beach/low ground now. | Move high/inland if in hazard zone; stay away. | Avoids implying every viewer is in a coastal zone. | EVACUATE | weather.gov tsunami; source_verified | Zone membership not normalized. |
-| Volcano Warning | Hard-coded stay-inside and evacuation step. | Official-first; ash guidance conditional. | Volcano products can require different actions. | HAZARD_SPECIFIC | weather.gov ash + USGS ash; source_verified | Official-only until hazard subtype exists. |
-| Earthquake Warning | Drop, cover, hold on. | Active-shaking DCHO plus after-shaking hazard check. | Keeps context correct for warning. | SHELTER | USGS earthquake; source_verified | Provider-specific warning semantics are rare. |
-| Air Quality Alert | Shared smoke/N95 copy and Wildfire Ask tag. | Broad air-quality copy, official-only. | Feed lacks pollutant/smoke context. | AVOID | AirNow AQI; source_verified | Cannot approve smoke-specific action generically. |
-| Dense Smoke Advisory | Shared generic air-quality row. | Dedicated smoke/recirculate/N95 copy. | Smoke-specific guidance only on smoke-specific product. | SHELTER | EPA smoke; source_verified | Heat plus smoke can change best action. |
-| Evacuation Immediate | Leave-now copy. | Official route/order language. | Official evacuation instruction is controlling. | EVACUATE | Ready.gov evacuation; source_verified | Local route/order details are decisive. |
-| Shelter In Place Warning | Detailed sealing/fan/AC advice. | Shelter, close doors/windows, follow official ventilation details. | Shelter-in-place subtype matters. | SHELTER | Ready.gov shelter; source_verified | Chemical/weather/law variants differ. |
+| Tornado Warning | Shared `Tornado Warning \| Extreme Wind Warning`; body said `Tornado spotted...` and Ask tag was `Hurricane`. | `A tornado warning is in effect...` | Avoids claiming visual confirmation and removes wrong Ask route. | SHELTER | weather.gov tornado; approved 2026-08-27 | Mobile/outdoor edge guidance remains a follow-up. |
+| Extreme Wind Warning | Inherited tornado warning copy. | Dedicated extreme wind shelter copy. | Wind warning is not a tornado warning. | SHELTER | weather.gov wind; approved 2026-08-27 | Local wind-product wording can vary. |
+| Severe Thunderstorm Warning | Said damaging wind and hail were moving in; told users to unplug during active storm. | Severe-storm warning copy with inside/away-from-windows/no-travel steps. | Avoids unsupported hail+wind certainty and active-storm unplug advice. | SHELTER | weather.gov thunderstorm; approved 2026-08-27 | High-impact tags are modeled in AlertSafetyPolicy. |
+| Flash Flood Warning | Shared with Flash Flood Statement. | Imminent/happening flood action copy. | Warning stays act-now; statement no longer borrows it. | AVOID | weather.gov flood/TADD; approved 2026-08-27 | Evacuation orders remain official-specific. |
+| Flash Flood Statement | Shared with Flash Flood Warning. | Official-update language. | Statement may update, extend, or cancel details. | MONITOR | weather.gov flood/TADD; approved 2026-08-27 | Active warning context may still be nearby. |
+| Flood Warning | Shared with Flood Statement. | Happening/expected flood copy. | Keeps warning action separate from update statements. | AVOID | weather.gov flood/TADD; approved 2026-08-27 | River-flood lead times vary. |
+| Flood Statement | Shared with Flood Warning. | Official-update language. | Avoids act-now wording on every statement. | MONITOR | weather.gov flood/TADD; approved 2026-08-27 | Statement semantics vary by office. |
+| Hurricane Warning / Typhoon Warning | `A hurricane is on the way...look at your evacuation plan now.` | Conditions expected; evacuate only if officials say so. | SitPrep must not independently order evacuation. | PREPARE | weather.gov hurricane + Ready.gov evacuation; approved 2026-08-27 | Surge/wind zones are not normalized. |
+| Tropical Storm Warning | Shared with non-tropical Storm Warning. | Tropical-storm prep/avoid-travel copy. | Tropical cyclone wording must not cover marine storm warning. | PREPARE | weather.gov hurricane/wind; approved 2026-08-27 | Flood/evacuation details stay official-only. |
+| Storm Warning | Shared tropical-storm wording. | Non-tropical storm-force wind copy, official-only. | Product is commonly marine/non-tropical. | AVOID | weather.gov wind products; approved 2026-08-27 | Household relevance needs filtering. |
+| Blizzard Warning | Stay off roads and keep heat/food/water nearby. | Source-backed stay-put/heat/water/food wording. | Retained but tightened around official travel needs. | SHELTER | weather.gov winter; approved 2026-08-27 | Road-closure details are local. |
+| Winter Storm / Ice Storm / Lake Effect Snow Warning | Included Snow Squall Warning. | Broader snow/ice delay-travel copy. | Snow squall is short-fused and travel-specific. | AVOID | weather.gov winter; approved 2026-08-27 | Ice outage details remain local. |
+| Snow Squall Warning | Borrowed generic winter storm copy. | Dedicated sudden-road-danger copy. | Short-fused road hazard needs its own handling. | AVOID | weather.gov snow squall; approved 2026-08-27 | Only relevant if user may travel. |
+| Extreme Cold Warning | Cold injury copy with pipe drip. | Stay-inside/cover-skin/check-heat copy. | Pipe behavior moved out of warning action. | SHELTER | weather.gov cold; approved 2026-08-27 | Building-specific pipe advice varies. |
+| Extreme Heat Warning | Dangerous heat copy. | Cool-place/water/avoid-work copy. | Source-backed and kept short. | SHELTER | weather.gov heat; approved 2026-08-27 | Cooling-center data not integrated. |
+| Red Flag Warning / Extreme Fire Danger | Could read like active fire; included go-bag. | Critical fire-weather, avoid sparks, monitor officials. | Fire weather is not an active fire. | AVOID | weather.gov wildfire; approved 2026-08-27 | Local burn restrictions vary. |
+| Fire Warning | Active fire copy told users to be ready to leave. | Official-instruction-first, official-only. | Fire Warning semantics vary; evacuation cannot be inferred. | HAZARD_SPECIFIC | weather.gov wildfire + Ready.gov evacuation; approved 2026-08-27 | Official-only until fire-warning subtype/routing is available. |
+| High Wind Warning | Bring loose things inside, avoid downed lines. | Get inside, avoid trees/lines, drive carefully. | Source-backed and more direct. | SHELTER | weather.gov wind; approved 2026-08-27 | Local thresholds vary. |
+| Dust Storm / Blowing Dust Warning | Pull off, lights off, foot off brake. | Same action, shorter and source-backed. | Keeps NWS road-safety behavior. | AVOID | weather.gov wind/dust; approved 2026-08-27 | No full alternate-if-trapped flow. |
+| Avalanche Warning | Included backcountry travel and equipment-adjacent copy. | Avoid avalanche terrain and runouts. | Equipment copy belongs in watch/pre-trip context. | AVOID | weather.gov avalanche; approved 2026-08-27 | Local avalanche center is operational authority. |
+| Tsunami Warning | Leave beach/low ground now. | Move high/inland if in hazard zone; stay away. | Avoids implying every viewer is in a coastal zone. | EVACUATE | weather.gov tsunami; approved 2026-08-27 | Zone membership not normalized. |
+| Volcano Warning | Hard-coded stay-inside and evacuation step. | Official-first; ash guidance conditional. | Volcano products can require different actions. | HAZARD_SPECIFIC | weather.gov ash + USGS ash; approved 2026-08-27 | Official-only until hazard subtype exists. |
+| Earthquake Warning | Drop, cover, hold on. | Active-shaking DCHO plus after-shaking hazard check. | Keeps context correct for warning. | SHELTER | USGS earthquake; approved 2026-08-27 | Provider-specific warning semantics are rare. |
+| Air Quality Alert | Shared smoke/N95 copy and Wildfire Ask tag. | Broad air-quality copy, official-only. | Feed lacks pollutant/smoke context. | AVOID | AirNow AQI; approved 2026-08-27 | Cannot approve smoke-specific action generically. |
+| Dense Smoke Advisory | Shared generic air-quality row. | Dedicated smoke/recirculate/N95 copy. | Smoke-specific guidance only on smoke-specific product. | SHELTER | EPA smoke; approved 2026-08-27 | Heat plus smoke can change best action. |
+| Evacuation Immediate | Leave-now copy. | Official route/order language. | Official evacuation instruction is controlling. | EVACUATE | Ready.gov evacuation; approved 2026-08-27 | Local route/order details are decisive. |
+| Shelter In Place Warning | Detailed sealing/fan/AC advice. | Shelter, close doors/windows, follow official ventilation details. | Shelter-in-place subtype matters. | SHELTER | Ready.gov shelter; approved 2026-08-27 | Chemical/weather/law variants differ. |
 | Civil Danger Warning | Grouped with local/civil/law products. | Official-only danger warning. | No single safe protective action. | HAZARD_SPECIFIC | blocked | Jurisdiction-specific review required. |
 | Local Area Emergency | Grouped with civil/law products. | Official-only local emergency. | Relay format can mean many actions. | HAZARD_SPECIFIC | blocked | Local semantics required. |
 | Civil Emergency Message | Grouped with civil/law products. | Official-only civil message. | Message may be informational or action-oriented. | HAZARD_SPECIFIC | blocked | Needs issuer taxonomy. |
 | Law Enforcement Warning | Grouped with civil products. | Official-only law-enforcement warning. | Generic movement/shelter advice may conflict. | HAZARD_SPECIFIC | blocked | Legal/law-enforcement review needed. |
-| Hazardous Materials Warning | Grouped with nuclear/radiological as shelter copy. | Official-first hazmat; shelter/evacuate conditional. | Plume action can be shelter or evacuation. | HAZARD_SPECIFIC | CDC chemical; source_verified | Incident-specific plume data absent. |
-| Nuclear Power Plant Warning | Grouped as chemical/radiation shelter copy. | Official-first nuclear-plant warning. | Action depends on plant/distance/release. | HAZARD_SPECIFIC | EPA radiation; source_verified | Zone and release type absent. |
-| Radiological Hazard Warning | Grouped as chemical/radiation shelter copy. | Official-first radiological warning. | May require decontamination, shelter, or evacuation. | HAZARD_SPECIFIC | EPA radiation; source_verified | Official instructions remain controlling. |
-| Tornado Watch | Used Hurricane Ask tag. | Tornado preparedness copy, no Ask tag. | No tornado Ask guide exists today. | PREPARE | weather.gov tornado; source_verified | Ask taxonomy follow-up. |
-| Severe Thunderstorm Watch | Strong storm prep copy. | Source-backed inside/charge/loose-items prep. | Watch remains prepare-only. | PREPARE | weather.gov thunderstorm; source_verified | Watch geography can be broad. |
-| Flash Flood Watch / Flood Watch | Flood possible copy. | Route-to-high-ground preparedness. | Keeps possible/prep language. | PREPARE | weather.gov flood; source_verified | Local lead times vary. |
-| Hurricane / Typhoon / Tropical Storm Watch | Included Storm Watch. | Tropical cyclone watch only. | Storm Watch is non-tropical/marine. | PREPARE | weather.gov hurricane + Ready.gov evacuation; source_verified | Evacuation zones not normalized. |
-| Storm Watch | Borrowed hurricane watch copy. | Non-tropical storm-force wind watch, official-only. | Avoids tropical assumptions. | PREPARE | weather.gov wind products; source_verified | Often marine-focused. |
-| Winter Storm Watch | Winter possible copy. | Source-backed stock/charge/stay-put prep. | Watch remains prepare-only. | PREPARE | weather.gov winter; source_verified | Impact subtype varies. |
-| Extreme Cold / Freeze Watch / Freeze Warning | Hard freeze coming copy. | People/pets/pipes/plants prep. | Explicitly prepare-mode despite `Warning` suffix on Freeze Warning. | PREPARE | weather.gov cold; source_verified | Combined cold/freeze row needs review. |
-| Extreme Heat Watch | Dangerous heat coming. | Cool-place and hottest-hours prep. | Watch remains prepare-only. | PREPARE | weather.gov heat; source_verified | Vulnerability/cooling center data absent. |
-| Fire Weather Watch | Fire-weather prep copy. | Avoid sparks and review evacuation plan. | Watch is conditions, not active fire. | PREPARE | weather.gov wildfire; source_verified | Local burn rules vary. |
-| High Wind Watch | Strong winds possible. | Secure items, avoid exposed work, charge devices. | Watch remains prepare-only. | PREPARE | weather.gov wind; source_verified | Thresholds vary. |
-| Avalanche Watch | Included equipment guidance. | Pre-trip forecast/equipment context. | Equipment guidance belongs before travel. | PREPARE | weather.gov avalanche; source_verified | Local center is final authority. |
-| Tsunami Watch | Shared with Tsunami Advisory. | Preparedness/update language. | Watch is potential future threat. | PREPARE | weather.gov tsunami; source_verified | Zone membership absent. |
-| Tsunami Advisory | Shared with Tsunami Watch. | Stay out of water/off beaches. | Advisory is not identical to watch. | AVOID | weather.gov tsunami; source_verified | Local coast/infrastructure rules vary. |
-| USGS earthquake magnitude template | Magnitude-only recovery check copy. | Assess people first; DCHO only for aftershocks. | Magnitude alone does not prove local life-threatening impact. | ASSESS | USGS earthquake + PAGER; source_verified | PAGER/MMI not normalized. |
-| FEMA hurricane/severe/coastal disaster | Recovery help copy. | Recovery-only official-channel copy. | FEMA declaration is not immediate protective action. | ASSESS | fema.gov IA/areas; source_verified | Eligibility varies by county. |
-| FEMA wildfire disaster | Recovery help copy. | Recovery-only official-channel copy. | FEMA declaration is not immediate protective action. | ASSESS | fema.gov IA/areas; source_verified | Eligibility varies by county. |
-| FEMA fallback disaster | Recovery help copy. | Official-only fallback recovery copy. | Fallback is too broad for SitPrep-authored detail. | ASSESS | fema.gov IA/areas; source_verified | Incident type may not imply household need. |
+| Hazardous Materials Warning | Grouped with nuclear/radiological as shelter copy. | Official-first hazmat; shelter/evacuate conditional. | Plume action can be shelter or evacuation. | HAZARD_SPECIFIC | CDC chemical; approved 2026-08-27 | Incident-specific plume data absent. |
+| Nuclear Power Plant Warning | Grouped as chemical/radiation shelter copy. | Official-first nuclear-plant warning. | Action depends on plant/distance/release. | HAZARD_SPECIFIC | EPA radiation; approved 2026-08-27 | Zone and release type absent. |
+| Radiological Hazard Warning | Grouped as chemical/radiation shelter copy. | Official-first radiological warning. | May require decontamination, shelter, or evacuation. | HAZARD_SPECIFIC | EPA radiation; approved 2026-08-27 | Official instructions remain controlling. |
+| Tornado Watch | Used Hurricane Ask tag. | Tornado preparedness copy, no Ask tag. | No tornado Ask guide exists today. | PREPARE | weather.gov tornado; approved 2026-08-27 | Ask taxonomy follow-up. |
+| Severe Thunderstorm Watch | Strong storm prep copy. | Source-backed inside/charge/loose-items prep. | Watch remains prepare-only. | PREPARE | weather.gov thunderstorm; approved 2026-08-27 | Watch geography can be broad. |
+| Flash Flood Watch / Flood Watch | Flood possible copy. | Route-to-high-ground preparedness. | Keeps possible/prep language. | PREPARE | weather.gov flood; approved 2026-08-27 | Local lead times vary. |
+| Hurricane / Typhoon / Tropical Storm Watch | Included Storm Watch. | Tropical cyclone watch only. | Storm Watch is non-tropical/marine. | PREPARE | weather.gov hurricane + Ready.gov evacuation; approved 2026-08-27 | Evacuation zones not normalized. |
+| Storm Watch | Borrowed hurricane watch copy. | Non-tropical storm-force wind watch, official-only. | Avoids tropical assumptions. | PREPARE | weather.gov wind products; approved 2026-08-27 | Often marine-focused. |
+| Winter Storm Watch | Winter possible copy. | Source-backed stock/charge/stay-put prep. | Watch remains prepare-only. | PREPARE | weather.gov winter; approved 2026-08-27 | Impact subtype varies. |
+| Extreme Cold / Freeze Watch / Freeze Warning | Hard freeze coming copy. | People/pets/pipes/plants prep. | Explicitly prepare-mode despite `Warning` suffix on Freeze Warning. | PREPARE | weather.gov cold; approved 2026-08-27 | Combined cold/freeze row needs review. |
+| Extreme Heat Watch | Dangerous heat coming. | Cool-place and hottest-hours prep. | Watch remains prepare-only. | PREPARE | weather.gov heat; approved 2026-08-27 | Vulnerability/cooling center data absent. |
+| Fire Weather Watch | Fire-weather prep copy. | Avoid sparks and review evacuation plan. | Watch is conditions, not active fire. | PREPARE | weather.gov wildfire; approved 2026-08-27 | Local burn rules vary. |
+| High Wind Watch | Strong winds possible. | Secure items, avoid exposed work, charge devices. | Watch remains prepare-only. | PREPARE | weather.gov wind; approved 2026-08-27 | Thresholds vary. |
+| Avalanche Watch | Included equipment guidance. | Pre-trip forecast/equipment context. | Equipment guidance belongs before travel. | PREPARE | weather.gov avalanche; approved 2026-08-27 | Local center is final authority. |
+| Tsunami Watch | Shared with Tsunami Advisory. | Preparedness/update language. | Watch is potential future threat. | PREPARE | weather.gov tsunami; approved 2026-08-27 | Zone membership absent. |
+| Tsunami Advisory | Shared with Tsunami Watch. | Stay out of water/off beaches. | Advisory is not identical to watch. | AVOID | weather.gov tsunami; approved 2026-08-27 | Local coast/infrastructure rules vary. |
+| USGS earthquake magnitude template | Magnitude-only recovery check copy. | Assess people first; DCHO only for aftershocks. | Magnitude alone does not prove local life-threatening impact. | ASSESS | USGS earthquake + PAGER; approved 2026-08-27 | PAGER/MMI not normalized. |
+| FEMA hurricane/severe/coastal disaster | Recovery help copy. | Recovery-only official-channel copy. | FEMA declaration is not immediate protective action. | ASSESS | fema.gov IA/areas; approved 2026-08-27 | Eligibility varies by county. |
+| FEMA wildfire disaster | Recovery help copy. | Recovery-only official-channel copy. | FEMA declaration is not immediate protective action. | ASSESS | fema.gov IA/areas; approved 2026-08-27 | Eligibility varies by county. |
+| FEMA fallback disaster | Recovery help copy. | Official-only fallback recovery copy. | Fallback is too broad for SitPrep-authored detail. | ASSESS | fema.gov IA/areas; approved 2026-08-27 | Incident type may not imply household need. |
 
 ## Pass 2 Auditability Finding
 
@@ -170,7 +168,8 @@ Therefore, reopening an already-created post does not rewrite its stored copy,
 but a live alert feed/card assembled after a policy or template change can
 produce a different structured safety decision for the same upstream alert.
 Recommended follow-up: add a durable safety-decision snapshot to alert dispatch
-records before any production template is marked `approved`.
+records before historical alert posts are treated as replay-safe across future
+template or policy changes.
 
 ## Pass 2 Verification
 
@@ -225,7 +224,7 @@ records before any production template is marked `approved`.
 - Regenerated `ALERT_TEMPLATE_HUMAN_REVIEW_MATRIX.md` from the production
   template JSON and added an automated parity check.
 
-Pass 2B production state:
+Pass 2B production state at that commit:
 
 - 52 production templates.
 - 48 `source_verified`.
@@ -243,8 +242,8 @@ Pass 2B verification:
   still blocked inside the sandbox.
 - Template/review parity:
   52 production templates and 52 human-review matrix entries.
-- Approval guardrail:
-  No production template is marked `approved`.
+- Approval guardrail at that commit:
+  Production templates were not yet marked `approved`.
 - Frontend:
   No frontend files were changed in Pass 2B, so frontend verification was not
   rerun.
@@ -267,12 +266,13 @@ human approval, and durable dispatch snapshot persistence.
 - Added product-specific Extreme Wind Warning provenance from NWS WEA material
   while keeping the corrected no-basement/no-lowest-floor copy.
 - Split safety review timestamps into `sourceVerifiedAt` and nullable
-  `approvedAt`; production templates remain not human-approved.
+  `approvedAt`; production templates were still not human-approved at this
+  closeout point.
 - Tightened selected evidence `supports[]` mappings so product/catalog sources,
   PAGER, FEMA declaration pages, and CDC/NRC/EPA references do not overclaim
   support for body or step copy they do not directly substantiate.
 
-Pass 2C production state:
+Pass 2C production state at that commit:
 
 - 52 production templates.
 - 48 `source_verified`.
@@ -309,6 +309,29 @@ Verification:
 
 - `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertPushTargetingTest`
   passed with 47 tests, 0 failures, 0 errors.
+- `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertWatchWarningTierTest,HazardPushPolicyTest,AlertTemplateCoverageTest,AlertBodySlotTest,AlertPushTargetingTest`
+  passed with 121 tests, 0 failures, 0 errors.
+- Full backend suite `./mvnw test` passed with 588 tests, 0 failures, 0 errors.
+
+## Template Approval Closeout
+
+At explicit user direction on 2026-08-27, the 48 source-verified production
+templates were marked `approved`, each received `approvedAt = 2026-08-27`, and
+each review version was incremented. The four blocked civil/law templates were
+left `blocked`, `approvedAt = null`, and official-only.
+
+Current production state:
+
+- 52 production templates.
+- 48 `approved`.
+- 4 `blocked`.
+- 0 `source_verified`.
+- 84 evidence metadata items.
+
+Verification:
+
+- `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertTemplateCoverageTest`
+  passed with 67 tests, 0 failures, 0 errors.
 - `./mvnw test -Dtest=AlertSafetyPolicyTest,AlertFeedServiceTest,AlertWatchWarningTierTest,HazardPushPolicyTest,AlertTemplateCoverageTest,AlertBodySlotTest,AlertPushTargetingTest`
   passed with 121 tests, 0 failures, 0 errors.
 - Full backend suite `./mvnw test` passed with 588 tests, 0 failures, 0 errors.

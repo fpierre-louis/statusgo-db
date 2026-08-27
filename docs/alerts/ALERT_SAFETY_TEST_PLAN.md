@@ -15,6 +15,8 @@ Date: 2026-08-27
 - Evidence host allowlist explicitly accepts intentional CDC/NRC hosts and
   rejects lookalikes such as `cdc.gov.example.com`.
 - Safety review status other than `approved` blocks production SitPrep guidance.
+- Approved production templates must carry `approvedAt`; blocked templates must
+  keep `approvedAt = null`.
 - Official movement directives are separate from general hazard safety guidance.
 - Impact-aware warning templates do not become critical solely from event name.
 - Impact-aware warnings do not become critical from CAP severity,
@@ -47,8 +49,8 @@ Implemented backend safety regression coverage in `AlertSafetyPolicyTest` for:
 - NWS response arrays surviving ingest.
 - Unapproved templates withholding SitPrep guidance while preserving critical
   dispatch eligibility when the CAP/product shape still warrants attention.
-- `source_verified` templates remaining ineligible for SitPrep guidance until
-  explicit human approval.
+- Synthetic `source_verified` templates remaining ineligible for SitPrep
+  guidance until explicit human approval.
 - Evidence host validation rejecting `weather.gov.example.com` style URLs.
 - Explicit `sitprep.dispatchMode` outranking legacy `tier` for dispatch policy.
 - Non-public, test, cancelled, acknowledged, errored, all-clear, past, and
@@ -70,7 +72,8 @@ Implemented backend template-wide coverage in `AlertTemplateCoverageTest` for:
 
 - Every production template carrying protective action, compatibility,
   dispatch/guidance, safety-review, evidence, or an explicit blocked reason.
-- No production template being marked `approved` by this pass.
+- Approved production templates carrying a human approval date, with blocked
+  templates remaining unapproved.
 - Evidence URL hostnames being exact-allowlisted, including intentional
   subdomains.
 - Evidence `supports[]` values staying non-empty and mapped to known template
@@ -92,7 +95,7 @@ Implemented backend template-wide coverage in `AlertTemplateCoverageTest` for:
 - Template/review-matrix parity.
 
 Updated `AlertFeedServiceTest` so feed cards prove official issuer wording stays
-available while unapproved SitPrep copy is absent.
+available while approved SitPrep copy renders with visible SitPrep attribution.
 
 Added frontend alert-enrichment coverage proving old local fallback guidance is
 not revived when the backend safety contract says `official_only`.
