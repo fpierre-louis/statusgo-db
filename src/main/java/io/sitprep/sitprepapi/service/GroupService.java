@@ -229,29 +229,77 @@ public class GroupService {
         if (missingEmails.isEmpty()) return rollup;
 
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(new ArrayList<>(missingEmails));
-        String title = group.getGroupName() != null ? group.getGroupName() : "Check in";
-        String body = callerName + " is checking who is safe. Tap to share your status.";
-        String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+        int pinged = 0;
         for (UserInfo user : users) {
             if (user.getUserEmail() == null) continue;
-            notificationService.deliverPresenceAwareForGroup(
-                    user.getUserEmail(),
-                    title,
-                    body,
-                    callerName,
-                    "/images/group-alert-icon.png",
-                    "check_in_request",
-                    group.getGroupId(),
-                    targetUrl,
-                    null,
-                    user.getFcmtoken(),
-                    group.getGroupId(),
-                    Category.CHECK_IN_REQUEST
-            );
+            // Record FIRST: the recorder owns the cooldown, and it returning
+            // false is the only thing standing between "Nudge" and a push that
+            // bypasses quiet hours on every tap.
+            if (!householdEventService.recordNudge(
+                    group.getGroupId(), callerEmail, user.getUserEmail())) {
+                continue;
+            }
+            pushNudge(group, user, callerName);
+            pinged++;
         }
-        logger.info("Pinged {} missing check-in member(s) for group {}",
-                users.size(), group.getGroupId());
+        logger.info("Pinged {} of {} missing check-in member(s) for group {}",
+                pinged, users.size(), group.getGroupId());
         return rollup;
+    }
+
+    /**
+     * Nudge ONE member — the person sheet's "Nudge" button, as against the
+     * admin rollup's ping-everyone-missing. Same cooldown, same event row, so
+     * the two paths cannot be used to double the rate.
+     *
+     * @return true if a push went out; false if the nudge was still cooling down
+     */
+    @Transactional
+    public boolean nudgeMember(String groupId, String callerEmail, String subjectEmail) {
+        if (callerEmail == null || callerEmail.isBlank()) {
+            throw new SecurityException("Sign in to nudge someone");
+        }
+        if (subjectEmail == null || subjectEmail.isBlank()) return false;
+        Group group = getGroupByPublicId(groupId);
+        String me = callerEmail.trim().toLowerCase(Locale.ROOT);
+        String them = subjectEmail.trim().toLowerCase(Locale.ROOT);
+
+        boolean callerIsMember = safeList(group.getMemberEmails()).stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+        if (!callerIsMember) throw new SecurityException("Only members can nudge");
+
+        boolean subjectIsMember = safeList(group.getMemberEmails()).stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(them));
+        if (!subjectIsMember) throw new SecurityException("That person is not in this household");
+
+        if (!householdEventService.recordNudge(group.getGroupId(), me, them)) return false;
+
+        String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
+                .map(UserInfo::getUserFirstName)
+                .filter(n -> n != null && !n.isBlank())
+                .orElse("Someone in your household");
+        userInfoRepo.findByUserEmailIgnoreCase(them)
+                .ifPresent(u -> pushNudge(group, u, callerName));
+        return true;
+    }
+
+    private void pushNudge(Group group, UserInfo user, String callerName) {
+        String title = group.getGroupName() != null ? group.getGroupName() : "Check in";
+        String body = callerName + " is checking who is safe. Tap to share your status.";
+        notificationService.deliverPresenceAwareForGroup(
+                user.getUserEmail(),
+                title,
+                body,
+                callerName,
+                "/images/group-alert-icon.png",
+                "check_in_request",
+                group.getGroupId(),
+                GroupUrlUtil.getGroupTargetUrl(group),
+                null,
+                user.getFcmtoken(),
+                group.getGroupId(),
+                Category.CHECK_IN_REQUEST
+        );
     }
 
     private CheckInRollupDto buildCheckInRollup(Group group) {

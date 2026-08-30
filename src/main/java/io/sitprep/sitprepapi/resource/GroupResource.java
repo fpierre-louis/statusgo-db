@@ -294,6 +294,32 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.pingMissingCheckIns(groupId, caller));
     }
 
+    /**
+     * Nudge ONE member of a household to check in — the person sheet's
+     * "Nudge" button. Deliberately NOT admin-gated: inside a household any
+     * member may ask another to say they are safe, which is the same rule
+     * {@code requestCheckIn} already applies. Membership on both sides is
+     * enforced in the service.
+     *
+     * <p>Returns <b>429</b> when the nudge is still cooling down. That is a
+     * real answer rather than an error — the caller shows "Already nudged"
+     * instead of retrying, and the cooldown is what keeps a button that
+     * bypasses quiet hours from being holdable.</p>
+     */
+    @PostMapping("/{groupId}/nudge")
+    public ResponseEntity<Void> nudgeMember(@PathVariable String groupId,
+                                            @RequestBody EmailRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        try {
+            boolean sent = groupService.nudgeMember(groupId, caller, req.email());
+            return sent
+                    ? ResponseEntity.noContent().build()
+                    : ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+        } catch (SecurityException se) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, se.getMessage());
+        }
+    }
+
     @PostMapping("/{groupId}/members/approve")
     public ResponseEntity<GroupMembershipActionResultDto> approveMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
         requireAdminOf(groupId);

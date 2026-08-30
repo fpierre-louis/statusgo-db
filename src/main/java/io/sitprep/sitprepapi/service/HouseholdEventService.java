@@ -49,6 +49,33 @@ public class HouseholdEventService {
     /** Marker on the Group entity that distinguishes household groups. */
     public static final String HOUSEHOLD_GROUP_TYPE = "Household";
 
+    // ── Event kinds ──────────────────────────────────────────────────────
+    // These were string literals at each call site. Named here because the
+    // Timeline reads them and a typo in a literal is a silently-empty
+    // surface, not an error — the same class trap T-41 is about.
+    public static final String KIND_STATUS_CHANGED   = "status-changed";
+    public static final String KIND_CHECKIN_REPLIED  = "checkin-replied";
+    public static final String KIND_CHECKIN_STARTED  = "checkin-started";
+    public static final String KIND_CHECKIN_ENDED    = "checkin-ended";
+    public static final String KIND_CHECKIN_REMINDER = "checkin-reminder";
+    public static final String KIND_NUDGE            = "nudge";
+    public static final String KIND_WITH_CLAIM       = "with-claim";
+    public static final String KIND_WITH_RELEASE     = "with-release";
+    public static final String KIND_MEMBER_ADDED     = "member-added";
+    public static final String KIND_MEMBER_REMOVED   = "member-removed";
+    public static final String KIND_RITUAL_FIRED     = "ritual-fired";
+
+    /** Group.alert value that means a check-in is open. */
+    private static final String ALERT_ACTIVE = "Active";
+
+    /**
+     * How long one nudge silences the next to the same person in the same
+     * household. A nudge is a push that bypasses quiet hours, so the limit is
+     * the whole safety story — without it "Nudge" is a button that can be held
+     * down. 10 minutes is long enough that a second tap is a decision.
+     */
+    private static final java.time.Duration NUDGE_COOLDOWN = java.time.Duration.ofMinutes(10);
+
     private static final Logger log = LoggerFactory.getLogger(HouseholdEventService.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
@@ -123,11 +150,18 @@ public class HouseholdEventService {
      */
     public void recordStatusChangedForActor(String actorEmail, String newStatus) {
         if (actorEmail == null || actorEmail.isBlank() || newStatus == null) return;
-        List<String> households = householdsForMember(actorEmail);
+        List<Group> households = householdGroupsForMember(actorEmail);
         if (households.isEmpty()) return;
         Map<String, Object> payload = Map.of("status", newStatus);
-        for (String hh : households) {
-            recordSafely(hh, "status-changed", actorEmail, payload);
+        for (Group hh : households) {
+            // A status write during an open check-in IS the reply. Recorded as
+            // its own kind rather than left to be inferred downstream from a
+            // timestamp inside a window — and recorded INSTEAD OF
+            // status-changed, not alongside it, because one write is one fact.
+            String kind = ALERT_ACTIVE.equalsIgnoreCase(hh.getAlert())
+                    ? KIND_CHECKIN_REPLIED
+                    : KIND_STATUS_CHANGED;
+            recordSafely(hh.getGroupId(), kind, actorEmail, payload);
         }
     }
 
@@ -136,11 +170,11 @@ public class HouseholdEventService {
      * toggle on the Group entity). One event per call.
      */
     public void recordCheckinStarted(String householdId, String actorEmail) {
-        recordSafely(householdId, "checkin-started", actorEmail, Map.of());
+        recordSafely(householdId, KIND_CHECKIN_STARTED, actorEmail, Map.of());
     }
 
     public void recordCheckinEnded(String householdId, String actorEmail) {
-        recordSafely(householdId, "checkin-ended", actorEmail, Map.of());
+        recordSafely(householdId, KIND_CHECKIN_ENDED, actorEmail, Map.of());
     }
 
     /**
@@ -151,30 +185,82 @@ public class HouseholdEventService {
      * with {@code actorEmail = null} since the system fired it.
      */
     public void recordCheckinReminder(String householdId, int slotIndex) {
-        recordSafely(householdId, "checkin-reminder", null,
+        recordSafely(householdId, KIND_CHECKIN_REMINDER, null,
                 Map.of("slotIndex", slotIndex));
     }
 
     public void recordWithClaim(String householdId, String actorEmail, String subjectEmail) {
         Map<String, Object> payload = subjectEmail == null
                 ? Map.of() : Map.of("subjectEmail", subjectEmail);
-        recordSafely(householdId, "with-claim", actorEmail, payload);
+        recordSafely(householdId, KIND_WITH_CLAIM, actorEmail, payload);
     }
 
     public void recordWithRelease(String householdId, String actorEmail, String subjectEmail) {
         Map<String, Object> payload = subjectEmail == null
                 ? Map.of() : Map.of("subjectEmail", subjectEmail);
-        recordSafely(householdId, "with-release", actorEmail, payload);
+        recordSafely(householdId, KIND_WITH_RELEASE, actorEmail, payload);
     }
 
     public void recordMemberAdded(String householdId, String actorEmail, String subjectEmail) {
-        recordSafely(householdId, "member-added", actorEmail,
+        recordSafely(householdId, KIND_MEMBER_ADDED, actorEmail,
                 subjectEmail == null ? Map.of() : Map.of("subjectEmail", subjectEmail));
     }
 
     public void recordMemberRemoved(String householdId, String actorEmail, String subjectEmail) {
-        recordSafely(householdId, "member-removed", actorEmail,
+        recordSafely(householdId, KIND_MEMBER_REMOVED, actorEmail,
                 subjectEmail == null ? Map.of() : Map.of("subjectEmail", subjectEmail));
+    }
+
+    /**
+     * Record that {@code actorEmail} nudged {@code subjectEmail} in this
+     * household. One row per person pushed — the Timeline's claim is "you
+     * nudged Francis", which a single aggregate row could not support.
+     *
+     * <p>Unlike its siblings this one is NOT fire-and-forget: it returns
+     * whether the nudge is allowed, because the caller must not send the push
+     * when it is not. See {@link #NUDGE_COOLDOWN}.</p>
+     *
+     * @return true if the nudge was recorded, false if it is still cooling down
+     */
+    public boolean recordNudge(String householdId, String actorEmail, String subjectEmail) {
+        if (householdId == null || householdId.isBlank()
+                || subjectEmail == null || subjectEmail.isBlank()) return false;
+        if (!nudgeAllowed(householdId, subjectEmail)) return false;
+        recordSafely(householdId, KIND_NUDGE, actorEmail,
+                Map.of("subjectEmail", subjectEmail.toLowerCase(Locale.ROOT)));
+        return true;
+    }
+
+    /**
+     * True when no nudge has gone to this person in this household inside the
+     * cooldown. The subject lives in the payload rather than a column, so this
+     * reads the window's rows and filters in Java — the window is 10 minutes,
+     * so that is a handful of rows, not a scan.
+     */
+    public boolean nudgeAllowed(String householdId, String subjectEmail) {
+        if (householdId == null || subjectEmail == null) return false;
+        String subject = subjectEmail.trim().toLowerCase(Locale.ROOT);
+        Instant since = Instant.now().minus(NUDGE_COOLDOWN);
+        try {
+            return eventRepo.findRangeByKind(householdId, KIND_NUDGE, since, FAR_FUTURE)
+                    .stream()
+                    .noneMatch(e -> subject.equals(payloadString(e, "subjectEmail")));
+        } catch (Exception ex) {
+            // A failed read must not turn into a silent green light on a push
+            // that bypasses quiet hours. Fail closed.
+            log.warn("nudgeAllowed check failed for {}/{}: {}", householdId, subject, ex.getMessage());
+            return false;
+        }
+    }
+
+    private String payloadString(HouseholdEvent e, String key) {
+        if (e.getPayloadJson() == null || e.getPayloadJson().isBlank()) return null;
+        try {
+            Object v = objectMapper.readValue(e.getPayloadJson(), MAP_TYPE).get(key);
+            return v == null ? null : String.valueOf(v).toLowerCase(Locale.ROOT);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /**
@@ -188,7 +274,7 @@ public class HouseholdEventService {
         Map<String, Object> payload = ritualKind == null
                 ? Map.of("recipients", recipients)
                 : Map.of("ritualKind", ritualKind, "recipients", recipients);
-        recordSafely(householdId, "ritual-fired", null, payload);
+        recordSafely(householdId, KIND_RITUAL_FIRED, null, payload);
     }
 
     // ---------------------------------------------------------------------
@@ -652,11 +738,22 @@ public class HouseholdEventService {
     }
 
     private List<String> householdsForMember(String email) {
+        return householdGroupsForMember(email).stream()
+                .map(Group::getGroupId)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * The household GROUPS a member belongs to, not just their ids — the
+     * status recorder needs {@code alert} to pick its kind, and re-fetching
+     * per id to read one field would be a query per household.
+     */
+    private List<Group> householdGroupsForMember(String email) {
         if (email == null || email.isBlank()) return List.of();
         return groupRepo.findByMemberEmail(email).stream()
                 .filter(g -> HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
-                .map(Group::getGroupId)
-                .filter(Objects::nonNull)
+                .filter(g -> g.getGroupId() != null)
                 .toList();
     }
 

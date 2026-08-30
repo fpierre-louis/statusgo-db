@@ -40,15 +40,36 @@ public class HouseholdEvent {
 
     /**
      * Event kind. Open enum (kept as String so adding a new kind is just a
-     * service-layer change). Current vocabulary:
+     * service-layer change). The constants live on
+     * {@link io.sitprep.sitprepapi.service.HouseholdEventService} — read them
+     * from there rather than retyping a literal, which is how this list went
+     * three kinds stale before 2026-08-30.
+     *
+     * <p>Current vocabulary:</p>
      * <ul>
-     *   <li>{@code status-changed} — payload: {@code { status: "SAFE"|... }}</li>
-     *   <li>{@code checkin-started} — payload: {}</li>
-     *   <li>{@code checkin-ended} — payload: {}</li>
-     *   <li>{@code with-claim} — payload: {@code { subjectEmail }}</li>
-     *   <li>{@code with-release} — payload: {@code { subjectEmail }}</li>
+     *   <li>{@code status-changed} — payload: {@code { status: "SAFE"|... }}.
+     *       A status write made while the household has NO active check-in.</li>
+     *   <li>{@code checkin-replied} — payload: {@code { status }}. The SAME
+     *       write, made while a check-in is open. One row either way: a reply
+     *       and a status change are one act, and recording both would put two
+     *       names on one fact. The kind carries which it was, recorded at write
+     *       time from state the service holds — never inferred later from a
+     *       timestamp falling inside a window.</li>
+     *   <li>{@code checkin-started} / {@code checkin-ended} — payload: {}</li>
+     *   <li>{@code checkin-reminder} — payload: {@code { slotIndex }}.
+     *       System-fired, {@code actorEmail} null.</li>
+     *   <li>{@code nudge} — payload: {@code { subjectEmail }}. One row per
+     *       person pushed, so the Timeline can say who was nudged rather than
+     *       that a nudge happened.</li>
+     *   <li>{@code with-claim} / {@code with-release} — payload:
+     *       {@code { subjectEmail }}</li>
      *   <li>{@code member-added} / {@code member-removed} — payload:
      *       {@code { subjectEmail }}</li>
+     *   <li>{@code member-confirmed-meeting} / {@code -contacts} / {@code -evac}
+     *       — payload: {}</li>
+     *   <li>{@code weekly-check-in-completed} — payload: {@code { mood }}</li>
+     *   <li>{@code ritual-fired} — payload: {@code { ritualKind, recipients }}.
+     *       System-fired, {@code actorEmail} null.</li>
      * </ul>
      */
     @Column(nullable = false, length = 32)
