@@ -5,6 +5,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.sitprep.sitprepapi.constant.FeedRadius;
+
 import java.util.Map;
 
 /**
@@ -42,13 +44,24 @@ public class AppConfigResource {
      *   <li><b>alerts</b> — FEMA / NWS / USGS local filter.</li>
      *   <li><b>marketplace</b> — verified-publisher discovery + post
      *       discovery on the marketplace surface.</li>
+     *   <li><b>max</b> — the hard ceiling the server clamps every feed query
+     *       to ({@link FeedRadius}). Not a default and not selectable; the
+     *       widest rung's copy states it.</li>
      * </ul>
      */
     private static final Map<String, Integer> RADIUS_MI = Map.of(
             "default", 50,
             "community", 50,
             "alerts", 50,
-            "marketplace", 50
+            "marketplace", 50,
+            // The server's HARD CEILING, not a default — no request reaches
+            // further than this whatever it asks for. It is here because the
+            // frontend was deriving it: `radiusOverride.js` carried
+            // `MAX_RADIUS_MI = 310` with the 500/1.609344 conversion done by
+            // hand in a comment, and CLAUDE.md lists that as a standing example
+            // of a server constant duplicated across a deploy boundary. Shipping
+            // it costs one map entry and retires the duplicate.
+            "max", FeedRadius.maxMiles()
     );
 
     /**
@@ -57,7 +70,7 @@ public class AppConfigResource {
      * <p>Returns the tunable app defaults. Response shape:</p>
      * <pre>
      * {
-     *   "radiusMi": { "default": 50, "community": 50, "alerts": 50, "marketplace": 50 }
+     *   "radiusMi": { "default": 50, "community": 50, "alerts": 50, "marketplace": 50, "max": 310 }
      * }
      * </pre>
      *

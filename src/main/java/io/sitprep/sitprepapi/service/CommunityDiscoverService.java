@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.FeedRadius;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommunityDiscoverDto;
@@ -75,7 +76,7 @@ public class CommunityDiscoverService {
         // Cap the search radius — an arbitrarily large radius turns the
         // Haversine filter into a full-table match and the response into a
         // country dump. 500 km comfortably covers every legitimate feed view.
-        if (radiusKm > 500.0) radiusKm = 500.0;
+        if (radiusKm > FeedRadius.MAX_KM) radiusKm = FeedRadius.MAX_KM;
 
         Place place = resolvePlace(lat, lng);
 

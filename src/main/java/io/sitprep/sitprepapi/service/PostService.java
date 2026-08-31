@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.FeedRadius;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException;
 import io.sitprep.sitprepapi.constant.CivicCategory;
@@ -1496,7 +1497,7 @@ public class PostService {
         // rung reached the FE's 16,000 km sentinel unbounded. The top numeric
         // rung is 250 mi (~402 km), so every numeric selection is unaffected —
         // only the top rung changes.
-        if (radiusKm > 500.0) radiusKm = 500.0;
+        if (radiusKm > FeedRadius.MAX_KM) radiusKm = FeedRadius.MAX_KM;
 
         Set<PostStatus> wanted = (statuses == null || statuses.isEmpty())
                 ? EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED) : statuses;
