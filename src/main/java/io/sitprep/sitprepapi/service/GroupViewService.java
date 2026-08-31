@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.LocationSharing;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.Group;
@@ -31,9 +32,6 @@ public class GroupViewService {
     private static final int RECENT_POST_LIMIT = 5;
 
     /** Sharing-mode constants — match the FE helper. */
-    private static final String SHARE_ALWAYS = "always";
-    private static final String SHARE_CHECK_IN_ONLY = "check-in-only";
-    private static final String SHARE_NEVER = "never";
 
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
@@ -258,34 +256,16 @@ public class GroupViewService {
     /**
      * Whether {@code u}'s live location is visible to this group right now.
      *
-     * <p><b>"never" is an absolute opt-out</b> (locked 2026-07-02): a member who
-     * selects {@code never} stays hidden <b>even during an Active alert</b>.
-     * This deliberately protects users in extreme edge cases — e.g.
-     * domestic-violence survivors — who cannot risk their location being
-     * broadcast to a group under any circumstance. <b>Do NOT add an alert-time
-     * override that reveals {@code never}.</b> The FE copy on
-     * {@code MapVisibilityPage} is being updated to match (see the Front-End
-     * phase note in {@code docs/MAP_REBUILD_PLAN.md}).</p>
-     *
-     * <p>Defaults for an unset entry: household → {@code check-in-only},
-     * everything else → {@code never}. {@code always} always reveals;
-     * {@code check-in-only} reveals only while the group's alert is Active;
-     * {@code never} never reveals.</p>
+     * <p>The rule itself, its defaults and the reason {@code never} is absolute
+     * all live in {@link LocationSharing}, which is the single owner. This used
+     * to be one of THREE independent implementations — the others in
+     * {@code UserInfoService} and, wrongly, in the frontend — and the drift
+     * between them is what that class was created to end. Do not reinline it.</p>
      */
     private static boolean shouldShareLocation(UserInfo u, String groupId,
                                                String groupType, boolean alertActive) {
-        Map<String, String> map = u.getGroupLocationSharing();
-        String mode = map == null ? null : map.get(groupId);
-        if (mode == null || mode.isBlank()) {
-            mode = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(groupType)
-                    ? SHARE_CHECK_IN_ONLY : SHARE_NEVER;
-        }
-        return switch (mode) {
-            case SHARE_ALWAYS -> true;
-            case SHARE_NEVER -> false;              // absolute — never overridden, even in an alert
-            case SHARE_CHECK_IN_ONLY -> alertActive;
-            default -> false;                       // unknown mode: fail closed (hidden)
-        };
+        return LocationSharing.shouldShare(
+                u.getGroupLocationSharing(), groupId, groupType, alertActive);
     }
 
     private GroupPostSummaryDto toPostSummary(GroupPost p, Map<String, UserInfo> byEmail) {

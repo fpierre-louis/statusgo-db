@@ -109,15 +109,44 @@ public record MeDto(
              */
             Map<String, Object> assessmentSummary,
             /**
-             * Per-group map-visibility preference. Keys are group IDs; values are
-             * one of {@code "always"}, {@code "check-in-only"}, or {@code "never"}.
-             * A missing entry means the BE default applies (always for the user's
-             * own household, check-in-only for member groups — locked 2026-06-02
-             * per docs/MAP_SURFACES_REDESIGN_PLAN.md Phase 3). Driven by the FE
-             * settings page at /account/map-visibility; updates flow through
+             * The user's EXPLICIT per-group map-visibility choices, and only
+             * those. Keys are group IDs; values are one of {@code "always"},
+             * {@code "check-in-only"}, {@code "never"}.
+             *
+             * <p><b>This map is SPARSE and must stay sparse.</b> A missing entry
+             * means the user has never chosen, which is a materially different
+             * state from having chosen the default — the settings page says so
+             * in as many words, and the frontend's {@code useTrackPresence}
+             * treats an unset entry as "not consent" and reports no location at
+             * all. Densifying this map would erase both facts.</p>
+             *
+             * <p><b>Do not derive the default from this map.</b> Read
+             * {@link #groupLocationSharingEffective} instead. The javadoc here
+             * used to state the defaults ("always for the user's own household,
+             * check-in-only for member groups") and was WRONG — superseded by
+             * the 2026-07-02 gate and never updated. The frontend copied it, and
+             * a never-configured circle was told it would be visible during an
+             * emergency when the server would reveal nothing. Prose is not a
+             * good home for a rule; {@code LocationSharing} is.</p>
+             *
+             * Driven by /account/map-visibility; updates flow through
              * {@code PATCH /userinfo/me/group-location-sharing}.
              */
             Map<String, String> groupLocationSharing,
+            /**
+             * The mode actually IN FORCE for every group this user belongs to —
+             * their explicit choice where they made one, the server's default
+             * where they did not. Dense over the user's groups; never null.
+             *
+             * <p>Exists so no client re-derives the defaults. Resolved by
+             * {@link io.sitprep.sitprepapi.constant.LocationSharing}, the same
+             * class the gate itself calls, so the value a client displays and
+             * the value the server enforces cannot drift.</p>
+             *
+             * <p>A mode is a PERMISSION, not a promise of data: {@code always}
+             * means "you may see my last known fix", never "I am tracked".</p>
+             */
+            Map<String, String> groupLocationSharingEffective,
             /**
              * Effective platform-console permissions for this user's email.
              * UI-gating only; backend admin endpoints re-check each permission.

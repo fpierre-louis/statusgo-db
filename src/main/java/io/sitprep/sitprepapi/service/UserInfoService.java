@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.LocationSharing;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,9 +30,6 @@ import java.util.stream.Collectors;
 public class UserInfoService {
 
     private static final int MAX_ASSESSMENT_SUMMARY_JSON_BYTES = 50_000;
-    private static final String SHARE_ALWAYS = "always";
-    private static final String SHARE_CHECK_IN_ONLY = "check-in-only";
-    private static final String SHARE_NEVER = "never";
 
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
@@ -506,22 +504,23 @@ public class UserInfoService {
         });
     }
 
+    /**
+     * Whether this member's location may ride the WS broadcast to {@code group}.
+     *
+     * <p>Was a second, character-identical copy of
+     * {@code GroupViewService.shouldShareLocation}. Both now delegate to
+     * {@link LocationSharing}, which is the single owner of the rule and carries
+     * the reasoning — including why {@code never} is absolute. Two copies of a
+     * privacy gate is one copy that can be fixed while the other keeps
+     * leaking.</p>
+     */
     private boolean shouldShareLocationWithGroup(UserInfo u, Group group) {
         if (u == null || group == null || group.getGroupId() == null) return false;
-        Map<String, String> map = u.getGroupLocationSharing();
-        String mode = map == null ? null : map.get(group.getGroupId());
-        if (mode == null || mode.isBlank()) {
-            mode = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType())
-                    ? SHARE_CHECK_IN_ONLY
-                    : SHARE_NEVER;
-        }
-        boolean alertActive = "active".equalsIgnoreCase(group.getAlert());
-        return switch (mode) {
-            case SHARE_ALWAYS -> true;
-            case SHARE_NEVER -> false;
-            case SHARE_CHECK_IN_ONLY -> alertActive;
-            default -> false;
-        };
+        return LocationSharing.shouldShare(
+                u.getGroupLocationSharing(),
+                group.getGroupId(),
+                group.getGroupType(),
+                "active".equalsIgnoreCase(group.getAlert()));
     }
 
     /**

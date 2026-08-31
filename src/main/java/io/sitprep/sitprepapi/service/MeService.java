@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sitprep.sitprepapi.constant.LocationSharing;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.HouseholdPlanDto;
@@ -487,16 +488,15 @@ public class MeService {
                 baseHousehold, profileMap
         );
 
-        // Most recent non-expired activation owned by this user, if any.
-        // Drives the Active Dashboard auto-promote on /home (per
-        // docs/ECOSYSTEM_INTEGRATION.md step 5). Wrapped in safeGet so a
-        // misbehaving query doesn't sink the whole /me payload.
+        // Most recent non-expired activation visible to this user's base
+        // household, if any. A plan activation is readable by the owner and
+        // household members, and the push fan-out targets household members,
+        // so /api/me must use the same audience; otherwise non-owner members
+        // could open /deployedplan from a push but /home would never promote
+        // into Active Situation mode.
         String activeActivationId = email.isBlank() ? null : safeGet(
                 "activeActivationId", logCtx,
-                () -> planActivationRepo
-                        .findFirstActiveByOwnerEmail(email, Instant.now())
-                        .map(a -> a.getId())
-                        .orElse(null),
+                () -> resolveActiveActivationIdForHome(email, baseHousehold, Instant.now()),
                 null);
 
         // Opt-in public-profile preview (audit BE-12 / P2-15). Only
@@ -519,7 +519,7 @@ public class MeService {
                 List.of());
 
         return new MeDto(
-                toProfile(user, platformPermissions),
+                toProfile(user, platformPermissions, groupsById.values()),
                 householdDto,
                 households,
                 new GroupsDto(managed, joined, pending),
@@ -686,7 +686,33 @@ public class MeService {
         }
     }
 
-    private ProfileDto toProfile(UserInfo u, List<String> platformPermissions) {
+    String resolveActiveActivationIdForHome(String email, Group baseHousehold, Instant now) {
+        Set<String> ownerEmails = new LinkedHashSet<>();
+        addEmail(ownerEmails, email);
+        if (baseHousehold != null) {
+            addEmail(ownerEmails, baseHousehold.getOwnerEmail());
+            if (baseHousehold.getMemberEmails() != null) {
+                baseHousehold.getMemberEmails().forEach(raw -> addEmail(ownerEmails, raw));
+            }
+        }
+        return ownerEmails.stream()
+                .filter(Objects::nonNull)
+                .flatMap(owner -> planActivationRepo.findActiveByOwnerEmail(owner, now).stream())
+                .max(Comparator.comparing(
+                        PlanActivation::getActivatedAt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(PlanActivation::getId)
+                .orElse(null);
+    }
+
+    private static void addEmail(Set<String> emails, String raw) {
+        if (raw == null) return;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty()) emails.add(normalized);
+    }
+
+    private ProfileDto toProfile(UserInfo u, List<String> platformPermissions,
+                                 java.util.Collection<Group> groups) {
         SelfStatusDto status = new SelfStatusDto(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated()
         );
@@ -726,17 +752,45 @@ public class MeService {
                 u.getProfileVisibility(),
                 u.getSearchable(),
                 parseAssessmentSummary(u),
-                // Per-group map-visibility preferences. Defensive copy so a
-                // downstream mutation can't ripple back into the JPA-managed
-                // entity. Map may be empty (never null on the wire — keeps FE
-                // state shape predictable).
+                // The user's EXPLICIT choices, and deliberately nothing else —
+                // see the field's javadoc for why this map has to stay sparse.
+                // Defensive copy so a downstream mutation can't ripple back into
+                // the JPA-managed entity. May be empty, never null on the wire.
                 u.getGroupLocationSharing() == null
                         ? java.util.Map.of()
                         : new java.util.HashMap<>(u.getGroupLocationSharing()),
+                // ...and the mode actually in force for each of them, resolved
+                // by the same class the gate calls. This is the field that lets
+                // clients stop mirroring the defaults; the frontend's copy had
+                // drifted and was telling users they were visible during an
+                // emergency when the server would reveal nothing.
+                effectiveLocationSharing(u, groups),
                 platformPermissions == null ? java.util.List.of() : platformPermissions,
                 DtoImages.isPresent(rawAvatar),
                 DtoImages.isPresent(rawCover)
         );
+    }
+
+    /**
+     * The in-force sharing mode for every group the user belongs to.
+     *
+     * <p>Dense over the user's groups, which is the whole point: a client that
+     * has to fall back to a default is a client that has to KNOW the default,
+     * and that is the duplication this field removes. Pending groups are
+     * included — the user can set a preference before joining, and the settings
+     * page lists them.</p>
+     */
+    private Map<String, String> effectiveLocationSharing(UserInfo u,
+                                                         java.util.Collection<Group> groups) {
+        if (groups == null || groups.isEmpty()) return java.util.Map.of();
+        Map<String, String> prefs = u.getGroupLocationSharing();
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Group g : groups) {
+            if (g == null || g.getGroupId() == null) continue;
+            out.put(g.getGroupId(),
+                    LocationSharing.effectiveMode(prefs, g.getGroupId(), g.getGroupType()));
+        }
+        return out;
     }
 
     private Map<String, Object> parseAssessmentSummary(UserInfo u) {
