@@ -27,8 +27,8 @@ import java.util.stream.Stream;
  * action guidance) when any of, in precedence order:</p>
  * <ol>
  *   <li>{@code household_checkin} — the household's check-in is Active;</li>
- *   <li>{@code deployed_plan} — the household owner has an unexpired plan
- *       activation;</li>
+ *   <li>{@code deployed_plan} — the household owner or any household member
+ *       has an unexpired plan activation;</li>
  *   <li>{@code area_alert} — the persisted {@link io.sitprep.sitprepapi.domain.AlertModeState}
  *       for the household's zip bucket is {@code alert}/{@code crisis}. Read
  *       straight from the state table by PK — deliberately NOT

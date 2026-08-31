@@ -13,11 +13,11 @@ import java.util.Optional;
 public interface PlanActivationRepo extends JpaRepository<PlanActivation, String> {
 
     /**
-     * The owner's most recent non-expired activation, if any. Used by
-     * {@code MeService} to populate {@code MeDto.activeActivationId} so the
-     * frontend can flip {@code /home} into Active Dashboard mode without a
-     * separate round trip. Returns empty when no activation exists or the
-     * latest one has already expired.
+     * The owner's most recent non-expired activation, if any. Owner-scoped
+     * consumers use this when the caller already knows the activation owner.
+     * Household-wide surfaces should prefer {@link #findActiveByOwnerEmail}
+     * across every household member candidate so non-owner launched plans are
+     * visible to the same audience that receives activation pushes.
      */
     @Query(
         "SELECT a FROM PlanActivation a " +
@@ -32,8 +32,9 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
 
     /**
      * All non-expired activations for an owner. Used to notify open
-     * recipient views that activation-visible plan data changed and they
-     * should refetch the authoritative activation detail.
+     * recipient views that activation-visible plan data changed, and by
+     * household-wide readers that need to inspect each possible activation
+     * owner before choosing the newest visible plan.
      */
     @Query(
         "SELECT a FROM PlanActivation a " +

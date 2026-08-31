@@ -7,6 +7,9 @@ import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Single source of truth for <b>commerce suppression</b> — the monetization-
@@ -19,8 +22,8 @@ import java.time.Instant;
  * <p>Precedence (first match wins):</p>
  * <ol>
  *   <li>{@code household_checkin} — the household's check-in is Active;</li>
- *   <li>{@code deployed_plan} — the household owner has an unexpired plan
- *       activation;</li>
+ *   <li>{@code deployed_plan} — the household owner or any household member
+ *       has an unexpired plan activation;</li>
  *   <li>{@code area_alert} — the persisted {@link io.sitprep.sitprepapi.domain.AlertModeState}
  *       for the household's zip bucket is {@code alert}/{@code crisis}. Read
  *       straight from the state table by PK — deliberately NOT
@@ -52,9 +55,7 @@ public class CommerceSuppressionService {
 
         if ("Active".equalsIgnoreCase(household.getAlert())) return "household_checkin";
 
-        String owner = household.getOwnerEmail();
-        if (owner != null && activationRepo
-                .findFirstActiveByOwnerEmail(owner, Instant.now()).isPresent()) {
+        if (hasActiveHouseholdActivation(household, Instant.now())) {
             return "deployed_plan";
         }
 
@@ -73,5 +74,21 @@ public class CommerceSuppressionService {
     /** Convenience boolean for callers that don't need the reason. */
     public boolean isSuppressed(String householdId) {
         return suppressionReason(householdId) != null;
+    }
+
+    private boolean hasActiveHouseholdActivation(Group household, Instant now) {
+        Set<String> owners = new LinkedHashSet<>();
+        addEmail(owners, household.getOwnerEmail());
+        if (household.getMemberEmails() != null) {
+            household.getMemberEmails().forEach(raw -> addEmail(owners, raw));
+        }
+        return owners.stream()
+                .anyMatch(owner -> !activationRepo.findActiveByOwnerEmail(owner, now).isEmpty());
+    }
+
+    private static void addEmail(Set<String> emails, String raw) {
+        if (raw == null) return;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty()) emails.add(normalized);
     }
 }
