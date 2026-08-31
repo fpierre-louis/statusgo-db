@@ -110,6 +110,7 @@ class RiskProfileServiceTest {
         assertThat(top.origin()).isEqualTo("active_alert_upgraded");
         assertThat(top.priority()).isZero();
         assertThat(top.hazard()).isEqualTo("tornado");
+        assertThat(top.route()).isEqualTo("/hazards?scope=home&alert=NWS%3AX1");
     }
 
     @Test

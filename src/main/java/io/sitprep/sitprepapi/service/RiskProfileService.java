@@ -11,6 +11,8 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -160,7 +162,7 @@ public class RiskProfileService {
             reqs.add(new RiskAdjustedRequirementDto(
                     key, a.hazard(),
                     HAZARD_LABEL.getOrDefault(a.hazard(), "Hazard") + " alert in effect — act now",
-                    a.instruction(), 0, "Safety steps", "/ask", "active_alert_upgraded"));
+                    a.instruction(), 0, "Safety steps", homeHazardDetailRoute(a), "active_alert_upgraded"));
         }
 
         reqs.sort(Comparator.comparingInt(RiskAdjustedRequirementDto::priority));
@@ -238,6 +240,15 @@ public class RiskProfileService {
                 a.headline(), a.area(),
                 ALERT_ACTION.getOrDefault(hazard, ALERT_ACTION.get("other")),
                 a.startedAt(), a.endsAt());
+    }
+
+    private static String homeHazardDetailRoute(ActiveAlertDto alert) {
+        if (alert == null || !notBlank(alert.source()) || !notBlank(alert.id())) {
+            return "/hazards?scope=home";
+        }
+        String key = alert.source().trim().toUpperCase(Locale.ROOT) + ":" + alert.id().trim();
+        return "/hazards?scope=home&alert="
+                + URLEncoder.encode(key, StandardCharsets.UTF_8);
     }
 
     /** Map an alert to a hazard key — USGS ⇒ earthquake, else headline keywords. */
