@@ -154,6 +154,18 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     List<Group> findActiveAlertsForReminderSweep(org.springframework.data.domain.Pageable page);
 
     /**
+     * Household rows eligible for the weekly preparedness challenge sweep.
+     * Challenge completion / alert-state skip rules stay in Java because they
+     * depend on the current ISO week and scheduler slot.
+     */
+    @Query(
+        "SELECT g FROM Group g " +
+        "WHERE LOWER(COALESCE(g.groupType, '')) = 'household' " +
+        "ORDER BY g.groupId ASC"
+    )
+    List<Group> findHouseholdsForChallengeSweep(org.springframework.data.domain.Pageable page);
+
+    /**
      * Ghost groups eligible for a claim-outreach email (Phase 3). Encodes the
      * consent-first policy directly in the query so the worker can't accidentally
      * over-contact: only GHOST groups that (a) have residents waiting

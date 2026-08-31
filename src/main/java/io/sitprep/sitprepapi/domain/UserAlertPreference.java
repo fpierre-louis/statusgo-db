@@ -88,6 +88,9 @@ public class UserAlertPreference {
     @Column(name = "pending_members", nullable = false)
     private boolean pendingMembers = true;
 
+    @Column(name = "drills", nullable = false)
+    private boolean drills = true;
+
     // ----- Quiet hours -----
 
     @Column(name = "quiet_hours_enabled", nullable = false)

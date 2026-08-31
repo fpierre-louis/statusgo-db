@@ -22,6 +22,18 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
             String recipientEmail, String type, Instant since
     );
 
+    @Query("""
+           SELECT COUNT(n) FROM NotificationLog n
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.type = :type
+              AND n.referenceId = :referenceId
+              AND n.timestamp >= :since
+           """)
+    long countByRecipientTypeReferenceSince(@Param("email") String email,
+                                            @Param("type") String type,
+                                            @Param("referenceId") String referenceId,
+                                            @Param("since") Instant since);
+
     /**
      * Page of IDs older than {@code cutoff}. Used by
      * {@code RetentionSweepService} to bound each tick. Index

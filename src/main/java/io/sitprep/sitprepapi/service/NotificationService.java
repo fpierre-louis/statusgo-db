@@ -106,6 +106,7 @@ public class NotificationService {
             case "activation_ack" -> Category.ACTIVATION_ACK;
             case "check_in_request" -> Category.CHECK_IN_REQUEST;
             case "checkin_reminder", "checkin_auto_ended" -> Category.CHECK_IN_REVIEW;
+            case "weekly_drill_kickoff", "weekly_drill_nudge" -> Category.WEEKLY_DRILL_REMINDER;
             default -> null;
         };
     }

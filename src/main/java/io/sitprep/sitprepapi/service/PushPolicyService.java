@@ -150,6 +150,7 @@ public class PushPolicyService {
         if (dto.activationAcks() != null)     p.setActivationAcks(dto.activationAcks());
         if (dto.taskAssignments() != null)    p.setTaskAssignments(dto.taskAssignments());
         if (dto.pendingMembers() != null)     p.setPendingMembers(dto.pendingMembers());
+        if (dto.drills() != null)             p.setDrills(dto.drills());
         if (dto.quietHoursEnabled() != null)  p.setQuietHoursEnabled(dto.quietHoursEnabled());
         if (dto.quietStart() != null)         p.setQuietStart(dto.quietStart());
         if (dto.quietEnd() != null)           p.setQuietEnd(dto.quietEnd());
@@ -207,7 +208,7 @@ public class PushPolicyService {
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
                  NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
-                 HOUSEHOLD_RITUAL_REMINDER,
+                 HOUSEHOLD_RITUAL_REMINDER, WEEKLY_DRILL_REMINDER,
                  FOLLOW, FOLLOW_INVITE, FOLLOW_ACCEPTED -> Lane.B;
             // Lane C — ephemeral
             case SELF_STATUS_SYNC, CONNECTION_STATE,
@@ -229,6 +230,7 @@ public class PushPolicyService {
             case ACTIVATION_ACK -> p.isActivationAcks();
             case TASK_ASSIGNED -> p.isTaskAssignments();
             case PENDING_MEMBER_REQUEST -> p.isPendingMembers();
+            case WEEKLY_DRILL_REMINDER -> p.isDrills();
             // Lane B + C categories aren't user-mutable in v1 — they're
             // either always-inbox or always-ephemeral. FE settings page
             // can grow knobs for these in v2 if users ask.
@@ -386,6 +388,12 @@ public class PushPolicyService {
          * not by muting a category.
          */
         HOUSEHOLD_RITUAL_REMINDER,
+        /**
+         * Household preparedness challenge nudge. Distinct from the weekly
+         * check-in ritual so a Drills preference can mute preparedness nudges
+         * without disabling the check-in cadence.
+         */
+        WEEKLY_DRILL_REMINDER,
 
         // Lane C — ephemeral (in-app banner only)
         SELF_STATUS_SYNC,

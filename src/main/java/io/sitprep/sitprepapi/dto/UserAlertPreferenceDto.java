@@ -28,6 +28,7 @@ public record UserAlertPreferenceDto(
         Boolean activationAcks,
         Boolean taskAssignments,
         Boolean pendingMembers,
+        Boolean drills,
 
         // Quiet hours
         Boolean quietHoursEnabled,
@@ -48,6 +49,7 @@ public record UserAlertPreferenceDto(
                 p.isActivationAcks(),
                 p.isTaskAssignments(),
                 p.isPendingMembers(),
+                p.isDrills(),
                 p.isQuietHoursEnabled(),
                 p.getQuietStart(),
                 p.getQuietEnd(),

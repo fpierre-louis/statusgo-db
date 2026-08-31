@@ -56,4 +56,20 @@ class NotificationMentionRoutingTest {
         assertThat(PushPolicyService.defaultLaneFor(Category.MENTION))
                 .isEqualTo(PushPolicyService.Lane.B);
     }
+
+    @Test
+    @DisplayName("weekly drill notification types map to the drill category")
+    void weeklyDrillTypesMapToDrillCategory() {
+        assertThat(NotificationService.mapTypeToCategory(HouseholdChallengeScheduler.TYPE_KICKOFF))
+                .isEqualTo(Category.WEEKLY_DRILL_REMINDER);
+        assertThat(NotificationService.mapTypeToCategory(HouseholdChallengeScheduler.TYPE_NUDGE))
+                .isEqualTo(Category.WEEKLY_DRILL_REMINDER);
+    }
+
+    @Test
+    @DisplayName("weekly drill reminders are declared Lane B")
+    void weeklyDrillReminderIsLaneB() {
+        assertThat(PushPolicyService.defaultLaneFor(Category.WEEKLY_DRILL_REMINDER))
+                .isEqualTo(PushPolicyService.Lane.B);
+    }
 }

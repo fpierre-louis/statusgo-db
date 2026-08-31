@@ -106,6 +106,19 @@ class HazardPushPolicyTest {
         assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Severe")).isEqualTo(Lane.A);
         assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "6.1")).isEqualTo(Lane.A);
         assertThat(policy.evaluate("u@x.com", Category.WILDFIRE_NEAR, "Severe")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.WEEKLY_DRILL_REMINDER, null)).isEqualTo(Lane.B);
+    }
+
+    @Test
+    void mutingDrillsStopsWeeklyDrillNudgesOnly() {
+        UserAlertPreference p = defaults();
+        p.setDrills(false);
+        prefs(p);
+
+        assertThat(policy.evaluate("u@x.com", Category.WEEKLY_DRILL_REMINDER, null))
+                .isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate("u@x.com", Category.HOUSEHOLD_RITUAL_REMINDER, null))
+                .isEqualTo(Lane.B);
     }
 
     // ==================================================================
