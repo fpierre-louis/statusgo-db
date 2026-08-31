@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.dto.UserSavedLocationWriteDto;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
@@ -53,16 +54,17 @@ public class UserSavedLocationService {
     }
 
     @Transactional
-    public UserSavedLocation create(UserSavedLocation incoming) {
-        if (incoming.getOwnerEmail() == null || incoming.getOwnerEmail().isBlank()) {
+    public UserSavedLocation create(String ownerEmail, UserSavedLocationWriteDto in) {
+        if (ownerEmail == null || ownerEmail.isBlank()) {
             throw new IllegalArgumentException("ownerEmail is required");
         }
+        UserSavedLocation incoming = in.toNewEntity(ownerEmail.trim().toLowerCase());
+
         // Coords are NOT NULL columns on this entity — require a valid pair.
         if (!GeoUtil.validLatLng(incoming.getLatitude(), incoming.getLongitude())) {
             throw new IllegalArgumentException(
                     "latitude must be within [-90, 90] and longitude within [-180, 180]");
         }
-        incoming.setOwnerEmail(incoming.getOwnerEmail().trim().toLowerCase());
 
         // Enforce single-home invariant: if this row claims home, demote any prior home.
         if (incoming.isHome()) {
@@ -78,39 +80,50 @@ public class UserSavedLocationService {
     }
 
     @Transactional
-    public UserSavedLocation update(Long id, UserSavedLocation incoming) {
+    public UserSavedLocation update(Long id, UserSavedLocationWriteDto in) {
         UserSavedLocation existing = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Saved location not found: " + id));
 
-        // Owner is immutable — guard against payload tampering.
-        if (incoming.getOwnerEmail() != null
-                && !incoming.getOwnerEmail().equalsIgnoreCase(existing.getOwnerEmail())) {
-            throw new SecurityException("Cannot reassign saved location to a different owner.");
-        }
+        // Owner immutability is now STRUCTURAL rather than guarded: the write
+        // DTO carries no owner field, so there is nothing to tamper with. The
+        // resource still checks ownership before calling in.
 
-        GeoUtil.requireValidLatLng(incoming.getLatitude(), incoming.getLongitude());
-        boolean coordsChanged = incoming.getLatitude() != null
-                && incoming.getLongitude() != null
-                && (!incoming.getLatitude().equals(existing.getLatitude())
-                    || !incoming.getLongitude().equals(existing.getLongitude()));
+        GeoUtil.requireValidLatLng(in.latitude(), in.longitude());
+        boolean coordsChanged = in.latitude() != null
+                && in.longitude() != null
+                && (!in.latitude().equals(existing.getLatitude())
+                    || !in.longitude().equals(existing.getLongitude()));
 
-        if (incoming.getName() != null) existing.setName(incoming.getName());
-        if (incoming.getAddress() != null) existing.setAddress(incoming.getAddress());
-        if (incoming.getLatitude() != null) existing.setLatitude(incoming.getLatitude());
-        if (incoming.getLongitude() != null) existing.setLongitude(incoming.getLongitude());
+        if (in.name() != null) existing.setName(in.name());
+        if (in.address() != null) existing.setAddress(in.address());
+        if (in.latitude() != null) existing.setLatitude(in.latitude());
+        if (in.longitude() != null) existing.setLongitude(in.longitude());
 
-        // Promotion to home → demote any prior home for this user.
-        if (incoming.isHome() && !existing.isHome()) {
-            repo.findFirstByOwnerEmailIgnoreCaseAndIsHomeTrue(existing.getOwnerEmail())
-                    .filter(prior -> !prior.getId().equals(existing.getId()))
-                    .ifPresent(prior -> {
-                        prior.setHome(false);
-                        repo.save(prior);
-                    });
-            existing.setHome(true);
-        } else if (!incoming.isHome() && existing.isHome()) {
-            // Demoting current home is allowed; user can have zero homes.
-            existing.setHome(false);
+        // ── THE FLAG ONLY MOVES WHEN THE CALLER ASKED ─────────────────────
+        //
+        // Every field above is partial — absent means unchanged — and the home
+        // flag has to obey the same contract, or renaming a location would
+        // silently demote it. That is why the DTO's `isHome` is a nullable
+        // Boolean and the entity's primitive could not be reused: a primitive
+        // arrives as `false` when omitted, which reads as an explicit demotion.
+        //
+        // The old code had exactly that shape and never fired it, because the
+        // flag never bound at all. Fixing the binding without this guard would
+        // have turned a dead branch into a live bug.
+        if (in.touchesHome()) {
+            boolean wantsHome = Boolean.TRUE.equals(in.isHome());
+            if (wantsHome && !existing.isHome()) {
+                repo.findFirstByOwnerEmailIgnoreCaseAndIsHomeTrue(existing.getOwnerEmail())
+                        .filter(prior -> !prior.getId().equals(existing.getId()))
+                        .ifPresent(prior -> {
+                            prior.setHome(false);
+                            repo.save(prior);
+                        });
+                existing.setHome(true);
+            } else if (!wantsHome && existing.isHome()) {
+                // Demoting current home is allowed; user can have zero homes.
+                existing.setHome(false);
+            }
         }
 
         if (coordsChanged) {

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.UserSavedLocationWriteDto;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.dto.UserSavedLocationDto;
 import io.sitprep.sitprepapi.service.UserSavedLocationService;
@@ -49,27 +50,31 @@ public class UserSavedLocationResource {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    // ── BIND A DTO, NOT THE ENTITY ────────────────────────────────────────
+    //
+    // These used to take `@RequestBody UserSavedLocation`. Two problems, and
+    // the first one shipped: the entity's Jackson property for its flag is
+    // `home` (Lombok's `isHome()` getter), while the READ dto pins `isHome` —
+    // so a client echoing back what it read had the flag silently dropped, and
+    // NO row could ever become home. Second, binding an entity exposed `id`,
+    // `ownerEmail`, `createdAt`, `updatedAt` and the server-derived geocode
+    // columns to the request body; only `ownerEmail` was defended, by hand.
     @PostMapping
-    public ResponseEntity<UserSavedLocationDto> create(@RequestBody UserSavedLocation incoming) {
+    public ResponseEntity<UserSavedLocationDto> create(@RequestBody UserSavedLocationWriteDto incoming) {
+        // The owner is the verified caller and is not in the DTO at all, so
+        // there is no longer a field to override — it cannot be spoofed.
         String owner = AuthUtils.requireAuthenticatedEmail();
-        // Force ownerEmail to the verified caller. Anything in the body is
-        // overridden so a signed-in attacker can't create entries under
-        // another email.
-        incoming.setOwnerEmail(owner);
-        UserSavedLocation saved = service.create(incoming);
+        UserSavedLocation saved = service.create(owner, incoming);
         return ResponseEntity.status(201).body(UserSavedLocationDto.from(saved));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<UserSavedLocationDto> update(
             @PathVariable Long id,
-            @RequestBody UserSavedLocation incoming
+            @RequestBody UserSavedLocationWriteDto incoming
     ) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         ensureOwns(id, caller);
-        // Override any owner field on the body so the service's
-        // "owner is immutable" guard still passes when the body omits it.
-        incoming.setOwnerEmail(caller);
         UserSavedLocation saved = service.update(id, incoming);
         return ResponseEntity.ok(UserSavedLocationDto.from(saved));
     }
