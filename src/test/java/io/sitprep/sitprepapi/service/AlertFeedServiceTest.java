@@ -57,6 +57,22 @@ class AlertFeedServiceTest {
         return feed.toCard(a, m, AppConfigResource.alertsRadiusMi());
     }
 
+    private static AlertFeedResponse nonEmptyFeed() {
+        NwsZoneService localZones = new NwsZoneService();
+        localZones.seedPointZones(LAT, LNG, SAN_CARLOS);
+
+        AlertIngestService localIngest = new AlertIngestService(localZones);
+        AlertDispatchService localDispatch =
+                new AlertDispatchService(null, null, null, null, null, null, localZones, null);
+        localDispatch.loadTemplates();
+        localIngest.setSnapshotForTest(List.of(
+                TestAlerts.nws("Flood Warning")
+                        .endsAt("2099-08-27T06:55:00Z")
+                        .build()));
+
+        return new AlertFeedService(localIngest, localDispatch).feedFor(LAT, LNG);
+    }
+
     // ==================================================================
     // RULE 1 — official.* is never our processed copy
     // ==================================================================
@@ -142,8 +158,8 @@ class AlertFeedServiceTest {
 
     @Test
     void theCaveatShipsOnANonEmptyFeedToo_notJustTheEmptyState() {
-        AlertFeedResponse r = feed.feedFor(LAT, LNG);
-        assertThat(r.alerts()).as("San Carlos has a live heat warning").isNotEmpty();
+        AlertFeedResponse r = nonEmptyFeed();
+        assertThat(r.alerts()).as("synthetic in-force local alert").isNotEmpty();
         assertThat(r.meta().coverageCaveat()).isEqualTo(AlertFeedResponse.COVERAGE_CAVEAT);
     }
 
@@ -162,7 +178,7 @@ class AlertFeedServiceTest {
 
     @Test
     void radiusMiEqualsTheAppConfigValue() {
-        AlertFeedResponse r = feed.feedFor(LAT, LNG);
+        AlertFeedResponse r = nonEmptyFeed();
         assertThat(r.alerts()).isNotEmpty();
         assertThat(r.alerts()).allSatisfy(c ->
                 assertThat(c.radiusMi()).isEqualTo(AppConfigResource.alertsRadiusMi()));
