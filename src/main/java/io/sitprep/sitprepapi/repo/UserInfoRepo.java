@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,6 +53,9 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
     }
 
     List<UserInfo> findByUserEmailIn(List<String> emails);
+
+    @Query("SELECT u FROM UserInfo u WHERE LOWER(u.userEmail) IN :emails")
+    List<UserInfo> findByUserEmailLowerIn(@Param("emails") Collection<String> emails);
 
     /** Users with no base household yet — assigned by HouseholdBackfillRunner. */
     List<UserInfo> findByBaseHouseholdIdIsNull();

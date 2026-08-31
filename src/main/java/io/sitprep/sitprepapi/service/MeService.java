@@ -356,6 +356,33 @@ public class MeService {
             }
         }
 
+        // Household member activity — separate from group chat freshness.
+        // `lastActivityAt` below answers "when did the household chat move?";
+        // this answers "when was any household member last active in-app?" for
+        // the StayReadyCard reachable/active line without loading the full
+        // roster on the frontend.
+        java.util.Map<String, java.time.Instant> memberLastActiveMap = new java.util.HashMap<>();
+        java.util.Set<String> householdMemberEmails = new java.util.LinkedHashSet<>();
+        for (Group g : householdGroups) {
+            if (g.getMemberEmails() == null) continue;
+            for (String memberEmail : g.getMemberEmails()) {
+                if (memberEmail == null || memberEmail.isBlank()) continue;
+                householdMemberEmails.add(memberEmail.trim().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        if (!householdMemberEmails.isEmpty()) {
+            memberLastActiveMap = safeGet("household.memberLastActive", logCtx,
+                    () -> {
+                        java.util.Map<String, java.time.Instant> out = new java.util.HashMap<>();
+                        for (UserInfo u : userInfoRepo.findByUserEmailLowerIn(householdMemberEmails)) {
+                            if (u.getUserEmail() == null || u.getLastActiveAt() == null) continue;
+                            out.put(u.getUserEmail().trim().toLowerCase(java.util.Locale.ROOT), u.getLastActiveAt());
+                        }
+                        return out;
+                    },
+                    java.util.Map.of());
+        }
+
         // Per-(user,group) mute + quiet-hours pref. Same one-query-
         // then-in-memory pattern. Past mute deadlines are filtered
         // out at populate time so the wire only carries deadlines
@@ -453,7 +480,7 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap);
+                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap, memberLastActiveMap);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email,
@@ -725,7 +752,7 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap) {
+    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Map<String, java.time.Instant> memberLastActiveMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getTeens(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -750,7 +777,7 @@ public class MeService {
         String weeklyCheckInTimezone = ritual
                 .map(io.sitprep.sitprepapi.domain.HouseholdRitual::getTimezone)
                 .orElse(null);
-        // Challenge progress — dedicated fetch inside a live read-only
+        // Challenge / optional-readiness progress — dedicated fetch inside a live read-only
         // subfetch (P2 followup, done 2026-06-29). Group has 7
         // @ElementCollections, which exceeds Hibernate's single-SELECT
         // bag-fetch budget — the extras become secondary selects that
@@ -764,20 +791,20 @@ public class MeService {
         // collection initializes in an OPEN session; the map copy then
         // detaches cleanly onto the DTO. One extra query for the base
         // household only; failures still degrade to an empty map.
-        final String householdIdForChallenge = g.getGroupId();
-        java.util.Map<String, Boolean> challengeProgress = householdIdForChallenge == null
-                ? java.util.Map.of()
-                : safeGet("household.challengeProgress", "household=" + householdIdForChallenge,
+        final String householdIdForState = g.getGroupId();
+        HouseholdState householdState = householdIdForState == null
+                ? HouseholdState.empty()
+                : safeGet("household.readinessState", "household=" + householdIdForState,
                         () -> {
-                            Group fresh = groupRepo.findByGroupId(householdIdForChallenge).orElse(null);
-                            if (fresh == null || fresh.getChallengeProgress() == null) {
-                                return java.util.Map.<String, Boolean>of();
+                            Group fresh = groupRepo.findByGroupId(householdIdForState).orElse(null);
+                            if (fresh == null) {
+                                return HouseholdState.empty();
                             }
                             // Touched inside the live read-only tx → the
-                            // secondary select runs; the copy detaches it.
-                            return new java.util.HashMap<>(fresh.getChallengeProgress());
+                            // secondary selects run; the copies detach.
+                            return HouseholdState.from(fresh);
                         },
-                        java.util.Map.of());
+                        HouseholdState.empty());
         return new HouseholdDto(
                 g.getGroupId(),
                 g.getGroupName(),
@@ -801,8 +828,40 @@ public class MeService {
                 weeklyCheckInScheduleSpec,
                 weeklyCheckInPausedUntil,
                 weeklyCheckInTimezone,
-                challengeProgress
+                householdLastActiveFor(g, memberLastActiveMap),
+                householdState.challengeLastShownWeek(),
+                householdState.challengeProgress(),
+                householdState.advancedReadinessProgress()
         );
+    }
+
+    private record HouseholdState(
+            java.util.Map<String, Boolean> challengeProgress,
+            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress,
+            String challengeLastShownWeek
+    ) {
+        static HouseholdState empty() {
+            return new HouseholdState(java.util.Map.of(), java.util.Map.of(), null);
+        }
+
+        static HouseholdState from(Group household) {
+            java.util.Map<String, Boolean> challenge = household.getChallengeProgress() == null
+                    ? java.util.Map.of()
+                    : new java.util.HashMap<>(household.getChallengeProgress());
+            java.util.Map<String, AdvancedReadinessCompletionDto> advanced = new java.util.HashMap<>();
+            if (household.getAdvancedReadinessProgress() != null) {
+                for (var entry : household.getAdvancedReadinessProgress().entrySet()) {
+                    if (entry.getKey() == null || entry.getValue() == null) continue;
+                    AdvancedReadinessCompletion c = entry.getValue();
+                    if (c.getCompletedAt() == null) continue;
+                    advanced.put(entry.getKey(), new AdvancedReadinessCompletionDto(
+                            c.getCompletedAt(),
+                            c.getCompletedBy()
+                    ));
+                }
+            }
+            return new HouseholdState(challenge, advanced, household.getChallengeLastShownWeek());
+        }
     }
 
     private HouseholdSummary toHouseholdSummary(Group g, String userEmail, boolean isBase) {
@@ -899,6 +958,19 @@ public class MeService {
         if (g.getUpdatedAt() != null) return g.getUpdatedAt();
         if (g.getCreatedAt() != null) return g.getCreatedAt();
         return java.time.Instant.now();
+    }
+
+    private java.time.Instant householdLastActiveFor(Group g, java.util.Map<String, java.time.Instant> memberLastActiveMap) {
+        if (g.getMemberEmails() == null || memberLastActiveMap == null || memberLastActiveMap.isEmpty()) return null;
+        java.time.Instant latest = null;
+        for (String e : g.getMemberEmails()) {
+            if (e == null) continue;
+            java.time.Instant candidate = memberLastActiveMap.get(e.trim().toLowerCase(java.util.Locale.ROOT));
+            if (candidate != null && (latest == null || candidate.isAfter(latest))) {
+                latest = candidate;
+            }
+        }
+        return latest;
     }
 
     /**

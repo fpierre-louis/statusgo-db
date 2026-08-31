@@ -210,6 +210,19 @@ public record MeDto(
              */
             String weeklyCheckInTimezone,
             /**
+             * Max member {@code UserInfo.lastActiveAt} for this household.
+             * Null when none of the household members has a tracked activity
+             * timestamp yet. Lets Home render one honest household activity line
+             * without fetching the full roster.
+             */
+            Instant householdLastActiveAt,
+            /**
+             * The ISO week key this household last saw/dismissed the weekly
+             * challenge prompt. Viewing is not completion; completion stays in
+             * {@link #challengeProgress()}.
+             */
+            String challengeLastShownWeek,
+            /**
              * Per-household weekly preparedness challenge completion log.
              * Keys are ISO week-year strings ("2026-W22"), values are
              * {@code true} when the household has marked that week's
@@ -221,7 +234,17 @@ public record MeDto(
              * keeps a meCache fallback so offline writes can replay
              * on reconnect via {@code POST /api/households/{id}/challenges/{weekKey}/complete}.</p>
              */
-            java.util.Map<String, Boolean> challengeProgress
+            java.util.Map<String, Boolean> challengeProgress,
+            /**
+             * Optional advanced-readiness checklist completions keyed by item.
+             * These are self-reported and do not affect baseline readiness.
+             */
+            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress
+    ) {}
+
+    public record AdvancedReadinessCompletionDto(
+            Instant completedAt,
+            String completedBy
     ) {}
 
     /**

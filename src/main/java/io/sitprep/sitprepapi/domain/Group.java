@@ -339,6 +339,15 @@ public class Group {
     private Instant planLastConfirmedAt;
 
     /**
+     * Household-wide dismissal marker for the weekly challenge sheet. This is
+     * intentionally separate from {@link #challengeProgress}: viewing or
+     * dismissing the prompt is not completion, but it should suppress repeat
+     * auto-open prompts across the household's devices for that ISO week.
+     */
+    @Column(name = "challenge_last_shown_week", length = 16)
+    private String challengeLastShownWeek;
+
+    /**
      * Per-household weekly preparedness challenge completion log. Keys are
      * ISO-week-year strings ("2026-W22"), values are {@code true} when the
      * household has marked that week's curated drill done. Surfaces on
@@ -365,6 +374,20 @@ public class Group {
     @MapKeyColumn(name = "week_key", length = 16)
     @Column(name = "completed")
     private Map<String, Boolean> challengeProgress = new HashMap<>();
+
+    /**
+     * Optional advanced-readiness checklist completion, stored per household
+     * item. These rows are not baseline readiness and never affect the
+     * household's essential-readiness score; they only let the Home optional
+     * drawer sync its self-reported toggles across devices.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "group_advanced_readiness_progress",
+            joinColumns = @JoinColumn(name = "group_id")
+    )
+    @MapKeyColumn(name = "item_key", length = 96)
+    private Map<String, AdvancedReadinessCompletion> advancedReadinessProgress = new HashMap<>();
 
     // -----------------------------------------------------------------
     // Coordinate accessors — delegate to the embedded GeoPoint so the scalar
