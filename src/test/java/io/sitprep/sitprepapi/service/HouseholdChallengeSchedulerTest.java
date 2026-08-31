@@ -74,7 +74,7 @@ class HouseholdChallengeSchedulerTest {
                 eq("/images/group-alert-icon.png"),
                 eq(HouseholdChallengeScheduler.TYPE_KICKOFF),
                 eq(HOUSEHOLD),
-                eq("/?challenge=open"),
+                eq("/home?challenge=open"),
                 contains("\"weekKey\":\"2026-W36\""),
                 anyString(),
                 eq(HOUSEHOLD),
@@ -104,7 +104,7 @@ class HouseholdChallengeSchedulerTest {
                 eq("/images/group-alert-icon.png"),
                 eq(HouseholdChallengeScheduler.TYPE_NUDGE),
                 eq(HOUSEHOLD),
-                eq("/?challenge=open"),
+                eq("/home?challenge=open"),
                 contains("\"slot\":\"weekly_drill_nudge\""),
                 eq("token-owner@example.com"),
                 eq(HOUSEHOLD),
@@ -172,7 +172,7 @@ class HouseholdChallengeSchedulerTest {
                 anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any());
         verify(notificationService).deliverPresenceAwareForGroup(
                 eq("member@example.com"), anyString(), anyString(), anyString(), anyString(),
-                eq(HouseholdChallengeScheduler.TYPE_KICKOFF), eq(HOUSEHOLD), eq("/?challenge=open"),
+                eq(HouseholdChallengeScheduler.TYPE_KICKOFF), eq(HOUSEHOLD), eq("/home?challenge=open"),
                 anyString(), anyString(), eq(HOUSEHOLD), eq(Category.WEEKLY_DRILL_REMINDER));
     }
 
@@ -196,7 +196,7 @@ class HouseholdChallengeSchedulerTest {
         assertThat(sent).isEqualTo(1);
         verify(notificationService).deliverPresenceAwareForGroup(
                 eq("owner@example.com"), anyString(), anyString(), anyString(), anyString(),
-                eq(HouseholdChallengeScheduler.TYPE_KICKOFF), eq(HOUSEHOLD), eq("/?challenge=open"),
+                eq(HouseholdChallengeScheduler.TYPE_KICKOFF), eq(HOUSEHOLD), eq("/home?challenge=open"),
                 contains("\"weekKey\":\"2026-W36\""), anyString(), eq(HOUSEHOLD),
                 eq(Category.WEEKLY_DRILL_REMINDER));
     }

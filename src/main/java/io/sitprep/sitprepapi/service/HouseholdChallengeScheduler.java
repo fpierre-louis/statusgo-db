@@ -36,7 +36,7 @@ import java.util.Optional;
  * Sends Home's weekly preparedness challenge nudges.
  *
  * <p>This is not the weekly check-in ritual. It points to the existing Home
- * challenge sheet at {@code /?challenge=open}; the frontend decides which
+ * challenge sheet at {@code /home?challenge=open}; the frontend decides which
  * hazard-aware drill to render when the user opens the app.</p>
  */
 @Service
@@ -49,7 +49,7 @@ public class HouseholdChallengeScheduler {
 
     private static final ZoneId FALLBACK_TZ = ZoneId.of("America/Denver");
     private static final Duration FIRE_WINDOW = Duration.ofMinutes(15);
-    private static final String TARGET_URL = "/?challenge=open";
+    private static final String TARGET_URL = "/home?challenge=open";
 
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
