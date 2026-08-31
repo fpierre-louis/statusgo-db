@@ -539,8 +539,8 @@ public class AskService {
                                  Map<String, Boolean> myBookmarks) {
         AskQuestionDto d = new AskQuestionDto();
         d.setId(q.getId());
-        d.setAuthorEmail(q.getAuthorEmail());
         applyAuthor(d, authors.get(normalize(q.getAuthorEmail())),
+                AskQuestionDto::setAuthorUserId,
                 AskQuestionDto::setAuthorFirstName,
                 AskQuestionDto::setAuthorLastName,
                 AskQuestionDto::setAuthorProfileImageUrl);
@@ -548,8 +548,6 @@ public class AskService {
         d.setBody(q.getBody());
         d.setTags(q.getTags());
         d.setHazardTags(q.getHazardTags());
-        d.setLatitude(q.getLatitude());
-        d.setLongitude(q.getLongitude());
         d.setZipBucket(q.getZipBucket());
         d.setPlaceLabel(q.getPlaceLabel());
         d.setVoteScore(q.getVoteScore());
@@ -586,8 +584,8 @@ public class AskService {
                             Map<String, Boolean> myBookmarks) {
         AskTipDto d = new AskTipDto();
         d.setId(t.getId());
-        d.setAuthorEmail(t.getAuthorEmail());
         applyAuthor(d, authors.get(normalize(t.getAuthorEmail())),
+                AskTipDto::setAuthorUserId,
                 AskTipDto::setAuthorFirstName,
                 AskTipDto::setAuthorLastName,
                 AskTipDto::setAuthorProfileImageUrl);
@@ -597,8 +595,6 @@ public class AskService {
         d.setImageKeys(publicImageUrls(t.getImageKeys()));
         d.setTags(t.getTags());
         d.setHazardTags(t.getHazardTags());
-        d.setLatitude(t.getLatitude());
-        d.setLongitude(t.getLongitude());
         d.setZipBucket(t.getZipBucket());
         d.setPlaceLabel(t.getPlaceLabel());
         d.setVoteScore(t.getVoteScore());
@@ -629,8 +625,8 @@ public class AskService {
         AskAnswerDto d = new AskAnswerDto();
         d.setId(a.getId());
         d.setQuestionId(a.getQuestionId());
-        d.setAuthorEmail(a.getAuthorEmail());
         applyAuthor(d, authors.get(normalize(a.getAuthorEmail())),
+                AskAnswerDto::setAuthorUserId,
                 AskAnswerDto::setAuthorFirstName,
                 AskAnswerDto::setAuthorLastName,
                 AskAnswerDto::setAuthorProfileImageUrl);
@@ -659,6 +655,7 @@ public class AskService {
         h.setCreatedAt(q.getCreatedAt());
         h.setHazardMatched(intersects(q.getHazardTags(), hazards));
         h.setHotScore(hotScore(q.getVoteScore(), q.getCreatedAt()));
+        // Join key for enrichAuthors, not wire data — the field is @JsonIgnore.
         h.setAuthorEmail(q.getAuthorEmail());
         h.setHref("/ask/q/" + q.getId());
         return h;
@@ -676,6 +673,7 @@ public class AskService {
         h.setCreatedAt(t.getCreatedAt());
         h.setHazardMatched(intersects(t.getHazardTags(), hazards));
         h.setHotScore(hotScore(t.getVoteScore(), t.getCreatedAt()));
+        // Join key for foldSearchAuthors, not wire data — the field is @JsonIgnore.
         h.setAuthorEmail(t.getAuthorEmail());
         h.setHref("/ask/tips/" + t.getId());
         return h;
@@ -694,6 +692,7 @@ public class AskService {
         for (AskSearchHitDto h : hits) {
             UserInfo u = byEmail.get(normalize(h.getAuthorEmail()));
             if (u != null) {
+                h.setAuthorUserId(u.getId());
                 h.setAuthorFirstName(u.getUserFirstName());
                 h.setAuthorLastName(u.getUserLastName());
                 h.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
@@ -819,11 +818,23 @@ public class AskService {
         }
     }
 
+    /**
+     * Copy the author's PUBLIC identity onto a DTO.
+     *
+     * <p>The id setter is part of this signature rather than a separate call at
+     * each mapper on purpose: the thing being replaced was
+     * {@code d.setAuthorEmail(...)}, written once per mapper, and a per-mapper
+     * replacement is a line a future DTO can forget. Resolving identity in one
+     * place means a new Ask surface cannot ship an author without an id, and
+     * cannot ship an email at all — there is no setter for one.</p>
+     */
     private static <T> void applyAuthor(T dto, UserInfo u,
+                                        java.util.function.BiConsumer<T, String> setUserId,
                                         java.util.function.BiConsumer<T, String> setFirst,
                                         java.util.function.BiConsumer<T, String> setLast,
                                         java.util.function.BiConsumer<T, String> setImg) {
         if (u == null) return;
+        setUserId.accept(dto, u.getId());
         setFirst.accept(dto, u.getUserFirstName());
         setLast.accept(dto, u.getUserLastName());
         setImg.accept(dto, DtoImages.avatar(u.getProfileImageUrl()));
