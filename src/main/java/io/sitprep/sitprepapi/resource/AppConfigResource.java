@@ -14,10 +14,18 @@ import java.util.Map;
  * doesn't have to hard-code constants that we want to be able to tune
  * centrally (e.g. radius ladders for location-aware surfaces).
  *
- * <p>This endpoint is intentionally tiny and authentication-free — the
- * values are not user-specific. The FE caches the response and refreshes
- * on long intervals (24h) so a server-side change rolls out without a
+ * <p>This endpoint is intentionally tiny. The FE caches the response and
+ * refreshes on long intervals (24h) so a server-side change rolls out without a
  * full app reload.</p>
+ *
+ * <p><b>It is NOT authentication-free, and this javadoc used to say it was.</b>
+ * {@code /api/config/**} is deliberately absent from the SecurityConfig
+ * allowlist (audit {@code docs/audits/2026-08-24-public-route-allowlist.md}),
+ * so an anonymous request gets 401 — measured against prod v553. That is a
+ * ruling, not an oversight, and {@code SecurityConfigAllowlistTest} asserts it
+ * so a future reader cannot quietly flip it. It costs nothing because
+ * {@code useAppDefaults} falls back to bundled constants that match these
+ * values; a signed-out client simply never sees a server retune.</p>
  *
  * <p><b>Policy (2026-05-12)</b>: only the Community feed allows the
  * user to change radius interactively. Every other location-aware
@@ -74,9 +82,11 @@ public class AppConfigResource {
      * }
      * </pre>
      *
-     * <p>Cache for ~24h on the client side. No auth — the values are
-     * not user-specific and the endpoint must succeed even before
-     * sign-in so the welcome flow can render correctly.</p>
+     * <p>Cache for ~24h on the client side. <b>Requires auth</b> — see the class
+     * javadoc. The previous claim here, that it "must succeed even before
+     * sign-in so the welcome flow can render correctly", was false in both
+     * halves: it does not succeed unauthenticated, and the welcome flow renders
+     * anyway on the client's bundled fallback.</p>
      */
     /**
      * The alerts radius, for server-side consumers.

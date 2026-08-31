@@ -56,8 +56,17 @@ public class SecurityConfig {
                 // geocode proxies (no pre-auth caller, and an open relay to Nominatim
                 // is worse than a closed one), /api/alerts reads (the pre-auth path
                 // goes direct to NWS via skipBackendCache), /api/config/defaults
-                // (no public caller; and its client falls back to bundled constants
-                // that are numerically identical, so being wrong costs nothing),
+                // (CORRECTED 2026-08-31: the original note said "no public caller",
+                // and there is one — /hazards and /Fema are not ProtectedRoute-
+                // wrapped and FemaWeatherMVP calls useAppDefaults. The CONCLUSION
+                // still holds, on the second clause alone: the client falls back to
+                // bundled constants that are numerically identical, so an anonymous
+                // 401 here costs nothing today. Two things to know before relying
+                // on that. It is now load-bearing rather than a belt-and-braces
+                // second reason. And it is only true while the bundled values match
+                // the served ones — `radiusMi.max` was added 2026-08-31 precisely to
+                // stop the frontend deriving a server constant, and for signed-out
+                // callers the bundled copy is still the only value they ever see),
                 // /api/verified-publishers (both consumers are behind ProtectedRoute),
                 // /api/alert-mode (built, not wired to anything), and
                 // POST /api/userinfo/firebase — which ALREADY requires a token via
