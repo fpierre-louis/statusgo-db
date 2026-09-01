@@ -885,17 +885,19 @@ public class MeService {
                 householdLastActiveFor(g, memberLastActiveMap),
                 householdState.challengeLastShownWeek(),
                 householdState.challengeProgress(),
-                householdState.advancedReadinessProgress()
+                householdState.advancedReadinessProgress(),
+                householdState.drillLog()
         );
     }
 
     private record HouseholdState(
             java.util.Map<String, Boolean> challengeProgress,
             java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress,
+            java.util.Map<String, DrillCompletionDto> drillLog,
             String challengeLastShownWeek
     ) {
         static HouseholdState empty() {
-            return new HouseholdState(java.util.Map.of(), java.util.Map.of(), null);
+            return new HouseholdState(java.util.Map.of(), java.util.Map.of(), java.util.Map.of(), null);
         }
 
         static HouseholdState from(Group household) {
@@ -914,7 +916,23 @@ public class MeService {
                     ));
                 }
             }
-            return new HouseholdState(challenge, advanced, household.getChallengeLastShownWeek());
+            // Same defensive shape as `advanced` above: skip a null key, a null
+            // value, or a row with no timestamp. A drill with no completedAt is
+            // a row that says it was done and cannot say when, which is worse
+            // on this surface than no row at all.
+            java.util.Map<String, DrillCompletionDto> drills = new java.util.HashMap<>();
+            if (household.getDrillLog() != null) {
+                for (var entry : household.getDrillLog().entrySet()) {
+                    if (entry.getKey() == null || entry.getValue() == null) continue;
+                    DrillCompletion c = entry.getValue();
+                    if (c.getCompletedAt() == null) continue;
+                    drills.put(entry.getKey(), new DrillCompletionDto(
+                            c.getCompletedAt(),
+                            c.getCompletedBy()
+                    ));
+                }
+            }
+            return new HouseholdState(challenge, advanced, drills, household.getChallengeLastShownWeek());
         }
     }
 

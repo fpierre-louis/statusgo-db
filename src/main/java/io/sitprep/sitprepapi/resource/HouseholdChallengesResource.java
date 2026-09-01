@@ -1,8 +1,10 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.AdvancedReadinessCompletion;
+import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.MeDto.AdvancedReadinessCompletionDto;
+import io.sitprep.sitprepapi.dto.MeDto.DrillCompletionDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -49,6 +51,24 @@ public class HouseholdChallengesResource {
      */
     private static final Pattern WEEK_KEY = Pattern.compile("^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$");
     private static final Pattern ITEM_KEY = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$");
+
+    /**
+     * A catalog drill id, optionally with a phase: {@code "go-bag"} or
+     * {@code "go-bag#papers"}.
+     *
+     * <p>Wider than {@link #ITEM_KEY} by exactly one character — {@code #} —
+     * because a split drill records each part's own date. The lengths add to
+     * 96, which is the column width; a key that fit the regex and not the
+     * column would fail at flush with a message about nothing.</p>
+     *
+     * <p>The catalog itself lives on the frontend, so this validates SHAPE and
+     * not membership. That is deliberate: adding a drill should never require
+     * a backend deploy, and an id this side has never heard of is not a
+     * security question — the worst case is a household storing a date against
+     * a drill no surface renders.</p>
+     */
+    private static final Pattern DRILL_KEY =
+            Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,62}(#[A-Za-z0-9][A-Za-z0-9_-]{0,31})?$");
 
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
@@ -167,6 +187,98 @@ public class HouseholdChallengesResource {
             groupRepo.save(household);
         }
         return ResponseEntity.ok(advancedDto(progress));
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Drills — per-drill, dated. See DrillCompletion for why this exists
+    // alongside the week-keyed challengeProgress above.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Record that this household did {@code drillKey}, now.
+     *
+     * <p><b>THE DATE MOVES ON A REPEAT CALL.</b> This is the one place the
+     * drill log deliberately differs from the advanced-readiness routes below,
+     * which use {@code putIfAbsent} so a repeat tap settles to the same row.
+     * A readiness item is a checkbox — it is either done or not. A drill is a
+     * thing you do AGAIN, and the whole reason this table exists is to answer
+     * "when did we last do this one". Keeping the first date would make the
+     * second practice invisible and could show a household as overdue on a
+     * drill it ran yesterday.</p>
+     *
+     * <p>Auth is household MEMBERSHIP, matching the weekly challenge and
+     * differing from advanced readiness, which edits shared plan state. Any
+     * member may report that the household practised something.</p>
+     *
+     * <p>Returns the full log so the caller re-renders from the response
+     * rather than following with a {@code /me} round trip.</p>
+     */
+    @PostMapping("/{householdId}/drills/{drillKey}/complete")
+    @Transactional
+    public ResponseEntity<Map<String, DrillCompletionDto>> markDrillComplete(
+            @PathVariable String householdId,
+            @PathVariable String drillKey
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        validateDrillKey(drillKey);
+        access.requireCanReadHousehold(caller, householdId);
+
+        Group household = householdOr404(householdId);
+        Map<String, DrillCompletion> log = household.getDrillLog();
+        if (log == null) {
+            log = new HashMap<>();
+            household.setDrillLog(log);
+        }
+
+        log.put(drillKey, new DrillCompletion(Instant.now(), caller));
+        groupRepo.save(household);
+        return ResponseEntity.ok(drillDto(log));
+    }
+
+    /**
+     * Undo a mis-tap. Removes the row entirely rather than blanking the date —
+     * a row with no {@code completedAt} would claim the drill was done and be
+     * unable to say when, which is worse on this surface than no row.
+     *
+     * <p>Idempotent: removing something that is not there is a 200 with the
+     * unchanged log, not a 404. The caller's intent — "this should not be
+     * marked done" — is already satisfied.</p>
+     */
+    @DeleteMapping("/{householdId}/drills/{drillKey}")
+    @Transactional
+    public ResponseEntity<Map<String, DrillCompletionDto>> clearDrill(
+            @PathVariable String householdId,
+            @PathVariable String drillKey
+    ) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        validateDrillKey(drillKey);
+        access.requireCanReadHousehold(caller, householdId);
+
+        Group household = householdOr404(householdId);
+        Map<String, DrillCompletion> log = household.getDrillLog();
+        if (log != null && log.remove(drillKey) != null) {
+            groupRepo.save(household);
+        }
+        return ResponseEntity.ok(drillDto(log));
+    }
+
+    /** Defensive copy — never hand the managed collection out onto the wire. */
+    private static Map<String, DrillCompletionDto> drillDto(Map<String, DrillCompletion> log) {
+        Map<String, DrillCompletionDto> out = new HashMap<>();
+        if (log == null) return out;
+        for (Map.Entry<String, DrillCompletion> e : log.entrySet()) {
+            DrillCompletion c = e.getValue();
+            if (e.getKey() == null || c == null || c.getCompletedAt() == null) continue;
+            out.put(e.getKey(), new DrillCompletionDto(c.getCompletedAt(), c.getCompletedBy()));
+        }
+        return out;
+    }
+
+    private void validateDrillKey(String drillKey) {
+        if (drillKey == null || !DRILL_KEY.matcher(drillKey).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid drillKey — expected a catalog id, optionally with a #phase");
+        }
     }
 
     private void validateWeekKey(String weekKey) {

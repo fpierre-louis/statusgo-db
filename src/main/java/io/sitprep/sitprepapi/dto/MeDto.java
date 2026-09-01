@@ -268,7 +268,22 @@ public record MeDto(
              * Optional advanced-readiness checklist completions keyed by item.
              * These are self-reported and do not affect baseline readiness.
              */
-            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress
+            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress,
+            /**
+             * When this household last did each drill, keyed by catalog drill
+             * id — optionally with a phase, {@code "go-bag#papers"}.
+             *
+             * <p>Distinct from {@link #challengeProgress()}, which is keyed by
+             * ISO WEEK and therefore cannot say WHICH drill was done. This is
+             * what a practice surface reads to show a date beside a drill and
+             * to decide whether one has passed its published interval.</p>
+             */
+            java.util.Map<String, DrillCompletionDto> drillLog
+    ) {}
+
+    public record DrillCompletionDto(
+            Instant completedAt,
+            String completedBy
     ) {}
 
     public record AdvancedReadinessCompletionDto(

@@ -402,6 +402,37 @@ public class Group {
     @MapKeyColumn(name = "item_key", length = 96)
     private Map<String, AdvancedReadinessCompletion> advancedReadinessProgress = new HashMap<>();
 
+    /**
+     * When this household last did each preparedness drill.
+     *
+     * <p>Keys are catalog drill ids, optionally with a phase —
+     * {@code "go-bag"} or {@code "go-bag#papers"}. The catalog lives on the
+     * frontend ({@code src/me/challenges/challenges.js}); this side validates
+     * the key's SHAPE and stores whatever the catalog names, so adding a drill
+     * is never a deploy.</p>
+     *
+     * <p><b>This supersedes {@link #challengeProgress}, which is keyed by ISO
+     * WEEK.</b> The week map cannot say which drill was done, so it could
+     * never answer the question this one exists for. It is left in place and
+     * unmigrated — a week key carries no drill id, so there is nothing to
+     * migrate a row into, and inventing one would fabricate a record of a
+     * drill nobody can show was done. It goes when the frontend stops reading
+     * it.</p>
+     *
+     * <p>Written by {@code POST /api/households/{id}/drills/{drillKey}/complete},
+     * which is MEMBER-permitted rather than admin-only: any member may report
+     * that the household did a drill. That matches
+     * {@link #challengeProgress}'s endpoint and differs deliberately from
+     * {@link #advancedReadinessProgress}, which edits shared plan state.</p>
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "group_drill_log",
+            joinColumns = @JoinColumn(name = "group_id")
+    )
+    @MapKeyColumn(name = "drill_key", length = 96)
+    private Map<String, DrillCompletion> drillLog = new HashMap<>();
+
     // -----------------------------------------------------------------
     // Coordinate accessors — delegate to the embedded GeoPoint so the scalar
     // "latitude"/"longitude" JSON contract and every existing call site keep
