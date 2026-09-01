@@ -186,6 +186,19 @@ public class Group {
     private String logoImageUrl;
 
     /**
+     * The circle's cover image — an uploaded photo or one of the bundled
+     * presets, both stored as a URL. Null means "use the group type's default
+     * treatment", the gradient derived from its emblem tint.
+     *
+     * <p>Deliberately shaped like {@link #logoImageUrl}: same length, same
+     * nullability, same meaning for null. They are set by the same kind of
+     * action, so a difference between them would be one more thing to
+     * remember.</p>
+     */
+    @Column(name = "cover_image_url", length = 1024)
+    private String coverImageUrl;
+
+    /**
      * Business-only profile fields (Phase 5 Slice A). Populated by the
      * group-creation wizard when {@code groupType == "Business"}; null for
      * every other type. Drive the BusinessAboutCard on the group page —

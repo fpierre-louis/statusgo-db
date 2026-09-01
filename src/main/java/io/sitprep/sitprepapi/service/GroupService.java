@@ -1194,6 +1194,24 @@ public class GroupService {
         return groupRepo.save(g);
     }
 
+    /**
+     * Set or clear the circle's cover image. Null / blank clears it, which
+     * reverts the hero to the group type's default gradient.
+     *
+     * <p>Narrow like {@link #setLogo}, and for the same reason the alert got
+     * its own endpoint: the alternative is a whole-object PUT that replays
+     * every other field from whatever the client last saw.</p>
+     */
+    @Transactional
+    public Group setCover(String groupId, String coverImageUrl) {
+        Group g = getGroupByPublicId(groupId);
+        String url = (coverImageUrl == null || coverImageUrl.isBlank())
+                ? null : coverImageUrl.trim();
+        g.setCoverImageUrl(url);
+        g.setUpdatedAt(Instant.now());
+        return groupRepo.save(g);
+    }
+
     @Transactional
     public Group removeAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);

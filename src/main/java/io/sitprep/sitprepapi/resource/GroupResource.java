@@ -524,6 +524,20 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.setLogo(groupId, url));
     }
 
+    /**
+     * Set or clear the circle's cover image. Admin or owner only.
+     * Body: {@code {"coverImageUrl": "https://…"}}; null / blank reverts the
+     * hero to the group type's default gradient. Uploaded images ride the
+     * shared {@code POST /api/images} pipe first, exactly like the logo.
+     */
+    @PatchMapping("/{groupId}/cover")
+    public ResponseEntity<Group> setCover(@PathVariable String groupId,
+                                          @RequestBody Map<String, String> body) {
+        requireAdminOf(groupId);
+        String url = body == null ? null : body.get("coverImageUrl");
+        return ResponseEntity.ok(groupService.setCover(groupId, url));
+    }
+
     // ---------- Authorization helpers ----------
     //
     // All three resolve the caller's GroupRole once (constant/GroupRole)
