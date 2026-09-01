@@ -450,20 +450,7 @@ public class GroupService {
         String previousAlert = group.getAlert();
         updateGroupFields(group, groupDetails);
         Group saved = groupRepo.save(group);
-        if (!sameAlertState(previousAlert, saved.getAlert())) {
-            GroupAlertFrame frame = new GroupAlertFrame(
-                    saved.getGroupId(),
-                    frameAlert(saved.getAlert()),
-                    saved.getAlertActivatedAt(),
-                    initiatedBy(saved),
-                    "manual"
-            );
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    webSocketMessageSender.sendGroupAlertStatus(saved.getGroupId(), frame);
-                }
-            });
-        }
+        broadcastAlertIfChanged(previousAlert, saved);
         return saved;
     }
 
@@ -476,13 +463,10 @@ public class GroupService {
         Set<String> oldMemberEmails = new HashSet<>(safeList(group.getMemberEmails()));
         Set<String> oldPendingMemberEmails = new HashSet<>(safeList(group.getPendingMemberEmails()));
 
+        // Captured before the field writes below; the transition itself is
+        // applied by applyAlertTransition once the new value is in place.
         final String previousAlert = group.getAlert();
         final String newAlert = groupDetails.getAlert();
-        final boolean alertChanged = !Objects.equals(previousAlert, newAlert);
-        final boolean alertBecameActive = alertChanged && "Active".equalsIgnoreCase(newAlert);
-        final boolean alertBecameInactive = alertChanged
-                && "Active".equalsIgnoreCase(previousAlert)
-                && !"Active".equalsIgnoreCase(newAlert);
         final boolean isHousehold =
                 HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
 
@@ -564,26 +548,7 @@ public class GroupService {
         // transitions so a re-activation gets the full 5-reminder
         // cadence again, and a manual end stops any pending tick from
         // sending a stale reminder.
-        if (alertBecameActive) {
-            group.setAlertActivatedAt(Instant.now());
-            group.setCheckInRemindersFired(0);
-        } else if (alertBecameInactive) {
-            group.setAlertActivatedAt(null);
-            group.setCheckInRemindersFired(0);
-        }
-
-        if (alertBecameActive) {
-            notifyGroupMembers(group);
-        }
-
-        if (isHousehold && alertChanged) {
-            String actor = groupDetails.getLastUpdatedBy();
-            if (alertBecameActive) {
-                householdEventService.recordCheckinStarted(group.getGroupId(), actor);
-            } else if (alertBecameInactive) {
-                householdEventService.recordCheckinEnded(group.getGroupId(), actor);
-            }
-        }
+        applyAlertTransition(group, previousAlert, newAlert, groupDetails.getLastUpdatedBy());
 
         notifyNewMembers(group, oldMemberEmails);
         notifyAdminsOfNewMembers(group, oldMemberEmails);
@@ -601,6 +566,116 @@ public class GroupService {
             }
         }
         return out;
+    }
+
+    /**
+     * Everything that must happen when a group's alert flips, in ONE place.
+     *
+     * <p>Five things, and missing any one of them is a silent failure rather
+     * than an error: the activation timestamp, the reminder counter (reset on
+     * BOTH transitions, so a re-activation gets the full cadence and a manual
+     * end cannot leave a pending tick to fire a stale reminder), the member
+     * notification, and — for a household — the check-in event log.</p>
+     *
+     * <p>This was inline in {@link #updateGroupFields} and reachable only by
+     * PUT-ing an entire group. {@link #setAlert} needed the same five, and
+     * copying them is how two paths that must agree stop agreeing — so the
+     * transition is extracted rather than duplicated. Callers set
+     * {@code group.setAlert(...)} themselves; this handles the consequences.</p>
+     *
+     * <p>No-ops when the state has not actually changed, which is what makes it
+     * safe to call unconditionally.</p>
+     */
+    private void applyAlertTransition(Group group, String previousAlert, String newAlert, String actor) {
+        if (Objects.equals(previousAlert, newAlert)) return;
+
+        boolean becameActive = "Active".equalsIgnoreCase(newAlert);
+        boolean becameInactive = "Active".equalsIgnoreCase(previousAlert) && !becameActive;
+
+        if (becameActive) {
+            group.setAlertActivatedAt(Instant.now());
+            group.setCheckInRemindersFired(0);
+        } else if (becameInactive) {
+            group.setAlertActivatedAt(null);
+            group.setCheckInRemindersFired(0);
+        }
+
+        if (becameActive) {
+            notifyGroupMembers(group);
+        }
+
+        if (HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType())) {
+            if (becameActive) {
+                householdEventService.recordCheckinStarted(group.getGroupId(), actor);
+            } else if (becameInactive) {
+                householdEventService.recordCheckinEnded(group.getGroupId(), actor);
+            }
+        }
+    }
+
+    /**
+     * Set ONLY the alert, leaving every other field of the group alone.
+     *
+     * <p>The frontend had no such endpoint, so toggling an alert meant
+     * {@code PUT /groups/{id}} with the whole object — from a snapshot taken
+     * when the page mounted. That is not "set the alert", it is "replay every
+     * field I last saw", and it silently reverted anything another admin had
+     * changed in between. Worse, the frontend's {@code updateGroup} rides the
+     * offline outbox, so a toggle made offline replayed a stale WHOLE GROUP
+     * whenever connectivity returned.</p>
+     *
+     * <p>Narrow by construction: it reads the group, changes {@code alert} and
+     * whatever {@link #applyAlertTransition} derives from it, and saves. A
+     * concurrent rename cannot be lost because the rename is never in the
+     * payload.</p>
+     */
+    @Transactional
+    public Group setAlert(String groupId, boolean active, String actor) {
+        Group group = getGroupByPublicId(groupId);
+        String previousAlert = group.getAlert();
+        String newAlert = active ? "Active" : "Inactive";
+
+        group.setAlert(newAlert);
+        if (actor != null && !actor.isBlank()) {
+            group.setLastUpdatedBy(actor);
+        }
+        applyAlertTransition(group, previousAlert, newAlert, actor);
+
+        Group saved = groupRepo.save(group);
+        broadcastAlertIfChanged(previousAlert, saved);
+        return saved;
+    }
+
+    /**
+     * The after-commit {@link GroupAlertFrame} push, shared by the full update
+     * and {@link #setAlert} so the two cannot drift on what listeners receive.
+     */
+    private void broadcastAlertIfChanged(String previousAlert, Group saved) {
+        if (sameAlertState(previousAlert, saved.getAlert())) return;
+        GroupAlertFrame frame = new GroupAlertFrame(
+                saved.getGroupId(),
+                frameAlert(saved.getAlert()),
+                saved.getAlertActivatedAt(),
+                initiatedBy(saved),
+                "manual"
+        );
+        // After the commit when there IS one to wait for; immediately otherwise.
+        //
+        // `registerSynchronization` THROWS when no synchronization is active,
+        // so the un-transactional path previously lost the broadcast *and*
+        // failed the call. Both public callers are @Transactional, so in
+        // production this always takes the first branch — but a helper that
+        // explodes depending on how it was reached is a trap for the next
+        // caller, and the write has already happened by then either way.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    webSocketMessageSender.sendGroupAlertStatus(saved.getGroupId(), frame);
+                }
+            });
+        } else {
+            webSocketMessageSender.sendGroupAlertStatus(saved.getGroupId(), frame);
+        }
     }
 
     private static boolean sameAlertState(String a, String b) {

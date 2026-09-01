@@ -85,6 +85,28 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.updateGroupByPublicId(groupId, groupDetails));
     }
 
+    /**
+     * Set the group's alert, and nothing else.
+     *
+     * <p>Same gate as the full update it replaces ({@code requireAdminOf}), but
+     * a payload of one boolean. The frontend previously had to
+     * {@code PUT /groups/{id}} with an entire group object — assembled from a
+     * snapshot taken when the page mounted — just to flip this flag, which
+     * meant every alert toggle silently reverted whatever another admin had
+     * changed since. See {@code GroupService#setAlert}.</p>
+     */
+    @PostMapping("/{groupId}/alert")
+    public ResponseEntity<Group> setAlert(
+            @PathVariable String groupId,
+            @RequestBody SetAlertRequest body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAdminOf(groupId);
+        return ResponseEntity.ok(groupService.setAlert(groupId, body.active(), caller));
+    }
+
+    /** Body of {@link #setAlert}. One field, deliberately. */
+    public record SetAlertRequest(boolean active) {}
+
     @DeleteMapping("/{groupId}")
     public void deleteGroup(@PathVariable String groupId) {
         requireOwnerOf(groupId);
