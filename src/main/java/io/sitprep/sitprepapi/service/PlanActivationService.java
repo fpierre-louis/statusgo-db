@@ -233,7 +233,9 @@ public class PlanActivationService {
     @Transactional(readOnly = true)
     public Optional<ActivationDetailDto> getActivation(String activationId, String callerEmail) {
         return activationRepo.findById(activationId)
-                .map(a -> isAuthorizedReader(a, callerEmail) ? toDetailDto(a) : toRecipientDetailDto(a));
+                .map(a -> isAuthorizedReader(a, callerEmail)
+                        ? toDetailDto(a, canEnd(a, callerEmail))
+                        : toRecipientDetailDto(a));
     }
 
     /**
@@ -287,6 +289,100 @@ public class PlanActivationService {
     public List<MapPoiDto> getRecipientMap(String activationId) {
         PlanActivation a = requireActiveActivation(activationId);
         return assembleMapPois(a, false);
+    }
+
+    // ---------------------------------------------------------------------
+    // End
+    // ---------------------------------------------------------------------
+
+    /**
+     * The household says it is over.
+     *
+     * <p>Until this existed the only thing that stopped an activation was its
+     * 72-hour {@code expiresAt}, so "we are done evacuating" was a sentence a
+     * household could not say. The most recent production row is the defect:
+     * activated 2026-08-29 17:31, still EVACUATING on every household surface
+     * until the timer ran out three days later.</p>
+     *
+     * <h4>Who may call it</h4>
+     * The owner, or a household co-member ({@link HouseholdAccessService#canReadPlanDataFor}).
+     * NOT a link holder, and that asymmetry is deliberate: {@link #getActivation}
+     * serves anyone holding the link because reading is recoverable, but a link
+     * can be forwarded, screenshotted or pasted into a group chat, and "anyone
+     * with the link may declare the evacuation over" is the mirror image of the
+     * failure this method exists to fix. A co-member gets it because the owner may
+     * be the person who is unreachable — which is the case where it matters most.
+     *
+     * <h4>What it deliberately does NOT do</h4>
+     * <ul>
+     *   <li><b>It does not stop acks.</b> The owner ends it because everyone THEY
+     *       CAN SEE is safe; the straggler who has not replied is exactly the
+     *       person whose "I need help" must still land. {@link #recordAck} checks
+     *       expiry only, and that is not an oversight.</li>
+     *   <li><b>It does not 410 the link.</b> {@link #getActivation} keeps serving
+     *       the detail with {@code closed=true} and an {@code endedAt}, so a
+     *       recipient who opens it ten minutes late learns what happened rather
+     *       than that something did.</li>
+     * </ul>
+     *
+     * <p>Idempotent: ending an already-ended activation returns the existing
+     * record without moving {@code endedAt}. Two household members tapping End at
+     * once must not produce two different "over at" times for one event.</p>
+     *
+     * @return the activation's detail as the caller is entitled to see it
+     */
+    @Transactional
+    public ActivationDetailDto endActivation(String activationId, String callerEmail) {
+        PlanActivation a = activationRepo.findById(activationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Activation not found"));
+
+        String caller = callerEmail == null ? null : callerEmail.trim().toLowerCase(Locale.ROOT);
+        if (!canEnd(a, caller)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only this household can end its own activation");
+        }
+
+        if (a.getEndedAt() == null) {
+            a.setEndedAt(Instant.now());
+            a.setEndedByEmail(caller);
+            a = activationRepo.save(a);
+            log.info("Activation ended id={} owner={} by={}",
+                    a.getId(), a.getOwnerEmail(), caller);
+        }
+
+        return toDetailDto(a, true);   // it just ended it; it can.
+    }
+
+    /**
+     * Is this activation over — by EITHER route?
+     *
+     * <p>One predicate, because the same expression was written in three places
+     * ({@code toDetailDto}, {@code toRecipientDetailDto}, {@code toActiveSituation})
+     * and a fourth reader that checked only expiry would keep an ended activation
+     * alive on exactly one surface. That disagreement between surfaces is the
+     * whole defect this change closes; reproducing it inside the fix would be
+     * a poor joke.</p>
+     */
+    /**
+     * May {@code caller} end this activation?
+     *
+     * <p>The owner or a household co-member — NOT the third branch of
+     * {@link #isAuthorizedReader} (an explicitly-targeted recipient by id), and
+     * not a link holder. Shipped to the client as
+     * {@code ActivationDetailDto.viewerCanEnd} so the frontend renders a
+     * capability the server computed rather than inferring household membership
+     * from the shape of the payload it got back.</p>
+     */
+    private boolean canEnd(PlanActivation a, String callerEmail) {
+        if (callerEmail == null) return false;
+        String caller = callerEmail.trim().toLowerCase(Locale.ROOT);
+        if (caller.isEmpty()) return false;
+        return caller.equalsIgnoreCase(a.getOwnerEmail())
+                || householdAccess.canReadPlanDataFor(caller, a.getOwnerEmail());
+    }
+
+    private static boolean isClosed(PlanActivation a) {
+        return a.getEndedAt() != null || Instant.now().isAfter(a.getExpiresAt());
     }
 
     private PlanActivation requireActiveActivation(String activationId) {
@@ -629,7 +725,7 @@ public class PlanActivationService {
     // Mapping helpers
     // ---------------------------------------------------------------------
 
-    private ActivationDetailDto toDetailDto(PlanActivation a) {
+    private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd) {
         MeetingPlaceSnapshotDto mp = null;
         if (a.getMeetingPlaceId() != null) {
             mp = meetingPlaceRepo.findById(a.getMeetingPlaceId())
@@ -657,7 +753,7 @@ public class PlanActivationService {
                 .map(this::toAckDto)
                 .toList();
 
-        boolean closed = Instant.now().isAfter(a.getExpiresAt());
+        boolean closed = isClosed(a);
         LocationDto location = (a.getLat() == null && a.getLng() == null)
                 ? null : new LocationDto(a.getLat(), a.getLng());
 
@@ -682,6 +778,8 @@ public class PlanActivationService {
                 a.getActivatedAt(),
                 a.getExpiresAt(),
                 closed,
+                a.getEndedAt(),
+                viewerCanEnd,
                 a.getMeetingMode(),
                 a.getEvacMode(),
                 a.getMessagePreview(),
@@ -769,13 +867,14 @@ public class PlanActivationService {
                     .toList();
         }
 
-        boolean closed = Instant.now().isAfter(a.getExpiresAt());
+        boolean closed = isClosed(a);
         LocationDto location = (a.getLat() == null && a.getLng() == null)
                 ? null : new LocationDto(a.getLat(), a.getLng());
 
         return new ActivationDetailDto(
                 a.getId(), a.getOwnerUserId(), a.getOwnerName(),
-                a.getActivatedAt(), a.getExpiresAt(), closed,
+                a.getActivatedAt(), a.getExpiresAt(), closed, a.getEndedAt(),
+                false,      // viewerCanEnd — a link holder never ends a household's activation
                 a.getMeetingMode(), a.getEvacMode(), a.getMessagePreview(),
                 location, mp, ep, ecgs,
                 List.of(),  // goBags — a link holder never sees bag storage locations
@@ -851,7 +950,8 @@ public class PlanActivationService {
 
         return new ActiveSituationDto(
                 a.getId(),
-                now.isAfter(a.getExpiresAt()) ? "closed" : "active",
+                isClosed(a) ? "closed" : "active",
+                a.getEndedAt(),
                 a.getActivatedAt(),
                 a.getActivatedAt(),
                 requested,

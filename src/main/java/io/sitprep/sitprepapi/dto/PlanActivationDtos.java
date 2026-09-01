@@ -58,8 +58,30 @@ public final class PlanActivationDtos {
             String ownerName,
             Instant activatedAt,
             Instant expiresAt,
-            /** {@code Instant.now().isAfter(expiresAt)} at response time. */
+            /**
+             * True once the activation is over EITHER WAY — past {@code expiresAt},
+             * or ended by the household. The two are not the same event and a
+             * surface that needs to tell them apart reads {@code endedAt}; one
+             * that only needs "is this still running" reads this.
+             */
             boolean closed,
+            /**
+             * When a person ended it, or null. Null with {@code closed == true}
+             * means the 72-hour timer ran out — nobody said it was over, it just
+             * stopped being live.
+             */
+            Instant endedAt,
+            /**
+             * May THIS caller end the activation? Server-computed, per the
+             * role-resolution convention (CLAUDE.md): a lightweight capability
+             * the client renders, never a membership the client re-derives.
+             * The frontend has no reliable way to tell a household co-member
+             * from a link holder out of this payload, and guessing from the
+             * shape of it ("acks came back, so I must be family") is the kind
+             * of inference that breaks the first time the projection changes.
+             * Always false in the recipient projection.
+             */
+            boolean viewerCanEnd,
             String meetingMode,
             String evacMode,
             String messagePreview,
@@ -95,9 +117,12 @@ public final class PlanActivationDtos {
 
     public record ActiveSituationDto(
             String id,
+            /** "active" while running; "closed" once expired OR ended. */
             String status,
             Instant activatedAt,
             Instant updatedAt,
+            /** When a person ended it; null if it is running or merely expired. */
+            Instant endedAt,
             String requestedOperationalMode,
             String operationalMode,
             String movementDirective,

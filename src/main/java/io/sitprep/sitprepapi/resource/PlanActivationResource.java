@@ -24,6 +24,7 @@ import java.util.List;
  *   GET  /api/plans/activations/{id}             — recipient-view snapshot + acks
  *   POST /api/plans/activations/{id}/acks        — recipient fires on tap
  *   GET  /api/plans/activations/{id}/acks        — owner poll (WS topic preferred)
+ *   POST /api/plans/activations/{id}/end         — the household says it is over
  * </pre>
  *
  * WebSocket: {@code /topic/activations/{id}/acks} receives a new {@code AckDto}
@@ -125,6 +126,31 @@ public class PlanActivationResource {
         }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(service.recordAck(activationId, request));
+    }
+
+    /**
+     * The household says the activation is over.
+     *
+     * <p>The counterpart to {@code POST /api/plans/activations}. Without it the
+     * only thing that stopped an activation was its 72-hour {@code expiresAt},
+     * and every household surface kept reading EVACUATING off a row nobody could
+     * close.</p>
+     *
+     * <p><b>Authenticated, and household-scoped — unlike the ack route beneath
+     * it.</b> Acks are un-authed by design (a recipient may have no SitPrep
+     * account and a link is the whole contract). Ending is not: a link can be
+     * forwarded, and "whoever holds the link may declare the evacuation over" is
+     * the inverse of the failure this closes. 403 for anyone outside the owner's
+     * household, 404 for an unknown id.</p>
+     *
+     * <p>Idempotent — a second call returns the same {@code endedAt}. Returns the
+     * full detail so the caller can re-render from the response instead of
+     * re-fetching.</p>
+     */
+    @PostMapping("/{activationId}/end")
+    public ResponseEntity<ActivationDetailDto> end(@PathVariable String activationId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.endActivation(activationId, caller));
     }
 
     /**

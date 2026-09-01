@@ -99,6 +99,32 @@ public class PlanActivation {
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
+    /**
+     * When the household said it was over, or null while it is still running.
+     *
+     * <p>DISTINCT FROM {@link #expiresAt}, and the distinction is the point.
+     * {@code expiresAt} is a 72-hour timer that runs whether or not anything
+     * happened; {@code endedAt} is a person saying so. Before this column
+     * existed the timer was the only way an activation stopped, which is why
+     * Home read EVACUATING for three days off a row nobody could close.</p>
+     *
+     * <p>Both active queries in {@code PlanActivationRepo} require this to be
+     * null, so setting it is what removes the activation from every "is
+     * something happening" read — including {@code MeDto.activeActivationId},
+     * which is what Home ranks on.</p>
+     *
+     * <p><b>It does not close the recipient link and it does not stop acks.</b>
+     * The owner ends it because everyone they can see is safe; the straggler who
+     * has not replied yet is exactly the person whose "I need help" must still
+     * land.</p>
+     */
+    @Column(name = "ended_at")
+    private Instant endedAt;
+
+    /** Who ended it — the owner or a household co-member. Null while running. */
+    @Column(name = "ended_by_email")
+    private String endedByEmail;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "plan_activation_household_members",
             joinColumns = @JoinColumn(name = "activation_id"))

@@ -12,6 +12,18 @@ import java.util.Optional;
 
 public interface PlanActivationRepo extends JpaRepository<PlanActivation, String> {
 
+    /*
+     * BOTH "ACTIVE" QUERIES BELOW REQUIRE endedAt IS NULL AS WELL AS AN UNEXPIRED
+     * expiresAt, AND THE TWO CONDITIONS ARE NOT THE SAME THING. `expiresAt` is a
+     * 72-hour timer; `endedAt` is a household saying it is over. Until the second
+     * existed the first was the only way out, so Home read EVACUATING for three
+     * days off a row nobody could close.
+     *
+     * If a third "active" query is ever added here, it carries the same pair.
+     * One that checks only expiry would keep an ended activation alive on exactly
+     * one surface, which is the disagreement this change exists to end.
+     */
+
     /**
      * The owner's most recent non-expired activation, if any. Owner-scoped
      * consumers use this when the caller already knows the activation owner.
@@ -23,6 +35,7 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
         "SELECT a FROM PlanActivation a " +
         "WHERE LOWER(a.ownerEmail) = LOWER(:email) " +
         "AND a.expiresAt > :now " +
+        "AND a.endedAt IS NULL " +
         "ORDER BY a.activatedAt DESC"
     )
     Optional<PlanActivation> findFirstActiveByOwnerEmail(
@@ -40,6 +53,7 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
         "SELECT a FROM PlanActivation a " +
         "WHERE LOWER(a.ownerEmail) = LOWER(:email) " +
         "AND a.expiresAt > :now " +
+        "AND a.endedAt IS NULL " +
         "ORDER BY a.activatedAt DESC"
     )
     List<PlanActivation> findActiveByOwnerEmail(
