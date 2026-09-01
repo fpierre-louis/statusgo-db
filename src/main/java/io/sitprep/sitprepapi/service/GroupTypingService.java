@@ -67,6 +67,21 @@ public class GroupTypingService {
         });
     }
 
+    /**
+     * The typing member's name, or {@code null} when the record does not hold one.
+     *
+     * <p><b>Null, not the email address.</b> This used to {@code .orElse(email)},
+     * and the frame is rendered as "{name} is typing…" to everyone in the group —
+     * so an address went on screen for any member who has not set a name. That is
+     * the same defect as rendering an address where a name goes in a comment
+     * thread, and {@code canViewEmail} on the group surfaces is explicit that a
+     * plain member is not entitled to a peer's address.</p>
+     *
+     * <p>The client cannot fix this: it would have to guess whether a
+     * {@code displayName} that looks like an address is a real name or this
+     * fallback having fired. The server owns the resolution, so absence is
+     * shipped as absence and the client says "Someone".</p>
+     */
     private String displayName(String email) {
         return userInfoRepo.findByUserEmail(email)
                 .map(u -> {
@@ -76,7 +91,7 @@ public class GroupTypingService {
                     return full.isBlank() ? first : full;
                 })
                 .filter(s -> s != null && !s.isBlank())
-                .orElse(email);
+                .orElse(null);
     }
 
     private static String trim(String value) {
