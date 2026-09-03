@@ -58,6 +58,11 @@ public class HouseholdEventService {
     public static final String KIND_CHECKIN_STARTED  = "checkin-started";
     public static final String KIND_CHECKIN_ENDED    = "checkin-ended";
     public static final String KIND_CHECKIN_REMINDER = "checkin-reminder";
+    // The plan's own lifecycle. Added 2026-09-03: the log recorded every
+    // check-in transition and was blind to activations — the more serious of
+    // the two events, and the one a household most wants to look back on.
+    public static final String KIND_ACTIVATION_STARTED = "activation-started";
+    public static final String KIND_ACTIVATION_ENDED   = "activation-ended";
     public static final String KIND_NUDGE            = "nudge";
     public static final String KIND_WITH_CLAIM       = "with-claim";
     public static final String KIND_WITH_RELEASE     = "with-release";
@@ -175,6 +180,20 @@ public class HouseholdEventService {
 
     public void recordCheckinEnded(String householdId, String actorEmail) {
         recordSafely(householdId, KIND_CHECKIN_ENDED, actorEmail, Map.of());
+    }
+
+    /**
+     * The plan was launched, or stood down. {@code actorEmail} is null when the
+     * 72-hour timer ended it rather than a person.
+     */
+    public void recordActivationStarted(String householdId, String actorEmail, String activationId) {
+        recordSafely(householdId, KIND_ACTIVATION_STARTED, actorEmail,
+                activationId == null ? Map.of() : Map.of("activationId", activationId));
+    }
+
+    public void recordActivationEnded(String householdId, String actorEmail, String activationId) {
+        recordSafely(householdId, KIND_ACTIVATION_ENDED, actorEmail,
+                activationId == null ? Map.of() : Map.of("activationId", activationId));
     }
 
     /**

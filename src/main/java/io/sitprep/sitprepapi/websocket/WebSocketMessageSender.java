@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.websocket;
 
 import io.sitprep.sitprepapi.dto.NotificationPayload;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckDto;
+import io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationLifecycleFrame;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationPlanUpdatedFrame;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdEventDto;
@@ -163,6 +164,22 @@ public class WebSocketMessageSender {
     // --- Activations ---
     public void sendActivationAck(String activationId, AckDto dto) {
         messagingTemplate.convertAndSend("/topic/activations/" + activationId + "/acks", dto);
+    }
+
+    /**
+     * The activation started or ended.
+     *
+     * <p>Same destination as {@link #sendActivationPlanUpdate} on purpose —
+     * see {@link ActivationLifecycleFrame}. Before this existed, ending an
+     * activation broadcast NOTHING: the person who tapped it saw the response
+     * and every other household member kept reading EVACUATING until their
+     * device happened to refetch, which nothing caused it to do.</p>
+     *
+     * <p>Topic: {@code /topic/activations/{activationId}/plan}</p>
+     */
+    public void sendActivationLifecycle(String activationId, ActivationLifecycleFrame dto) {
+        if (activationId == null || activationId.isBlank() || dto == null) return;
+        messagingTemplate.convertAndSend("/topic/activations/" + activationId + "/plan", dto);
     }
 
     public void sendActivationPlanUpdate(String activationId, ActivationPlanUpdatedFrame dto) {

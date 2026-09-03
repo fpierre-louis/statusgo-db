@@ -173,6 +173,28 @@ public final class PlanActivationDtos {
             Instant ackedAt
     ) {}
 
+    /**
+     * The activation's LIFECYCLE, as opposed to its plan data.
+     *
+     * <p>Shares the {@code /topic/activations/{id}/plan} destination with
+     * {@link ActivationPlanUpdatedFrame} — already authorised, already carried,
+     * and the right audience by construction: a recipient watching a shared
+     * link has an activation id and no household id, so a household-scoped
+     * topic could not reach the people who most need to hear that it ended.
+     * The {@code type} field is what a client discriminates on, exactly as the
+     * plan frame already does.</p>
+     *
+     * <p>{@code state} is {@code "started"} or {@code "ended"}. {@code byEmail}
+     * is null when the 72-hour timer ended it rather than a person.</p>
+     */
+    public record ActivationLifecycleFrame(
+            String type,
+            String activationId,
+            String state,
+            String byEmail,
+            Instant at
+    ) {}
+
     public record ActivationPlanUpdatedFrame(
             String type,
             String activationId,

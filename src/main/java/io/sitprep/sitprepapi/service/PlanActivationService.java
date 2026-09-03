@@ -50,6 +50,7 @@ public class PlanActivationService {
     private final HouseholdAccessService householdAccess;
     private final HouseholdResolver householdResolver;
     private final GoBagService goBagService;
+    private final HouseholdEventService householdEventService;
 
     public PlanActivationService(
             PlanActivationRepo activationRepo,
@@ -65,7 +66,8 @@ public class PlanActivationService {
             NotificationService notificationService,
             HouseholdAccessService householdAccess,
             HouseholdResolver householdResolver,
-            GoBagService goBagService
+            GoBagService goBagService,
+            HouseholdEventService householdEventService
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
@@ -81,6 +83,7 @@ public class PlanActivationService {
         this.householdAccess = householdAccess;
         this.householdResolver = householdResolver;
         this.goBagService = goBagService;
+        this.householdEventService = householdEventService;
     }
 
     // ---------------------------------------------------------------------
@@ -168,6 +171,11 @@ public class PlanActivationService {
                     log.error("Plan activation push fan-out failed owner={} activation={}",
                             ownerEmail, saved.getId(), e);
                 }
+                // The frame and the log row, beside the push that was already
+                // here. Each is wrapped on its own so one failing does not
+                // take the others with it — a household that got the push and
+                // no frame is better off than one that got neither.
+                announce(saved, "started", ownerEmail);
             }
         });
 
@@ -184,11 +192,104 @@ public class PlanActivationService {
      * bypass). Self-excludes the owner. Tokenless members are skipped
      * gracefully by the notification layer.
      */
-    private void notifyHouseholdOfActivation(String ownerEmail, String activationId) {
-        Group household = groupRepo.findByMemberEmail(ownerEmail).stream()
+    /**
+     * The household this activation belongs to, or null.
+     *
+     * <p>Extracted from {@link #notifyHouseholdOfActivation}, which is the only
+     * place it existed. Every lifecycle side effect needs the same lookup, and
+     * three copies of "first Household group this owner is a member of" is how
+     * the push and the log start disagreeing about whose household it was.</p>
+     */
+    private Group householdOf(String ownerEmail) {
+        if (ownerEmail == null || ownerEmail.isBlank()) return null;
+        return groupRepo.findByMemberEmail(ownerEmail).stream()
                 .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Broadcast the lifecycle frame and write the log row.
+     *
+     * <p>Each side effect is caught separately and NONE of them can fail the
+     * write that preceded them. An activation that ended and could not say so
+     * is bad; an activation that failed to end because the socket was down
+     * would be worse.</p>
+     */
+    private void announce(PlanActivation a, String state, String byEmail) {
+        try {
+            ws.sendActivationLifecycle(a.getId(), new ActivationLifecycleFrame(
+                    "activation.lifecycle", a.getId(), state, byEmail, Instant.now()));
+        } catch (Exception e) {
+            log.error("Activation lifecycle frame failed id={} state={}", a.getId(), state, e);
+        }
+        try {
+            Group hh = householdOf(a.getOwnerEmail());
+            if (hh != null) {
+                if ("ended".equals(state)) {
+                    householdEventService.recordActivationEnded(hh.getGroupId(), byEmail, a.getId());
+                } else {
+                    householdEventService.recordActivationStarted(hh.getGroupId(), byEmail, a.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Activation event log failed id={} state={}", a.getId(), state, e);
+        }
+    }
+
+    /** The frame, the log row, and the push that the end never had. */
+    private void announceEnd(PlanActivation a, String endedBy) {
+        announce(a, "ended", endedBy);
+        try {
+            notifyHouseholdOfEnd(a, endedBy);
+        } catch (Exception e) {
+            log.error("Activation end push fan-out failed id={}", a.getId(), e);
+        }
+    }
+
+    /**
+     * Tell the household it is over.
+     *
+     * <p>Deliberately the SAME shape as the activation push — same batching,
+     * same presence-aware delivery, same never-blocks-the-write contract. It
+     * uses the ALL-CLEAR wording the app already shows on a calm board, so the
+     * push and the screen the reader lands on say the same thing.</p>
+     *
+     * <p>The person who ended it is skipped, exactly as the activator is on
+     * create: they are looking at the result already.</p>
+     */
+    private void notifyHouseholdOfEnd(PlanActivation a, String endedBy) {
+        Group household = householdOf(a.getOwnerEmail());
+        if (household == null || household.getMemberEmails() == null || household.getMemberEmails().isEmpty()) {
+            return;
+        }
+        String enderName = endedBy == null ? null : userInfoRepo.findByUserEmailIgnoreCase(endedBy)
+                .map(u -> joinName(u.getUserFirstName(), u.getUserLastName()))
+                .filter(str -> str != null && !str.isBlank())
+                .orElse(null);
+
+        String title = "All clear";
+        String body = enderName != null
+                ? enderName + " ended the plan. Your household is no longer evacuating."
+                : "The plan has ended. Your household is no longer evacuating.";
+        String targetUrl = "/deployedplan?activationId=" + a.getId();
+
+        List<UserInfo> members = userInfoRepo.findByUserEmailIn(household.getMemberEmails());
+        for (UserInfo m : members) {
+            if (m.getUserEmail() == null) continue;
+            if (endedBy != null && m.getUserEmail().equalsIgnoreCase(endedBy)) continue;
+            notificationService.deliverPresenceAware(
+                    m.getUserEmail(), title, body, enderName == null ? "Your household" : enderName,
+                    "/images/plan-icon.png", "plan_activation_ended", a.getId(),
+                    targetUrl, null, m.getFcmtoken(),
+                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED
+            );
+        }
+        log.info("Activation {} end pushed to {} household member(s)", a.getId(), members.size());
+    }
+
+    private void notifyHouseholdOfActivation(String ownerEmail, String activationId) {
+        Group household = householdOf(ownerEmail);
         if (household == null || household.getMemberEmails() == null || household.getMemberEmails().isEmpty()) {
             return;
         }
@@ -348,6 +449,28 @@ public class PlanActivationService {
             a = activationRepo.save(a);
             log.info("Activation ended id={} owner={} by={}",
                     a.getId(), a.getOwnerEmail(), caller);
+
+            // ── ENDING USED TO BROADCAST NOTHING ─────────────────────────
+            //
+            // This method wrote `endedAt` and returned. The person who tapped
+            // it saw the response; every other household member kept reading
+            // EVACUATING until their device happened to refetch /me, and
+            // nothing caused it to. That silence is what left a household in
+            // EVACUATING for three days on 2026-08-29 — the End button closed
+            // the state, not the silence.
+            //
+            // After commit, for the reason create already does it: the row has
+            // to be durable before anyone is told about it.
+            final PlanActivation ended = a;
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() { announceEnd(ended, caller); }
+                });
+            } else {
+                // A helper that explodes depending on how it was reached is a
+                // trap for the next caller, and the write has already happened.
+                announceEnd(ended, caller);
+            }
         }
 
         return toDetailDto(a, true);   // it just ended it; it can.

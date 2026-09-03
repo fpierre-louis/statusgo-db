@@ -47,6 +47,7 @@ class PlanActivationEndTest {
     private PlanActivationRepo activationRepo;
     private PlanActivationAckRepo ackRepo;
     private HouseholdAccessService householdAccess;
+    private WebSocketMessageSender ws;
     private PlanActivationService service;
 
     @BeforeEach
@@ -58,10 +59,11 @@ class PlanActivationEndTest {
         service = new PlanActivationService(activationRepo, ackRepo, userInfoRepo,
                 mock(MeetingPlaceRepo.class), mock(EvacuationPlanRepo.class),
                 mock(OriginLocationRepo.class), mock(EmergencyContactGroupRepo.class),
-                mock(EmergencyContactRepo.class), mock(WebSocketMessageSender.class),
+                mock(EmergencyContactRepo.class), ws = mock(WebSocketMessageSender.class),
                 mock(GroupRepo.class), mock(NotificationService.class),
                 householdAccess,
-                mock(HouseholdResolver.class), mock(GoBagService.class));
+                mock(HouseholdResolver.class), mock(GoBagService.class),
+                mock(HouseholdEventService.class));
         TransactionSynchronizationManager.initSynchronization();
 
         when(userInfoRepo.findByUserEmailIgnoreCase(anyString())).thenReturn(Optional.empty());
@@ -220,5 +222,54 @@ class PlanActivationEndTest {
 
         assertTrue(dto.closed(), "the timer still closes it");
         assertNull(dto.endedAt(), "nobody said it was over — it just stopped being live");
+    }
+
+    // ── THE END HAS TO LEAVE THE SERVER ──────────────────────────────────────
+    //
+    // Before Phase 1, `endActivation` wrote `endedAt` and returned. The ender
+    // saw the response and every other household member kept reading
+    // EVACUATING until their device happened to refetch, which nothing caused
+    // it to do. These two guard the fix.
+    //
+    // Synchronization is CLEARED first, deliberately. With it active the
+    // broadcast registers an afterCommit callback that no test transaction
+    // will ever fire; clearing it exercises the else-branch — the one the
+    // service comments call a trap for the next caller, and the one nothing
+    // else covers.
+    @Test
+    void endingBroadcastsALifecycleFrame() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        live();
+        when(householdAccess.canReadPlanDataFor(OWNER, OWNER)).thenReturn(true);
+
+        service.endActivation(ACT_ID, OWNER);
+
+        org.mockito.ArgumentCaptor<io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationLifecycleFrame> frame =
+                org.mockito.ArgumentCaptor.forClass(
+                        io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationLifecycleFrame.class);
+        verify(ws).sendActivationLifecycle(org.mockito.ArgumentMatchers.eq(ACT_ID), frame.capture());
+        assertEquals("ended", frame.getValue().state());
+        assertEquals(OWNER, frame.getValue().byEmail());
+    }
+
+    // Ending twice must not tell the household twice. The idempotence guard is
+    // on the WRITE (`endedAt == null`), and the broadcast lives inside it — so
+    // this asserts the two cannot drift apart.
+    @Test
+    void endingTwiceBroadcastsOnce() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        live();
+        when(householdAccess.canReadPlanDataFor(OWNER, OWNER)).thenReturn(true);
+
+        service.endActivation(ACT_ID, OWNER);
+        service.endActivation(ACT_ID, OWNER);
+
+        verify(ws, org.mockito.Mockito.times(1))
+                .sendActivationLifecycle(org.mockito.ArgumentMatchers.eq(ACT_ID),
+                        org.mockito.ArgumentMatchers.any());
     }
 }
