@@ -47,6 +47,7 @@ class PlanActivationHouseholdEndTest {
     private GroupRepo groupRepo;
     private WebSocketMessageSender ws;
     private HouseholdEventService events;
+    private GroupService groupService;
     private NotificationService notifications;
     private PlanActivationService service;
 
@@ -64,7 +65,8 @@ class PlanActivationHouseholdEndTest {
                 groupRepo, notifications = mock(NotificationService.class),
                 mock(HouseholdAccessService.class),
                 mock(HouseholdResolver.class), mock(GoBagService.class),
-                events = mock(HouseholdEventService.class));
+                events = mock(HouseholdEventService.class),
+                groupService = mock(GroupService.class));
 
         // The else-branch. See PlanActivationExpiryTest for the argument (T-89).
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -250,6 +252,30 @@ class PlanActivationHouseholdEndTest {
 
         assertEquals(0, service.endHouseholdActivations(HOUSEHOLD_ID, OWNER).endedCount());
         assertNull(expired.getEndedAt());
+    }
+
+    // ── BOTH HALVES, ONE TRANSACTION ────────────────────────────────────────
+
+    @Test
+    void allClearAlsoStandsTheCheckInDown() {
+        // The client used to make this a SECOND call. On a dropped connection
+        // that left the household with no evacuation and an open check-in —
+        // people still being asked a question whose answer no longer matters.
+        live("act-mine", OWNER, 1);
+
+        service.endHouseholdActivations(HOUSEHOLD_ID, OWNER);
+
+        verify(groupService).setAlert(HOUSEHOLD_ID, false, OWNER);
+    }
+
+    @Test
+    void aHouseholdWithNothingLiveDoesNotTouchTheCheckIn() {
+        // All clear ends what is RUNNING. With nothing running there is nothing
+        // to end, and flipping the alert anyway would let a stray tap close a
+        // check-in somebody started for an unrelated reason.
+        service.endHouseholdActivations(HOUSEHOLD_ID, OWNER);
+
+        verifyNoInteractions(groupService);
     }
 
     // ── the household has to exist, and be one ──────────────────────────────

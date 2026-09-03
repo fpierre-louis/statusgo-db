@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.PlanActivation;
 import io.sitprep.sitprepapi.domain.PlanActivationAck;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckRequest;
@@ -49,6 +50,8 @@ class PlanActivationEndTest {
     private HouseholdAccessService householdAccess;
     private WebSocketMessageSender ws;
     private PlanActivationService service;
+    private GroupRepo groupRepo;
+    private GroupService groupService;
 
     @BeforeEach
     void setUp() {
@@ -56,14 +59,16 @@ class PlanActivationEndTest {
         ackRepo = mock(PlanActivationAckRepo.class);
         householdAccess = mock(HouseholdAccessService.class);
         UserInfoRepo userInfoRepo = mock(UserInfoRepo.class);
+        groupRepo = mock(GroupRepo.class);
         service = new PlanActivationService(activationRepo, ackRepo, userInfoRepo,
                 mock(MeetingPlaceRepo.class), mock(EvacuationPlanRepo.class),
                 mock(OriginLocationRepo.class), mock(EmergencyContactGroupRepo.class),
                 mock(EmergencyContactRepo.class), ws = mock(WebSocketMessageSender.class),
-                mock(GroupRepo.class), mock(NotificationService.class),
+                groupRepo, mock(NotificationService.class),
                 householdAccess,
                 mock(HouseholdResolver.class), mock(GoBagService.class),
-                mock(HouseholdEventService.class));
+                mock(HouseholdEventService.class),
+                groupService = mock(GroupService.class));
         TransactionSynchronizationManager.initSynchronization();
 
         when(userInfoRepo.findByUserEmailIgnoreCase(anyString())).thenReturn(Optional.empty());
@@ -205,6 +210,31 @@ class PlanActivationEndTest {
         assertNotNull(read.get().endedAt());
         assertEquals("closed", read.get().activeSituation().status());
         assertNotNull(read.get().activeSituation().endedAt());
+    }
+
+    // ── LAUNCHING A PLAN STARTS THE CHECK-IN ────────────────────────────────
+
+    @Test
+    void creatingAnActivationAlsoOpensTheHouseholdsCheckIn() {
+        // THE ONE COUPLING WORTH HAVING, and it is directional. Launching means
+        // "here is where to go"; without the ping the household never learns
+        // who got there. The reverse — gating the ping on plan setup — would
+        // put somebody with no saved meeting spots on an empty picker
+        // mid-emergency, which is why the two states stay independent.
+        //
+        // In the SAME transaction, which is the whole point: two client calls
+        // work on a good connection and, on a bad one, produce exactly the
+        // half-state this closes.
+        Group household = new Group();
+        household.setGroupId("hh-1");
+        household.setGroupType("Household");
+        household.setMemberEmails(java.util.List.of(OWNER));
+        when(groupRepo.findByMemberEmail(OWNER)).thenReturn(java.util.List.of(household));
+
+        service.createActivation(new io.sitprep.sitprepapi.dto.PlanActivationDtos.CreateActivationRequest(
+                OWNER, null, null, null, null, null, null, null, null, null, null));
+
+        verify(groupService).setAlert("hh-1", true, OWNER);
     }
 
     // ── the predicate that had three copies ─────────────────────────────────

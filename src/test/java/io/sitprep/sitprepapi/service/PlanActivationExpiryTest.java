@@ -65,7 +65,7 @@ class PlanActivationExpiryTest {
                 groupRepo, notifications = mock(NotificationService.class),
                 mock(HouseholdAccessService.class),
                 mock(HouseholdResolver.class), mock(GoBagService.class),
-                events = mock(HouseholdEventService.class));
+                events = mock(HouseholdEventService.class), mock(GroupService.class));
 
         // T-89: registerSynchronization THROWS with no active transaction, and a
         // test that calls initSynchronization() never fires its afterCommit. The

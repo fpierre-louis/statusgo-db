@@ -52,6 +52,7 @@ public class PlanActivationService {
     private final HouseholdResolver householdResolver;
     private final GoBagService goBagService;
     private final HouseholdEventService householdEventService;
+    private final GroupService groupService;
 
     public PlanActivationService(
             PlanActivationRepo activationRepo,
@@ -68,7 +69,8 @@ public class PlanActivationService {
             HouseholdAccessService householdAccess,
             HouseholdResolver householdResolver,
             GoBagService goBagService,
-            HouseholdEventService householdEventService
+            HouseholdEventService householdEventService,
+            GroupService groupService
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
@@ -85,6 +87,7 @@ public class PlanActivationService {
         this.householdResolver = householdResolver;
         this.goBagService = goBagService;
         this.householdEventService = householdEventService;
+        this.groupService = groupService;
     }
 
     // ---------------------------------------------------------------------
@@ -161,6 +164,24 @@ public class PlanActivationService {
         log.info("Activation created id={} owner={} expiresAt={}",
                 saved.getId(), ownerEmail, saved.getExpiresAt());
 
+        // ── LAUNCHING A PLAN STARTS THE CHECK-IN TOO ──────────────────────
+        //
+        // The two states stay INDEPENDENT — a household can need one without
+        // the other, and chaining them the other way would gate the emergency
+        // ping on plan setup, putting somebody with no saved meeting spots on
+        // an empty picker mid-emergency. This is the one direction where the
+        // coupling is what the owner means: it is the difference between "we
+        // told you where to go" and "we told you where to go AND we know who
+        // got there".
+        //
+        // In the SAME transaction as the row above, which is the whole point.
+        // Two client calls work on a good connection and, on a bad one,
+        // produce exactly the half-state this closes: people evacuating with
+        // nobody asked whether they are safe, or asked with nowhere to go.
+        // `setAlert` is @Transactional and joins this one; it returns early
+        // when the alert is already Active, so a second launch is free.
+        alsoStartCheckIn(ownerEmail);
+
         // Push the owner's authenticated household members so they can open
         // the plan + check in. Fires AFTER commit so the row is durable
         // before we notify; failures are logged, never block the create.
@@ -207,6 +228,24 @@ public class PlanActivationService {
                 .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Flip the launcher's household into an active check-in.
+     *
+     * <p>Never fails the activation. A household that got its destination and
+     * no ping is worse off than one that got both; a household that got
+     * NEITHER because the ping threw is worse off than either.</p>
+     */
+    private void alsoStartCheckIn(String ownerEmail) {
+        try {
+            Group hh = householdOf(ownerEmail);
+            if (hh != null && hh.getGroupId() != null) {
+                groupService.setAlert(hh.getGroupId(), true, ownerEmail);
+            }
+        } catch (Exception e) {
+            log.error("Activation could not start the check-in for owner={}", ownerEmail, e);
+        }
     }
 
     /**
@@ -619,6 +658,12 @@ public class PlanActivationService {
         }
         log.info("All clear: household={} ended {} activation(s) by={}",
                 householdId, ended.size(), caller);
+
+        // The other half of the same statement, and in the same transaction
+        // for the same reason. The client used to make this a SECOND call —
+        // which on a dropped connection left the household with no evacuation
+        // and an open check-in.
+        groupService.setAlert(householdId, false, caller);
 
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
