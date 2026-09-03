@@ -541,6 +541,125 @@ public class PlanActivationService {
     }
 
     /**
+     * End EVERY live activation in one household, in one transaction — the
+     * write behind "All clear".
+     *
+     * <h4>Why {@link #endActivation} is not enough</h4>
+     * An activation is keyed on the OWNER's email, not the household's, so two
+     * people launching a plan produces two rows.
+     * {@code MeService.resolveActiveActivationIdForHome} then takes
+     * {@code max(activatedAt)} across every household member — so ending the
+     * newest one lets the resolver fall back to the older one, Home stays
+     * EVACUATING, and the person who just declared it over watches it come
+     * back. A per-row endpoint cannot fix that from the client either: the
+     * client does not know how many rows there are.
+     *
+     * <p>One transaction, so the household cannot end up half stood-down.</p>
+     *
+     * <h4>ONE {@code endedAt} across every row</h4>
+     * All clear is one statement about the household, not N separate endings.
+     * Two rows closed by one tap that disagree by 40ms would be a distinction
+     * with no referent — and the household timeline would show two times for
+     * one event.
+     *
+     * <h4>One push, N frames</h4>
+     * The frames are per activation because the topic is
+     * {@code /topic/activations/{id}/plan} — a recipient watching a shared link
+     * has an id and nothing else, so every row has to speak on its own channel.
+     * The PUSH is sent once. The household is being told one thing, and two
+     * "All clear" notifications for one tap is the app narrating its own
+     * schema.
+     *
+     * <p><b>Authorization is the caller's household membership</b>, checked at
+     * the resource. Same bar as {@link #endActivation}'s co-member branch and
+     * for the same reason: the owner may be the person who is unreachable.</p>
+     *
+     * <p>Idempotent — a household with nothing live returns a zero count and
+     * broadcasts nothing.</p>
+     */
+    @Transactional
+    public HouseholdActivationsEndedDto endHouseholdActivations(String householdId, String callerEmail) {
+        Group household = groupRepo.findByGroupId(householdId)
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Household not found"));
+
+        String caller = callerEmail == null ? null : callerEmail.trim().toLowerCase(Locale.ROOT);
+        Instant now = Instant.now();
+
+        // The SAME candidate set MeService resolves Home's activation from —
+        // owner plus every member — because the whole defect is those two
+        // reading a different set. A row this misses stays live and Home keeps
+        // showing it.
+        Set<String> owners = new LinkedHashSet<>();
+        addOwnerEmail(owners, household.getOwnerEmail());
+        if (household.getMemberEmails() != null) {
+            household.getMemberEmails().forEach(raw -> addOwnerEmail(owners, raw));
+        }
+
+        // The lowercased SET above is the dedupe, and it is the only one needed:
+        // an activation has exactly one owner, and `findActiveByOwnerEmail`
+        // matches on LOWER(ownerEmail), so one row can be returned by one email
+        // only. A second dedupe keyed on the activation id was here and is gone
+        // — re-arming it proved nothing could reach it, which makes it a comment
+        // pretending to be a guard.
+        List<PlanActivation> live = new ArrayList<>();
+        for (String owner : owners) {
+            live.addAll(activationRepo.findActiveByOwnerEmail(owner, now));
+        }
+        if (live.isEmpty()) {
+            return new HouseholdActivationsEndedDto(householdId, 0, List.of(), null);
+        }
+
+        Instant endedAt = Instant.now();
+        final List<PlanActivation> ended = new ArrayList<>(live.size());
+        for (PlanActivation a : live) {
+            a.setEndedAt(endedAt);
+            a.setEndedByEmail(caller);
+            ended.add(activationRepo.save(a));
+        }
+        log.info("All clear: household={} ended {} activation(s) by={}",
+                householdId, ended.size(), caller);
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { announceHouseholdEnd(ended, caller); }
+            });
+        } else {
+            announceHouseholdEnd(ended, caller);
+        }
+
+        return new HouseholdActivationsEndedDto(
+                householdId, ended.size(),
+                ended.stream().map(PlanActivation::getId).toList(),
+                endedAt);
+    }
+
+    /** Every row gets its own frame and log line; the household gets ONE push. */
+    private void announceHouseholdEnd(List<PlanActivation> ended, String caller) {
+        for (PlanActivation a : ended) {
+            announce(a, "ended", caller);
+        }
+        // The newest, because that is the one Home was showing and the one the
+        // notification's deep link should open.
+        ended.stream()
+                .max(Comparator.comparing(PlanActivation::getActivatedAt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .ifPresent(newest -> {
+                    try {
+                        notifyHouseholdOfEnd(newest, caller);
+                    } catch (Exception e) {
+                        log.error("All clear push fan-out failed household activation={}", newest.getId(), e);
+                    }
+                });
+    }
+
+    private static void addOwnerEmail(Set<String> into, String raw) {
+        if (raw == null) return;
+        String v = raw.trim().toLowerCase(Locale.ROOT);
+        if (!v.isEmpty()) into.add(v);
+    }
+
+    /**
      * The frame and the log row for a timer ending — {@link #announce}, not
      * {@link #announceEnd}, and the difference is the push.
      *

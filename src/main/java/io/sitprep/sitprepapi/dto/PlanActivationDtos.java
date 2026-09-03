@@ -195,6 +195,27 @@ public final class PlanActivationDtos {
             Instant at
     ) {}
 
+    /**
+     * What "All clear" closed.
+     *
+     * <p>A count and not a boolean, because a household can have MORE THAN ONE
+     * live activation and that is the defect this endpoint exists for:
+     * activations are keyed on owner email, and two people launching produces
+     * two rows. Ending one let {@code MeService.resolveActiveActivationIdForHome}
+     * fall back to the other, so Home stayed EVACUATING and the person who
+     * tapped End watched it come back.</p>
+     *
+     * <p>{@code endedAt} is ONE instant shared by every row closed, because all
+     * clear is one statement about the household rather than N separate
+     * endings. Null when nothing was live.</p>
+     */
+    public record HouseholdActivationsEndedDto(
+            String householdId,
+            int endedCount,
+            List<String> activationIds,
+            Instant endedAt
+    ) {}
+
     public record ActivationPlanUpdatedFrame(
             String type,
             String activationId,
