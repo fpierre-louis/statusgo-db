@@ -39,6 +39,15 @@ import java.util.List;
  * long scheduler pause can't lock the table or OOM the dyno. Subsequent
  * ticks drain the rest at the same rate.</p>
  *
+ * <p><b>Two passes, and only one of them deletes.</b> The tick first hands
+ * {@link PlanActivationService#handleExpiredActivations} the rows whose
+ * 72-hour timer just ran out, so a timeout broadcasts an ending like every
+ * other way an activation stops. That pass touches rows minutes old; the
+ * delete pass below touches rows fourteen days old. They are in one job
+ * because they are both driven by {@code expiresAt}, and in separate
+ * transactions because a failed delete must not roll back an announcement
+ * whose frames have already gone out.</p>
+ *
  * <p><b>Cascade:</b> {@code PlanActivationAck} has no DB-level FK to
  * {@code PlanActivation} (only an indexed {@code activation_id} column),
  * so cascade is enforced here in the application. Acks are deleted first,
@@ -53,6 +62,7 @@ public class ActivationExpirySweepService {
 
     private final PlanActivationRepo activationRepo;
     private final PlanActivationAckRepo ackRepo;
+    private final PlanActivationService activationService;
 
     @Value("${app.activation.retentionAfterExpiryDays:14}")
     private int retentionAfterExpiryDays;
@@ -62,10 +72,12 @@ public class ActivationExpirySweepService {
 
     public ActivationExpirySweepService(
             PlanActivationRepo activationRepo,
-            PlanActivationAckRepo ackRepo
+            PlanActivationAckRepo ackRepo,
+            PlanActivationService activationService
     ) {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
+        this.activationService = activationService;
     }
 
     /**
@@ -75,6 +87,20 @@ public class ActivationExpirySweepService {
      */
     @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT10M")
     public void scheduledSweep() {
+        // Announce first, delete second. Its own try/catch because a failure
+        // here must not cost the household the disk cleanup, and a failure in
+        // the cleanup must not cost it the announcement.
+        //
+        // Called through the injected bean, NOT this.something() — the
+        // announcement is @Transactional, and a self-invocation would bypass
+        // the proxy, run with no transaction, and take the no-synchronization
+        // branch on every tick.
+        try {
+            activationService.handleExpiredActivations(sweepBatchSize);
+        } catch (Exception e) {
+            log.warn("ActivationExpirySweep: expiry announcement failed: {}", e.getMessage(), e);
+            try { Sentry.captureException(e); } catch (Throwable ignored) {}
+        }
         try {
             int deleted = sweepOnce();
             if (deleted > 0) {

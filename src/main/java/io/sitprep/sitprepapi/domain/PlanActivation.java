@@ -125,6 +125,30 @@ public class PlanActivation {
     @Column(name = "ended_by_email")
     private String endedByEmail;
 
+    /**
+     * When the expiry sweep handled this row, or null if it has not yet.
+     *
+     * <p><b>This is deliberately NOT {@link #endedAt}.</b> {@code endedAt} means
+     * a person said it was over, and four places depend on that reading — this
+     * class's own Javadoc above, both repo queries, and on the frontend
+     * {@code EndActivationControl}, which renders <i>"Your household ended
+     * this"</i> off that field alone. Stamping the 72-hour timer into it would
+     * have the app attribute a clock's decision to the household.</p>
+     *
+     * <p>So the timer gets its own column, claiming only what the sweep did.
+     * It exists because a scheduled tick needs a memory: without it the hourly
+     * sweep would re-broadcast the same expiry — and write one more
+     * {@code activation-ended} row into the household's history — every hour
+     * until the delete pass removes the row fourteen days later.</p>
+     *
+     * <p>Rows that had already expired when V71 ran were backfilled to their
+     * own {@code expiresAt} and never announced. A lifecycle frame is a
+     * convergence signal, and there is nothing left to converge about an
+     * activation that expired days ago.</p>
+     */
+    @Column(name = "expiry_handled_at")
+    private Instant expiryHandledAt;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "plan_activation_household_members",
             joinColumns = @JoinColumn(name = "activation_id"))

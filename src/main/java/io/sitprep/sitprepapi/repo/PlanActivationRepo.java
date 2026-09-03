@@ -62,6 +62,30 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
     );
 
     /**
+     * Activations whose 72-hour timer has run out and which the expiry sweep
+     * has not yet handled.
+     *
+     * <p>NOT one of the two "active" queries above, and it does not carry their
+     * pair — it is their complement. It asks for rows that are over BY THE
+     * TIMER and have not been announced, so {@code endedAt IS NULL} appears
+     * here for a different reason: a row a person already ended has already
+     * broadcast its ending, and announcing it a second time because a clock
+     * later agreed would put two endings in the household's history for one
+     * event.</p>
+     *
+     * <p>{@code expiryHandledAt} is what makes the hourly tick idempotent.
+     * Ordered oldest-first so a backlog drains in the order it accumulated.</p>
+     */
+    @Query(
+        "SELECT a FROM PlanActivation a " +
+        "WHERE a.expiresAt <= :now " +
+        "AND a.expiryHandledAt IS NULL " +
+        "AND a.endedAt IS NULL " +
+        "ORDER BY a.expiresAt ASC"
+    )
+    List<PlanActivation> findExpiredNotHandled(@Param("now") Instant now, Pageable page);
+
+    /**
      * IDs of activations whose {@code expiresAt} is older than the cutoff,
      * paginated. Used by {@code ActivationExpirySweepService} to bound each
      * scheduled tick — a single backlog burst (e.g. after a long pause in

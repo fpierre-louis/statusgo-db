@@ -9,6 +9,7 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -474,6 +475,87 @@ public class PlanActivationService {
         }
 
         return toDetailDto(a, true);   // it just ended it; it can.
+    }
+
+    /**
+     * Broadcast the endings the 72-hour timer produces, so a timeout looks like
+     * an ending to every client instead of a row that quietly stops matching.
+     *
+     * <h4>Why this exists at all</h4>
+     * Every other way an activation ends says so: create pushes and broadcasts,
+     * {@link #endActivation} broadcasts, pushes and logs. The timer did neither.
+     * It ended an activation by ceasing to satisfy {@code expiresAt > now}, and
+     * a client only found out if something else happened to make it refetch
+     * {@code /me}. Nothing did.
+     *
+     * <h4>What it deliberately does NOT do</h4>
+     * <ul>
+     *   <li><b>It does not set {@code endedAt}.</b> See
+     *       {@link PlanActivation#expiryHandledAt} — that field means a person
+     *       said so, and the recipient surface renders "Your household ended
+     *       this" from it.</li>
+     *   <li><b>It does not push.</b> See {@link #announceExpiry}.</li>
+     *   <li><b>It does not delete.</b> That is the sweep's other pass, fourteen
+     *       days later, and the grace window is deliberate.</li>
+     * </ul>
+     *
+     * <p>Idempotent through {@code expiryHandledAt}: a second tick over the same
+     * row broadcasts nothing. Without that the hourly job would put one more
+     * "the plan ended" row into the household's history every hour for two
+     * weeks.</p>
+     *
+     * @return how many timed-out activations were announced
+     */
+    @Transactional
+    public int handleExpiredActivations(int batchSize) {
+        if (batchSize <= 0) return 0;
+        Instant now = Instant.now();
+        List<PlanActivation> due = activationRepo.findExpiredNotHandled(now, PageRequest.of(0, batchSize));
+        if (due.isEmpty()) return 0;
+
+        final List<PlanActivation> handled = new ArrayList<>(due.size());
+        for (PlanActivation a : due) {
+            a.setExpiryHandledAt(now);
+            handled.add(activationRepo.save(a));
+        }
+        log.info("Activation expiry: {} activation(s) timed out", handled.size());
+
+        // After commit, for the same reason create and endActivation do it: the
+        // mark has to be durable before anyone is told, or a crash between the
+        // two broadcasts an ending the database does not agree happened.
+        //
+        // The else-branch is not defensive padding. The sweep can call this
+        // outside a transaction, and registerSynchronization THROWS when no
+        // synchronization is active — a helper that explodes depending on how it
+        // was reached is a trap for the next caller.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    handled.forEach(PlanActivationService.this::announceExpiry);
+                }
+            });
+        } else {
+            handled.forEach(this::announceExpiry);
+        }
+        return handled.size();
+    }
+
+    /**
+     * The frame and the log row for a timer ending — {@link #announce}, not
+     * {@link #announceEnd}, and the difference is the push.
+     *
+     * <p>{@code announceEnd}'s copy is "All clear — your household is no longer
+     * evacuating." A clock running out is not the household saying all clear,
+     * and {@code PLAN_ACTIVATION_RECEIVED} is a Lane A category that BYPASSES
+     * QUIET HOURS — so a 72-hour timer expiring at 3am would wake every member
+     * to report a timer. That is manufactured urgency about a non-event.</p>
+     *
+     * <p>The actor is null, which is the household event log's own documented
+     * signal for "the timer did this rather than a person"; the chat renders
+     * that row without naming anyone.</p>
+     */
+    private void announceExpiry(PlanActivation a) {
+        announce(a, "ended", null);
     }
 
     /**
