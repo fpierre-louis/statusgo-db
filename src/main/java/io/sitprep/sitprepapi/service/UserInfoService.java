@@ -331,8 +331,45 @@ public class UserInfoService {
 
     public void deleteUser(String id) { userInfoRepo.deleteById(id); }
 
+    /**
+     * A person answering for themselves. Clears any earlier proxy attribution:
+     * a fresh self-report must not sit under "marked safe by Dad".
+     */
     @Transactional
     public MemberStatusFrame updateSelfStatusByEmail(String email, String status, String color, Instant updatedAt) {
+        return writeStatus(email, status, color, updatedAt, null);
+    }
+
+    /**
+     * A group admin answering FOR somebody — the household marking a member
+     * safe who phoned it in, or who has no phone to answer on.
+     *
+     * <p>Authorization is the caller's admin/owner role on a group the subject
+     * belongs to, checked by {@code GroupMemberStatusResource}. This method
+     * takes the actor already decided and records it, so the roster can say
+     * who answered rather than presenting a proxy report as a reply.</p>
+     *
+     * @param actorEmail the admin. Must not be the subject — that is a
+     *   self-report and belongs on {@link #updateSelfStatusByEmail}, which
+     *   clears the attribution instead of writing one.
+     */
+    @Transactional
+    public MemberStatusFrame setStatusForMember(String subjectEmail, String status, String actorEmail) {
+        if (actorEmail == null || actorEmail.isBlank()) {
+            throw new IllegalArgumentException("actorEmail is required");
+        }
+        if (subjectEmail != null && subjectEmail.trim().equalsIgnoreCase(actorEmail.trim())) {
+            return updateSelfStatusByEmail(subjectEmail, status, null, null);
+        }
+        return writeStatus(subjectEmail, status, null, null, actorEmail.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * The one status write. {@code actorEmail} is null for a self-report and
+     * the admin's address for a proxy one — the ONLY difference between the two
+     * paths, which is why they share a body rather than being copied.
+     */
+    private MemberStatusFrame writeStatus(String email, String status, String color, Instant updatedAt, String actorEmail) {
         if (email == null || email.isBlank()) {
             throw new IllegalArgumentException("email is required");
         }
@@ -350,6 +387,10 @@ public class UserInfoService {
         userInfo.setUserStatus(normalizedStatus);
         userInfo.setStatusColor(effectiveColor);
         userInfo.setUserStatusLastUpdated(effectiveUpdatedAt);
+        // Written on EVERY status change, including the self path where it is
+        // null. Setting it only on the proxy path would leave a stale "marked
+        // safe by Dad" under a reply the person made themselves an hour later.
+        userInfo.setStatusSetByEmail(actorEmail);
 
         UserInfo saved = userInfoRepo.save(userInfo);
         MemberStatusFrame frame = new MemberStatusFrame(
@@ -361,7 +402,16 @@ public class UserInfoService {
 
         final boolean statusChanged = !Objects.equals(oldStatus, normalizedStatus);
         if (statusChanged && saved.getUserEmail() != null) {
-            householdEventService.recordStatusChangedForActor(saved.getUserEmail(), normalizedStatus);
+            if (actorEmail == null) {
+                householdEventService.recordStatusChangedForActor(saved.getUserEmail(), normalizedStatus);
+            } else {
+                // A DIFFERENT SENTENCE, not the same one with a different name
+                // on it. "Maya replied — safe" is false when Dione set it, and
+                // recording the admin as the actor under the existing kind
+                // would print "Dione replied — safe" about Maya's status.
+                householdEventService.recordStatusSetForMember(
+                        actorEmail, saved.getUserEmail(), normalizedStatus);
+            }
 
             final String householdId = saved.getBaseHouseholdId();
             final List<String> groupIds = groupRepo.findByMemberEmail(saved.getUserEmail()).stream()
@@ -370,14 +420,25 @@ public class UserInfoService {
                     .distinct()
                     .toList();
 
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    ws.sendHouseholdMemberStatus(householdId, frame);
-                    for (String groupId : groupIds) {
-                        ws.sendGroupMemberStatus(groupId, frame);
-                    }
+            // GUARDED, because `registerSynchronization` THROWS with no active
+            // transaction — a method that explodes depending on how it was
+            // reached is a trap for the next caller, and this one is now
+            // reachable from two paths instead of one. Same shape as
+            // `HouseholdEventService.broadcastAfterCommit` and
+            // `PlanActivationService.endActivation`.
+            Runnable broadcast = () -> {
+                ws.sendHouseholdMemberStatus(householdId, frame);
+                for (String groupId : groupIds) {
+                    ws.sendGroupMemberStatus(groupId, frame);
                 }
-            });
+            };
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() { broadcast.run(); }
+                });
+            } else {
+                broadcast.run();
+            }
         }
 
         return frame;

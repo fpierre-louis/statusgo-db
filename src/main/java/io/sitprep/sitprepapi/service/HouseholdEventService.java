@@ -61,6 +61,7 @@ public class HouseholdEventService {
     // The plan's own lifecycle. Added 2026-09-03: the log recorded every
     // check-in transition and was blind to activations — the more serious of
     // the two events, and the one a household most wants to look back on.
+    public static final String KIND_STATUS_SET_FOR = "status-set-for";
     public static final String KIND_ACTIVATION_STARTED = "activation-started";
     public static final String KIND_ACTIVATION_ENDED   = "activation-ended";
     public static final String KIND_NUDGE            = "nudge";
@@ -167,6 +168,44 @@ public class HouseholdEventService {
                     ? KIND_CHECKIN_REPLIED
                     : KIND_STATUS_CHANGED;
             recordSafely(hh.getGroupId(), kind, actorEmail, payload);
+        }
+    }
+
+    /**
+     * An admin answered FOR somebody.
+     *
+     * <p>Its own kind, and that is the point. Recording this under
+     * {@code status-changed} with the admin as the actor prints "Dione replied
+     * — safe" about Maya's status; recording it with the SUBJECT as the actor
+     * prints "Maya replied — safe", which is the thing that did not happen.
+     * A proxy report is a different sentence, so it is a different row.</p>
+     *
+     * <p>Written into every household the SUBJECT belongs to — the audience
+     * that needs it is the people reading that person's status, not the
+     * admin's own households.</p>
+     */
+    public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus) {
+        if (actorEmail == null || subjectEmail == null || newStatus == null) return;
+        List<Group> households = householdGroupsForMember(subjectEmail);
+        if (households.isEmpty()) return;
+        // The NAME resolved at write time, once, rather than left for the
+        // renderer to derive. The chat's own rule is "a name or nothing, never
+        // an email local-part" — `personName` refuses to slice an address —
+        // so a row that ships only an email can never name the person it is
+        // about. One lookup on a write path beats a row that reads
+        // "marked someone safe".
+        String subjectName = userInfoRepo.findByUserEmailIgnoreCase(subjectEmail)
+                .map(u -> {
+                    String first = u.getUserFirstName();
+                    return first == null || first.isBlank() ? null : first.trim();
+                })
+                .orElse(null);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", newStatus);
+        payload.put("subjectEmail", subjectEmail.toLowerCase(Locale.ROOT));
+        if (subjectName != null) payload.put("subjectName", subjectName);
+        for (Group hh : households) {
+            recordSafely(hh.getGroupId(), KIND_STATUS_SET_FOR, actorEmail, payload);
         }
     }
 

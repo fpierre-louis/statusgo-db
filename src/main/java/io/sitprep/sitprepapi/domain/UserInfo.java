@@ -86,6 +86,22 @@ public class UserInfo {
     @Column(name = "status_color")
     private String statusColor;
 
+    /**
+     * Who set {@link #userStatus}, when it was not this person.
+     *
+     * <p>NULL means SELF-REPORTED, and the self-status path clears it on every
+     * write — so a person answering for themselves always removes an earlier
+     * proxy's attribution rather than leaving it stale under a fresh reply.</p>
+     *
+     * <p>It exists because a household admin can mark somebody safe, and
+     * without it the roster renders "Checked in 4m ago" about a person nobody
+     * has heard from — indistinguishable from a real reply. A proxy report and
+     * a self report are different facts and a check-in board that conflates
+     * them is stating something it does not know.</p>
+     */
+    @Column(name = "status_set_by_email")
+    private String statusSetByEmail;
+
     @Column(name = "profile_image_url")
     private String profileImageUrl;
 

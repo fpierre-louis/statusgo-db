@@ -713,8 +713,20 @@ public class MeService {
 
     private ProfileDto toProfile(UserInfo u, List<String> platformPermissions,
                                  java.util.Collection<Group> groups) {
+        // The viewer's OWN status can have been set by an admin, and they are
+        // exactly the person entitled to know that — a board telling you that
+        // you checked in when you did not is the worst version of this defect.
+        String statusSetByName = null;
+        if (u.getStatusSetByEmail() != null && !u.getStatusSetByEmail().isBlank()) {
+            statusSetByName = userInfoRepo.findByUserEmailIgnoreCase(u.getStatusSetByEmail())
+                    .map(UserInfo::getUserFirstName)
+                    .filter(n -> n != null && !n.isBlank())
+                    .map(String::trim)
+                    .orElse(null);
+        }
         SelfStatusDto status = new SelfStatusDto(
-                u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated()
+                u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
+                statusSetByName
         );
         String rawAvatar = u.getProfileImageUrl();
         String rawCover = u.getCoverImageUrl();

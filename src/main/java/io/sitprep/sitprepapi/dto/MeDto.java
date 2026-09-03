@@ -167,7 +167,22 @@ public record MeDto(
     public record SelfStatusDto(
             String value,
             String color,
-            Instant updatedAt
+            Instant updatedAt,
+            /**
+             * Who answered, when it was not this person — display name, and
+             * null for a self-report.
+             *
+             * <p>A NAME and not the email, because the client's own rule is "a
+             * name or nothing, never an email local-part": slicing an address
+             * asserts an identity the record does not hold. Resolved here for
+             * the same reason every other derived label is — the frontend
+             * displays, the backend shapes.</p>
+             *
+             * <p>Null carries meaning: it is what a self-report looks like, and
+             * the write path clears it on every self write so a fresh reply
+             * never sits under a stale proxy's name.</p>
+             */
+            String setByName
     ) {}
 
     public record HouseholdDto(

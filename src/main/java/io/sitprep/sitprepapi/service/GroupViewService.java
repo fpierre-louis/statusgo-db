@@ -219,6 +219,25 @@ public class GroupViewService {
         );
     }
 
+    /**
+     * The first name of whoever set this person's status, or null when they
+     * set it themselves.
+     *
+     * <p>One lookup per member with a proxy-set status, which in practice is a
+     * handful during a check-in and none the rest of the time — the column is
+     * null on every self-report, so the branch below skips the query entirely
+     * for the common case.</p>
+     */
+    private String statusSetByName(UserInfo u) {
+        String setBy = u == null ? null : u.getStatusSetByEmail();
+        if (setBy == null || setBy.isBlank()) return null;
+        return userInfoRepo.findByUserEmailIgnoreCase(setBy)
+                .map(UserInfo::getUserFirstName)
+                .filter(n -> n != null && !n.isBlank())
+                .map(String::trim)
+                .orElse(null);
+    }
+
     private MemberSummary toMemberSummary(String email, UserInfo u,
                                           String groupId, String groupType,
                                           boolean alertActive) {
@@ -227,7 +246,8 @@ public class GroupViewService {
                     null, null, null, null);
         }
         SelfStatus status = new SelfStatus(
-                u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated()
+                u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
+                statusSetByName(u)
         );
 
         // Gate live location on the member's per-group sharing pref +
