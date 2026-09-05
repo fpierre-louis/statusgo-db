@@ -784,7 +784,16 @@ public class UserInfoService {
         }
     }
 
-    /** ✅ NEW: idempotent upsert by Firebase UID (preferred for SitPrep + Rediscover) */
+    /**
+     * Idempotent account provisioning keyed by Firebase UID.
+     *
+     * <p>Repeated calls with the same UID must resolve to the same
+     * {@code user_info} row, whether the second call is an intentional retry or
+     * an accidental duplicate from signup. The merge is patch-like: null or
+     * absent profile fields in a later call do not erase values captured by the
+     * first call. Non-null user-editable profile fields may still update the
+     * row, and system-managed fields are initialized only on create.</p>
+     */
     @Transactional
     public UserInfo upsertByFirebaseUid(String uid, UserInfo patch) {
         String normUid = Optional.ofNullable(uid).map(String::trim)
