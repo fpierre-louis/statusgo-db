@@ -10,6 +10,9 @@ import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
 import io.sitprep.sitprepapi.service.PlatformAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
+
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -92,9 +95,28 @@ public class AlertResource {
     @GetMapping("/feed")
     public ResponseEntity<AlertFeedResponse> feed(
             @RequestParam("lat") double lat,
-            @RequestParam("lng") double lng
+            @RequestParam("lng") double lng,
+            @RequestParam(value = "fixedAt", required = false) String fixedAt
     ) {
-        return ResponseEntity.ok(feedService.feedFor(lat, lng));
+        return ResponseEntity.ok(feedService.feedFor(lat, lng, parseFixedAt(fixedAt)));
+    }
+
+    /**
+     * When the client's coordinate was captured, or null.
+     *
+     * <p>Optional and forgiving on purpose. A malformed timestamp resolves to
+     * "unknown", which the response reports as such — it does not 400. The
+     * coordinate is still a real coordinate and the alerts for it are still
+     * worth returning; refusing the whole request over an unparseable freshness
+     * hint would trade a caveat for a blank hazards page.</p>
+     */
+    private static Instant parseFixedAt(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return Instant.parse(raw.trim());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     /**
@@ -118,9 +140,11 @@ public class AlertResource {
     public ResponseEntity<AlertHistoryResponse> history(
             @RequestParam("lat") double lat,
             @RequestParam("lng") double lng,
-            @RequestParam(value = "days", required = false, defaultValue = "30") int days
+            @RequestParam(value = "days", required = false, defaultValue = "30") int days,
+            @RequestParam(value = "fixedAt", required = false) String fixedAt
     ) {
-        return ResponseEntity.ok(historyService.historyFor(lat, lng, days));
+        return ResponseEntity.ok(
+                historyService.historyFor(lat, lng, days, parseFixedAt(fixedAt)));
     }
 
     /**

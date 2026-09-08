@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sitprep.sitprepapi.constant.LocationFreshness;
 import io.sitprep.sitprepapi.domain.AlertHistory;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.dto.AlertHistoryResponse;
@@ -471,6 +472,42 @@ class AlertHistoryServiceTest {
 
         assertThat(history.sweepOnce(10)).isEqualTo(10);
         assertThat(table).isNotEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // Location freshness — F-5 extended to history (audit R-5)
+    // ------------------------------------------------------------------
+
+    @Test
+    void historyCarriesTheSameLocationVerdictTheLiveFeedDoes() {
+        // The "also resolve" item. History takes lat/lng exactly the way the
+        // live feed does, so a stale coordinate produces a confident answer
+        // about the wrong place — and here that answer is "nothing has been
+        // active near you in the last 30 days", which reads as a settled record
+        // rather than one snapshot. It is the sentence a user standing
+        // somewhere else would be most reassured and most wrong to believe.
+        seedWholeFeed();
+        Instant threeWeeksAgo = Instant.now().minus(21, ChronoUnit.DAYS);
+
+        var meta = history.historyFor(LAT, LNG, 30, threeWeeksAgo).meta();
+        assertThat(meta.locationAge()).isNotNull();
+        assertThat(meta.locationAge().isStale()).isTrue();
+        assertThat(meta.locationAge().maxAgeDays())
+                .isEqualTo(LocationFreshness.maxAgeDays());
+    }
+
+    @Test
+    void historyReportsUnknownWhenTheCallerSendsNoFixTimestamp() {
+        seedWholeFeed();
+        assertThat(history.historyFor(LAT, LNG, 30).meta().locationAge()).isNull();
+    }
+
+    @Test
+    void aFreshFixLeavesTheHistoryVerdictClean() {
+        seedWholeFeed();
+        var meta = history.historyFor(LAT, LNG, 30, Instant.now().minus(2, ChronoUnit.MINUTES)).meta();
+        assertThat(meta.locationAge()).isNotNull();
+        assertThat(meta.locationAge().isStale()).isFalse();
     }
 
     // ------------------------------------------------------------------

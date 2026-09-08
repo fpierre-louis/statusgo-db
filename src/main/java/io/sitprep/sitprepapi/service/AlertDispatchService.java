@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.constant.HazardType;
+import io.sitprep.sitprepapi.constant.LocationFreshness;
 import io.sitprep.sitprepapi.domain.AlertPost;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostPriority;
@@ -102,8 +103,10 @@ public class AlertDispatchService {
      * warnings for their own home; too long and we are guessing. It is
      * property-driven so it can be tuned without a redeploy.</p>
      */
-    @Value("${alerts.push.locationMaxAgeDays:14}")
-    private int locationMaxAgeDays = 14;
+    // The value itself moved to constant/LocationFreshness — see that class for
+    // why. Short version: the pull path (`GET /api/alerts/feed`) now applies the
+    // same window, and a second `@Value` here would have made this the fourth
+    // constant in this project to exist in two places.
 
     private final AlertIngestService ingest;
     private final AlertPostRepo alertPostRepo;
@@ -316,7 +319,7 @@ public class AlertDispatchService {
                 if (decision.criticalPush()) {
                     if (pushCandidates == null) {
                         pushCandidates = userInfoRepo.findPushablesWithLocation(
-                                Instant.now().minus(Duration.ofDays(locationMaxAgeDays)));
+                                LocationFreshness.cutoff(Instant.now()));
                     }
                     pushSevereAlert(a, tpl, decision, coord, pushCandidates);
                 }

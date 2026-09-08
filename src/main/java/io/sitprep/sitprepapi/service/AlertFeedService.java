@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.LocationFreshness;
 import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.resource.AppConfigResource;
@@ -78,8 +79,19 @@ public class AlertFeedService {
         this.dispatch = dispatch;
     }
 
-    /** The feed for a coordinate. */
+    /** The feed for a coordinate, with no claim about how old that coordinate is. */
     public AlertFeedResponse feedFor(double lat, double lng) {
+        return feedFor(lat, lng, null);
+    }
+
+    /**
+     * The feed for a coordinate captured at {@code fixedAt}.
+     *
+     * <p>{@code fixedAt} is optional and a null one is honestly reported as
+     * "unknown" rather than quietly treated as fresh — see
+     * {@link AlertFeedResponse.LocationAge}.</p>
+     */
+    public AlertFeedResponse feedFor(double lat, double lng, Instant fixedAt) {
         int radiusMi = AppConfigResource.alertsRadiusMi();
         double radiusKm = radiusMi * 1.609344;
 
@@ -105,16 +117,36 @@ public class AlertFeedService {
             cards.add(toCard(a, match, radiusMi, supersededBy.get(a.id())));
         }
 
-        return new AlertFeedResponse(List.copyOf(cards), metaFor(snap));
+        return new AlertFeedResponse(List.copyOf(cards), metaFor(snap, fixedAt));
     }
 
     AlertFeedResponse.Meta metaFor(Snapshot snap) {
+        return metaFor(snap, null);
+    }
+
+    AlertFeedResponse.Meta metaFor(Snapshot snap, Instant fixedAt) {
         Instant last = snap == null ? null : snap.lastSuccessAt();
         boolean stale = last == null || last.isBefore(Instant.now().minus(STALE_AFTER));
         return new AlertFeedResponse.Meta(
                 last == null ? null : last.toString(),
                 stale,
-                AlertFeedResponse.COVERAGE_CAVEAT);
+                AlertFeedResponse.COVERAGE_CAVEAT,
+                locationAgeFor(fixedAt));
+    }
+
+    /**
+     * The location verdict, or null when the caller did not supply a timestamp.
+     *
+     * <p>Shared with the history endpoint so both surfaces answer "is this
+     * coordinate still trustworthy" the same way, against the same constant the
+     * push path enforces.</p>
+     */
+    static AlertFeedResponse.LocationAge locationAgeFor(Instant fixedAt) {
+        if (fixedAt == null) return null;
+        return new AlertFeedResponse.LocationAge(
+                fixedAt.toString(),
+                LocationFreshness.isStale(fixedAt, Instant.now()),
+                LocationFreshness.maxAgeDays());
     }
 
     AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi) {

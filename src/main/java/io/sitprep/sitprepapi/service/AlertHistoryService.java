@@ -293,6 +293,20 @@ public class AlertHistoryService {
      */
     @Transactional(readOnly = true)
     public AlertHistoryResponse historyFor(double lat, double lng, int requestedDays) {
+        return historyFor(lat, lng, requestedDays, null);
+    }
+
+    /**
+     * As above, for a coordinate captured at {@code fixedAt}.
+     *
+     * <p>History carries the same location verdict as the live feed, decided the
+     * same way. The failure mode is identical — a stale coordinate yields a
+     * confident answer about the wrong place — and a history page states it more
+     * strongly, because "nothing in the last 30 days" reads as a settled record
+     * rather than one snapshot.</p>
+     */
+    @Transactional(readOnly = true)
+    public AlertHistoryResponse historyFor(double lat, double lng, int requestedDays, Instant fixedAt) {
         int days = clampDays(requestedDays);
         Instant since = Instant.now().minus(Duration.ofDays(days));
 
@@ -344,7 +358,8 @@ public class AlertHistoryService {
                 new AlertHistoryResponse.Meta(
                         recordingSince == null ? null : recordingSince.toString(),
                         days,
-                        AlertFeedResponse.COVERAGE_CAVEAT));
+                        AlertFeedResponse.COVERAGE_CAVEAT,
+                        AlertFeedService.locationAgeFor(fixedAt)));
     }
 
     /**

@@ -20,7 +20,33 @@ public record AlertFeedResponse(List<AlertCardDto> alerts, Meta meta) {
      *   hours", which is the difference between reassurance and a lie.
      * @param coverageCaveat see {@link #COVERAGE_CAVEAT}
      */
-    public record Meta(String lastSuccessAt, boolean isStale, String coverageCaveat) {}
+    public record Meta(String lastSuccessAt,
+                       boolean isStale,
+                       String coverageCaveat,
+                       LocationAge locationAge) {}
+
+    /**
+     * Whether the COORDINATE this answer was computed for is still trustworthy —
+     * a different question from {@code isStale} above, which is about the alert
+     * snapshot.
+     *
+     * <p><b>Null means the client did not say</b>, and that is a third state, not
+     * a pass. A caller that omits {@code fixedAt} has asserted nothing about
+     * freshness, and rendering that identically to "we checked and it is fine"
+     * would reopen the gap this field exists to close.</p>
+     *
+     * <p>The verdict is decided here rather than on the client on purpose. Three
+     * radius constants and four status palettes in this project each began as a
+     * client deriving something the server already knew; a fourth definition of
+     * "current enough to trust" is not worth the round trip it saves.
+     * {@code maxAgeDays} ships alongside so a client can WORD the message
+     * without owning the number.</p>
+     *
+     * @param fixedAt    ISO-8601 instant the client's coordinate was captured
+     * @param isStale    older than {@link io.sitprep.sitprepapi.constant.LocationFreshness}'s window
+     * @param maxAgeDays that window, in days — the same one the push path enforces
+     */
+    public record LocationAge(String fixedAt, boolean isStale, int maxAgeDays) {}
 
     /**
      * What SitPrep does and does not promise about evacuation coverage

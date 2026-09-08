@@ -30,10 +30,24 @@ public record AlertHistoryResponse(List<AlertCardDto> alerts, Meta meta) {
      *   nothing.</p>
      * @param days the window actually applied, after clamping to retention. The
      *   caller may ask for more than we keep; this says what it got.
+     * @param locationAge whether the coordinate this record was assembled for is
+     *   still trustworthy — the SAME shape and the same server-side verdict the
+     *   live feed ships.
+     *
+     *   <p><b>History needs this at least as much as the live feed does, and
+     *   arguably more.</b> The failure is identical — a stale coordinate
+     *   produces a confident answer about the wrong place — but a history page
+     *   is read as a settled record. "Nothing has been active near you in the
+     *   last 30 days" is a stronger claim than any single live snapshot makes,
+     *   and it is exactly the sentence a user standing somewhere else would be
+     *   most reassured and most wrong to believe.</p>
      * @param coverageCaveat the same constant the live feed ships —
      *   {@link AlertFeedResponse#COVERAGE_CAVEAT}, not a second copy of it.
      *   A gap in coverage is a gap in the history too, and the sentence saying
      *   so must be one string in one place or the two will drift.
      */
-    public record Meta(String recordingSince, int days, String coverageCaveat) {}
+    public record Meta(String recordingSince,
+                       int days,
+                       String coverageCaveat,
+                       AlertFeedResponse.LocationAge locationAge) {}
 }
