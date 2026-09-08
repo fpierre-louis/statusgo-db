@@ -1006,7 +1006,13 @@ public class AlertIngestService {
      * null when the structure isn't recognized.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static double[] firstCoord(Object geom) {
+    /**
+     * Package-private, not private: {@code AlertHistoryService} stores exactly
+     * this vertex as {@code alert_history.centroid_lat/lng} so its bounding-box
+     * prefilter narrows on the same value {@link #matchTypeFor} tests. A second
+     * implementation of "where is this alert" is how the two would drift.
+     */
+    static double[] firstCoord(Object geom) {
         if (!(geom instanceof Map)) return null;
         Map m = (Map) geom;
         Object type = m.get("type");

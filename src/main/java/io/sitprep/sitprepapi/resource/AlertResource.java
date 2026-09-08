@@ -2,7 +2,9 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
+import io.sitprep.sitprepapi.dto.AlertHistoryResponse;
 import io.sitprep.sitprepapi.service.AlertFeedService;
+import io.sitprep.sitprepapi.service.AlertHistoryService;
 import io.sitprep.sitprepapi.service.AlertIngestService;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
 import io.sitprep.sitprepapi.service.PlatformAccessService;
@@ -39,13 +41,16 @@ public class AlertResource {
 
     private final AlertIngestService ingest;
     private final AlertFeedService feedService;
+    private final AlertHistoryService historyService;
     private final PlatformAccessService platformAccessService;
 
     public AlertResource(AlertIngestService ingest,
                          AlertFeedService feedService,
+                         AlertHistoryService historyService,
                          PlatformAccessService platformAccessService) {
         this.ingest = ingest;
         this.feedService = feedService;
+        this.historyService = historyService;
         this.platformAccessService = platformAccessService;
     }
 
@@ -90,6 +95,32 @@ public class AlertResource {
             @RequestParam("lng") double lng
     ) {
         return ResponseEntity.ok(feedService.feedFor(lat, lng));
+    }
+
+    /**
+     * What was active near a coordinate over a past window.
+     *
+     * <p><b>Why this exists as a recording rather than a query.</b> Measured
+     * 2026-09-07, the NWS archive retains roughly five days: Oklahoma City
+     * returns the same 23 alerts whether asked since 2026-09-01 or since
+     * 2025-01-01. {@code start} is accepted and then ignored past retention, so
+     * a month of history cannot be fetched from upstream at all. It is served
+     * here from {@code alert_history}, which {@code AlertHistoryService} writes
+     * from the ingest snapshot the poller was already holding and discarding.</p>
+     *
+     * <p>{@code days} is clamped to the configured retention; the response
+     * {@code meta} reports the window actually applied and when recording
+     * began, because "nothing happened here" and "we started watching on
+     * Tuesday" are different answers and the surface has to be able to tell
+     * them apart.</p>
+     */
+    @GetMapping("/history")
+    public ResponseEntity<AlertHistoryResponse> history(
+            @RequestParam("lat") double lat,
+            @RequestParam("lng") double lng,
+            @RequestParam(value = "days", required = false, defaultValue = "30") int days
+    ) {
+        return ResponseEntity.ok(historyService.historyFor(lat, lng, days));
     }
 
     /**

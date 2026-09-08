@@ -310,7 +310,29 @@ public final class AlertSafetyPolicy {
         };
     }
 
-    public static String lifecycleBlockReason(NormalizedAlert alert) {
+    /**
+     * Why this message must not be rendered <b>at all</b>, or null.
+     *
+     * <p>Distinct from {@link #lifecycleBlockReason} and deliberately narrower:
+     * these are the reasons a message is not a publishable account of anything,
+     * ever — a drill, a private-scope message, a retraction, a protocol
+     * acknowledgement. They do not expire and are not survived by the passage
+     * of time.</p>
+     *
+     * <p><b>Why the split exists.</b> Alert history is made <i>entirely</i> of
+     * alerts that have ended, so a history surface cannot use
+     * {@code lifecycleBlockReason} as its row filter — {@code alert_expired}
+     * would suppress every row it was built to show. It uses this instead, and
+     * still routes each card through the full policy so an ended alert's
+     * present-tense guidance stays suppressed. Different questions: "may we
+     * show this message" versus "is this hazard still on".</p>
+     *
+     * <p>A {@code Cancel} is blocked here rather than merely aged out on
+     * purpose. It is not an event; it is a retraction of one, and the thing it
+     * retracts is already its own row. Listing it would double-count the
+     * event.</p>
+     */
+    public static String publishabilityBlockReason(NormalizedAlert alert) {
         if (alert == null) return "missing_alert";
         if (notBlank(alert.status()) && !"Actual".equalsIgnoreCase(alert.status())) {
             return "cap_status_" + alert.status();
@@ -324,6 +346,19 @@ public final class AlertSafetyPolicy {
                 return "cap_message_type_" + alert.messageType();
             }
         }
+        return null;
+    }
+
+    /**
+     * Why this alert is not a live instruction, or null.
+     *
+     * <p>Everything {@link #publishabilityBlockReason} blocks, plus the three
+     * ways CAP says "this is over": an {@code AllClear} response, {@code Past}
+     * urgency, and an {@code endsAt} in the past.</p>
+     */
+    public static String lifecycleBlockReason(NormalizedAlert alert) {
+        String unpublishable = publishabilityBlockReason(alert);
+        if (unpublishable != null) return unpublishable;
         if (containsResponse(alert, "AllClear")) return "cap_response_all_clear";
         if ("Past".equalsIgnoreCase(alert.urgency())) return "cap_urgency_past";
         Instant expires = parseInstant(alert.endsAt());

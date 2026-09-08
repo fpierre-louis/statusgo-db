@@ -150,6 +150,22 @@ alerts:
     # behaviour. It exists as a kill switch if api.weather.gov/points ever
     # becomes a liability, not as a feature flag.
     enabled: ${ALERTS_ZONES_ENABLED:true}
+  history:
+    # "What was active near me" over the last month. RECORDED, not fetched:
+    # measured 2026-09-07, the NWS archive retains ~5 days and silently ignores
+    # an older `start`, so a month of history cannot be queried from upstream at
+    # any cadence. The ingest tick already holds the whole national picture and
+    # discards it; this writes it down.
+    enabled: ${ALERTS_HISTORY_ENABLED:true}
+    # Half the ingest cadence, so every snapshot ingest produces is recorded at
+    # least once. Re-seeing a snapshot is free — the write is an upsert and a
+    # generation guard skips it outright.
+    intervalMs: ${ALERTS_HISTORY_INTERVAL_MS:150000}
+    initialDelayMs: ${ALERTS_HISTORY_INITIAL_DELAY_MS:90000}
+    # Both the retention window AND the ceiling on a caller's `days`. Measured
+    # cost at 30d: ~45,000 rows, ~135 MB. Lower it if the DB gets tight — the
+    # read path clamps to whatever this says, so the two can never disagree.
+    retentionDays: ${ALERTS_HISTORY_RETENTION_DAYS:30}
   push:
     # How old a location fix may be and still be used for push targeting
     # (audit P1-3). Geolocation never auto-refreshes by policy, so without a

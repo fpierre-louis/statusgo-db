@@ -51,6 +51,7 @@ public class RetentionSweepService {
 
     private final NotificationLogRepo notificationLogRepo;
     private final HouseholdEventRepo householdEventRepo;
+    private final AlertHistoryService alertHistoryService;
 
     @Value("${app.retention.notificationLogDays:30}")
     private int notificationLogRetentionDays;
@@ -66,10 +67,12 @@ public class RetentionSweepService {
 
     public RetentionSweepService(
             NotificationLogRepo notificationLogRepo,
-            HouseholdEventRepo householdEventRepo
+            HouseholdEventRepo householdEventRepo,
+            AlertHistoryService alertHistoryService
     ) {
         this.notificationLogRepo = notificationLogRepo;
         this.householdEventRepo = householdEventRepo;
+        this.alertHistoryService = alertHistoryService;
     }
 
     /**
@@ -120,6 +123,33 @@ public class RetentionSweepService {
                 "HouseholdEventRetention",
                 householdEventRetentionDays,
                 this::sweepHouseholdEventOnce
+        );
+    }
+
+    /**
+     * Daily 3:37am UTC sweep of {@code alert_history}. Two minutes after the
+     * household-event sweep, same reason it is offset from the notification
+     * one.
+     *
+     * <p>This table is written every couple of minutes from the national alert
+     * feed and it is the highest-churn thing in the schema: measured
+     * 2026-09-07, NWS issues ~1,510 distinct alerts a day, so a 30-day window
+     * holds ~45,000 rows and ~135 MB. It exists specifically so it does not
+     * become the third never-reaped table alongside {@code Post} and
+     * {@code AlertPost} — the retention window was part of the feature, not a
+     * follow-up to it.</p>
+     *
+     * <p>The window itself lives on {@code AlertHistoryService} rather than
+     * here, because the read path clamps a caller's requested {@code days} to
+     * the same number. One value, one owner: a sweep that reaped 30 days while
+     * the endpoint offered 60 would answer with a silence it created itself.</p>
+     */
+    @Scheduled(cron = "0 37 3 * * *", zone = "UTC")
+    public void scheduledAlertHistorySweep() {
+        runSweep(
+                "AlertHistoryRetention",
+                alertHistoryService.retentionDays(),
+                () -> alertHistoryService.sweepOnce(sweepBatchSize)
         );
     }
 

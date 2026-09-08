@@ -44,3 +44,8 @@ alerts:
     primeOnStartup: false
   zones:
     enabled: false
+  history:
+    # Same reasoning as zones above: a Spring-context smoke test should not run
+    # a background writer against the throwaway H2 schema. The unit tests drive
+    # AlertHistoryService.record() directly.
+    enabled: false
