@@ -154,6 +154,12 @@ public class AccountDeletionService {
                 "WHERE (h.supervisorKind = 'user' AND LOWER(h.supervisorId) = :e) " +
                 "   OR (h.accompaniedKind = 'user' AND LOWER(h.accompaniedId) = :e)", e);
         int notifs      = bulkDelete("DELETE FROM NotificationLog n WHERE LOWER(n.recipientEmail) = :e", e);
+        List<String> liveSessionIds = em.createQuery(
+                "SELECT s.id FROM LiveLocationSession s WHERE LOWER(s.userEmail) = :e", String.class)
+                .setParameter("e", e)
+                .getResultList();
+        int livePoints = bulkDelete("DELETE FROM LiveLocationPoint p WHERE LOWER(p.userEmail) = :e", e);
+        int liveSessions = deleteLiveLocationSessions(liveSessionIds);
         // Agency STAFF rows. `agency_staff.user_email` deliberately has NO FK to
         // user_info (an agency may add crew before they install), so nothing at
         // the DB level removes these when the account goes — app-level cleanup
@@ -217,7 +223,8 @@ public class AccountDeletionService {
                 activations, acks,
                 meals, evacs, meetings, origins, contacts, demographic, saved,
                 events, accomp, notifs,
-                strippedFrom, soloHouseholds.size(), agencyStaff
+                strippedFrom, soloHouseholds.size(), agencyStaff,
+                liveSessions, livePoints
         );
         log.info("AccountDeletion: complete for email={} result={}", e, result);
         return result;
@@ -235,6 +242,23 @@ public class AccountDeletionService {
             log.warn("AccountDeletion: bulk delete failed jpql='{}' err={}", jpql, ex.getMessage());
             return 0;
         }
+    }
+
+    private int deleteLiveLocationSessions(List<String> sessionIds) {
+        int deleted = 0;
+        for (String id : sessionIds == null ? List.<String>of() : sessionIds) {
+            try {
+                em.createNativeQuery("DELETE FROM live_location_session_groups WHERE session_id = :id")
+                        .setParameter("id", id)
+                        .executeUpdate();
+                deleted += em.createQuery("DELETE FROM LiveLocationSession s WHERE s.id = :id")
+                        .setParameter("id", id)
+                        .executeUpdate();
+            } catch (Exception ex) {
+                log.warn("AccountDeletion: live location session delete failed id={} err={}", id, ex.getMessage());
+            }
+        }
+        return deleted;
     }
 
     private <T> List<T> safeFind(java.util.function.Supplier<List<T>> op) {
@@ -257,9 +281,10 @@ public class AccountDeletionService {
             int householdEvents, int accompaniments, int notifications,
             int strippedFromGroups, int deletedSoloHouseholds,
             /** Agency STAFF rows removed — see the deletion step for why these
-                can't rely on a DB cascade. Appended last so existing positional
-                consumers keep their indices. */
-            int agencyStaffRows
+                can't rely on a DB cascade. */
+            int agencyStaffRows,
+            /** Emergency live-location sessions and points removed with account deletion. */
+            int liveLocationSessions, int liveLocationPoints
     ) {}
 
     public record BlockingGroup(String groupId, String groupName, String groupType) {}

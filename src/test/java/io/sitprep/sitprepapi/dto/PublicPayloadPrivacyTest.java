@@ -198,6 +198,8 @@ class PublicPayloadPrivacyTest {
                 "/api/ask/",                    // asserted clean above
                 "/api/plans/activations",       // capability URL, declared in ALLOWED
                 "/api/groups/*/preview",        // invite preview, declared in ALLOWED
+                "/api/invites/*/resolve",       // invite preview; no roster or member location
+                "/api/household-invites/*/resolve", // household invite preview; no roster
                 "/api/public/**",               // signed-token opt-out
                 "/api/billing/webhook",         // Stripe, no payload of ours
                 "/api/community/map",           // POIs; plots no individuals by design
