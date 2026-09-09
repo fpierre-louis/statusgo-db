@@ -97,6 +97,8 @@ public class SecurityConfig {
                         // The DTO is sanitized (no member or admin emails) precisely
                         // so it can be served this way.
                         .requestMatchers(HttpMethod.GET, "/api/groups/*/preview").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/invites/*/resolve").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/household-invites/*/resolve").permitAll()
 
                         // Stripe will never send a Firebase token. The
                         // Stripe-Signature HMAC is the authentication. A 401 here is

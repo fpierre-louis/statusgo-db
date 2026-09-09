@@ -16,6 +16,8 @@ public interface ResourceListingRepo extends JpaRepository<ResourceListing, Long
      */
     List<ResourceListing> findByStatusOrderByCreatedAtDesc(ResourceListing.Status status);
 
+    Optional<ResourceListing> findByIdAndStatus(Long id, ResourceListing.Status status);
+
     /** Lookup by the stable natural key — drives idempotent seeding. */
     Optional<ResourceListing> findBySourceKey(String sourceKey);
 }

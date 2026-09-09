@@ -21,6 +21,10 @@ import java.util.Map;
  * <ul>
  *   <li>{@code POST /api/groups/{groupId}/invites} — mint a new invite.</li>
  *   <li>{@code GET  /api/groups/{groupId}/invites} — list active invites.</li>
+ *   <li>{@code POST /api/invites/{inviteId}/redeem} — authenticated token redeem.</li>
+ *   <li>{@code POST /api/households/{householdId}/invites} — mint a household invite.</li>
+ *   <li>{@code GET /api/household-invites/{inviteId}/resolve} — public household preview.</li>
+ *   <li>{@code POST /api/household-invites/{inviteId}/redeem} — authenticated household redeem.</li>
  *   <li>{@code DELETE /api/invites/{inviteId}} — revoke an invite.</li>
  * </ul>
  *
@@ -76,15 +80,39 @@ public class GroupInviteResource {
         return ResponseEntity.ok(inviteService.listActive(groupId));
     }
 
+    @PostMapping("/api/households/{householdId}/invites")
+    public ResponseEntity<GroupInvite> mintHousehold(
+            @PathVariable String householdId,
+            @RequestBody(required = false) Map<String, Object> body
+    ) {
+        String caller = requireAdminOfHousehold(householdId);
+
+        Integer expiresInDays = readInt(body, "expiresInDays");
+        Integer maxUses = readInt(body, "maxUses");
+        if (maxUses == null) {
+            maxUses = 1;
+        }
+
+        Duration ttl = null;
+        if (expiresInDays != null && expiresInDays > 0) {
+            int days = Math.min(expiresInDays, 30);
+            ttl = Duration.ofDays(days);
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                inviteService.mint(householdId, caller, ttl, maxUses)
+        );
+    }
+
     /**
      * Public-facing JSON resolver for an invite token. Used by the
      * SPA dev-fallback route ({@code ShareInviteRedirect}) which
      * needs to map an invite id → groupId without UA-branching, and
      * by future surfaces that want to validate without redirecting.
      *
-     * <p>Auth: just an authenticated user — anyone with a token can
-     * resolve it. The privacy boundary is at join time
-     * ({@link GroupResource#selfJoin}), not here.</p>
+     * <p>Auth: public. Anyone with a token can resolve it to a sanitized
+     * group id so the SPA can show the join screen before sign-in. The
+     * privacy boundary is at redeem time, not here.</p>
      *
      * <p>Response shape:</p>
      * <pre>
@@ -95,7 +123,6 @@ public class GroupInviteResource {
      */
     @GetMapping("/api/invites/{inviteId}/resolve")
     public ResponseEntity<Map<String, Object>> resolve(@PathVariable String inviteId) {
-        AuthUtils.requireAuthenticatedEmail();
         var result = inviteService.validate(inviteId);
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("state", result.state().name());
@@ -109,6 +136,71 @@ public class GroupInviteResource {
             // Expired / revoked / exhausted → 410 Gone with the
             // specific state in the body so the FE can surface
             // accurate copy.
+            return ResponseEntity.status(HttpStatus.GONE).body(body);
+        }
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/api/household-invites/{inviteId}/resolve")
+    public ResponseEntity<Map<String, Object>> resolveHousehold(@PathVariable String inviteId) {
+        var result = inviteService.previewHousehold(inviteId);
+        Map<String, Object> body = householdPreviewBody(result);
+
+        if (result.state() == GroupInviteService.InviteState.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+        }
+        if (!result.isOk()) {
+            return ResponseEntity.status(HttpStatus.GONE).body(body);
+        }
+        return ResponseEntity.ok(body);
+    }
+
+    @PostMapping("/api/invites/{inviteId}/redeem")
+    public ResponseEntity<Map<String, Object>> redeem(@PathVariable String inviteId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        var result = inviteService.redeem(inviteId, caller);
+
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("state", result.state().name());
+        body.put("alreadyRedeemed", result.alreadyRedeemed());
+        if (result.invite() != null) {
+            body.put("groupId", result.invite().getGroupId());
+        } else if (result.group() != null) {
+            body.put("groupId", result.group().getGroupId());
+        }
+        if (result.group() != null) {
+            body.put("group", result.group());
+        }
+
+        if (result.state() == GroupInviteService.InviteState.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+        }
+        if (!result.isOk()) {
+            return ResponseEntity.status(HttpStatus.GONE).body(body);
+        }
+        return ResponseEntity.ok(body);
+    }
+
+    @PostMapping("/api/household-invites/{inviteId}/redeem")
+    public ResponseEntity<Map<String, Object>> redeemHousehold(@PathVariable String inviteId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        var result = inviteService.redeemHousehold(inviteId, caller);
+
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("kind", "join_household");
+        body.put("state", result.state().name());
+        body.put("alreadyRedeemed", result.alreadyRedeemed());
+        if (result.group() != null) {
+            body.put("householdId", result.group().getGroupId());
+            body.put("group", result.group());
+        } else if (result.invite() != null && result.isOk()) {
+            body.put("householdId", result.invite().getGroupId());
+        }
+
+        if (result.state() == GroupInviteService.InviteState.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+        }
+        if (!result.isOk()) {
             return ResponseEntity.status(HttpStatus.GONE).body(body);
         }
         return ResponseEntity.ok(body);
@@ -150,6 +242,54 @@ public class GroupInviteResource {
                     "Group admin or owner role required");
         }
         return caller;
+    }
+
+    private String requireAdminOfHousehold(String householdId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        Group g;
+        try {
+            g = groupService.getGroupByPublicId(householdId);
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Household not found");
+        }
+        if (!"Household".equalsIgnoreCase(g.getGroupType())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Household not found");
+        }
+        boolean isOwner = g.getOwnerEmail() != null
+                && g.getOwnerEmail().equalsIgnoreCase(caller);
+        boolean isAdmin = g.getAdminEmails() != null
+                && g.getAdminEmails().stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
+        if (!isOwner && !isAdmin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Household admin or owner role required");
+        }
+        return caller;
+    }
+
+    private static Map<String, Object> householdPreviewBody(GroupInviteService.HouseholdInvitePreview result) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("kind", "join_household");
+        body.put("state", result.state().name());
+        if (result.invite() != null) {
+            body.put("expiresAt", result.invite().getExpiresAt());
+        }
+        if (result.household() != null && result.isOk()) {
+            Group household = result.household();
+            String name = household.getGroupName() == null || household.getGroupName().isBlank()
+                    ? "your household"
+                    : household.getGroupName();
+            String inviter = household.getOwnerName() == null || household.getOwnerName().isBlank()
+                    ? "Someone"
+                    : household.getOwnerName();
+            int members = household.getMemberEmails() == null ? 0 : household.getMemberEmails().size();
+            body.put("title", "Join " + name);
+            body.put("subtitle", inviter + " invited you to a private household plan on SitPrep.");
+            body.put("householdName", name);
+            body.put("inviterName", inviter);
+            body.put("memberCount", members);
+        }
+        return body;
     }
 
     private static Integer readInt(Map<String, Object> body, String key) {

@@ -2,9 +2,11 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupInvite;
+import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.service.GroupInviteService;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.service.ResourceListingService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -75,9 +78,57 @@ public class ShareResource {
                     + ")"
     );
 
+    private static final Map<String, GuideShareTarget> GUIDE_SHARE_TARGETS = Map.ofEntries(
+            Map.entry("hurricane-prep", new GuideShareTarget(
+                    "Hurricane preparedness",
+                    "Stocking water, securing the home, evacuation routes, and post-storm safety.",
+                    "/hurricane-prep")),
+            Map.entry("wildfire-prep", new GuideShareTarget(
+                    "Wildfire smoke + evacuation",
+                    "Defensible space, go-bag essentials, smoke protection, and returning home safely.",
+                    "/wildfire-prep")),
+            Map.entry("earthquake-prep", new GuideShareTarget(
+                    "Earthquake preparedness",
+                    "Securing furniture and utilities, the drop-cover-hold drill, aftershock safety, and supply kit essentials.",
+                    "/earthquake-prep")),
+            Map.entry("flood-prep", new GuideShareTarget(
+                    "Flood preparedness",
+                    "Elevating valuables, sandbag basics, flash-flood safety, and post-flood cleanup risks.",
+                    "/flood-prep")),
+            Map.entry("blizzard-prep", new GuideShareTarget(
+                    "Winter storm + blizzard",
+                    "Heating safety, freezing-pipe prevention, winter go-bags, and cold injury warning signs.",
+                    "/blizzard-prep")),
+            Map.entry("winter-storm-prep", new GuideShareTarget(
+                    "Winter storm + blizzard",
+                    "Heating safety, freezing-pipe prevention, winter go-bags, and cold injury warning signs.",
+                    "/blizzard-prep")),
+            Map.entry("tornado-prep", new GuideShareTarget(
+                    "Tornado preparedness",
+                    "Picking a safe room, watch vs. warning, mobile-home safety, and what to do after sirens.",
+                    "/tornado-prep")),
+            Map.entry("power-outage", new GuideShareTarget(
+                    "Power outage",
+                    "Generator and carbon-monoxide safety, food safety, powered medical equipment, and temperature control.",
+                    "/playbooks/power-outage")),
+            Map.entry("power-outage-prep", new GuideShareTarget(
+                    "Power outage",
+                    "Generator and carbon-monoxide safety, food safety, powered medical equipment, and temperature control.",
+                    "/playbooks/power-outage")),
+            Map.entry("home-fire", new GuideShareTarget(
+                    "Home fire",
+                    "Two ways out, alarm placement, fast evacuation decisions, and the escape drill most households have never run.",
+                    "/playbooks/home-fire")),
+            Map.entry("active-shooter", new GuideShareTarget(
+                    "Active shooter",
+                    "Run, Hide, Fight in the federal order, what to do when police arrive, and household reunification afterward.",
+                    "/playbooks/active-shooter"))
+    );
+
     private final GroupService groupService;
     private final GroupInviteService inviteService;
     private final PostService postService;
+    private final ResourceListingService resourceListingService;
 
     /**
      * Public origin used when building absolute URLs in the OG
@@ -92,10 +143,14 @@ public class ShareResource {
     @Value("${app.frontend-base-url:https://sitprep.app}")
     private String frontendBaseUrl;
 
-    public ShareResource(GroupService groupService, GroupInviteService inviteService, PostService postService) {
+    public ShareResource(GroupService groupService,
+                         GroupInviteService inviteService,
+                         PostService postService,
+                         ResourceListingService resourceListingService) {
         this.groupService = groupService;
         this.inviteService = inviteService;
         this.postService = postService;
+        this.resourceListingService = resourceListingService;
     }
 
     /**
@@ -166,6 +221,74 @@ public class ShareResource {
         return renderShare(groupId, /* inviteId */ null, isBot, baseOrigin);
     }
 
+    @GetMapping("/share/household/{inviteId}")
+    public ResponseEntity<?> shareHousehold(
+            @PathVariable String inviteId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent
+    ) {
+        boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
+        String baseOrigin = trimTrailingSlash(frontendBaseUrl);
+        String safeInviteId = URLEncoder.encode(inviteId == null ? "" : inviteId, StandardCharsets.UTF_8);
+        String spaUrl = baseOrigin + "/join/household/" + safeInviteId;
+        String shareUrl = baseOrigin + "/share/household/" + safeInviteId;
+
+        var result = inviteService.previewHousehold(inviteId);
+        if (!result.isOk()) {
+            if (!isBot) {
+                HttpHeaders h = new HttpHeaders();
+                h.setLocation(URI.create(baseOrigin
+                        + "/join/household?inviteError=" + result.state().name().toLowerCase()));
+                h.setCacheControl("no-store");
+                return ResponseEntity.status(302).headers(h).build();
+            }
+            String html = renderOgHtml(
+                    "Join a household on SitPrep",
+                    "This household invite is no longer valid. Ask whoever sent it to share a fresh one.",
+                    baseOrigin + "/images/sitprep-share-default.png",
+                    shareUrl,
+                    baseOrigin + "/join/household"
+            );
+            HttpHeaders h = new HttpHeaders();
+            h.setContentType(MediaType.TEXT_HTML);
+            h.setCacheControl("public, max-age=60");
+            h.add(HttpHeaders.VARY, "User-Agent");
+            return ResponseEntity.status(HttpStatus.GONE).headers(h).body(html);
+        }
+
+        Group household = result.household();
+        if (!isBot) {
+            HttpHeaders h = new HttpHeaders();
+            h.setLocation(URI.create(spaUrl));
+            h.setCacheControl("no-store");
+            return ResponseEntity.status(302).headers(h).build();
+        }
+
+        String householdName = household.getGroupName() == null || household.getGroupName().isBlank()
+                ? "a household"
+                : household.getGroupName();
+        String title = "Join " + householdName + " on SitPrep";
+        String inviter = household.getOwnerName() == null || household.getOwnerName().isBlank()
+                ? "Someone"
+                : household.getOwnerName();
+        int memberCount = household.getMemberEmails() == null ? 0 : household.getMemberEmails().size();
+        String description = inviter + " invited you to a private household plan"
+                + (memberCount > 0 ? " with " + memberCount + " member" + (memberCount == 1 ? "" : "s") : "")
+                + ".";
+        String html = renderOgHtml(
+                title,
+                description,
+                baseOrigin + "/images/sitprep-share-default.png",
+                shareUrl,
+                spaUrl
+        );
+
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.TEXT_HTML);
+        h.setCacheControl("public, max-age=300");
+        h.add(HttpHeaders.VARY, "User-Agent");
+        return ResponseEntity.ok().headers(h).body(html);
+    }
+
     @GetMapping("/share/post/{postId}")
     public ResponseEntity<?> sharePost(
             @PathVariable Long postId,
@@ -202,6 +325,104 @@ public class ShareResource {
         return ResponseEntity.ok().headers(h).body(html);
     }
 
+    @GetMapping("/share/guide/{slug}")
+    public ResponseEntity<?> shareGuide(
+            @PathVariable String slug,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent
+    ) {
+        boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
+        String baseOrigin = trimTrailingSlash(frontendBaseUrl);
+        String safeSlug = URLEncoder.encode(slug == null ? "" : slug, StandardCharsets.UTF_8);
+        String shareUrl = baseOrigin + "/share/guide/" + safeSlug;
+        GuideShareTarget target = GUIDE_SHARE_TARGETS.get(slug == null ? "" : slug);
+
+        if (target == null) {
+            if (!isBot) {
+                HttpHeaders h = new HttpHeaders();
+                h.setLocation(URI.create(baseOrigin + "/hazards"));
+                h.setCacheControl("no-store");
+                return ResponseEntity.status(302).headers(h).build();
+            }
+
+            String html = renderOgHtml(
+                    "SitPrep preparedness guides",
+                    "Practical emergency prep guides for your household and community.",
+                    baseOrigin + "/images/sitprep-share-default.png",
+                    shareUrl,
+                    baseOrigin + "/hazards"
+            );
+            HttpHeaders h = new HttpHeaders();
+            h.setContentType(MediaType.TEXT_HTML);
+            h.setCacheControl("public, max-age=60");
+            h.add(HttpHeaders.VARY, "User-Agent");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).headers(h).body(html);
+        }
+
+        String spaUrl = baseOrigin + target.route();
+        if (!isBot) {
+            HttpHeaders h = new HttpHeaders();
+            h.setLocation(URI.create(spaUrl));
+            h.setCacheControl("no-store");
+            return ResponseEntity.status(302).headers(h).build();
+        }
+
+        String html = renderOgHtml(
+                target.title() + " on SitPrep",
+                target.description(),
+                baseOrigin + "/images/sitprep-share-default.png",
+                shareUrl,
+                spaUrl
+        );
+
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.TEXT_HTML);
+        h.setCacheControl("public, max-age=300");
+        h.add(HttpHeaders.VARY, "User-Agent");
+        return ResponseEntity.ok().headers(h).body(html);
+    }
+
+    @GetMapping("/share/resource/{resourceId}")
+    public ResponseEntity<?> shareResource(
+            @PathVariable Long resourceId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent
+    ) {
+        boolean isBot = userAgent != null && BOT_UA.matcher(userAgent).find();
+        String baseOrigin = trimTrailingSlash(frontendBaseUrl);
+        String safeId = URLEncoder.encode(String.valueOf(resourceId), StandardCharsets.UTF_8);
+        String spaUrl = baseOrigin + "/community/resources?resource=" + safeId;
+        String shareUrl = baseOrigin + "/share/resource/" + safeId;
+
+        if (!isBot) {
+            HttpHeaders h = new HttpHeaders();
+            h.setLocation(URI.create(spaUrl));
+            h.setCacheControl("no-store");
+            return ResponseEntity.status(302).headers(h).build();
+        }
+
+        ResourceListingDto resource = resourceListingService.findPublicPreview(resourceId).orElse(null);
+        String title = resource == null || resource.title() == null || resource.title().isBlank()
+                ? "Community resource on SitPrep"
+                : resource.title() + " on SitPrep";
+        String description = resource == null
+                ? "Open SitPrep to view this community resource."
+                : buildResourceDescription(resource);
+        String html = renderOgHtml(
+                title,
+                description,
+                baseOrigin + "/images/sitprep-share-default.png",
+                shareUrl,
+                spaUrl
+        );
+
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.TEXT_HTML);
+        h.setCacheControl(resource == null ? "public, max-age=60" : "public, max-age=300");
+        h.add(HttpHeaders.VARY, "User-Agent");
+        return ResponseEntity.status(resource == null ? HttpStatus.NOT_FOUND : HttpStatus.OK)
+                .headers(h)
+                .body(html);
+    }
+
     /**
      * Common rendering pipeline for both share entry points
      * ({@code /share/group/{id}} and {@code /share/i/{token}}).
@@ -219,7 +440,11 @@ public class ShareResource {
                                            boolean isBot,
                                            String baseOrigin) {
         String safeGroupId = URLEncoder.encode(groupId == null ? "" : groupId, StandardCharsets.UTF_8);
-        String spaUrl = baseOrigin + "/joingroup?groupId=" + safeGroupId;
+        String spaUrl = inviteId == null
+                ? baseOrigin + "/joingroup?groupId=" + safeGroupId
+                : baseOrigin
+                + "/joingroup?groupId=" + safeGroupId
+                + "&invite=" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8);
         String shareUrl = inviteId != null
                 ? baseOrigin + "/share/i/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8)
                 : baseOrigin + "/share/group/" + safeGroupId;
@@ -310,6 +535,23 @@ public class ShareResource {
         return sb.toString();
     }
 
+    private String buildResourceDescription(ResourceListingDto resource) {
+        StringBuilder sb = new StringBuilder();
+        if (resource.description() != null && !resource.description().isBlank()) {
+            String desc = resource.description().trim();
+            if (desc.length() > 180) desc = desc.substring(0, 177) + "...";
+            sb.append(desc);
+        }
+        if (resource.address() != null && !resource.address().isBlank()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(resource.address().trim());
+        }
+        if (sb.length() == 0) {
+            sb.append("Open SitPrep to view this community resource.");
+        }
+        return sb.toString();
+    }
+
     private String renderOgHtml(String title, String description,
                                 String image, String shareUrl, String spaUrl) {
         // Strict HTML escaping for the user-controlled fields
@@ -361,4 +603,6 @@ public class ShareResource {
         if (url == null) return "";
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
+
+    private record GuideShareTarget(String title, String description, String route) {}
 }

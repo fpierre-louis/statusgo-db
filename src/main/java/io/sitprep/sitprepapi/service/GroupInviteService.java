@@ -2,7 +2,9 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.GroupInvite;
+import io.sitprep.sitprepapi.domain.GroupInviteRedemption;
 import io.sitprep.sitprepapi.repo.GroupInviteRepo;
+import io.sitprep.sitprepapi.repo.GroupInviteRedemptionRepo;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,11 +48,14 @@ public class GroupInviteService {
     public static final Duration DEFAULT_TTL = Duration.ofDays(7);
 
     private final GroupInviteRepo inviteRepo;
+    private final GroupInviteRedemptionRepo redemptionRepo;
     private final GroupService groupService;
 
     public GroupInviteService(GroupInviteRepo inviteRepo,
+                              GroupInviteRedemptionRepo redemptionRepo,
                               GroupService groupService) {
         this.inviteRepo = inviteRepo;
+        this.redemptionRepo = redemptionRepo;
         this.groupService = groupService;
     }
 
@@ -65,6 +70,14 @@ public class GroupInviteService {
      */
     public record ValidationResult(InviteState state, GroupInvite invite) {
         public boolean isOk() { return state == InviteState.OK; }
+    }
+
+    public record RedemptionResult(InviteState state, GroupInvite invite, Group group, boolean alreadyRedeemed) {
+        public boolean isOk() { return state == InviteState.OK; }
+    }
+
+    public record HouseholdInvitePreview(InviteState state, GroupInvite invite, Group household) {
+        public boolean isOk() { return state == InviteState.OK && household != null; }
     }
 
     /**
@@ -159,6 +172,118 @@ public class GroupInviteService {
     }
 
     /**
+     * Redeem a token into its target group. The redemption row makes the flow
+     * idempotent per user, so a double tap or post-login retry does not consume
+     * a capped invite twice.
+     */
+    @Transactional
+    public RedemptionResult redeem(String inviteId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        String normalizedEmail = email.trim().toLowerCase(java.util.Locale.ROOT);
+
+        var existingRedemption = redemptionRepo.findByInviteIdAndUserEmail(inviteId, normalizedEmail);
+        if (existingRedemption.isPresent()) {
+            Group group = groupService.selfJoin(existingRedemption.get().getGroupId(), normalizedEmail);
+            return new RedemptionResult(InviteState.OK, null, group, true);
+        }
+
+        Optional<GroupInvite> opt = inviteRepo.findByIdForUpdate(inviteId);
+        if (opt.isEmpty()) {
+            return new RedemptionResult(InviteState.NOT_FOUND, null, null, false);
+        }
+
+        GroupInvite invite = opt.get();
+        InviteState state = stateFor(invite, Instant.now());
+        if (state != InviteState.OK) {
+            return new RedemptionResult(state, invite, null, false);
+        }
+
+        Group group = groupService.selfJoin(invite.getGroupId(), normalizedEmail);
+
+        GroupInviteRedemption redemption = new GroupInviteRedemption();
+        redemption.setInviteId(inviteId);
+        redemption.setUserEmail(normalizedEmail);
+        redemption.setGroupId(invite.getGroupId());
+        redemption.setRedeemedAt(Instant.now());
+        redemptionRepo.save(redemption);
+
+        int used = invite.getUsedCount() == null ? 0 : invite.getUsedCount();
+        invite.setUsedCount(used + 1);
+        GroupInvite saved = inviteRepo.save(invite);
+        return new RedemptionResult(InviteState.OK, saved, group, false);
+    }
+
+    @Transactional(readOnly = true)
+    public HouseholdInvitePreview previewHousehold(String inviteId) {
+        ValidationResult validation = validate(inviteId);
+        if (!validation.isOk()) {
+            return new HouseholdInvitePreview(validation.state(), validation.invite(), null);
+        }
+        Group household;
+        try {
+            household = groupService.getGroupByPublicId(validation.invite().getGroupId());
+        } catch (RuntimeException e) {
+            return new HouseholdInvitePreview(InviteState.NOT_FOUND, validation.invite(), null);
+        }
+        if (!isHousehold(household)) {
+            return new HouseholdInvitePreview(InviteState.NOT_FOUND, validation.invite(), null);
+        }
+        return new HouseholdInvitePreview(InviteState.OK, validation.invite(), household);
+    }
+
+    @Transactional
+    public RedemptionResult redeemHousehold(String inviteId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        String normalizedEmail = email.trim().toLowerCase(java.util.Locale.ROOT);
+
+        var existingRedemption = redemptionRepo.findByInviteIdAndUserEmail(inviteId, normalizedEmail);
+        if (existingRedemption.isPresent()) {
+            Group group = groupService.joinHouseholdByInvite(
+                    existingRedemption.get().getGroupId(), normalizedEmail);
+            return new RedemptionResult(InviteState.OK, null, group, true);
+        }
+
+        Optional<GroupInvite> opt = inviteRepo.findByIdForUpdate(inviteId);
+        if (opt.isEmpty()) {
+            return new RedemptionResult(InviteState.NOT_FOUND, null, null, false);
+        }
+
+        GroupInvite invite = opt.get();
+        InviteState state = stateFor(invite, Instant.now());
+        if (state != InviteState.OK) {
+            return new RedemptionResult(state, invite, null, false);
+        }
+
+        Group group;
+        try {
+            group = groupService.getGroupByPublicId(invite.getGroupId());
+        } catch (RuntimeException e) {
+            return new RedemptionResult(InviteState.NOT_FOUND, invite, null, false);
+        }
+        if (!isHousehold(group)) {
+            return new RedemptionResult(InviteState.NOT_FOUND, invite, null, false);
+        }
+
+        Group joined = groupService.joinHouseholdByInvite(invite.getGroupId(), normalizedEmail);
+
+        GroupInviteRedemption redemption = new GroupInviteRedemption();
+        redemption.setInviteId(inviteId);
+        redemption.setUserEmail(normalizedEmail);
+        redemption.setGroupId(invite.getGroupId());
+        redemption.setRedeemedAt(Instant.now());
+        redemptionRepo.save(redemption);
+
+        int used = invite.getUsedCount() == null ? 0 : invite.getUsedCount();
+        invite.setUsedCount(used + 1);
+        GroupInvite saved = inviteRepo.save(invite);
+        return new RedemptionResult(InviteState.OK, saved, joined, false);
+    }
+
+    /**
      * Admin revoke. Caller-auth verified at resource layer.
      */
     @Transactional
@@ -174,5 +299,25 @@ public class GroupInviteService {
     @Transactional(readOnly = true)
     public List<GroupInvite> listActive(String groupId) {
         return inviteRepo.findActiveByGroup(groupId, Instant.now());
+    }
+
+    private static InviteState stateFor(GroupInvite invite, Instant now) {
+        if (invite.getRevokedAt() != null) {
+            return InviteState.REVOKED;
+        }
+        if (invite.getExpiresAt() != null && now.isAfter(invite.getExpiresAt())) {
+            return InviteState.EXPIRED;
+        }
+        Integer max = invite.getMaxUses();
+        Integer used = invite.getUsedCount() == null ? 0 : invite.getUsedCount();
+        if (max != null && used >= max) {
+            return InviteState.EXHAUSTED;
+        }
+        return InviteState.OK;
+    }
+
+    private static boolean isHousehold(Group group) {
+        return group != null
+                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
     }
 }

@@ -1,13 +1,18 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.GroupInvite;
+import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.service.GroupService;
+import io.sitprep.sitprepapi.service.ResourceListingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -30,15 +35,20 @@ class SharePreviewVisibilityTest {
     private static final String BOT = "facebookexternalhit/1.1";
 
     private GroupService groupService;
+    private io.sitprep.sitprepapi.service.GroupInviteService inviteService;
+    private ResourceListingService resourceListingService;
     private ShareResource resource;
 
     @BeforeEach
     void setUp() {
         groupService = mock(GroupService.class);
+        inviteService = mock(io.sitprep.sitprepapi.service.GroupInviteService.class);
+        resourceListingService = mock(ResourceListingService.class);
         resource = new ShareResource(
                 groupService,
-                mock(io.sitprep.sitprepapi.service.GroupInviteService.class),
-                mock(io.sitprep.sitprepapi.service.PostService.class));
+                inviteService,
+                mock(io.sitprep.sitprepapi.service.PostService.class),
+                resourceListingService);
         // @Value field — no Spring context here, so set it directly.
         ReflectionTestUtils.setField(resource, "frontendBaseUrl", "https://sitprep.app");
     }
@@ -97,5 +107,160 @@ class SharePreviewVisibilityTest {
         ResponseEntity<?> res = resource.shareGroup("hh-1", "Mozilla/5.0 (iPhone)");
         assertEquals(302, res.getStatusCode().value());
         assertTrue(String.valueOf(res.getHeaders().getLocation()).contains("/joingroup?groupId=hh-1"));
+    }
+
+    @Test
+    void tokenInviteRedirectPreservesTheToken() {
+        Group group = group("grp-3", "Maple St Neighbors", "Neighborhood", "Private");
+        GroupInvite invite = new GroupInvite();
+        invite.setId("invite-123");
+        invite.setGroupId(group.getGroupId());
+
+        when(inviteService.validate("invite-123"))
+                .thenReturn(new io.sitprep.sitprepapi.service.GroupInviteService.ValidationResult(
+                        io.sitprep.sitprepapi.service.GroupInviteService.InviteState.OK,
+                        invite));
+        when(groupService.getGroupByPublicId(group.getGroupId())).thenReturn(group);
+
+        ResponseEntity<?> res = resource.shareByInvite("invite-123", "Mozilla/5.0 (iPhone)");
+
+        String location = String.valueOf(res.getHeaders().getLocation());
+        assertEquals(302, res.getStatusCode().value());
+        assertTrue(location.contains("/joingroup?groupId=grp-3"));
+        assertTrue(location.contains("&invite=invite-123"));
+    }
+
+    @Test
+    void householdInviteTokenCanUnfurlSafeHouseholdPreview() {
+        Group household = group("hh-2", "The Reyes household", "Household", null);
+        GroupInvite invite = new GroupInvite();
+        invite.setId("hh-invite-123");
+        invite.setGroupId(household.getGroupId());
+
+        when(inviteService.previewHousehold("hh-invite-123"))
+                .thenReturn(new io.sitprep.sitprepapi.service.GroupInviteService.HouseholdInvitePreview(
+                        io.sitprep.sitprepapi.service.GroupInviteService.InviteState.OK,
+                        invite,
+                        household));
+
+        ResponseEntity<?> res = resource.shareHousehold("hh-invite-123", BOT);
+        String html = String.valueOf(res.getBody());
+
+        assertEquals(200, res.getStatusCode().value());
+        assertTrue(html.contains("The Reyes household"));
+        assertTrue(html.contains("private household plan"));
+        assertFalse(html.contains("Where we meet if something happens."));
+        assertFalse(html.contains("a@x.com"));
+    }
+
+    @Test
+    void householdInviteHumanRedirectsToJoinHouseholdRoute() {
+        Group household = group("hh-2", "The Reyes household", "Household", null);
+        GroupInvite invite = new GroupInvite();
+        invite.setId("hh-invite-123");
+        invite.setGroupId(household.getGroupId());
+
+        when(inviteService.previewHousehold("hh-invite-123"))
+                .thenReturn(new io.sitprep.sitprepapi.service.GroupInviteService.HouseholdInvitePreview(
+                        io.sitprep.sitprepapi.service.GroupInviteService.InviteState.OK,
+                        invite,
+                        household));
+
+        ResponseEntity<?> res = resource.shareHousehold("hh-invite-123", "Mozilla/5.0 (iPhone)");
+        String location = String.valueOf(res.getHeaders().getLocation());
+
+        assertEquals(302, res.getStatusCode().value());
+        assertTrue(location.contains("/join/household/hh-invite-123"));
+        assertFalse(location.contains("hh-2"));
+    }
+
+    @Test
+    void guideShareCanUnfurlStaticPreview() {
+        ResponseEntity<?> res = resource.shareGuide("wildfire-prep", BOT);
+        String html = String.valueOf(res.getBody());
+
+        assertEquals(200, res.getStatusCode().value());
+        assertTrue(html.contains("Wildfire smoke + evacuation on SitPrep"));
+        assertTrue(html.contains("Defensible space"));
+        assertTrue(html.contains("https://sitprep.app/share/guide/wildfire-prep"));
+        assertTrue(html.contains("https://sitprep.app/wildfire-prep"));
+    }
+
+    @Test
+    void guideShareHumanRedirectsToCanonicalGuideRoute() {
+        ResponseEntity<?> res = resource.shareGuide("earthquake-prep", "Mozilla/5.0 (iPhone)");
+        String location = String.valueOf(res.getHeaders().getLocation());
+
+        assertEquals(302, res.getStatusCode().value());
+        assertEquals("https://sitprep.app/earthquake-prep", location);
+    }
+
+    @Test
+    void guideShareLegacyPlaybookSlugRedirectsToCanonicalPlaybookRoute() {
+        ResponseEntity<?> res = resource.shareGuide("power-outage-prep", "Mozilla/5.0 (iPhone)");
+        String location = String.valueOf(res.getHeaders().getLocation());
+
+        assertEquals(302, res.getStatusCode().value());
+        assertEquals("https://sitprep.app/playbooks/power-outage", location);
+    }
+
+    @Test
+    void unknownGuideSlugGetsGenericPreviewForBots() {
+        ResponseEntity<?> res = resource.shareGuide("nope", BOT);
+        String html = String.valueOf(res.getBody());
+
+        assertEquals(404, res.getStatusCode().value());
+        assertTrue(html.contains("SitPrep preparedness guides"));
+        assertTrue(html.contains("https://sitprep.app/hazards"));
+        assertFalse(html.contains("nope on SitPrep"));
+    }
+
+    @Test
+    void approvedResourceShareCanUnfurlStaticPreview() {
+        when(resourceListingService.findPublicPreview(42L))
+                .thenReturn(Optional.of(new ResourceListingDto(
+                        42L,
+                        "Warming center",
+                        "Open overnight during the cold snap.",
+                        "warming-center",
+                        null,
+                        null,
+                        "123 Main St",
+                        "https://example.org/warming",
+                        "OFFICIAL",
+                        null,
+                        Instant.parse("2026-01-01T00:00:00Z"))));
+
+        ResponseEntity<?> res = resource.shareResource(42L, BOT);
+        String html = String.valueOf(res.getBody());
+
+        assertEquals(200, res.getStatusCode().value());
+        assertTrue(html.contains("Warming center on SitPrep"));
+        assertTrue(html.contains("Open overnight during the cold snap."));
+        assertTrue(html.contains("123 Main St"));
+        assertTrue(html.contains("https://sitprep.app/share/resource/42"));
+        assertTrue(html.contains("https://sitprep.app/community/resources?resource=42"));
+    }
+
+    @Test
+    void resourceShareHumanRedirectsToResourceBoardFocus() {
+        ResponseEntity<?> res = resource.shareResource(42L, "Mozilla/5.0 (iPhone)");
+        String location = String.valueOf(res.getHeaders().getLocation());
+
+        assertEquals(302, res.getStatusCode().value());
+        assertEquals("https://sitprep.app/community/resources?resource=42", location);
+        verifyNoInteractions(resourceListingService);
+    }
+
+    @Test
+    void missingResourceShareGetsGenericPreviewForBots() {
+        when(resourceListingService.findPublicPreview(999L)).thenReturn(Optional.empty());
+
+        ResponseEntity<?> res = resource.shareResource(999L, BOT);
+        String html = String.valueOf(res.getBody());
+
+        assertEquals(404, res.getStatusCode().value());
+        assertTrue(html.contains("Community resource on SitPrep"));
+        assertFalse(html.contains("999 on SitPrep"));
     }
 }

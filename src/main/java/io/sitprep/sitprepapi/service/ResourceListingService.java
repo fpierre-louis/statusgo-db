@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Community resource board — read + write. Reads return national
@@ -74,6 +75,12 @@ public class ResourceListingService {
         out.addAll(national);
         out.addAll(nearby);
         return out;
+    }
+
+    public Optional<ResourceListingDto> findPublicPreview(Long id) {
+        if (id == null) return Optional.empty();
+        return repo.findByIdAndStatus(id, ResourceListing.Status.APPROVED)
+                .map(r -> toDto(r, null));
     }
 
     /** Record a resident's submission. Auto-approved for closed beta. */

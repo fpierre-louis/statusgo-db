@@ -65,6 +65,7 @@ class SecurityConfigAllowlistTest {
             "POST, /api/plans/activations/does-not-exist/acks",
             // Invite link, opened before signing in.
             "GET,  /api/groups/does-not-exist/preview",
+            "GET,  /api/invites/does-not-exist/resolve",
             // Stripe. Never sends a Firebase token.
             "POST, /api/billing/webhook",
             // Ask reads — anonymous by product decision; the FE renders these

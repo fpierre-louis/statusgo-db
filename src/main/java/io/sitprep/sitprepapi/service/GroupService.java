@@ -890,6 +890,54 @@ public class GroupService {
         return saved;
     }
 
+    /**
+     * Trusted household invite redemption. Unlike generic private-group
+     * self-join, an admin-issued household token is the approval signal, so the
+     * recipient becomes a household member immediately.
+     */
+    @Transactional
+    public Group joinHouseholdByInvite(String householdId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        Group g = getGroupByPublicId(householdId);
+        if (!HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invite is not for a household");
+        }
+
+        if (containsCaseInsensitive(g.getMemberEmails(), email)
+                || containsCaseInsensitive(g.getAdminEmails(), email)) {
+            ensureUserHouseholdLink(email, householdId);
+            return g;
+        }
+
+        Set<String> oldMembers = new HashSet<>(safeList(g.getMemberEmails()));
+        List<String> members = safeList(g.getMemberEmails());
+        members.add(email.trim().toLowerCase(Locale.ROOT));
+        g.setMemberEmails(members);
+        g.setMemberCount(members.size());
+        g.setUpdatedAt(Instant.now());
+
+        ensureUserHouseholdLink(email, householdId);
+
+        Group saved = groupRepo.save(g);
+        notifyNewMembers(saved, oldMembers);
+        notifyAdminsOfNewMembers(saved, oldMembers);
+        broadcastMembershipAfterCommit(saved, "ADD", email, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
+        return saved;
+    }
+
+    private void ensureUserHouseholdLink(String email, String householdId) {
+        userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u -> {
+            Set<String> updated = addToSet(u.getJoinedGroupIDs(), householdId);
+            u.setJoinedGroupIDs(updated);
+            if (u.getBaseHouseholdId() == null || u.getBaseHouseholdId().isBlank()) {
+                u.setBaseHouseholdId(householdId);
+            }
+            userInfoRepo.save(u);
+        });
+    }
+
     private static boolean containsCaseInsensitive(java.util.Collection<String> coll, String needle) {
         if (coll == null || needle == null || needle.isEmpty()) return false;
         for (String s : coll) {
