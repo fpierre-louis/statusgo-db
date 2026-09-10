@@ -18,11 +18,16 @@ import java.util.List;
  *   <li>{@code GET  /api/resources?lat&lng&radiusKm} — board for a
  *       viewer. National listings always; geo-pinned ones within the
  *       backend default radius (or {@code radiusKm} when supplied).</li>
+ *   <li>{@code GET  /api/resources/{id}/preview} — public-safe read shape
+ *       for a shared resource link that may be outside the viewer's board
+ *       radius.</li>
  *   <li>{@code POST /api/resources} — a resident submits a resource.</li>
  * </ul>
  *
- * <p>Both require a verified token, consistent with the rest of the
- * post / group surfaces.</p>
+ * <p>The board and submit routes require a verified token, consistent with
+ * the rest of the post / group surfaces. The preview route mirrors
+ * {@code /share/resource/{id}} unfurls: approved listings only, no submitter
+ * email, and safe for logged-out share landing.</p>
  */
 @RestController
 @RequestMapping("/api/resources")
@@ -45,6 +50,13 @@ public class ResourceListingResource {
             @RequestParam(value = "radiusKm", required = false) Double radiusKm) {
         AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(ApiResponse.ok(service.board(lat, lng, radiusKm), ApiMeta.now()));
+    }
+
+    @GetMapping("/{id}/preview")
+    public ResponseEntity<ApiResponse<ResourceListingDto>> preview(@PathVariable Long id) {
+        return service.findPublicPreview(id)
+                .map(dto -> ResponseEntity.ok(ApiResponse.ok(dto, ApiMeta.now())))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping
