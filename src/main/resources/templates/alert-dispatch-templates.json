@@ -31,7 +31,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -82,7 +82,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -144,7 +144,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "follow_official_instruction",
         "impactAware": true
       },
       "evidence": [
@@ -196,7 +196,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": true
       },
       "evidence": [
@@ -316,7 +316,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": true
       },
       "evidence": [
@@ -564,7 +564,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "official_only",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -615,7 +615,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -669,7 +669,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -721,7 +721,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": true
       },
       "evidence": [
@@ -772,7 +772,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -823,7 +823,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -877,7 +877,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -1004,7 +1004,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -1069,7 +1069,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -1121,7 +1121,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -1172,7 +1172,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "evacuate",
         "impactAware": false
       },
       "evidence": [
@@ -1299,7 +1299,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "shelter_in_place",
         "impactAware": false
       },
       "evidence": [
@@ -1351,7 +1351,7 @@
       "sitprep": {
         "dispatchMode": "feed",
         "guidanceMode": "official_only",
-        "movementDirective": "none",
+        "movementDirective": "avoid_area",
         "impactAware": false
       },
       "evidence": [
@@ -1403,7 +1403,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "none",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [

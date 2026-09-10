@@ -183,6 +183,18 @@ class AlertSafetyPolicyTest {
         assertThat(decision.dispatchMode()).isEqualTo(AlertSafetyPolicy.DispatchMode.FEED);
     }
 
+    /**
+     * General indoor safety is not a shelter-in-place order. That ruling stands.
+     *
+     * <p><b>Amended by RC-1 (2026-09-09).</b> The claim in this test's name is
+     * unchanged and still asserted. What changed is the alternative: this
+     * previously expected {@code NONE}, and {@code NONE} turned out to be the
+     * dangerous state — it is what let a household's saved meeting place stand as
+     * the primary action during a warning, which is the P0 this suite now guards.
+     * The truthful middle is {@code FOLLOW_OFFICIAL_INSTRUCTION}: it declines to
+     * call graduated indoor-safety advice a formal sheltering order, and it still
+     * refuses to let a prepared destination read as the current instruction.</p>
+     */
     @Test
     void generalIndoorSafetyIsNotAnOfficialShelterInPlaceDirective() throws Exception {
         AlertDispatchService.DispatchTemplate template = approvedTemplate(
@@ -198,7 +210,12 @@ class AlertSafetyPolicyTest {
 
         AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(alert, template);
 
-        assertThat(decision.movementDirective()).isEqualTo(AlertSafetyPolicy.MovementDirective.NONE);
+        assertThat(decision.movementDirective())
+                .as("general indoor safety must never be presented as a shelter-in-place order")
+                .isNotEqualTo(AlertSafetyPolicy.MovementDirective.SHELTER_IN_PLACE);
+        assertThat(decision.movementDirective())
+                .as("but it must not be NONE either — that is what let a saved destination stand")
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
     }
 
     @Test
@@ -617,4 +634,361 @@ class AlertSafetyPolicyTest {
                 "approved".equals(reviewStatus) ? "\"2026-08-27\"" : "null");
         return AlertDispatchService.DispatchTemplate.fromJson(MAPPER.readTree(json));
     }
+
+    // =====================================================================
+    // RC-1 — movement directive integrity
+    //
+    // These are DATA invariants, not function tests, and that distinction is
+    // the whole reason they exist. The P0 this suite now guards survived a
+    // green build because `movementDirectiveFor` was correct and the
+    // production template file never handed it a usable input: 20 of 52
+    // templates declared a protective action and shipped
+    // `movementDirective: "none"`, and CAP `Avoid` was not read at all, so
+    // `AVOID_AREA` could not be produced by any production path. Every unit
+    // test passed throughout. A policy method is only as safe as the
+    // configuration it reads, so the configuration is asserted here too.
+    // =====================================================================
+
+    /**
+     * Templates that declare a protective action and are DELIBERATELY left with
+     * no movement directive, each with the reason.
+     *
+     * <p>A watch says "be ready", not "do this now". Letting one resolve to a
+     * movement directive would allow a watch to demote a household's saved
+     * meeting place, which is the inverse of the defect RC-1 fixed.</p>
+     *
+     * <p>Adding an entry here is a deliberate safety decision and should be
+     * argued in review. Adding a protective-action template and forgetting the
+     * directive is not — that is what the test below catches.</p>
+     */
+    private static final Map<String, String> MOVEMENT_DIRECTIVE_EXEMPT = Map.of(
+            "Tsunami Advisory", "watch tier — a watch is not a movement instruction");
+
+    private static final Set<AlertSafetyPolicy.ProtectiveAction> MOVEMENT_BEARING_ACTIONS = Set.of(
+            AlertSafetyPolicy.ProtectiveAction.EVACUATE,
+            AlertSafetyPolicy.ProtectiveAction.SHELTER,
+            AlertSafetyPolicy.ProtectiveAction.AVOID);
+
+    /**
+     * The directives that are TRUTHFUL for a given protective action.
+     *
+     * <p>More than one is acceptable because a hazard's sheltering guidance may be
+     * a formal shelter-in-place order or graduated indoor-safety advice, and
+     * {@code follow_official_instruction} is the honest expression of the second.
+     * What is never acceptable is {@code NONE} — that is the state that lets a
+     * saved destination stand as the current instruction, which is RC-1.</p>
+     */
+    private static Set<AlertSafetyPolicy.MovementDirective> truthfulDirectivesFor(
+            AlertSafetyPolicy.ProtectiveAction action) {
+        return switch (action) {
+            case EVACUATE -> Set.of(AlertSafetyPolicy.MovementDirective.EVACUATE);
+            case SHELTER -> Set.of(
+                    AlertSafetyPolicy.MovementDirective.SHELTER_IN_PLACE,
+                    AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+            case AVOID -> Set.of(
+                    AlertSafetyPolicy.MovementDirective.AVOID_AREA,
+                    AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+            default -> Set.of();
+        };
+    }
+
+    private static List<AlertDispatchService.DispatchTemplate> productionTemplates() throws Exception {
+        List<AlertDispatchService.DispatchTemplate> out = new ArrayList<>();
+        try (InputStream in = AlertSafetyPolicyTest.class
+                .getResourceAsStream("/templates/alert-dispatch-templates.json")) {
+            assertThat(in).isNotNull();
+            for (JsonNode node : MAPPER.readTree(in).path("templates")) {
+                if (!node.isObject()) continue;
+                out.add(AlertDispatchService.DispatchTemplate.fromJson(node));
+            }
+        }
+        return out;
+    }
+
+    private static String templateName(AlertDispatchService.DispatchTemplate t) {
+        if (t.eventAny != null && !t.eventAny.isEmpty()) return String.join(" / ", t.eventAny);
+        return t.headline == null ? "(unnamed template)" : t.headline;
+    }
+
+    private static boolean isExempt(AlertDispatchService.DispatchTemplate t) {
+        String name = templateName(t);
+        return MOVEMENT_DIRECTIVE_EXEMPT.keySet().stream().anyMatch(name::contains);
+    }
+
+    /**
+     * INVARIANT 1 — a template that declares evacuation, sheltering or avoidance
+     * must declare a movement directive, and it must be the matching one.
+     *
+     * <p>This is the assertion that would have caught RC-1 on the day it was
+     * introduced. It fails when somebody adds a protective-action template and
+     * leaves {@code movementDirective} at its default.</p>
+     */
+    @Test
+    void everyProtectiveActionTemplateDeclaresAMatchingMovementDirective() throws Exception {
+        List<String> offenders = new ArrayList<>();
+        int checked = 0;
+
+        for (AlertDispatchService.DispatchTemplate t : productionTemplates()) {
+            if (t.protectiveAction == null
+                    || !MOVEMENT_BEARING_ACTIONS.contains(t.protectiveAction)
+                    || isExempt(t)) {
+                continue;
+            }
+            checked++;
+            String declared = t.sitprep == null ? null : t.sitprep.movementDirective;
+            Set<AlertSafetyPolicy.MovementDirective> truthful = truthfulDirectivesFor(t.protectiveAction);
+            AlertSafetyPolicy.MovementDirective parsed =
+                    AlertSafetyPolicy.MovementDirective.parse(declared, AlertSafetyPolicy.MovementDirective.NONE);
+            if (!truthful.contains(parsed)) {
+                offenders.add(templateName(t) + " declares protectiveAction " + t.protectiveAction
+                        + " but movementDirective \"" + declared + "\" — expected one of " + truthful);
+            }
+        }
+
+        assertThat(offenders)
+                .as("every protective-action template must declare the matching movement directive; "
+                        + "add a documented entry to MOVEMENT_DIRECTIVE_EXEMPT only when a template "
+                        + "deliberately commands no movement")
+                .isEmpty();
+        assertThat(checked)
+                .as("the production template set should contain protective-action templates")
+                .isGreaterThan(15);
+    }
+
+    /**
+     * INVARIANT 2 — the same claim, asserted through the policy rather than over
+     * the file, so a regression in {@code movementDirectiveFor} is caught even if
+     * the JSON is still correct.
+     */
+    @Test
+    void noProductionTemplateEvaluatesToNoneForItsOwnProtectiveAction() throws Exception {
+        List<String> offenders = new ArrayList<>();
+
+        for (AlertDispatchService.DispatchTemplate t : productionTemplates()) {
+            if (t.protectiveAction == null
+                    || !MOVEMENT_BEARING_ACTIONS.contains(t.protectiveAction)
+                    || isExempt(t)) {
+                continue;
+            }
+            // An alert carrying NO response type, so the template's own declared
+            // directive is the only thing that can answer.
+            NormalizedAlert alert = TestAlerts.nws(
+                            t.eventAny == null || t.eventAny.isEmpty()
+                                    ? "Template Test Warning"
+                                    : t.eventAny.get(0))
+                    .instruction("Official instruction.")
+                    .build();
+
+            AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(alert, t);
+            if (decision.movementDirective() == AlertSafetyPolicy.MovementDirective.NONE) {
+                offenders.add(templateName(t) + " (" + t.protectiveAction + ") resolved to NONE");
+            }
+        }
+
+        assertThat(offenders)
+                .as("a template declaring a protective action must never resolve to NONE — "
+                        + "that is the state that let a saved destination stand as the primary action")
+                .isEmpty();
+    }
+
+    /**
+     * INVARIANT 3 — {@code AVOID_AREA} is reachable from production data at all.
+     *
+     * <p>Before RC-1 it was not: no branch produced it and no template declared
+     * it, so the frontend's avoid branch was dead code. A count assertion is
+     * crude, and it is exactly the thing that was false.</p>
+     */
+    @Test
+    void avoidAreaIsReachableFromTheProductionTemplateSet() throws Exception {
+        long avoidTemplates = productionTemplates().stream()
+                .filter(t -> t.sitprep != null)
+                .filter(t -> AlertSafetyPolicy.MovementDirective.AVOID_AREA.wire()
+                        .equalsIgnoreCase(t.sitprep.movementDirective))
+                .count();
+
+        assertThat(avoidTemplates)
+                .as("at least one production template must declare avoid_area, "
+                        + "or the whole avoid path is unreachable")
+                .isGreaterThan(0);
+    }
+
+    // ---- CAP response-type mapping ------------------------------------------
+
+    @Test
+    void capAvoidResolvesToAvoidArea() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Dust Storm Warning")
+                .responseTypes(List.of("Avoid"))
+                .instruction("Pull off the road.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert, approvedTemplate("AVOID", List.of("Avoid"), List.of("Evacuate"), null, null));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.AVOID_AREA);
+    }
+
+    /**
+     * A reviewed template that classifies its hazard as a formal sheltering order
+     * resolves to SHELTER_IN_PLACE — for any event name. The pre-RC-1 code honoured
+     * Shelter ONLY for the literal string "Shelter In Place Warning", which is why
+     * a tornado warning produced NONE.
+     */
+    @Test
+    void aReviewedShelterTemplateResolvesToShelterInPlaceForAnyEventName() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Tornado Warning")
+                .responseTypes(List.of("Shelter"))
+                .instruction("Get to a basement now.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                templateWithDirective("SHELTER", List.of("Shelter"), List.of("Evacuate"), "shelter_in_place"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.SHELTER_IN_PLACE);
+    }
+
+    /**
+     * An UNREVIEWED shelter alert never becomes a shelter-in-place order — but it
+     * never becomes NONE either. See the note on
+     * {@code generalIndoorSafetyIsNotAnOfficialShelterInPlaceDirective}.
+     */
+    @Test
+    void unreviewedCapShelterResolvesToFollowOfficialInstruction() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Severe Thunderstorm Warning")
+                .responseTypes(List.of("Shelter"))
+                .instruction("Move indoors away from windows.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert, approvedTemplate("SHELTER", List.of("Shelter"), List.of("Evacuate"), null, null));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    @Test
+    void capEvacuateStillResolvesToEvacuate() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Tsunami Warning")
+                .responseTypes(List.of("Evacuate"))
+                .instruction("Move to high ground.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert, approvedTemplate("EVACUATE", List.of("Evacuate"), List.of("Shelter"), null, null));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.EVACUATE);
+    }
+
+    /**
+     * The "do not map blindly" gate. A flash-flood template declares
+     * {@code Shelter} incompatible because sheltering in place is the wrong
+     * answer to rising water; a stray Shelter response type must not become a
+     * shelter instruction.
+     */
+    @Test
+    void capShelterIsNotHonouredWhenTheTemplateDeclaresItIncompatible() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Flash Flood Warning")
+                .responseTypes(List.of("Shelter"))
+                .instruction("Move to higher ground.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                approvedTemplate("AVOID", List.of("Avoid", "Evacuate"), List.of("Shelter"), null, null));
+
+        assertThat(decision.movementDirective())
+                .as("an incompatible response type must not become a movement instruction")
+                .isNotEqualTo(AlertSafetyPolicy.MovementDirective.SHELTER_IN_PLACE);
+    }
+
+    /**
+     * A CAP evacuation order outranks the template's classification — and only
+     * evacuation does. For Shelter and Avoid the reviewed template wins, because
+     * whether a hazard's guidance is a formal order is a safety-review judgment.
+     */
+    @Test
+    void capEvacuateOutranksTheTemplatesDeclaredDirective() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Evacuation Immediate")
+                .responseTypes(List.of("Evacuate"))
+                .instruction("Leave now.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                templateWithDirective("SHELTER", List.of("Shelter"), List.of(), "shelter_in_place"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.EVACUATE);
+    }
+
+    /** An alert with no response type falls through to the template. */
+    @Test
+    void templateDirectiveAnswersWhenCapCarriesNoResponseType() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Dust Storm Warning")
+                .instruction("Pull off the road.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                templateWithDirective("AVOID", List.of("Avoid"), List.of(), "avoid_area"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.AVOID_AREA);
+    }
+
+
+    /**
+     * An approved template that DECLARES a movement directive. The shared
+     * {@link #reviewedTemplate} helper hardcodes {@code "none"}, which is what the
+     * pre-RC-1 production file did too — so a directive-bearing template needs its
+     * own builder rather than another parameter on a helper eleven tests share.
+     */
+    private static AlertDispatchService.DispatchTemplate templateWithDirective(
+            String protectiveAction,
+            List<String> compatible,
+            List<String> incompatible,
+            String movementDirective) throws Exception {
+        String json = """
+                {
+                  "source": "NWS",
+                  "eventAny": ["Directive Test Warning"],
+                  "tier": "warning",
+                  "hazardType": "test",
+                  "headline": "Directive test",
+                  "body": "Use the reviewed action.",
+                  "steps": ["Use the reviewed action."],
+                  "protectiveAction": "%s",
+                  "compatibleResponseTypes": %s,
+                  "incompatibleResponseTypes": %s,
+                  "sitprep": {
+                    "dispatchMode": "critical_push",
+                    "guidanceMode": "supplement_official",
+                    "movementDirective": "%s",
+                    "impactAware": false
+                  },
+                  "evidence": [{
+                    "agency": "NOAA / National Weather Service",
+                    "title": "Safety guidance",
+                    "url": "https://www.weather.gov/safety",
+                    "checkedAt": "2026-08-27",
+                    "supports": ["body", "steps[0]"]
+                  }],
+                  "safetyReview": {
+                    "status": "approved",
+                    "version": 1,
+                    "sourceVerifiedAt": "2026-08-27",
+                    "approvedAt": "2026-08-27"
+                  }
+                }
+                """.formatted(
+                protectiveAction,
+                MAPPER.writeValueAsString(new ArrayList<>(compatible)),
+                MAPPER.writeValueAsString(new ArrayList<>(incompatible)),
+                movementDirective);
+        return AlertDispatchService.DispatchTemplate.fromJson(MAPPER.readTree(json));
+    }
+
 }

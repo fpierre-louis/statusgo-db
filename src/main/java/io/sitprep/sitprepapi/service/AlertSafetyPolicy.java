@@ -226,23 +226,104 @@ public final class AlertSafetyPolicy {
         return false;
     }
 
+    /**
+     * The movement directive for this alert: the one thing that can demote a
+     * household's saved meeting place or evacuation destination in favour of the
+     * protective action actually in force.
+     *
+     * <p><b>Resolution order, and why.</b> The issuer's own CAP {@code responseType}
+     * comes first, because it is the authority's statement about what to do. The
+     * template's declared directive is the fallback for alerts that carry no
+     * response type. Nothing else is consulted — in particular there is no matching
+     * on event <i>names</i> or on wording, which would be a heuristic standing in
+     * for a structured field and is the class of thing this file exists to avoid.</p>
+     *
+     * <p><b>RC-1 (2026-09-09).</b> This method previously read CAP for
+     * {@code Evacuate} only. {@code Shelter} was honoured for the single literal
+     * event name {@code "Shelter In Place Warning"}, and {@code Avoid} was not read
+     * at all — so {@link MovementDirective#AVOID_AREA} could not be produced by any
+     * production path, and the frontend's entire avoid branch was unreachable. A
+     * dust-storm warning, whose protective action is to STOP MOVING, therefore left
+     * the household's saved destination standing as the primary action. Both gaps
+     * are closed here; see {@link #movementDirectiveFromCap}.</p>
+     */
     private static MovementDirective movementDirectiveFor(NormalizedAlert alert,
                                                           DispatchTemplate template,
                                                           Set<ProtectiveAction> capActions) {
+        // 1. An evacuation order from the issuer outranks everything.
         if (capActions != null && capActions.contains(ProtectiveAction.EVACUATE)) {
             return MovementDirective.EVACUATE;
         }
+
+        // 2. The template's REVIEWED classification of this hazard. This sits
+        //    above the remaining CAP reads on purpose: `Shelter` and `Avoid` say
+        //    what the issuer wants people to do, but whether a hazard's sheltering
+        //    guidance is a formal shelter-in-place order or graduated indoor-safety
+        //    advice is a judgment somebody made in safety review, and a reviewed
+        //    judgment outranks a re-derivation.
         MovementDirective declared = MovementDirective.parse(
                 template == null || template.sitprep == null ? null : template.sitprep.movementDirective,
                 MovementDirective.NONE);
         if (declared != MovementDirective.NONE) {
             return declared;
         }
-        if (capActions != null && capActions.contains(ProtectiveAction.SHELTER)
-                && alert != null && "Shelter In Place Warning".equalsIgnoreCase(alert.event())) {
-            return MovementDirective.SHELTER_IN_PLACE;
+
+        // 3. No reviewed classification. Fall back to what the issuer's own
+        //    response type supports — see movementDirectiveFromCap.
+        return movementDirectiveFromCap(template, capActions);
+    }
+
+    /**
+     * The directive an unreviewed alert's CAP {@code responseType} can support.
+     *
+     * <p>Reached only when the template declares no directive of its own, so this
+     * is the answer for an alert SitPrep has no reviewed classification for.</p>
+     *
+     * <p><b>{@code Avoid} becomes {@link MovementDirective#AVOID_AREA}.</b> "Avoid
+     * the area" is not a term of art — it means what it says, so reading it
+     * directly invents nothing. Before RC-1 this branch did not exist at all and
+     * {@code AVOID_AREA} was unreachable in production, which is why a dust-storm
+     * warning left a saved destination standing as the primary action.</p>
+     *
+     * <p><b>{@code Shelter} becomes {@link MovementDirective#FOLLOW_OFFICIAL_INSTRUCTION},
+     * NOT shelter-in-place.</b> This preserves a ruling this codebase already made
+     * and tests ({@code generalIndoorSafetyIsNotAnOfficialShelterInPlaceDirective}):
+     * "move indoors away from windows" during a thunderstorm is general indoor
+     * safety, and calling it a shelter-in-place order dilutes a term that means
+     * something specific. But {@code NONE} was the wrong alternative — it let the
+     * household's saved meeting place stand as the primary action, which is the P0.
+     * "Follow official instructions" is the honest middle: it declines to name a
+     * protective action SitPrep has not classified, and it still refuses to let a
+     * prepared destination read as the current instruction. A hazard whose
+     * sheltering guidance IS a formal order says so in its template.</p>
+     *
+     * <p><b>Both respect the template's {@code incompatibleResponseTypes}.</b>
+     * Mapping blindly is the failure mode to avoid: a flash-flood template declares
+     * {@code Shelter} incompatible precisely because sheltering in place is the
+     * wrong answer to rising water.</p>
+     */
+    private static MovementDirective movementDirectiveFromCap(DispatchTemplate template,
+                                                              Set<ProtectiveAction> capActions) {
+        if (capActions == null || capActions.isEmpty()) return MovementDirective.NONE;
+
+        if (capActions.contains(ProtectiveAction.AVOID)
+                && !responseTypeIsIncompatible(template, "Avoid")) {
+            return MovementDirective.AVOID_AREA;
+        }
+        if (capActions.contains(ProtectiveAction.SHELTER)
+                && !responseTypeIsIncompatible(template, "Shelter")) {
+            return MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION;
         }
         return MovementDirective.NONE;
+    }
+
+    /** Has this template declared {@code responseType} incompatible with its hazard? */
+    private static boolean responseTypeIsIncompatible(DispatchTemplate template, String responseType) {
+        if (template == null || template.incompatibleResponseTypes == null) return false;
+        for (String declared : template.incompatibleResponseTypes) {
+            if (declared != null && declared.equalsIgnoreCase(responseType)) return true;
+        }
+        return false;
     }
 
     private static Compatibility compatibilityFor(NormalizedAlert alert,
