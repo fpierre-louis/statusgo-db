@@ -34,6 +34,11 @@ public class LiveLocationResource {
         return service.start(AuthUtils.requireAuthenticatedEmail(), request);
     }
 
+    @GetMapping("/live-location/sessions/mine")
+    public List<LiveLocationSessionDto> mine() {
+        return service.listMine(AuthUtils.requireAuthenticatedEmail());
+    }
+
     @PatchMapping("/live-location/sessions/{sessionId}/point")
     public LiveLocationMemberDto updatePoint(@PathVariable String sessionId,
                                              @RequestHeader(value = "X-Live-Location-Token", required = false)

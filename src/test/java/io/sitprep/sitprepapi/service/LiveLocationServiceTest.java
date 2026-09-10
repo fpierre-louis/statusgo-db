@@ -227,6 +227,21 @@ class LiveLocationServiceTest {
         assertTrue(service.listForGroup(ACTOR, GROUP_ID).isEmpty());
     }
 
+    @Test
+    void listMineReturnsRecentSessionsWithoutUploadTokens() {
+        LiveLocationSession session = activeSession();
+        session.setUploadTokenHash("stored-token-hash");
+        when(sessionRepo.findTop25ByUserEmailIgnoreCaseOrderByStartedAtDesc(ACTOR))
+                .thenReturn(List.of(session));
+
+        var rows = service.listMine(ACTOR);
+
+        assertEquals(1, rows.size());
+        assertEquals(session.getId(), rows.get(0).id());
+        assertNull(rows.get(0).uploadToken());
+        verify(sessionRepo).findTop25ByUserEmailIgnoreCaseOrderByStartedAtDesc(ACTOR);
+    }
+
     private StartLiveLocationSessionRequest request() {
         return new StartLiveLocationSessionRequest(List.of(GROUP_ID), 30, null, null);
     }

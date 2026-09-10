@@ -261,6 +261,14 @@ public class LiveLocationService {
         return rows;
     }
 
+    @Transactional(readOnly = true)
+    public List<LiveLocationSessionDto> listMine(String email) {
+        String actor = normalizeEmail(email);
+        return sessionRepo.findTop25ByUserEmailIgnoreCaseOrderByStartedAtDesc(actor).stream()
+                .map(this::toDto)
+                .toList();
+    }
+
     private Group requireShareableGroup(String groupId, String actor, UserInfo user, boolean activationContext) {
         Group group = groupRepo.findByGroupId(groupId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));

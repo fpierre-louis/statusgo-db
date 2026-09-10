@@ -13,6 +13,8 @@ public interface LiveLocationSessionRepo extends JpaRepository<LiveLocationSessi
     List<LiveLocationSession> findByUserEmailIgnoreCaseAndStoppedAtIsNullAndExpiresAtAfter(
             String userEmail, Instant now);
 
+    List<LiveLocationSession> findTop25ByUserEmailIgnoreCaseOrderByStartedAtDesc(String userEmail);
+
     @Query("""
         SELECT DISTINCT s FROM LiveLocationSession s JOIN s.groupIds gid
          WHERE gid = :groupId
