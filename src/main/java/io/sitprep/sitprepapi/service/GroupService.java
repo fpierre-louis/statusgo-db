@@ -38,17 +38,20 @@ public class GroupService {
     private final WebSocketMessageSender webSocketMessageSender;
     private final HouseholdEventService householdEventService;
     private NotificationService notificationService; // setter-injected
+    private final CheckInRequestService checkInRequestService;
 
     public GroupService(GroupRepo groupRepo,
                         UserInfoRepo userInfoRepo,
                         WebSocketMessageSender webSocketMessageSender,
                         HouseholdEventService householdEventService,
-                        NotificationService notificationService) {
+                        NotificationService notificationService,
+                        CheckInRequestService checkInRequestService) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.webSocketMessageSender = webSocketMessageSender;
         this.householdEventService = householdEventService;
         this.notificationService = notificationService;
+        this.checkInRequestService = checkInRequestService;
     }
 
     /**
@@ -196,6 +199,16 @@ public class GroupService {
                 .filter(n -> n != null && !n.isBlank())
                 .orElse(null);
 
+        // RECORD THE ASK BEFORE SENDING IT (RC-2).
+        //
+        // The notification is the part that can be dropped -- a muted category
+        // hits Lane.DROP and writes nothing anywhere -- so if the record were a
+        // side effect of delivery, the people most likely to be missed would be
+        // the ones with no evidence they were ever asked. Recording first means
+        // "asked" survives every delivery outcome, which is the distinction the
+        // roster needs: never asked is not the same as asked and silent.
+        checkInRequestService.recordAsked(group, group.getMemberEmails(), callerEmail);
+
         notificationService.notifyCheckInRequest(group, callerEmail, callerName);
     }
 
@@ -240,6 +253,10 @@ public class GroupService {
                 continue;
             }
             pushNudge(group, user, callerName);
+            // Only the people actually nudged are recorded as asked: the
+            // cooldown above skips the rest, and a skipped nudge is not an ask.
+            checkInRequestService.recordAsked(
+                    group, java.util.List.of(user.getUserEmail()), callerEmail);
             pinged++;
         }
         logger.info("Pinged {} of {} missing check-in member(s) for group {}",
@@ -601,6 +618,10 @@ public class GroupService {
         }
 
         if (becameActive) {
+            // Opening a check-in window IS asking everyone (RC-2). The window
+            // start is set two lines up, so the asks land against the window
+            // they belong to rather than against the previous one.
+            checkInRequestService.recordAsked(group, group.getMemberEmails(), actor);
             notifyGroupMembers(group);
         }
 

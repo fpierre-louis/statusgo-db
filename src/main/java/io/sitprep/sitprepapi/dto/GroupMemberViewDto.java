@@ -107,8 +107,55 @@ public record GroupMemberViewDto(
             /** Last reported device location; null until permission granted. */
             Double lastKnownLat,
             Double lastKnownLng,
-            Instant lastKnownLocationAt
+            Instant lastKnownLocationAt,
+            /**
+             * When this member was ASKED to check in, for the current window —
+             * null when they were not asked (RC-2).
+             *
+             * <p>Null and "asked but silent" are different facts and the client
+             * must not collapse them. Before this field the roster said "no
+             * response" about people nobody had contacted, because a muted
+             * category drops the notification and leaves no trace anywhere.</p>
+             */
+            Instant checkInRequestedAt,
+            /**
+             * What happened to the check-in notification for this member —
+             * {@code sent} · {@code failed} · {@code unknown}. See
+             * {@link DispatchOutcome}.
+             *
+             * <p>{@code sent} means FCM accepted the message for a token. It is
+             * NOT delivery and NOT proof anybody saw it, and no client should
+             * render it as either.</p>
+             */
+            String checkInDispatch
     ) {}
+
+    /**
+     * What SitPrep can honestly say about a check-in notification.
+     *
+     * <p>Deliberately three values and deliberately not four. There is no
+     * {@code DELIVERED}: FCM's send path returns acceptance, not receipt, and a
+     * value the platform cannot substantiate would be the exact false certainty
+     * RC-2 exists to remove.</p>
+     */
+    public enum DispatchOutcome {
+        /** FCM accepted the message for a token. Not delivery. Not seen. */
+        SENT("sent"),
+        /** FCM rejected the send — usually a stale or invalid token. A real negative. */
+        FAILED("failed"),
+        /**
+         * No notification record for this person in this window.
+         *
+         * <p>Means exactly "we cannot confirm a message went out" — NOT
+         * "it failed". A muted category is dropped before any row is written,
+         * so absence of evidence is genuinely absence of evidence here.</p>
+         */
+        UNKNOWN("unknown");
+
+        private final String wire;
+        DispatchOutcome(String wire) { this.wire = wire; }
+        public String wire() { return wire; }
+    }
 
     public record SelfStatus(
             String value,

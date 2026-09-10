@@ -47,12 +47,14 @@ class GroupSetAlertTest {
     @Mock WebSocketMessageSender ws;
     @Mock HouseholdEventService householdEventService;
     @Mock NotificationService notificationService;
+    @Mock CheckInRequestService checkInRequestService;
 
     private GroupService service;
 
     @BeforeEach
     void setUp() {
-        service = new GroupService(groupRepo, userInfoRepo, ws, householdEventService, notificationService);
+        service = new GroupService(groupRepo, userInfoRepo, ws, householdEventService,
+                notificationService, checkInRequestService);
         when(groupRepo.save(any(Group.class))).thenAnswer(i -> i.getArgument(0));
     }
 

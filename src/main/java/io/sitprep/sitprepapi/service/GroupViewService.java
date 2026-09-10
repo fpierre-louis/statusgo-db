@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.constant.LocationSharing;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
@@ -13,6 +14,7 @@ import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.GroupPostSummaryDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.Geo;
@@ -40,6 +42,8 @@ public class GroupViewService {
     private final HouseholdAccompanimentService accompanimentService;
     private final PlatformAccessService platformAccessService;
     private final AgencyStaffService agencyStaffService;
+    private final CheckInRequestService checkInRequestService;
+    private final NotificationLogRepo notificationLogRepo;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
@@ -47,7 +51,9 @@ public class GroupViewService {
                             HouseholdManualMemberService manualMemberService,
                             HouseholdAccompanimentService accompanimentService,
                             PlatformAccessService platformAccessService,
-                            AgencyStaffService agencyStaffService) {
+                            AgencyStaffService agencyStaffService,
+                            CheckInRequestService checkInRequestService,
+                            NotificationLogRepo notificationLogRepo) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.postRepo = postRepo;
@@ -55,6 +61,8 @@ public class GroupViewService {
         this.accompanimentService = accompanimentService;
         this.platformAccessService = platformAccessService;
         this.agencyStaffService = agencyStaffService;
+        this.checkInRequestService = checkInRequestService;
+        this.notificationLogRepo = notificationLogRepo;
     }
 
     @Transactional(readOnly = true)
@@ -124,10 +132,19 @@ public class GroupViewService {
                         .collect(Collectors.toMap(u -> normalize(u.getUserEmail()), u -> u, (a, b) -> a));
 
         boolean alertActive = "Active".equalsIgnoreCase(g.getAlert());
+        // RC-2 · the two facts the roster needs beside a status: was this
+        // person asked, and did a message go out. Both are read once for the
+        // whole group rather than per member.
+        Map<String, Instant> askedAt = checkInRequestService.askedAtByEmail(g);
+        Instant windowStart = CheckInRequestService.windowStartFor(g, Instant.now());
+        Map<String, GroupMemberViewDto.DispatchOutcome> dispatch =
+                dispatchByEmail(memberEmails, windowStart);
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
-                        g.getGroupId(), g.getGroupType(), alertActive))
+                        g.getGroupId(), g.getGroupType(), alertActive,
+                        askedAt.get(normalize(email)),
+                        dispatch.get(normalize(email))))
                 .toList();
 
         boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
@@ -238,12 +255,51 @@ public class GroupViewService {
                 .orElse(null);
     }
 
+    /**
+     * What SitPrep can say about the check-in notification for each member,
+     * within the current window.
+     *
+     * <p>Absent from the returned map means {@link GroupMemberViewDto.DispatchOutcome#UNKNOWN}
+     * — no record, which is NOT the same as a failure. A muted category is
+     * dropped by {@code PushPolicyService} before any row is written, so the
+     * honest answer there is "we cannot confirm a message went out".</p>
+     */
+    private Map<String, GroupMemberViewDto.DispatchOutcome> dispatchByEmail(
+            List<String> memberEmails, Instant windowStart) {
+        Map<String, GroupMemberViewDto.DispatchOutcome> out = new java.util.HashMap<>();
+        if (memberEmails == null || memberEmails.isEmpty() || windowStart == null) return out;
+        for (String raw : memberEmails) {
+            String email = normalize(raw);
+            if (email == null) continue;
+            try {
+                List<NotificationLog> rows = notificationLogRepo
+                        .findByRecipientEmailAndTypeAndTimestampAfterOrderByTimestampAsc(
+                                email, "check_in_request", windowStart);
+                if (rows == null || rows.isEmpty()) continue; // stays UNKNOWN
+                // The LAST attempt is the one that describes the current state:
+                // a retry that succeeded after a failure is a send, not a failure.
+                NotificationLog latest = rows.get(rows.size() - 1);
+                out.put(email, latest.isSuccess()
+                        ? GroupMemberViewDto.DispatchOutcome.SENT
+                        : GroupMemberViewDto.DispatchOutcome.FAILED);
+            } catch (Exception e) {
+                // Unknown is the truthful fallback; never invent a negative.
+            }
+        }
+        return out;
+    }
+
     private MemberSummary toMemberSummary(String email, UserInfo u,
                                           String groupId, String groupType,
-                                          boolean alertActive) {
+                                          boolean alertActive,
+                                          Instant checkInRequestedAt,
+                                          GroupMemberViewDto.DispatchOutcome dispatch) {
+        String dispatchWire = (dispatch == null
+                ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
+                : dispatch).wire();
         if (u == null) {
             return new MemberSummary(normalize(email), null, null, null, null,
-                    null, null, null, null);
+                    null, null, null, null, checkInRequestedAt, dispatchWire);
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
@@ -269,7 +325,9 @@ public class GroupViewService {
                 DtoImages.avatar(u.getProfileImageUrl()),
                 status,
                 u.getLastActiveAt(),
-                lat, lng, locAt
+                lat, lng, locAt,
+                checkInRequestedAt,
+                dispatchWire
         );
     }
 
