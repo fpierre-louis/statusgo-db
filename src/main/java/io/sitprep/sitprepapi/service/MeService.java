@@ -63,6 +63,7 @@ public class MeService {
     private final UserInfoService userInfoService;
     private final PlatformAccessService platformAccessService;
     private final GoBagService goBagService;
+    private final EmergencySupportService emergencySupportService;
     private final HouseholdReadinessService readinessEngine;
     private final ObjectMapper objectMapper;
     private final AgencyStaffService agencyStaffService;
@@ -86,6 +87,7 @@ public class MeService {
             UserInfoService userInfoService,
             PlatformAccessService platformAccessService,
             GoBagService goBagService,
+            EmergencySupportService emergencySupportService,
             HouseholdReadinessService readinessEngine,
             ObjectMapper objectMapper,
             AgencyStaffService agencyStaffService
@@ -108,6 +110,7 @@ public class MeService {
         this.userInfoService = userInfoService;
         this.platformAccessService = platformAccessService;
         this.goBagService = goBagService;
+        this.emergencySupportService = emergencySupportService;
         this.readinessEngine = readinessEngine;
         this.objectMapper = objectMapper;
         this.agencyStaffService = agencyStaffService;
@@ -603,6 +606,16 @@ public class MeService {
                 safeGetInline("hh.goBags", logCtx,
                         () -> goBagService.summariesForHousehold(householdId), List.of());
 
+        // RC-3 · support profiles ride the plan document so they cache offline
+        // and print. safeGetInline so a support-table hiccup degrades one
+        // section rather than blanking the whole plan.
+        List<io.sitprep.sitprepapi.dto.EmergencySupportDtos.SupportProfileDto> supportProfiles =
+                safeGetInline("hh.supportProfiles", logCtx,
+                        () -> emergencySupportService.listProfilesForPlan(householdId), List.of());
+        List<io.sitprep.sitprepapi.dto.EmergencySupportDtos.SupportAssignmentDto> supportAssignments =
+                safeGetInline("hh.supportAssignments", logCtx,
+                        () -> emergencySupportService.listAssignmentsForPlan(householdId), List.of());
+
         return new HouseholdPlanDto(
                 householdId,
                 g == null ? null : g.getGroupName(),
@@ -617,7 +630,9 @@ public class MeService {
                 mealPlan,
                 contactGroups,
                 goBags,
-                g == null ? null : g.getPlanLastConfirmedAt()
+                g == null ? null : g.getPlanLastConfirmedAt(),
+                supportProfiles,
+                supportAssignments
         );
     }
 

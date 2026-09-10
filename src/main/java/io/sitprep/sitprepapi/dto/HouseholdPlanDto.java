@@ -49,5 +49,18 @@ public record HouseholdPlanDto(
          * "Mark confirmed"; FE treats null as "not yet confirmed" and
          * shows the standard sub-copy. Mirrored from {@code Group.planLastConfirmedAt}.
          */
-        Instant planLastConfirmedAt
+        Instant planLastConfirmedAt,
+        /**
+         * RC-3 · Emergency Need Profiles for this household's people.
+         *
+         * <p>They ride the PLAN DOCUMENT rather than a member DTO for one
+         * reason: this is the payload the frontend mirrors into {@code meCache}
+         * and renders in the printable plan. A support profile that lives only
+         * on a live member view would vanish exactly when it matters — offline,
+         * on a dead phone, on a printed page in a blackout — which is the one
+         * job preparedness data has.</p>
+         */
+        List<EmergencySupportDtos.SupportProfileDto> supportProfiles,
+        /** Prepared helpers. Plan state — never current acknowledgement. */
+        List<EmergencySupportDtos.SupportAssignmentDto> supportAssignments
 ) {}
