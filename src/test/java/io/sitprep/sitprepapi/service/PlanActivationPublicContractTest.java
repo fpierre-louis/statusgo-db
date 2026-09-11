@@ -315,6 +315,20 @@ class PlanActivationPublicContractTest {
         }
 
         @Test
+        @DisplayName("a LIVE situation does not claim it has ended")
+        void liveSituationHasNoEndedAt() throws Exception {
+            // The three timestamps on ActiveSituationDto were passed shifted, so
+            // endedAt received getActivatedAt() and every live activation
+            // reported itself ended. The recipient view reads endedAt to decide
+            // whether to render "This is over." — so a household mid-evacuation
+            // told its link holders the emergency was finished.
+            JsonNode s = mapper.readTree(anonymousJson()).get("activeSituation");
+            assertThat(s.get("status").asText()).isEqualTo("active");
+            assertThat(s.get("endedAt").isNull()).as("a live situation has no endedAt").isTrue();
+            assertThat(s.get("activatedAt").isNull()).as("and it does have an activatedAt").isFalse();
+        }
+
+        @Test
         @DisplayName("capabilities as booleans — never as an identifier to compare")
         void capabilitiesAreServerComputed() throws Exception {
             JsonNode n = mapper.readTree(anonymousJson());

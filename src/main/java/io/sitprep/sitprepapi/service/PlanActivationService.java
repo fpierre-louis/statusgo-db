@@ -1396,12 +1396,20 @@ public class PlanActivationService {
             kind = "normal";
         }
 
+        // Order matters and was WRONG here: the record is
+        // (id, status, activatedAt, updatedAt, endedAt, …) and the three
+        // timestamps were passed shifted, so `endedAt` received getActivatedAt().
+        // Every LIVE activation therefore reported a non-null endedAt, and the
+        // recipient view — which reads `endedAt` to decide whether the situation
+        // is over — told link holders "This is over." while the household was
+        // still evacuating. Caught by probing the public payload during the
+        // activation-link PII remediation; see docs/audit/ACTIVATION_LINK_PII_EXPOSURE.md.
         return new ActiveSituationDto(
                 a.getId(),
                 isClosed(a) ? "closed" : "active",
+                a.getActivatedAt(),
+                a.getActivatedAt(),
                 a.getEndedAt(),
-                a.getActivatedAt(),
-                a.getActivatedAt(),
                 requested,
                 effective,
                 movement,
