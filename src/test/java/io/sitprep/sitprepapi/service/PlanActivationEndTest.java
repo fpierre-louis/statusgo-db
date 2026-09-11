@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.domain.PlanActivation;
 import io.sitprep.sitprepapi.domain.PlanActivationAck;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.AckRequest;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationDetailDto;
+import io.sitprep.sitprepapi.dto.PublicActivationDtos.PublicActivationDto;
 import io.sitprep.sitprepapi.repo.*;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.junit.jupiter.api.AfterEach;
@@ -202,14 +203,18 @@ class PlanActivationEndTest {
         PlanActivation a = live();
         service.endActivation(ACT_ID, OWNER);
 
-        Optional<ActivationDetailDto> read = service.getActivation(ACT_ID, null);
+        // A link holder gets the PUBLIC contract (PublicActivationDto), not the
+        // household DTO with fields blanked — see PublicActivationDtos. The
+        // ruling under test is unchanged: the link still reads back.
+        var read = service.getActivation(ACT_ID, null);
 
         assertTrue(read.isPresent(), "ending does not make the link gone");
-        assertFalse(read.get().viewerCanEnd(), "a link holder is never offered the End control");
-        assertTrue(read.get().closed());
-        assertNotNull(read.get().endedAt());
-        assertEquals("closed", read.get().activeSituation().status());
-        assertNotNull(read.get().activeSituation().endedAt());
+        PublicActivationDto pub = (PublicActivationDto) read.get();
+        assertFalse(pub.viewerCanEnd(), "a link holder is never offered the End control");
+        assertTrue(pub.closed());
+        assertNotNull(pub.endedAt());
+        assertEquals("closed", pub.activeSituation().status());
+        assertNotNull(pub.activeSituation().endedAt());
     }
 
     // ── LAUNCHING A PLAN STARTS THE CHECK-IN ────────────────────────────────
@@ -248,7 +253,7 @@ class PlanActivationEndTest {
         a.setExpiresAt(Instant.now().minus(8, ChronoUnit.HOURS));
         when(activationRepo.findById("act-expired")).thenReturn(Optional.of(a));
 
-        ActivationDetailDto dto = service.getActivation("act-expired", OWNER).orElseThrow();
+        ActivationDetailDto dto = service.getActivationForHousehold("act-expired", OWNER).orElseThrow();
 
         assertTrue(dto.closed(), "the timer still closes it");
         assertNull(dto.endedAt(), "nobody said it was over — it just stopped being live");

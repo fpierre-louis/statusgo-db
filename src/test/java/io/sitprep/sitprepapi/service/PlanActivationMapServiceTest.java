@@ -10,6 +10,7 @@ import io.sitprep.sitprepapi.domain.PlanActivationAck;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.MapPoiDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.ActivationDetailDto;
+import io.sitprep.sitprepapi.dto.PublicActivationDtos.PublicActivationDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.CreateActivationRequest;
 import io.sitprep.sitprepapi.repo.*;
 import io.sitprep.sitprepapi.service.PlanActivationService.ActivationExpiredException;
@@ -323,27 +324,32 @@ class PlanActivationMapServiceTest {
         when(ack.getLng()).thenReturn(-111.9);
         when(ackRepo.findByActivationIdOrderByAckedAtAsc(ACT_ID)).thenReturn(List.of(ack));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
         assertEquals(1, d.acks().size()); // owner sees the live roll-up
     }
 
     @Test
-    void getActivation_recipient_minimized_acksEmpty_contactPiiStripped() {
+    void getActivation_recipient_getsPublicContract_withNoContactsAtAll() {
+        // SUPERSEDES an earlier ruling. This test used to assert that a link
+        // holder received each contact's name and PHONE, with only address /
+        // medicalInfo / email nulled — i.e. narrowing the household DTO by
+        // omission. That shape is what published the household's home address
+        // and both plan phone numbers, so the contract changed: an anonymous
+        // holder now gets PublicActivationDto, which has no contact field to
+        // populate. If a recipient workflow ever needs a contact, it gets an
+        // explicitly shared one, not the household's whole address book.
         PlanActivation a = activation(null, null, 40.0, -111.0, future());
         a.getContactGroupIds().add(7L);
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(emergencyContactGroupRepo.findAllById(any())).thenReturn(List.of(contactGroup(7L)));
 
-        // Guest caller (no token) → recipient view.
-        ActivationDetailDto d = service.getActivation(ACT_ID, null).orElseThrow();
+        // Guest caller (no token) → public contract.
+        Object read = service.getActivation(ACT_ID, null).orElseThrow();
+        assertInstanceOf(PublicActivationDto.class, read);
 
-        assertTrue(d.acks().isEmpty()); // never other recipients' status/live location
-        var c = d.emergencyContactGroups().get(0).contacts().get(0);
-        assertEquals("Aunt May", c.name());
-        assertEquals("555-1", c.phone());
-        assertNull(c.address());     // PII stripped
-        assertNull(c.medicalInfo()); // PII stripped
-        assertNull(c.email());       // PII stripped
+        // There is no `acks` and no `emergencyContactGroups` component to read:
+        // absence here is structural, which is the point. Field-level proof
+        // lives in PlanActivationPublicContractTest against serialized JSON.
         // The recipient view must not even query the ack table.
         verify(ackRepo, never()).findByActivationIdOrderByAckedAtAsc(anyString());
     }
@@ -360,7 +366,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
         assertEquals("SHELTERING", d.activeSituation().operationalMode());
@@ -381,7 +387,7 @@ class PlanActivationMapServiceTest {
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
         when(evacuationPlanRepo.findById(2L)).thenReturn(Optional.of(evac(2L, OWNER, 40.2, -111.2)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("EVACUATING", d.activeSituation().operationalMode());
         assertEquals("evacuate", d.activeSituation().primaryActionKind());
@@ -396,7 +402,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
         assertEquals("meet", d.activeSituation().primaryActionKind());
@@ -410,7 +416,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
         assertEquals("none", d.activeSituation().movementDirective());
@@ -424,7 +430,7 @@ class PlanActivationMapServiceTest {
         a.setMovementDirective("none");
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("PREPARING", d.activeSituation().operationalMode());
         assertEquals("prepare", d.activeSituation().primaryActionKind());
@@ -442,7 +448,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
         assertEquals("GATHERING", d.activeSituation().operationalMode());
@@ -464,7 +470,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
         assertEquals("follow_official_instruction", d.activeSituation().movementDirective());
@@ -485,7 +491,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
-        ActivationDetailDto d = service.getActivation(ACT_ID, OWNER).orElseThrow();
+        ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
         assertEquals("none", d.activeSituation().movementDirective());

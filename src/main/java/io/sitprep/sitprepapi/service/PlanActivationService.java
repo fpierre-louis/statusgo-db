@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.MapPoiDto;
 import io.sitprep.sitprepapi.dto.PlanActivationDtos.*;
+import io.sitprep.sitprepapi.dto.PublicActivationDtos.*;
 import io.sitprep.sitprepapi.repo.*;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
@@ -363,20 +364,33 @@ public class PlanActivationService {
 
     /**
      * Audience-aware snapshot (SEC-3, docs/map/MAP_PRIVACY_AND_SECURITY_REVIEW.md).
-     * The AUTHENTICATED owner / household gets the full detail (ack roll-up with
-     * live coordinates + full emergency contacts). Any other caller — including a
-     * logged-out recipient on the shared link — gets the RECIPIENT view: the plan
-     * destinations they need, but NO other recipient's check-in (empty acks) and
-     * emergency contacts stripped to name/role/phone (no address / medical / email).
-     * This closes the legacy leak where any link holder saw every recipient's live
-     * location + full contact PII.
+     *
+     * <p>The AUTHENTICATED owner / household gets the full detail. Everyone else
+     * — including a logged-out recipient on the shared link — gets
+     * {@link PublicActivationDto}, a SEPARATE allowlisted type rather than this
+     * one with fields blanked out. See that record for why the distinction is
+     * the whole fix: narrowing by omission published {@code evacPlan.origin} —
+     * the household's home address — along with place/shelter phone numbers and
+     * private notes, because the recipient path reused the household mappers.
+     *
+     * <p>Callers that need the authenticated shape should use
+     * {@link #getActivationForHousehold}; this one returns the union type and
+     * the resource serializes whichever it gets.
      */
     @Transactional(readOnly = true)
-    public Optional<ActivationDetailDto> getActivation(String activationId, String callerEmail) {
+    public Optional<Object> getActivation(String activationId, String callerEmail) {
         return activationRepo.findById(activationId)
                 .map(a -> isAuthorizedReader(a, callerEmail)
-                        ? toDetailDto(a, canEnd(a, callerEmail))
-                        : toRecipientDetailDto(a));
+                        ? (Object) toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail))
+                        : (Object) toPublicActivationDto(a));
+    }
+
+    /** The authenticated-household snapshot, for internal callers that need the type. */
+    @Transactional(readOnly = true)
+    public Optional<ActivationDetailDto> getActivationForHousehold(String activationId, String callerEmail) {
+        return activationRepo.findById(activationId)
+                .filter(a -> isAuthorizedReader(a, callerEmail))
+                .map(a -> toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail)));
     }
 
     /**
@@ -513,7 +527,7 @@ public class PlanActivationService {
             }
         }
 
-        return toDetailDto(a, true);   // it just ended it; it can.
+        return toDetailDto(a, true, isOwner(a, callerEmail));   // it just ended it; it can.
     }
 
     /**
@@ -726,7 +740,7 @@ public class PlanActivationService {
      * Is this activation over — by EITHER route?
      *
      * <p>One predicate, because the same expression was written in three places
-     * ({@code toDetailDto}, {@code toRecipientDetailDto}, {@code toActiveSituation})
+     * ({@code toDetailDto}, {@code toPublicActivationDto}, {@code toActiveSituation})
      * and a fourth reader that checked only expiry would keep an ended activation
      * alive on exactly one surface. That disagreement between surfaces is the
      * whole defect this change closes; reproducing it inside the fix would be
@@ -742,6 +756,13 @@ public class PlanActivationService {
      * capability the server computed rather than inferring household membership
      * from the shape of the payload it got back.</p>
      */
+    /** Is this caller the activation's owner? The server's answer, not the client's. */
+    private boolean isOwner(PlanActivation a, String callerEmail) {
+        return callerEmail != null
+                && a.getOwnerEmail() != null
+                && a.getOwnerEmail().equalsIgnoreCase(callerEmail);
+    }
+
     private boolean canEnd(PlanActivation a, String callerEmail) {
         if (callerEmail == null) return false;
         String caller = callerEmail.trim().toLowerCase(Locale.ROOT);
@@ -1094,7 +1115,7 @@ public class PlanActivationService {
     // Mapping helpers
     // ---------------------------------------------------------------------
 
-    private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd) {
+    private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd, boolean viewerIsOwner) {
         MeetingPlaceSnapshotDto mp = null;
         if (a.getMeetingPlaceId() != null) {
             mp = meetingPlaceRepo.findById(a.getMeetingPlaceId())
@@ -1149,6 +1170,7 @@ public class PlanActivationService {
                 closed,
                 a.getEndedAt(),
                 viewerCanEnd,
+                viewerIsOwner,
                 a.getMeetingMode(),
                 a.getEvacMode(),
                 a.getMessagePreview(),
@@ -1221,35 +1243,92 @@ public class PlanActivationService {
      * emergency contacts stripped to name/role/phone (no address / medical /
      * email / radio / subject PII).
      */
-    private ActivationDetailDto toRecipientDetailDto(PlanActivation a) {
-        MeetingPlaceSnapshotDto mp = a.getMeetingPlaceId() == null ? null
-                : meetingPlaceRepo.findById(a.getMeetingPlaceId()).map(this::toMeetingPlaceSnapshot).orElse(null);
-        EvacuationPlanSnapshotDto ep = a.getEvacPlanId() == null ? null
-                : evacuationPlanRepo.findById(a.getEvacPlanId()).map(this::toEvacPlanSnapshot).orElse(null);
+    /**
+     * Build the LINK-HOLDER view: an allowlist, assembled field by field.
+     *
+     * <p>Note what this does NOT do — it does not call {@code toMeetingPlaceSnapshot}
+     * or {@code toEvacPlanSnapshot}. Those are the household mappers, and reusing
+     * them is exactly how {@code origin}, the place phone number and the private
+     * notes reached anonymous callers in the first place. The public place types
+     * are built straight off the entity so there is no household-shaped object in
+     * this path to forget to strip.
+     *
+     * <p>The SITUATION is deliberately computed by the same
+     * {@code toActiveSituation} the household view uses, then narrowed. The
+     * movement directive, primary action and suppression reason are safety
+     * output, and a second implementation of that logic is a second thing that
+     * can disagree with the household about whether to evacuate.
+     */
+    private PublicActivationDto toPublicActivationDto(PlanActivation a) {
+        MeetingPlace m = a.getMeetingPlaceId() == null ? null
+                : meetingPlaceRepo.findById(a.getMeetingPlaceId()).orElse(null);
+        EvacuationPlan e = a.getEvacPlanId() == null ? null
+                : evacuationPlanRepo.findById(a.getEvacPlanId()).orElse(null);
 
-        List<EmergencyContactGroupSnapshotDto> ecgs;
-        if (a.getContactGroupIds() == null || a.getContactGroupIds().isEmpty()) {
-            ecgs = List.of();
-        } else {
-            ecgs = emergencyContactGroupRepo.findAllById(a.getContactGroupIds()).stream()
-                    .map(this::toContactGroupSnapshotMinimal)
-                    .toList();
-        }
+        PublicPlaceDto place = toPublicPlace(m);
+        PublicDestinationDto dest = toPublicDestination(e);
 
-        boolean closed = isClosed(a);
-        LocationDto location = (a.getLat() == null && a.getLng() == null)
-                ? null : new LocationDto(a.getLat(), a.getLng());
+        // Reuse the household situation computation, then narrow it.
+        MeetingPlaceSnapshotDto mpSnap = m == null ? null : toMeetingPlaceSnapshot(m);
+        EvacuationPlanSnapshotDto epSnap = e == null ? null : toEvacPlanSnapshot(e);
+        ActiveSituationDto full = toActiveSituation(a, mpSnap, epSnap, null);
 
-        return new ActivationDetailDto(
-                a.getId(), a.getOwnerUserId(), a.getOwnerName(),
-                a.getActivatedAt(), a.getExpiresAt(), closed, a.getEndedAt(),
-                false,      // viewerCanEnd — a link holder never ends a household's activation
-                a.getMeetingMode(), a.getEvacMode(), a.getMessagePreview(),
-                location, mp, ep, ecgs,
-                List.of(),  // goBags — a link holder never sees bag storage locations
-                List.of(),  // acks — a recipient never sees the roll-up
-                null,       // ackRollup — owner/household audience only
-                toActiveSituation(a, mp, ep, null)
+        PublicSituationDto situation = full == null ? null : new PublicSituationDto(
+                full.id(),
+                full.status(),
+                full.activatedAt(),
+                full.updatedAt(),
+                full.endedAt(),
+                full.operationalMode(),
+                full.movementDirective(),
+                place,
+                dest,
+                toPublicGoverningAlert(full.governingAlert()),
+                full.primaryAction(),
+                full.primaryActionKind(),
+                full.suppressedAction(),
+                full.suppressedReason()
+        );
+
+        return new PublicActivationDto(
+                a.getId(),
+                a.getOwnerName(),
+                a.getActivatedAt(),
+                a.getExpiresAt(),
+                isClosed(a),
+                a.getEndedAt(),
+                false,   // viewerCanEnd — a link holder never ends a household's activation
+                false,   // viewerIsOwner — replaces the client's ownerUserId comparison
+                a.getMeetingMode(),
+                a.getEvacMode(),
+                a.getMessagePreview(),
+                place,
+                dest,
+                situation
+        );
+    }
+
+    /** Name + street + coordinates. No phone, no private note, no row id. */
+    private PublicPlaceDto toPublicPlace(MeetingPlace m) {
+        if (m == null) return null;
+        return new PublicPlaceDto(m.getName(), m.getAddress(), m.getLat(), m.getLng());
+    }
+
+    /** Issuer provenance. Public data by origin; the recipient needs to see who ordered this. */
+    private PublicGoverningAlertDto toPublicGoverningAlert(GoverningAlertDto g) {
+        if (g == null) return null;
+        return new PublicGoverningAlertDto(g.source(), g.id(), g.event(), g.headline(), g.lifecycleState());
+    }
+
+    /**
+     * Where they are being sent. {@code origin} is the field this whole change
+     * exists for and it is absent by construction, not by nulling.
+     */
+    private PublicDestinationDto toPublicDestination(EvacuationPlan e) {
+        if (e == null) return null;
+        return new PublicDestinationDto(
+                e.getDestination(), e.getShelterName(), e.getShelterAddress(),
+                e.getLat(), e.getLng(), e.getTravelMode()
         );
     }
 
@@ -1361,20 +1440,6 @@ public class PlanActivationService {
         return "expired".equals(lifecycle) || "ended".equals(lifecycle)
                 || "cancelled".equals(lifecycle) || "canceled".equals(lifecycle)
                 || "superseded".equals(lifecycle);
-    }
-
-    private EmergencyContactGroupSnapshotDto toContactGroupSnapshotMinimal(EmergencyContactGroup g) {
-        List<EmergencyContactSnapshotDto> contacts = g.getContacts() == null ? List.of()
-                : g.getContacts().stream().map(this::toContactSnapshotMinimal).toList();
-        return new EmergencyContactGroupSnapshotDto(g.getId(), g.getName(), contacts);
-    }
-
-    /** Name / role / phone ONLY — drops address, email, radio, medical, subject PII. */
-    private EmergencyContactSnapshotDto toContactSnapshotMinimal(EmergencyContact c) {
-        return new EmergencyContactSnapshotDto(
-                c.getId(), c.getName(), c.getRole(), c.getPhone(),
-                null, null, null, null, null, null, null
-        );
     }
 
     private AckDto toAckDto(PlanActivationAck a) {

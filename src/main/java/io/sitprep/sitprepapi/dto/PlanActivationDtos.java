@@ -82,6 +82,18 @@ public final class PlanActivationDtos {
              * Always false in the recipient projection.
              */
             boolean viewerCanEnd,
+            /**
+             * Is THIS caller the activation's owner? Server-computed, like
+             * {@code viewerCanEnd} beside it.
+             *
+             * <p>Added 2026-09-11 so the client stops deriving it by comparing
+             * {@code ownerUserId} against its own profile id. That comparison
+             * was the only reason an internal user id appeared on the public
+             * link payload at all — a capability the server already knows,
+             * published as an identifier so the client could re-derive it.
+             * Always {@code false} on the public projection.
+             */
+            boolean viewerIsOwner,
             String meetingMode,
             String evacMode,
             String messagePreview,

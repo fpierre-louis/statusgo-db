@@ -70,10 +70,11 @@ public class PlanActivationResource {
     }
 
     @GetMapping("/{activationId}")
-    public ResponseEntity<ActivationDetailDto> get(@PathVariable String activationId) {
+    public ResponseEntity<Object> get(@PathVariable String activationId) {
         // Auth-OPTIONAL (SEC-3): the owner / household (verified token) gets the
-        // full snapshot; a logged-out recipient link holder gets the data-
-        // minimized recipient view. Actor is token-derived — never a body param.
+        // full ActivationDetailDto; every other caller gets PublicActivationDto,
+        // a separate allowlisted type — NOT this one with fields blanked. Actor
+        // is token-derived, never a body param.
         String caller = AuthUtils.getCurrentUserEmail();
         return service.getActivation(activationId, caller)
                 .map(ResponseEntity::ok)
