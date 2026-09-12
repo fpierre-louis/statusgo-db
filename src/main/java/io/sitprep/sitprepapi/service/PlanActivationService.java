@@ -1365,7 +1365,7 @@ public class PlanActivationService {
         // looked and found nothing in force.
         ActivationDirectiveResolver.Resolved resolved = directiveResolver == null
                 ? ActivationDirectiveResolver.unverifiedFrom(a)
-                : java.util.Optional.ofNullable(resolveWithHouseholdFallback(a))
+                : java.util.Optional.ofNullable(resolveWithOwnerFallback(a))
                         .orElseGet(() -> ActivationDirectiveResolver.unverifiedFrom(a));
         GoverningAlertDto governingAlert = governingAlertFor(a, resolved);
         String movement = governingAlert == null && resolved.status() != ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED
@@ -1456,21 +1456,36 @@ public class PlanActivationService {
     }
 
     /**
-     * Resolve current guidance, falling back to the owner's household location
-     * when the activation carries no point of its own — which is the common
-     * case, since `location` is optional on create.
+     * Resolve current guidance, falling back to the OWNER's own location when
+     * the activation carries no point of its own.
+     *
+     * <p>The fallback is load-bearing, not defensive: {@code location} is
+     * optional on the create request, so production activations routinely have
+     * no lat/lng, and without somewhere to look every one of them answers
+     * UNVERIFIED and the re-resolution is dead code.
+     *
+     * <p>It reads the owner's {@code UserInfo} rather than the household group.
+     * Two reasons, both found by probing production rather than by reading:
+     * {@code Group.homeLocation} is a GeoPoint that the group write path does
+     * not populate (the DTO's flat latitude/longitude do not reach it), and
+     * {@code baseHouseholdIdFor} can resolve to a different household than the
+     * one the plan belongs to. The owner is the person who activated the plan,
+     * and their last known position is the same signal the notification path
+     * already trusts.
      */
-    private ActivationDirectiveResolver.Resolved resolveWithHouseholdFallback(PlanActivation a) {
+    private ActivationDirectiveResolver.Resolved resolveWithOwnerFallback(PlanActivation a) {
         Double lat = null;
         Double lng = null;
         if (a != null && (a.getLat() == null || a.getLng() == null) && a.getOwnerEmail() != null) {
             try {
-                String householdId = householdResolver.baseHouseholdIdFor(a.getOwnerEmail());
-                if (householdId != null) {
-                    var g = groupRepo.findByGroupId(householdId).orElse(null);
-                    if (g != null && g.getHomeLocation() != null) {
-                        lat = g.getHomeLocation().getLat();
-                        lng = g.getHomeLocation().getLng();
+                var owner = userInfoRepo.findByUserEmailIgnoreCase(a.getOwnerEmail()).orElse(null);
+                if (owner != null) {
+                    if (owner.getLastKnownLat() != null && owner.getLastKnownLng() != null) {
+                        lat = owner.getLastKnownLat();
+                        lng = owner.getLastKnownLng();
+                    } else if (owner.getHomeLocation() != null) {
+                        lat = owner.getHomeLocation().getLat();
+                        lng = owner.getHomeLocation().getLng();
                     }
                 }
             } catch (RuntimeException ignored) {
