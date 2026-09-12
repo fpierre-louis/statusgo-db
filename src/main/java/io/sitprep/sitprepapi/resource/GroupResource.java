@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.dto.EmailRequest;
+import io.sitprep.sitprepapi.dto.NudgeResultDto;
 import io.sitprep.sitprepapi.dto.GroupMembershipActionResultDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -325,17 +326,25 @@ public class GroupResource {
      *
      * <p>Returns <b>429</b> when the nudge is still cooling down. That is a
      * real answer rather than an error — the caller shows "Already nudged"
-     * instead of retrying, and the cooldown is what keeps a button that
-     * bypasses quiet hours from being holdable.</p>
+     * instead of retrying, and the cooldown is what keeps the button from
+     * being holdable. (An earlier note here said the nudge bypasses quiet
+     * hours. It does not: {@code CHECK_IN_REQUEST} is not on
+     * {@code PushPolicyService.CRITICAL_BYPASS}, so a nudge inside the
+     * recipient's quiet window is demoted to the inbox like any other Lane A
+     * push. Corrected 2026-09-11 during the P0-B audit.)</p>
+     *
+     * <p>The 200 body reports whether the push was sent SILENTLY — P0-B, see
+     * {@code ConcealmentSafetyService}. The sender learns what the transport
+     * did; never that it was delivered.</p>
      */
     @PostMapping("/{groupId}/nudge")
-    public ResponseEntity<Void> nudgeMember(@PathVariable String groupId,
+    public ResponseEntity<NudgeResultDto> nudgeMember(@PathVariable String groupId,
                                             @RequestBody EmailRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         try {
-            boolean sent = groupService.nudgeMember(groupId, caller, req.email());
-            return sent
-                    ? ResponseEntity.noContent().build()
+            GroupService.NudgeResult result = groupService.nudgeMember(groupId, caller, req.email());
+            return result.sent()
+                    ? ResponseEntity.ok(new NudgeResultDto(true, result.silent()))
                     : ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         } catch (SecurityException se) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, se.getMessage());

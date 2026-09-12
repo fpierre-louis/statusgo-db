@@ -45,6 +45,11 @@ public class NotificationService {
 
     private final WebSocketMessageSender webSocketMessageSender;
     private final UserInfoRepo userInfoRepo;
+
+    /** P0-B: is this recipient likely hiding right now? Lazy — breaks a bean cycle. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private ConcealmentSafetyService concealmentSafetyService;
     private final NotificationLogRepo notificationLogRepo;
     private final WebSocketPresenceService presenceService;
     private final PushPolicyService pushPolicyService;
@@ -581,22 +586,48 @@ public class NotificationService {
         boolean success = false;
         String errorMessage = null;
 
+        // ── P0-B: DO NOT MAKE A HIDDEN PERSON'S PHONE AUDIBLE ────────────────
+        //
+        // Every push here was built with sound("default") at HIGH / apns-10.
+        // One volume, always audible. That is right for almost everything and
+        // wrong for the one case where being audible IS the danger: a member
+        // concealed during a lockdown or violent-threat event.
+        //
+        // Quiet hours cannot answer this — they are a schedule the user set for
+        // sleeping, and a lockdown is at 1pm on a Wednesday. So the decision is
+        // made from the hazard, via the template's reviewed
+        // `concealmentSensitive` flag, against the RECIPIENT's own location.
+        // Deciding it here rather than at each call site means it covers every
+        // category — nudge, check-in request, reminders — instead of the one
+        // path somebody remembered.
+        boolean silent = shouldSendSilently(recipientEmail);
+
         try {
             // ANDROID/Web data – keep your existing keys
             AndroidConfig androidConfig = AndroidConfig.builder()
-                    .setPriority(AndroidConfig.Priority.HIGH)
-                    .setNotification(AndroidNotification.builder()
-                            .setSound("default")
-                            .build())
+                    .setPriority(silent ? AndroidConfig.Priority.NORMAL : AndroidConfig.Priority.HIGH)
+                    .setNotification(silent
+                            ? AndroidNotification.builder()
+                                    .setDefaultSound(false)
+                                    .setDefaultVibrateTimings(false)
+                                    .build()
+                            : AndroidNotification.builder()
+                                    .setSound("default")
+                                    .build())
                     .build();
 
             // iOS APNs block (correct API: use ApnsConfig + Aps; put custom keys via Aps or ApnsConfig.putCustomData)
             ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
-                    .putHeader("apns-priority", "10"); // 10 = alert, 5 = background
+                    // 10 = alert (wakes the device), 5 = considerate delivery.
+                    .putHeader("apns-priority", silent ? "5" : "10");
 
             Aps.Builder apsBuilder = Aps.builder()
-                    .setMutableContent(true)      // enables notification service extension (if you have one)
-                    .setSound("default");
+                    .setMutableContent(true);      // enables notification service extension (if you have one)
+            // Omitting the sound key entirely is what makes APNs deliver
+            // silently. Setting it to "" is not the same thing.
+            if (!silent) {
+                apsBuilder.setSound("default");
+            }
 
             // Custom metadata inside "aps"
             apsBuilder.putCustomData("notificationType", safe(notificationType));
@@ -1179,6 +1210,41 @@ public class NotificationService {
     }
 
     // ---------------------- helpers ----------------------
+
+    /**
+     * Should this recipient's device stay quiet?
+     *
+     * <p>True only when a live alert covering their last known position is
+     * classified {@code concealmentSensitive} by its reviewed template.
+     *
+     * <p><b>Fails toward noise.</b> No location, no snapshot, no classification,
+     * any exception — all mean "send normally". Silencing a reminder somebody
+     * needed is its own harm, so the refusal to decide defaults to the ordinary
+     * behaviour rather than to silence.
+     */
+    boolean shouldSendSilently(String recipientEmail) {
+        if (concealmentSafetyService == null || recipientEmail == null || recipientEmail.isBlank()) {
+            return false;
+        }
+        try {
+            return userInfoRepo.findByUserEmailIgnoreCase(recipientEmail)
+                    .map(u -> {
+                        Double lat = u.getLastKnownLat();
+                        Double lng = u.getLastKnownLng();
+                        if (lat == null || lng == null) {
+                            // Fall back to the home location — a household
+                            // member sheltering at home is the common case.
+                            if (u.getHomeLocation() == null) return false;
+                            lat = u.getHomeLocation().getLat();
+                            lng = u.getHomeLocation().getLng();
+                        }
+                        return concealmentSafetyService.isConcealmentSensitiveAt(lat, lng);
+                    })
+                    .orElse(false);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
 
     private static String safe(String s) {
         return s == null ? "" : s;

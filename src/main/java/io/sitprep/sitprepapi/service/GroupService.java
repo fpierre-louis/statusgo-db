@@ -272,11 +272,14 @@ public class GroupService {
      * @return true if a push went out; false if the nudge was still cooling down
      */
     @Transactional
-    public boolean nudgeMember(String groupId, String callerEmail, String subjectEmail) {
+    /** Outcome of a nudge: whether a push went out, and whether it was silent. */
+    public record NudgeResult(boolean sent, boolean silent) {}
+
+    public NudgeResult nudgeMember(String groupId, String callerEmail, String subjectEmail) {
         if (callerEmail == null || callerEmail.isBlank()) {
             throw new SecurityException("Sign in to nudge someone");
         }
-        if (subjectEmail == null || subjectEmail.isBlank()) return false;
+        if (subjectEmail == null || subjectEmail.isBlank()) return new NudgeResult(false, false);
         Group group = getGroupByPublicId(groupId);
         String me = callerEmail.trim().toLowerCase(Locale.ROOT);
         String them = subjectEmail.trim().toLowerCase(Locale.ROOT);
@@ -289,15 +292,19 @@ public class GroupService {
                 .anyMatch(e -> e != null && e.equalsIgnoreCase(them));
         if (!subjectIsMember) throw new SecurityException("That person is not in this household");
 
-        if (!householdEventService.recordNudge(group.getGroupId(), me, them)) return false;
+        if (!householdEventService.recordNudge(group.getGroupId(), me, them)) return new NudgeResult(false, false);
 
         String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
                 .map(UserInfo::getUserFirstName)
                 .filter(n -> n != null && !n.isBlank())
                 .orElse("Someone in your household");
+        // P0-B: the delivery layer decides silence from the RECIPIENT's own
+        // situation, so ask it the same question to tell the sender the truth
+        // about what their tap did.
+        boolean silent = notificationService.shouldSendSilently(them);
         userInfoRepo.findByUserEmailIgnoreCase(them)
                 .ifPresent(u -> pushNudge(group, u, callerName));
-        return true;
+        return new NudgeResult(true, silent);
     }
 
     private void pushNudge(Group group, UserInfo user, String callerName) {

@@ -1057,6 +1057,26 @@ public class AlertDispatchService {
         return Optional.empty();
     }
 
+    /**
+     * Find a template by CAP event name alone.
+     *
+     * <p>For callers that hold a rendered card rather than a NormalizedAlert and
+     * need the template's reviewed metadata — P0-B's
+     * {@code sitprep.concealmentSensitive} is the first. Declaration order,
+     * first match wins, same as {@link #matchForAlert}.
+     */
+    public Optional<DispatchTemplate> templateForEvent(String event) {
+        if (event == null || event.isBlank()) return Optional.empty();
+        String needle = event.trim();
+        for (DispatchTemplate t : templates) {
+            if (t.eventAny == null) continue;
+            for (String e : t.eventAny) {
+                if (e != null && e.equalsIgnoreCase(needle)) return Optional.of(t);
+            }
+        }
+        return Optional.empty();
+    }
+
     // ---------------------------------------------------------------
     // Template DTO
     // ---------------------------------------------------------------
@@ -1249,13 +1269,30 @@ public class AlertDispatchService {
         final String guidanceMode;
         final String movementDirective;
         final boolean impactAware;
+        /**
+         * P0-B — during THIS hazard, being audible can reveal where somebody is.
+         *
+         * <p>A deliberate safety semantic on the template contract, not an
+         * inference from the event name. Lockdowns and violent-threat events are
+         * the case where a reminder push can make a hidden person's phone give
+         * them away, and "is this that kind of hazard" is a classification
+         * judgment somebody makes in safety review — the same place the movement
+         * directive is decided — not something to derive by matching strings
+         * like "shooting" against a headline.
+         *
+         * <p>Defaults false. A hazard is only concealment-sensitive when its
+         * template says so.
+         */
+        final boolean concealmentSensitive;
 
         private SitprepTemplateMetadata(String dispatchMode, String guidanceMode,
-                                        String movementDirective, boolean impactAware) {
+                                        String movementDirective, boolean impactAware,
+                                        boolean concealmentSensitive) {
             this.dispatchMode = dispatchMode;
             this.guidanceMode = guidanceMode;
             this.movementDirective = movementDirective;
             this.impactAware = impactAware;
+            this.concealmentSensitive = concealmentSensitive;
         }
 
         static SitprepTemplateMetadata fromJson(JsonNode n) {
@@ -1264,7 +1301,8 @@ public class AlertDispatchService {
                     DispatchTemplate.text(n, "dispatchMode"),
                     DispatchTemplate.text(n, "guidanceMode"),
                     DispatchTemplate.text(n, "movementDirective"),
-                    n.path("impactAware").asBoolean(false));
+                    n.path("impactAware").asBoolean(false),
+                    n.path("concealmentSensitive").asBoolean(false));
         }
     }
 

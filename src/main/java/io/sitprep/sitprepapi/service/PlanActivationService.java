@@ -33,6 +33,9 @@ import java.util.*;
 @Service
 public class PlanActivationService {
 
+    /** P0-A: re-resolves current official guidance at read time. */
+    private final ActivationDirectiveResolver directiveResolver;
+
     private static final Logger log = LoggerFactory.getLogger(PlanActivationService.class);
 
     /** Activations auto-close after this so stale plans don't confuse recipients. */
@@ -71,8 +74,10 @@ public class PlanActivationService {
             HouseholdResolver householdResolver,
             GoBagService goBagService,
             HouseholdEventService householdEventService,
-            GroupService groupService
+            GroupService groupService,
+            ActivationDirectiveResolver directiveResolver
     ) {
+        this.directiveResolver = directiveResolver;
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
         this.userInfoRepo = userInfoRepo;
@@ -1287,7 +1292,10 @@ public class PlanActivationService {
                 full.primaryAction(),
                 full.primaryActionKind(),
                 full.suppressedAction(),
-                full.suppressedReason()
+                full.suppressedReason(),
+                full.directiveStatus(),
+                full.directiveChanged(),
+                full.directiveResolvedAt()
         );
 
         return new PublicActivationDto(
@@ -1343,8 +1351,26 @@ public class PlanActivationService {
                 a.getEvacPlanId() != null,
                 a.getMeetingPlaceId() != null,
                 a.getMeetingMode());
-        GoverningAlertDto governingAlert = activeGoverningAlert(a);
-        String movement = governingAlert == null ? "none" : normalizeMovementDirective(a.getMovementDirective());
+        // ── P0-A: CURRENT GUIDANCE GOVERNS THE CURRENT ACTION ───────────────
+        //
+        // The stored directive is what the household activated UNDER. It is
+        // history, and it stays on the row. What gets PRESENTED is what is in
+        // force now, re-resolved from the live alert feed for this activation's
+        // point. Without this, an activation fired under "shelter in place"
+        // kept saying so after officials reversed to evacuation — and a link
+        // holder, who has no live alert layer of their own, had no way to know.
+        //
+        // The resolver underclaims on purpose: it carries the stored directive
+        // only when it could not look, and declines to name one at all when it
+        // looked and found nothing in force.
+        ActivationDirectiveResolver.Resolved resolved = directiveResolver == null
+                ? ActivationDirectiveResolver.unverifiedFrom(a)
+                : java.util.Optional.ofNullable(directiveResolver.resolve(a))
+                        .orElseGet(() -> ActivationDirectiveResolver.unverifiedFrom(a));
+        GoverningAlertDto governingAlert = governingAlertFor(a, resolved);
+        String movement = governingAlert == null && resolved.status() != ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED
+                ? "none"
+                : normalizeMovementDirective(resolved.directive());
         String effective = resolveEffectiveMode(requested, movement);
         Instant now = Instant.now();
         String primary;
@@ -1420,8 +1446,33 @@ public class PlanActivationService {
                 primary,
                 kind,
                 suppressed,
-                reason
+                reason,
+                resolved.directive(),
+                resolved.asActivated(),
+                resolved.status().name(),
+                resolved.changed(),
+                resolved.resolvedAt()
         );
+    }
+
+    /**
+     * The governing alert to SHOW: the one currently in force when we could
+     * resolve one, otherwise the stored record labelled by the resolver's
+     * status. Never a live directive attributed to a stale alert.
+     */
+    private GoverningAlertDto governingAlertFor(PlanActivation a,
+                                                ActivationDirectiveResolver.Resolved r) {
+        if (r.status() == ActivationDirectiveResolver.Status.CURRENT) {
+            return new GoverningAlertDto(r.source(), r.alertId(), r.event(), r.headline(), r.lifecycleState());
+        }
+        if (r.status() == ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED) {
+            // Nothing is in force. Report the alert that STARTED this, marked
+            // expired, so the reader can see what lapsed rather than nothing.
+            if (a.getGoverningAlertId() == null && a.getGoverningAlertEvent() == null) return null;
+            return new GoverningAlertDto(a.getGoverningAlertSource(), a.getGoverningAlertId(),
+                    a.getGoverningAlertEvent(), a.getGoverningAlertHeadline(), "expired");
+        }
+        return activeGoverningAlert(a);
     }
 
     private GoverningAlertDto activeGoverningAlert(PlanActivation a) {

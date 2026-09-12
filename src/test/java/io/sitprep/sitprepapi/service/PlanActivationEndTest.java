@@ -69,7 +69,7 @@ class PlanActivationEndTest {
                 householdAccess,
                 mock(HouseholdResolver.class), mock(GoBagService.class),
                 mock(HouseholdEventService.class),
-                groupService = mock(GroupService.class));
+                groupService = mock(GroupService.class), mock(ActivationDirectiveResolver.class));
         TransactionSynchronizationManager.initSynchronization();
 
         when(userInfoRepo.findByUserEmailIgnoreCase(anyString())).thenReturn(Optional.empty());

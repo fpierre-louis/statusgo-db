@@ -85,7 +85,7 @@ class PlanActivationPublicContractTest {
                 mock(EmergencyContactRepo.class), mock(WebSocketMessageSender.class),
                 mock(GroupRepo.class), mock(NotificationService.class),
                 mock(HouseholdAccessService.class), mock(HouseholdResolver.class),
-                mock(GoBagService.class), mock(HouseholdEventService.class), mock(GroupService.class));
+                mock(GoBagService.class), mock(HouseholdEventService.class), mock(GroupService.class), mock(ActivationDirectiveResolver.class));
 
         mapper = new ObjectMapper().registerModule(new JavaTimeModule());
 

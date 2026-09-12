@@ -145,7 +145,22 @@ public final class PlanActivationDtos {
             String primaryAction,
             String primaryActionKind,
             String suppressedAction,
-            String suppressedReason
+            String suppressedReason,
+            /**
+             * P0-A provenance. `movementDirective` above is what is in force
+             * NOW; these say where that answer came from and whether it differs
+             * from what the household activated under.
+             *
+             * `directiveStatus` is one of CURRENT (a live alert carries it),
+             * UNVERIFIED (we could not check — treat as possibly stale) or
+             * SUPERSEDED_UNRESOLVED (we checked and nothing is in force, so the
+             * directive has been narrowed to follow_official_instruction).
+             */
+            String currentDirective,
+            String directiveAsActivated,
+            String directiveStatus,
+            boolean directiveChanged,
+            Instant directiveResolvedAt
     ) {}
 
     public record GoverningAlertDto(

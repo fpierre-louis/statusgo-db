@@ -136,7 +136,24 @@ public final class PublicActivationDtos {
             String primaryAction,
             String primaryActionKind,
             String suppressedAction,
-            String suppressedReason
+            String suppressedReason,
+            /**
+             * P0-A. A link holder has no live alert layer of their own, so the
+             * server has to tell them how much weight the directive carries:
+             * CURRENT, UNVERIFIED (could not check — may be stale) or
+             * SUPERSEDED_UNRESOLVED (nothing in force; narrowed to
+             * follow_official_instruction). Without this the recipient cannot
+             * distinguish "shelter in place, confirmed a moment ago" from
+             * "shelter in place, decided an hour ago and never rechecked" —
+             * which is exactly the confusion Scenario 24 is about.
+             *
+             * `directiveChanged` says the guidance is no longer what the sender
+             * activated under, so the surface can say the instruction changed.
+             * No household PII is added: these are safety facts about the alert.
+             */
+            String directiveStatus,
+            boolean directiveChanged,
+            Instant directiveResolvedAt
     ) {}
 
     /**

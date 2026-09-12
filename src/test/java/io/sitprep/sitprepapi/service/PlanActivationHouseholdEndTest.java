@@ -66,7 +66,7 @@ class PlanActivationHouseholdEndTest {
                 mock(HouseholdAccessService.class),
                 mock(HouseholdResolver.class), mock(GoBagService.class),
                 events = mock(HouseholdEventService.class),
-                groupService = mock(GroupService.class));
+                groupService = mock(GroupService.class), mock(ActivationDirectiveResolver.class));
 
         // The else-branch. See PlanActivationExpiryTest for the argument (T-89).
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

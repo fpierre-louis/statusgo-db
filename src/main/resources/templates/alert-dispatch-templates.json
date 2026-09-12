@@ -1557,7 +1557,8 @@
         "dispatchMode": "critical_push",
         "guidanceMode": "official_only",
         "movementDirective": "follow_official_instruction",
-        "impactAware": false
+        "impactAware": false,
+        "concealmentSensitive": true
       },
       "evidence": [
         {
@@ -1737,7 +1738,8 @@
         "dispatchMode": "critical_push",
         "guidanceMode": "official_only",
         "movementDirective": "follow_official_instruction",
-        "impactAware": false
+        "impactAware": false,
+        "concealmentSensitive": true
       },
       "evidence": [
         {
