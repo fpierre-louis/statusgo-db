@@ -1365,7 +1365,7 @@ public class PlanActivationService {
         // looked and found nothing in force.
         ActivationDirectiveResolver.Resolved resolved = directiveResolver == null
                 ? ActivationDirectiveResolver.unverifiedFrom(a)
-                : java.util.Optional.ofNullable(directiveResolver.resolve(a))
+                : java.util.Optional.ofNullable(resolveWithHouseholdFallback(a))
                         .orElseGet(() -> ActivationDirectiveResolver.unverifiedFrom(a));
         GoverningAlertDto governingAlert = governingAlertFor(a, resolved);
         String movement = governingAlert == null && resolved.status() != ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED
@@ -1453,6 +1453,31 @@ public class PlanActivationService {
                 resolved.changed(),
                 resolved.resolvedAt()
         );
+    }
+
+    /**
+     * Resolve current guidance, falling back to the owner's household location
+     * when the activation carries no point of its own — which is the common
+     * case, since `location` is optional on create.
+     */
+    private ActivationDirectiveResolver.Resolved resolveWithHouseholdFallback(PlanActivation a) {
+        Double lat = null;
+        Double lng = null;
+        if (a != null && (a.getLat() == null || a.getLng() == null) && a.getOwnerEmail() != null) {
+            try {
+                String householdId = householdResolver.baseHouseholdIdFor(a.getOwnerEmail());
+                if (householdId != null) {
+                    var g = groupRepo.findByGroupId(householdId).orElse(null);
+                    if (g != null && g.getHomeLocation() != null) {
+                        lat = g.getHomeLocation().getLat();
+                        lng = g.getHomeLocation().getLng();
+                    }
+                }
+            } catch (RuntimeException ignored) {
+                // A lookup failure is not evidence that guidance changed.
+            }
+        }
+        return directiveResolver.resolve(a, lat, lng);
     }
 
     /**

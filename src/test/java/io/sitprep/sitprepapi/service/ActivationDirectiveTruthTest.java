@@ -231,6 +231,33 @@ class ActivationDirectiveTruthTest {
         assertThat(r.directive()).isEqualTo("none");
     }
 
+    @Test
+    @DisplayName("falls back to a supplied point when the activation has none")
+    void fallbackPointIsUsed() {
+        // `location` is optional on the create request, so most real
+        // activations carry no point. Without a fallback the re-resolution
+        // would answer UNVERIFIED forever and be dead code in production.
+        PlanActivation a = activation("shelter_in_place");
+        a.setLat(null);
+        a.setLng(null);
+        feedReturns(card("REVERSAL-1", "Evacuation Immediate", "evacuate", "active", soon()));
+
+        var r = resolver.resolve(a, 40.5, -111.9);
+
+        assertThat(r.status()).isEqualTo(ActivationDirectiveResolver.Status.CURRENT);
+        assertThat(r.directive()).isEqualTo("evacuate");
+    }
+
+    @Test
+    @DisplayName("the activation's own point wins over the fallback")
+    void ownPointWins() {
+        feedReturns(card("REVERSAL-1", "Evacuation Immediate", "evacuate", "active", soon()));
+
+        resolver.resolve(activation("shelter_in_place"), 1.0, 2.0);
+
+        verify(feed).feedFor(40.5, -111.9);
+    }
+
     // ── PROVENANCE IS PRESERVED ─────────────────────────────────────────────
 
     @Test

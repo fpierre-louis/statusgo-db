@@ -118,20 +118,38 @@ public class ActivationDirectiveResolver {
         public boolean isCurrent() { return status == Status.CURRENT; }
     }
 
-    /** Resolve the guidance in force for this activation's point, now. */
+    /** Resolve against the activation's own point. */
     public Resolved resolve(PlanActivation a) {
+        return resolve(a, null, null);
+    }
+
+    /**
+     * Resolve, falling back to {@code fallbackLat/Lng} when the activation
+     * carries no coordinates of its own.
+     *
+     * <p>That fallback is load-bearing rather than defensive: {@code location}
+     * is optional on the create request, so a large share of real activations
+     * have no point at all. Without somewhere to look, every one of them would
+     * answer UNVERIFIED forever and the re-resolution would be dead code in
+     * production. The household's own location is the right stand-in — it is
+     * where the plan is about.
+     */
+    public Resolved resolve(PlanActivation a, Double fallbackLat, Double fallbackLng) {
         if (a == null) return unverifiedFrom(null);
         String stored = normalize(a.getMovementDirective());
         Instant now = Instant.now();
 
-        if (a.getLat() == null || a.getLng() == null) {
+        Double lat = a.getLat() != null ? a.getLat() : fallbackLat;
+        Double lng = a.getLng() != null ? a.getLng() : fallbackLng;
+
+        if (lat == null || lng == null) {
             // Nothing to resolve against. Carry the stored directive, say so.
             return unverified(a, stored, now);
         }
 
         List<AlertCardDto> live;
         try {
-            AlertFeedResponse feed = alertFeedService.feedFor(a.getLat(), a.getLng());
+            AlertFeedResponse feed = alertFeedService.feedFor(lat, lng);
             live = feed == null || feed.alerts() == null ? List.of() : feed.alerts().stream()
                     .filter(c -> isLive(c, now))
                     .toList();
