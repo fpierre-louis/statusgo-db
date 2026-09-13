@@ -738,6 +738,7 @@ public class PostService {
             t.setTitle(null);
             t.setDescription(incoming.getDescription() == null ? null : incoming.getDescription().trim());
         }
+        UserGeneratedContentFilter.requireAcceptable("community post", t.getTitle(), t.getDescription());
 
         // ── Bundles / projects (V51) ──────────────────────────────────────────
         // The NEW project_id container link — entirely separate from the repost
@@ -2245,6 +2246,10 @@ public class PostService {
         // Life-safety flag set BEFORE the edit — audited if it changes (a
         // trusted editor adding/removing a hazard flag is a must-capture event).
         Set<String> lsBefore = lifeSafetyFlagsOn(t);
+        if (patch.getTitle() != null || patch.getDescription() != null) {
+            UserGeneratedContentFilter.requireAcceptable(
+                    "community post", patch.getTitle(), patch.getDescription());
+        }
         if (patch.getTitle() != null) t.setTitle(patch.getTitle());
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());

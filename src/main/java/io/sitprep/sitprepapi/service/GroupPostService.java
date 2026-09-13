@@ -87,6 +87,7 @@ public class GroupPostService {
         }
         requireGroupMembership(postDto.getGroupId(), actorEmail);
         GeoUtil.requireValidLatLng(postDto.getLatitude(), postDto.getLongitude());
+        UserGeneratedContentFilter.requireAcceptable("group post", postDto.getContent());
 
         GroupPost post = new GroupPost();
         post.setAuthor(postDto.getAuthor());
@@ -228,6 +229,7 @@ public class GroupPostService {
         if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
             throw new SecurityException("User not authorized to update this post.");
         }
+        UserGeneratedContentFilter.requireAcceptable("group post", post.getContent());
 
         GroupPost updatedPost = postRepo.save(post);
         GroupPostDto updatedPostDto = convertToPostDto(updatedPost);
@@ -264,6 +266,7 @@ public class GroupPostService {
             throw new SecurityException("Not allowed to edit this post.");
         }
 
+        UserGeneratedContentFilter.requireAcceptable("group post", dto.getContent());
         post.setContent(dto.getContent());
         post.setEditedAt(Instant.now());
         post.setTags(dto.getTags());

@@ -93,6 +93,7 @@ public class GroupPostCommentService {
         if (dto.getAuthor() == null || dto.getAuthor().trim().isEmpty()) {
             dto.setAuthor("anonymous@sitprep");
         }
+        UserGeneratedContentFilter.requireAcceptable("comment", dto.getContent());
 
         GroupPostComment c = new GroupPostComment();
         c.setPostId(dto.getPostId());
@@ -159,6 +160,7 @@ public class GroupPostCommentService {
         // Captured BEFORE the overwrite -- the edit notification is a diff.
         final String previousContent = existing.getContent();
         if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
+            UserGeneratedContentFilter.requireAcceptable("comment", dto.getContent());
             existing.setContent(dto.getContent());
         }
         existing.setMentionedUserIds(MentionToken.extractIds(existing.getContent()));

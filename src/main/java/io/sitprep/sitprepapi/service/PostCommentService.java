@@ -106,6 +106,7 @@ public class PostCommentService {
             // belt-and-suspenders for non-resource paths.
             dto.setAuthor("anonymous@sitprep");
         }
+        UserGeneratedContentFilter.requireAcceptable("comment", dto.getContent());
 
         PostComment c = new PostComment();
         c.setPostId(dto.getPostId());
@@ -171,6 +172,7 @@ public class PostCommentService {
         // after setContent the old mention set is gone.
         final String previousContent = existing.getContent();
         if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
+            UserGeneratedContentFilter.requireAcceptable("comment", dto.getContent());
             existing.setContent(dto.getContent());
         }
         existing.setMentionedUserIds(MentionToken.extractIds(existing.getContent()));
