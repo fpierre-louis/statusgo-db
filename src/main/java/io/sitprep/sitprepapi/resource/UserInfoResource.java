@@ -486,8 +486,9 @@ public class UserInfoResource {
     @DeleteMapping("/me/account")
     public ResponseEntity<?> deleteMyAccount() {
         String email = AuthUtils.requireAuthenticatedEmail();
+        String firebaseUid = AuthUtils.requireAuthenticatedUid();
         try {
-            return ResponseEntity.ok(accountDeletionService.deleteAccount(email));
+            return ResponseEntity.ok(accountDeletionService.deleteAccount(email, firebaseUid));
         } catch (OwnedGroupsBlockingException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new OwnedGroupsBlocking(ex.blocked()));

@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
@@ -80,6 +82,15 @@ public class AccountDeletionService {
      */
     @Transactional
     public DeletionResult deleteAccount(String email) {
+        return deleteAccount(email, null);
+    }
+
+    /**
+     * Cascade-delete the account and, when a verified Firebase UID is supplied
+     * by the in-app deletion endpoint, remove the Firebase Auth identity too.
+     */
+    @Transactional
+    public DeletionResult deleteAccount(String email, String firebaseUid) {
         if (email == null || email.isBlank()) {
             throw new IllegalArgumentException("email is required");
         }
@@ -226,6 +237,7 @@ public class AccountDeletionService {
                 strippedFrom, soloHouseholds.size(), agencyStaff,
                 liveSessions, livePoints
         );
+        deleteFirebaseAuthUser(firebaseUid, e);
         log.info("AccountDeletion: complete for email={} result={}", e, result);
         return result;
     }
@@ -268,6 +280,22 @@ public class AccountDeletionService {
         } catch (Exception ex) {
             log.warn("AccountDeletion: lookup failed err={}", ex.getMessage());
             return List.of();
+        }
+    }
+
+    private void deleteFirebaseAuthUser(String firebaseUid, String email) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return;
+        try {
+            FirebaseAuth.getInstance().deleteUser(firebaseUid.trim());
+            log.info("AccountDeletion: Firebase Auth user deleted uid={} email={}", firebaseUid, email);
+        } catch (FirebaseAuthException ex) {
+            String code = String.valueOf(ex.getAuthErrorCode());
+            String message = ex.getMessage() == null ? "" : ex.getMessage();
+            if (code.contains("USER_NOT_FOUND") || message.toLowerCase().contains("no user record")) {
+                log.info("AccountDeletion: Firebase Auth user already absent uid={} email={}", firebaseUid, email);
+                return;
+            }
+            throw new IllegalStateException("Firebase Auth account deletion failed", ex);
         }
     }
 
