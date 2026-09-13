@@ -36,7 +36,7 @@ class MeServiceActiveActivationIdTest {
             mock(UserInfoService.class),
             mock(PlatformAccessService.class),
             mock(GoBagService.class),
-            mock(EmergencySupportService.class),
+            mock(EmergencySupportService.class), mock(StandingConditionService.class),
             mock(HouseholdReadinessService.class),
             new ObjectMapper(),
             mock(AgencyStaffService.class)

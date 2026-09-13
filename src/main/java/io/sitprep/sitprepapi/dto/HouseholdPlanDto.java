@@ -62,5 +62,15 @@ public record HouseholdPlanDto(
          */
         List<EmergencySupportDtos.SupportProfileDto> supportProfiles,
         /** Prepared helpers. Plan state — never current acknowledgement. */
-        List<EmergencySupportDtos.SupportAssignmentDto> supportAssignments
+        List<EmergencySupportDtos.SupportAssignmentDto> supportAssignments,
+        /**
+         * ACTIVE household standing conditions — what the household says is
+         * affecting it right now.
+         *
+         * <p>Rides the plan document deliberately: this is the payload
+         * `meCache` mirrors, so conditions are readable on a cold offline
+         * launch and printable, without a second cache. Private household data
+         * — never projected onto any public/bearer-link DTO.
+         */
+        List<StandingConditionDtos.StandingConditionDto> standingConditions
 ) {}

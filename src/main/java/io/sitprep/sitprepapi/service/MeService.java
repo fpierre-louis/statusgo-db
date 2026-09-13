@@ -64,6 +64,7 @@ public class MeService {
     private final PlatformAccessService platformAccessService;
     private final GoBagService goBagService;
     private final EmergencySupportService emergencySupportService;
+    private final StandingConditionService standingConditionService;
     private final HouseholdReadinessService readinessEngine;
     private final ObjectMapper objectMapper;
     private final AgencyStaffService agencyStaffService;
@@ -88,6 +89,7 @@ public class MeService {
             PlatformAccessService platformAccessService,
             GoBagService goBagService,
             EmergencySupportService emergencySupportService,
+            StandingConditionService standingConditionService,
             HouseholdReadinessService readinessEngine,
             ObjectMapper objectMapper,
             AgencyStaffService agencyStaffService
@@ -111,6 +113,7 @@ public class MeService {
         this.platformAccessService = platformAccessService;
         this.goBagService = goBagService;
         this.emergencySupportService = emergencySupportService;
+        this.standingConditionService = standingConditionService;
         this.readinessEngine = readinessEngine;
         this.objectMapper = objectMapper;
         this.agencyStaffService = agencyStaffService;
@@ -616,6 +619,10 @@ public class MeService {
                 safeGetInline("hh.supportAssignments", logCtx,
                         () -> emergencySupportService.listAssignmentsForPlan(householdId), List.of());
 
+        List<io.sitprep.sitprepapi.dto.StandingConditionDtos.StandingConditionDto> standingConditions =
+                safeGetInline("hh.standingConditions", logCtx,
+                        () -> standingConditionService.activeForProjection(householdId), List.of());
+
         return new HouseholdPlanDto(
                 householdId,
                 g == null ? null : g.getGroupName(),
@@ -632,7 +639,8 @@ public class MeService {
                 goBags,
                 g == null ? null : g.getPlanLastConfirmedAt(),
                 supportProfiles,
-                supportAssignments
+                supportAssignments,
+                standingConditions
         );
     }
 
