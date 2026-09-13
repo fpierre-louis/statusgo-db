@@ -38,8 +38,12 @@ public class CommunityReport {
         SPAM,
         HARASSMENT,
         MISINFORMATION,
+        MISLEADING_AUTHORITY,
         IMPERSONATION,
         SCAM,
+        PRICE_GOUGING,
+        EMERGENCY_EXPLOITATION,
+        UNLICENSED_EMERGENCY_SERVICE,
         SAFETY_RISK,
         HATE,
         OTHER

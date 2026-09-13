@@ -122,7 +122,7 @@ public class CommunityReportService {
             return CommunityReport.Reason.valueOf(value);
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "reason must be SPAM, HARASSMENT, MISINFORMATION, IMPERSONATION, SCAM, SAFETY_RISK, HATE, or OTHER");
+                    "reason must be one of the supported community report reasons");
         }
     }
 
