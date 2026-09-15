@@ -11,8 +11,10 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
@@ -52,6 +54,48 @@ public class GlobalExceptionHandler {
         body.put("message", message);
         body.put("path", req.getRequestURI());
         return body;
+    }
+
+    /**
+     * A malformed REQUEST is the caller's error, not ours — 400, never 500.
+     *
+     * <p>Without these two handlers, Spring's own binding failures fall
+     * through to the catch-all {@code Exception} handler below and are
+     * reported as {@code INTERNAL_ERROR} with a 500. That is wrong on every
+     * axis: it tells the client the server broke when the client sent a bad
+     * request, it fires the 5xx alerting path for ordinary user input, and it
+     * gives the caller nothing to act on.</p>
+     *
+     * <p>Found on {@code GET /api/community/posts}, whose {@code lat}/{@code lng}
+     * are required: omitting them returned 500 while supplying them returned
+     * 200. But the defect was never that endpoint's — it was every endpoint
+     * with a required parameter, which is why the fix belongs here rather than
+     * in a controller signature.</p>
+     *
+     * <p>The message names the parameter, so the client can say which field is
+     * missing instead of "something went wrong".</p>
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParam(
+            MissingServletRequestParameterException ex, HttpServletRequest req) {
+        log.warn("Missing parameter on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildErrorBody(
+                        "MISSING_PARAMETER",
+                        "Required parameter '" + ex.getParameterName() + "' is missing.",
+                        req));
+    }
+
+    /** Same reasoning: a parameter of the wrong type is a 400, not a 500. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex, HttpServletRequest req) {
+        log.warn("Bad parameter type on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildErrorBody(
+                        "INVALID_PARAMETER",
+                        "Parameter '" + ex.getName() + "' has an invalid value.",
+                        req));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
