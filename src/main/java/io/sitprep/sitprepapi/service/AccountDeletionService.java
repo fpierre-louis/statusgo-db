@@ -133,8 +133,31 @@ public class AccountDeletionService {
         // 2. Cascade-delete content the user authored / owns. JPQL bulk
         // DELETE — efficient and won't pull entities into memory.
         // -----------------------------------------------------------------
-        int reactions   = bulkDelete("DELETE FROM GroupPostReaction r WHERE LOWER(r.userEmail) = :e", e);
-        int comments    = bulkDelete("DELETE FROM GroupPostComment c WHERE LOWER(c.author) = :e", e);
+        // ── ALL SIX COMMENT/REACTION TABLES, NOT TWO ────────────────────────
+        //
+        // There are two parallel families (see the naming table in the FE
+        // CLAUDE.md): GroupPost* is GROUP CHAT, Post* is the COMMUNITY FEED.
+        // Only the two group-chat tables were swept here, so a deleted user's
+        // community-feed comments and reactions survived — carrying their email
+        // in `PostComment.author` / `PostReaction.userEmail`.
+        //
+        // That is not a tidiness problem. The delete-account screen enumerates
+        // "Posts, comments, and reactions you've made", so the app was making
+        // an erasure promise it did not keep, which is what an App Store
+        // privacy review and a GDPR erasure request both test.
+        //
+        // Note the community POSTS were already removed above/below via the
+        // `Post` bulk delete; JPQL bulk DELETE skips cascades, so their child
+        // comments and reactions were orphaned even for the user's own posts.
+        // Deleting by author/userEmail covers both cases.
+        int reactions =
+                  bulkDelete("DELETE FROM GroupPostReaction r WHERE LOWER(r.userEmail) = :e", e)
+                + bulkDelete("DELETE FROM GroupPostCommentReaction r WHERE LOWER(r.userEmail) = :e", e)
+                + bulkDelete("DELETE FROM PostReaction r WHERE LOWER(r.userEmail) = :e", e)
+                + bulkDelete("DELETE FROM PostCommentReaction r WHERE LOWER(r.userEmail) = :e", e);
+        int comments =
+                  bulkDelete("DELETE FROM GroupPostComment c WHERE LOWER(c.author) = :e", e)
+                + bulkDelete("DELETE FROM PostComment c WHERE LOWER(c.author) = :e", e);
         int posts       = bulkDelete("DELETE FROM GroupPost p WHERE LOWER(p.author) = :e", e);
         int tasks       = bulkDelete(
                 "DELETE FROM Post t WHERE LOWER(t.requesterEmail) = :e OR LOWER(t.claimedByEmail) = :e", e);
