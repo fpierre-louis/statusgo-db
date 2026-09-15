@@ -35,12 +35,26 @@ import java.util.Set;
  *   <li><b>Default</b> — return the category's documented lane.</li>
  * </ol>
  *
- * <p><b>Rate caps</b> (1/60s per source, 4/5min total, 20/day soft) and
- * <b>NotificationService.send wiring</b> are deliberately out of scope
- * for this skeleton — they land in follow-up sessions per the policy
- * doc's implementation checklist. This service is callable now via
- * {@link #evaluate}; integrating it into the send sites is the next
- * step.</p>
+ * <p><b>Both of the follow-ups this comment used to defer are DONE.</b>
+ * It said rate caps and the send-site wiring were "out of scope for this
+ * skeleton" and that integrating it was "the next step". They landed, and the
+ * sentence outlived them — which is worse than saying nothing, because it tells
+ * a reader that push policy is not enforced when it is. Left corrected rather
+ * than deleted, since the stale version cost a reader real time.</p>
+ *
+ * <p><b>Rate caps</b> are enforced: {@link RateLimiterService} applies 1/60s per
+ * (recipient, category), 4/5min per recipient, and a 20/day soft cap, consumed
+ * from {@link #evaluate} before a Lane A push is granted.</p>
+ *
+ * <p><b>Send-site wiring</b> is live on both paths:</p>
+ * <ul>
+ *   <li>{@code AlertDispatchService} — hazard alerts, via
+ *       {@code pushCategoryFor(alert, template)}.</li>
+ *   <li>{@code NotificationService} — everything else, via
+ *       {@code mapTypeToCategory(type)}, plus an overload that takes a
+ *       {@link Category} directly so household alert fan-out can route through
+ *       {@link Category#GROUP_ALERT_HOUSEHOLD} rather than the ORG default.</li>
+ * </ul>
  */
 @Service
 public class PushPolicyService {
