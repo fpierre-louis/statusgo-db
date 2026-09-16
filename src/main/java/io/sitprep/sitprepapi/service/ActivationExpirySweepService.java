@@ -20,9 +20,9 @@ import java.util.List;
  * rows and their dependent acks. Implements item #1 of
  * {@code docs/SCHEDULED_JOBS.md}.
  *
- * <p><b>Why hard-delete:</b> the FE already filters by {@code expiresAt > now}
- * (via {@code PlanActivationRepo.findFirstActiveByOwnerEmail}), so expired
- * rows are invisible to active flows but accumulate forever. At launch
+ * <p><b>Why hard-delete:</b> active flows already filter by {@code expiresAt >
+ * now} (via {@code PlanActivationRepo.findActiveByOwnerEmail}), so expired
+ * rows are invisible to them but accumulate forever. At launch
  * volumes the table will outgrow its useful working set within months.
  * Soft-archive would buy a clean 410 for stale links — but that's a
  * recipient-side edge case (link arrived past expiry), not a primary flow,
