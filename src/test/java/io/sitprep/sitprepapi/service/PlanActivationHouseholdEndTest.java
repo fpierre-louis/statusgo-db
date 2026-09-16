@@ -99,6 +99,19 @@ class PlanActivationHouseholdEndTest {
                             .filter(a -> a.getEndedAt() == null)
                             .toList();
                 });
+        // The household-keyed source (V79). It deliberately OVERLAPS the email
+        // scan for every row written since, which is what the id-keyed dedupe
+        // in the service is for.
+        when(activationRepo.findLiveByHouseholdId(anyString(), any(Instant.class)))
+                .thenAnswer(inv -> {
+                    String hh = inv.getArgument(0);
+                    Instant now = inv.getArgument(1);
+                    return table.stream()
+                            .filter(a -> hh.equals(a.getHouseholdId()))
+                            .filter(a -> a.getExpiresAt().isAfter(now))
+                            .filter(a -> a.getEndedAt() == null)
+                            .toList();
+                });
         when(activationRepo.save(any(PlanActivation.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -117,9 +130,16 @@ class PlanActivationHouseholdEndTest {
     }
 
     private PlanActivation live(String id, String owner, long hoursAgo) {
+        PlanActivation a = live(id, owner, hoursAgo, HOUSEHOLD_ID);
+        return a;
+    }
+
+    /** A row that names its household, as everything written since V79 does. */
+    private PlanActivation live(String id, String owner, long hoursAgo, String householdId) {
         PlanActivation a = new PlanActivation();
         a.setId(id);
         a.setOwnerEmail(owner);
+        a.setHouseholdId(householdId);
         a.setActivatedAt(Instant.now().minus(hoursAgo, ChronoUnit.HOURS));
         a.setExpiresAt(Instant.now().plus(72 - hoursAgo, ChronoUnit.HOURS));
         table.add(a);
@@ -316,5 +336,39 @@ class PlanActivationHouseholdEndTest {
         assertDoesNotThrow(() -> service.endHouseholdActivations(HOUSEHOLD_ID, OWNER));
 
         assertNotNull(mine.getEndedAt(), "an all clear that could not be announced is still an all clear");
+    }
+
+    // ── THE LAUNCHER WHO LEFT (V79) ─────────────────────────────────────────
+
+    @Test
+    void endsARowWhoseLauncherIsNoLongerAMember() {
+        // The email scan is built from the household's CURRENT member list, so
+        // a person who launched and then left takes their live activation out
+        // of its reach entirely — and Home keeps ranking EVACUATING off a row
+        // nothing can close. The household-keyed query is the only way back to
+        // it, which is what householdId was added for.
+        PlanActivation departed = live("act-departed", "gone@x.com", 2);
+        assertFalse(
+                List.of(OWNER, SPOUSE, TEEN).contains(departed.getOwnerEmail()),
+                "fixture: the launcher must NOT be in the member list, or this proves nothing");
+
+        HouseholdActivationsEndedDto result = service.endHouseholdActivations(HOUSEHOLD_ID, OWNER);
+
+        assertEquals(1, result.endedCount());
+        assertNotNull(departed.getEndedAt(), "found via householdId, not via the member scan");
+    }
+
+    @Test
+    void countsARowFoundByBothSourcesOnce() {
+        // Every post-V79 row is returned by the email scan AND the household
+        // scan. Ending it twice would move its endedAt, and All clear's whole
+        // contract is ONE endedAt for one event.
+        PlanActivation both = live("act-both", OWNER, 1);
+
+        HouseholdActivationsEndedDto result = service.endHouseholdActivations(HOUSEHOLD_ID, OWNER);
+
+        assertEquals(1, result.endedCount(), "one row, two sources, one ending");
+        assertEquals(List.of("act-both"), result.activationIds());
+        assertNotNull(both.getEndedAt());
     }
 }

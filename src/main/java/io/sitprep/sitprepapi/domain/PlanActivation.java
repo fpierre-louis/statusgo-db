@@ -42,6 +42,34 @@ public class PlanActivation {
     @Column(name = "owner_email", nullable = false)
     private String ownerEmail;
 
+    /**
+     * The household this activation belongs to — the launcher's base household
+     * at the moment they launched.
+     *
+     * <p><b>Why it exists.</b> An activation used to be keyed on the launcher's
+     * email and nothing else, so "this activation's household" was an inference,
+     * and two readers inferred it differently:
+     * {@code MeService.resolveActiveActivationIdForHome} scanned the VIEWER'S
+     * base household member set, while {@code canEnd} asked only whether caller
+     * and owner shared ANY household. /deployedplan's End button could not be
+     * pointed at the household-wide route because of that gap — the page has no
+     * household id, and the viewer's base household is the wrong answer for
+     * anyone who belongs to two.</p>
+     *
+     * <p><b>Nullable on purpose.</b> A launcher with no base household is a real
+     * state — a new account that activates before joining a household — and
+     * NOT NULL would make it a 500 at the worst possible moment. Readers treat
+     * null as "fall back to the ownerEmail scan", which is the pre-existing
+     * behaviour, so this column can only narrow a query and never break one.</p>
+     *
+     * <p>A SNAPSHOT, like {@code ownerUserId} and {@code ownerName} beside it.
+     * If the launcher later re-pins a different base household, this activation
+     * still belongs to the one it was launched from — the household that was
+     * told to evacuate is not retroactively a different household.</p>
+     */
+    @Column(name = "household_id", length = 64)
+    private String householdId;
+
     /** Snapshot of the owner's UserInfo.id at activation time. */
     @Column(name = "owner_user_id")
     private String ownerUserId;

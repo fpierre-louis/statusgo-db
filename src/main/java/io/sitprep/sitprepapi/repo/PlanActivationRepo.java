@@ -61,6 +61,34 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
     );
 
     /**
+     * Every live activation belonging to one household, newest first.
+     *
+     * <p>The household-keyed counterpart to {@link #findActiveByOwnerEmail},
+     * and the query {@code householdId} was added for. The email scan asks
+     * "did any of these PEOPLE launch something" and needs the household's
+     * member list to do it; this asks the row directly, which is the only
+     * version that stays right when a launcher leaves the household or belongs
+     * to two.</p>
+     *
+     * <p>Callers run BOTH and union the results while older rows still carry a
+     * null {@code householdId} — see
+     * {@code PlanActivationService.liveActivationsForHousehold}. Dropping the
+     * email scan is safe only once no live row can have a null household, and
+     * nothing forces that yet.</p>
+     */
+    @Query(
+        "SELECT a FROM PlanActivation a " +
+        "WHERE a.householdId = :householdId " +
+        "AND a.expiresAt > :now " +
+        "AND a.endedAt IS NULL " +
+        "ORDER BY a.activatedAt DESC"
+    )
+    List<PlanActivation> findLiveByHouseholdId(
+            @Param("householdId") String householdId,
+            @Param("now") Instant now
+    );
+
+    /**
      * Activations whose 72-hour timer has run out and which the expiry sweep
      * has not yet handled.
      *

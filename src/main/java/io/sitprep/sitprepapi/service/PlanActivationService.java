@@ -113,6 +113,13 @@ public class PlanActivationService {
         userInfoRepo.findByUserEmailIgnoreCase(ownerEmail).ifPresent(u -> {
             a.setOwnerUserId(u.getId());
             a.setOwnerName(joinName(u.getUserFirstName(), u.getUserLastName()));
+            // THE HOUSEHOLD THIS ACTIVATION BELONGS TO, stamped at launch
+            // alongside the other owner snapshots. The base household is
+            // deliberately the same value MeService anchors Home to, because
+            // the whole point is that the row and the reader agree about which
+            // household is evacuating. Null is tolerated everywhere — see
+            // PlanActivation.householdId.
+            a.setHouseholdId(trimToNull(u.getBaseHouseholdId()));
         });
 
         // SECURITY (IDOR guard): the referenced meeting place / evacuation plan
@@ -502,6 +509,44 @@ public class PlanActivationService {
                     "Only this household can end its own activation");
         }
 
+        // ── ENDING A LIVE ACTIVATION IS AN ALL CLEAR FOR THE HOUSEHOLD ───────
+        //
+        // This used to end exactly the row it was handed, which is the
+        // orphaning BE-2 was built to close and which survived on this one
+        // surface. An activation is keyed on the LAUNCHER, so two people
+        // launching makes two rows, and
+        // MeService.resolveActiveActivationIdForHome takes max(activatedAt)
+        // across every member — so closing one let the resolver fall back onto
+        // the other. Home stayed EVACUATING and the person who had just
+        // declared it over watched it come back.
+        //
+        // /deployedplan could not call the household route itself: that route
+        // needs a household id, the page has none, and the VIEWER'S base
+        // household is the wrong answer for anyone who belongs to two. The
+        // activation now names its own household, so the server resolves it
+        // from the row it was handed and the client never has to guess.
+        //
+        // ONLY WHEN THE ROW IS LIVE, and that guard is load-bearing rather
+        // than tidy. A forwarded link outlives the emergency it describes; a
+        // recipient opening last week's activation and tapping End must not
+        // stand down THIS week's evacuation. A closed row falls through to the
+        // single-row path below, which is idempotent and touches nothing else.
+        if (!isClosed(a)) {
+            String householdId = resolveHouseholdIdFor(a);
+            if (householdId != null) {
+                endHouseholdActivations(householdId, caller);
+                // Re-read: the row was ended by the call above, in this same
+                // transaction. Returning the stale instance would hand the
+                // caller a detail with no endedAt on it and the page would
+                // re-render as still running.
+                a = activationRepo.findById(activationId).orElse(a);
+                return toDetailDto(a, true, isOwner(a, callerEmail));
+            }
+            // No resolvable household — a launcher who had none when they
+            // activated, and still has none. Fall through: closing the one row
+            // is strictly better than refusing, and it is what shipped before.
+        }
+
         if (a.getEndedAt() == null) {
             a.setEndedAt(Instant.now());
             a.setEndedByEmail(caller);
@@ -654,15 +699,34 @@ public class PlanActivationService {
             household.getMemberEmails().forEach(raw -> addOwnerEmail(owners, raw));
         }
 
-        // The lowercased SET above is the dedupe, and it is the only one needed:
-        // an activation has exactly one owner, and `findActiveByOwnerEmail`
-        // matches on LOWER(ownerEmail), so one row can be returned by one email
-        // only. A second dedupe keyed on the activation id was here and is gone
-        // — re-arming it proved nothing could reach it, which makes it a comment
-        // pretending to be a guard.
-        List<PlanActivation> live = new ArrayList<>();
+        // The lowercased SET above dedupes the EMAILS. An id-keyed dedupe of the
+        // rows was removed once as unreachable — re-arming proved nothing could
+        // reach it, because an activation has exactly one owner and
+        // `findActiveByOwnerEmail` matches on LOWER(ownerEmail). That reasoning
+        // held while the email scan was the only source. It is now one of two,
+        // and they deliberately overlap, so the row-level dedupe below is real
+        // this time — see its note.
+        // TWO SOURCES, UNIONED, AND BOTH ARE STILL NEEDED.
+        //
+        //   * the email scan finds rows launched by anyone currently in the
+        //     household — including pre-V79 rows, which carry no householdId;
+        //   * the household scan finds rows that NAME this household, which is
+        //     the only way to catch one launched by somebody who has since left
+        //     the member list. The email scan cannot see those at all: it is
+        //     built from the household's CURRENT members, so a departure
+        //     silently orphans their live activation and Home keeps ranking
+        //     EVACUATING off a row nothing can close.
+        //
+        // Keyed by id, because the two sources overlap for every row written
+        // since V79 and ending one twice would move its endedAt.
+        Map<String, PlanActivation> live = new LinkedHashMap<>();
         for (String owner : owners) {
-            live.addAll(activationRepo.findActiveByOwnerEmail(owner, now));
+            for (PlanActivation a : activationRepo.findActiveByOwnerEmail(owner, now)) {
+                live.put(a.getId(), a);
+            }
+        }
+        for (PlanActivation a : activationRepo.findLiveByHouseholdId(householdId, now)) {
+            live.put(a.getId(), a);
         }
         if (live.isEmpty()) {
             return new HouseholdActivationsEndedDto(householdId, 0, List.of(), null);
@@ -670,7 +734,7 @@ public class PlanActivationService {
 
         Instant endedAt = Instant.now();
         final List<PlanActivation> ended = new ArrayList<>(live.size());
-        for (PlanActivation a : live) {
+        for (PlanActivation a : live.values()) {
             a.setEndedAt(endedAt);
             a.setEndedByEmail(caller);
             ended.add(activationRepo.save(a));
@@ -774,6 +838,30 @@ public class PlanActivationService {
         if (caller.isEmpty()) return false;
         return caller.equalsIgnoreCase(a.getOwnerEmail())
                 || householdAccess.canReadPlanDataFor(caller, a.getOwnerEmail());
+    }
+
+    /**
+     * Which household does this activation belong to?
+     *
+     * <p>The stamped {@code householdId} first — a snapshot taken at launch,
+     * and the only answer that stays right when the launcher later re-pins a
+     * different base household or leaves entirely.</p>
+     *
+     * <p>Falls back to the launcher's CURRENT base household for rows written
+     * before the column existed. That fallback is an inference and is allowed
+     * to be wrong in the multi-household case; it is strictly better than the
+     * previous behaviour, which had no household concept at all. It disappears
+     * on its own as pre-V79 rows age out of the 72-hour window.</p>
+     *
+     * @return a household id, or null when neither source has one
+     */
+    private String resolveHouseholdIdFor(PlanActivation a) {
+        String stamped = trimToNull(a.getHouseholdId());
+        if (stamped != null) return stamped;
+        if (a.getOwnerEmail() == null) return null;
+        return userInfoRepo.findByUserEmailIgnoreCase(a.getOwnerEmail())
+                .map(u -> trimToNull(u.getBaseHouseholdId()))
+                .orElse(null);
     }
 
     private static boolean isClosed(PlanActivation a) {
