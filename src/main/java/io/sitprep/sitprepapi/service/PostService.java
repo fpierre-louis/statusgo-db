@@ -1768,7 +1768,23 @@ public class PostService {
         return new ArrayList<>(byId.values());
     }
 
-    public record LocalAgencyDto(String groupId, String name, String logoImageUrl, String jurisdictionType) {}
+    /**
+     * The co-sign agency's public identity.
+     *
+     * <p>{@code description} and {@code createdAt} were added 2026-09-21, when
+     * the co-sign stopped being a one-line strip and became a card in the
+     * stream. Both are plain Group columns that were simply not being
+     * projected.</p>
+     *
+     * <p><b>{@code createdAt} is the SitPrep account's creation date, and the
+     * frontend must not label it "established".</b> A city was established
+     * long before it had an account here, and this app has no source for that
+     * date. Naming this field {@code createdAt} rather than {@code since} is
+     * deliberate: the next reader should have to go out of their way to state
+     * something the record does not support.</p>
+     */
+    public record LocalAgencyDto(String groupId, String name, String logoImageUrl, String jurisdictionType,
+                                 String description, java.time.Instant createdAt) {}
 
     /**
      * The verified agency (if any) whose claimed jurisdiction includes the
@@ -1788,7 +1804,8 @@ public class PostService {
                 u.getLastKnownLat(), u.getLastKnownLng(), u.getLastKnownZip());
         if (matches.isEmpty()) return null;
         Group g = matches.get(0);
-        return new LocalAgencyDto(g.getGroupId(), g.getGroupName(), g.getLogoImageUrl(), g.getJurisdictionType());
+        return new LocalAgencyDto(g.getGroupId(), g.getGroupName(), g.getLogoImageUrl(), g.getJurisdictionType(),
+                g.getDescription(), g.getCreatedAt());
     }
 
     public record Condition(String label, Object value, String unit, String status) {}
