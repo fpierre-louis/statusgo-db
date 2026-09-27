@@ -32,6 +32,15 @@ public class UserInfoService {
 
     private static final int MAX_ASSESSMENT_SUMMARY_JSON_BYTES = 50_000;
 
+    /**
+     * {@code UserInfo} fields the reflective PATCH must never set — derived by
+     * the server from location fixes (V83). See {@link #patchUserById}.
+     */
+    static final Set<String> SERVER_DERIVED_FIELDS = Set.of(
+            "locationSource", "locationAccuracyM",
+            "currentPlaceId", "currentPlaceSince",
+            "lastSeenNearLabel", "lastSeenNearLat", "lastSeenNearLng");
+
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
     private final GroupRepo groupRepo;
@@ -40,7 +49,7 @@ public class UserInfoService {
     private final BlockService blockService;
     private final ObjectMapper objectMapper;
     private final WebSocketMessageSender ws;
-    private final NominatimGeocodeService geocode;
+    private final LocationPresenceService presence;
     private final HouseholdProvisioningService householdProvisioning;
 
     @Autowired
@@ -52,7 +61,7 @@ public class UserInfoService {
                            BlockService blockService,
                            ObjectMapper objectMapper,
                            WebSocketMessageSender ws,
-                           NominatimGeocodeService geocode,
+                           LocationPresenceService presence,
                            HouseholdProvisioningService householdProvisioning) {
         this.userInfoRepo = userInfoRepo;
         this.householdEventService = householdEventService;
@@ -62,7 +71,7 @@ public class UserInfoService {
         this.blockService = blockService;
         this.objectMapper = objectMapper;
         this.ws = ws;
-        this.geocode = geocode;
+        this.presence = presence;
         this.householdProvisioning = householdProvisioning;
     }
 
@@ -515,42 +524,31 @@ public class UserInfoService {
                 .orElseGet(HashMap::new);
     }
 
-    // ~0.03° ≈ 2mi in either axis — past this we re-resolve the zip.
-    private static boolean movedMeaningfully(Double prevLat, Double prevLng, double lat, double lng) {
-        if (prevLat == null || prevLng == null) return true;
-        return Math.abs(prevLat - lat) > 0.03 || Math.abs(prevLng - lng) > 0.03;
-    }
-
     /**
      * Presence-location ping handler. Updates {@code lastKnownLat/Lng} +
-     * {@code lastKnownLocationAt} on the user identified by email. Silently
+     * {@code lastKnownLocationAt} on the user identified by email, and
+     * everything {@link LocationPresenceService#applyFix} derives from the fix
+     * (source, accuracy, "At &lt;place&gt;", zip, "last seen near"). Silently
      * no-ops if the user doesn't exist (the FE may have stale identity).
      */
     @Transactional
     public void updateLastKnownLocationByEmail(String email, Double lat, Double lng) {
+        updateLastKnownLocationByEmail(email, lat, lng, null, null);
+    }
+
+    /**
+     * The same write with the optional V83 fields. {@code source} outside
+     * {@code phone | watch | web} is stored as null rather than rejected, so an
+     * older or unknown client keeps working; {@code accuracyM} is clamped.
+     */
+    @Transactional
+    public void updateLastKnownLocationByEmail(String email, Double lat, Double lng,
+                                               String source, Number accuracyM) {
         if (email == null || email.isBlank() || lat == null || lng == null) return;
         GeoUtil.requireValidLatLng(lat, lng);
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
-            Instant updatedAt = Instant.now();
-            Double prevLat = u.getLastKnownLat();
-            Double prevLng = u.getLastKnownLng();
-            u.setLastKnownLat(lat);
-            u.setLastKnownLng(lng);
-            u.setLastKnownLocationAt(updatedAt);
-            // Refresh the cached jurisdiction zip only when we don't have one
-            // yet or the position moved meaningfully (~2mi) — bounds Nominatim
-            // calls (it also caches internally). Best-effort: a failure leaves
-            // the previous zip untouched.
-            if (u.getLastKnownZip() == null || movedMeaningfully(prevLat, prevLng, lat, lng)) {
-                try {
-                    NominatimGeocodeService.Place p = geocode.reverse(lat, lng);
-                    if (p != null && p.postcode() != null && !p.postcode().isBlank()) {
-                        u.setLastKnownZip(p.postcode().trim());
-                    }
-                } catch (Exception ignore) {
-                    // leave existing zip
-                }
-            }
+            LocationPresenceService.FixResult fix =
+                    presence.applyFix(u, lat, lng, source, accuracyM, Instant.now());
             UserInfo saved = userInfoRepo.save(u);
 
             final String frameEmail = saved.getUserEmail() == null
@@ -558,11 +556,18 @@ public class UserInfoService {
                     : saved.getUserEmail().trim().toLowerCase(Locale.ROOT);
             if (frameEmail == null || frameEmail.isBlank()) return;
 
+            // Only published to groups whose sharing gate is open (below), so the
+            // V83 fields ride exactly the gate the coordinates do.
             final MemberLocationFrame frame = new MemberLocationFrame(
                     frameEmail,
                     saved.getLastKnownLat(),
                     saved.getLastKnownLng(),
-                    saved.getLastKnownLocationAt()
+                    saved.getLastKnownLocationAt(),
+                    LocationPresenceService.atPlaceOf(fix.place(), saved.getUserEmail(),
+                            saved.getCurrentPlaceSince()),
+                    saved.getLastSeenNearLabel(),
+                    saved.getLocationSource(),
+                    saved.getLocationAccuracyM()
             );
             final List<String> groupIds = groupRepo.findByMemberEmail(frameEmail).stream()
                     .filter(group -> shouldShareLocationWithGroup(saved, group))
@@ -711,6 +716,9 @@ public class UserInfoService {
             if (rawKey == null || value == null) return;
             String key = rawKey;
             if (Set.of("id", "userEmail").contains(key)) return;
+            // Written only by LocationPresenceService from a real fix. A client
+            // that could PATCH these could claim "At school" without being there.
+            if (SERVER_DERIVED_FIELDS.contains(key)) return;
 
             if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;
 

@@ -127,8 +127,39 @@ public record GroupMemberViewDto(
              * NOT delivery and NOT proof anybody saw it, and no client should
              * render it as either.</p>
              */
-            String checkInDispatch
+            String checkInDispatch,
+
+            // ── Derived from the latest fix (V83, map-ideal BE-2) ──────────
+            //
+            // ALL of the following sit behind the SAME LocationSharing gate that
+            // nulls lastKnownLat/Lng above, and are null whenever those are.
+            // "Sharing is off for this group" and "never had a fix" must stay
+            // indistinguishable (locked 2026-07-02 — a person hiding from an
+            // abuser must not be told apart from a person with location off).
+            // There is deliberately no field saying WHY a value is null.
+            // Components are APPENDED: this is a positional record.
+
+            /**
+             * The member is inside one of THEIR OWN saved places that they
+             * opted to share ({@code sharePresence = true}, re-checked at read
+             * time). Null otherwise. Never carries coordinates. Describes the
+             * latest fix — age it by {@link #lastKnownLocationAt}.
+             */
+            AtPlace atPlace,
+            /** Short reverse-geocoded label for the latest fix ("Dry Creek"); null when unresolved. */
+            String lastSeenNear,
+            /** {@code phone | watch | web} for the latest fix; null when the client did not say. */
+            String locationSource,
+            /** Reported accuracy of the latest fix in metres; null when not reported. */
+            Integer locationAccuracyM
     ) {}
+
+    /**
+     * "At school since 8:05". {@code label} is the member's own name for the
+     * place; {@code kind} is {@code home | work | school | other} or null;
+     * {@code since} is when the fixes started falling inside it.
+     */
+    public record AtPlace(String label, String kind, Instant since) {}
 
     /**
      * What SitPrep can honestly say about a check-in notification.

@@ -62,6 +62,26 @@ public class UserSavedLocation {
     @Column(name = "zip_bucket")
     private String zipBucket;
 
+    /**
+     * What kind of place this is — {@code home | work | school | other}; null
+     * for rows saved before V83 or when the user did not say. Never inferred
+     * from {@link #name} or {@link #isHome}.
+     */
+    @Column(name = "kind", length = 16)
+    private String kind;
+
+    /**
+     * Opt-in, per place, default OFF (V83). Only a place with this true can
+     * ever produce "At &lt;place&gt;" on anyone else's roster — and only when the
+     * roster's location-sharing gate would also show the coordinates.
+     */
+    @Column(name = "share_presence", nullable = false)
+    private boolean sharePresence = false;
+
+    /** Match radius in metres, 50–2000 (default 150). */
+    @Column(name = "radius_m", nullable = false)
+    private int radiusM = 150;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

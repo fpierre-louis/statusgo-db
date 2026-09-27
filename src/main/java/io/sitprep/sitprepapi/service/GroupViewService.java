@@ -7,6 +7,7 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.domain.UserSavedLocation;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
 import io.sitprep.sitprepapi.dto.DtoImages;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto.*;
@@ -17,6 +18,7 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
 import io.sitprep.sitprepapi.util.Geo;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,7 @@ public class GroupViewService {
     private final AgencyStaffService agencyStaffService;
     private final CheckInRequestService checkInRequestService;
     private final NotificationLogRepo notificationLogRepo;
+    private final UserSavedLocationRepo savedLocationRepo;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
@@ -53,7 +56,8 @@ public class GroupViewService {
                             PlatformAccessService platformAccessService,
                             AgencyStaffService agencyStaffService,
                             CheckInRequestService checkInRequestService,
-                            NotificationLogRepo notificationLogRepo) {
+                            NotificationLogRepo notificationLogRepo,
+                            UserSavedLocationRepo savedLocationRepo) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.postRepo = postRepo;
@@ -63,6 +67,7 @@ public class GroupViewService {
         this.agencyStaffService = agencyStaffService;
         this.checkInRequestService = checkInRequestService;
         this.notificationLogRepo = notificationLogRepo;
+        this.savedLocationRepo = savedLocationRepo;
     }
 
     @Transactional(readOnly = true)
@@ -139,12 +144,17 @@ public class GroupViewService {
         Instant windowStart = CheckInRequestService.windowStartFor(g, Instant.now());
         Map<String, GroupMemberViewDto.DispatchOutcome> dispatch =
                 dispatchByEmail(memberEmails, windowStart);
+        // One query for every "At <place>" on the roster — only for members
+        // whose location this group may see at all.
+        Map<Long, UserSavedLocation> currentPlaces = currentPlacesFor(
+                byEmail.values(), g.getGroupId(), g.getGroupType(), alertActive);
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
                         g.getGroupId(), g.getGroupType(), alertActive,
                         askedAt.get(normalize(email)),
-                        dispatch.get(normalize(email))))
+                        dispatch.get(normalize(email)),
+                        currentPlaces))
                 .toList();
 
         boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
@@ -289,17 +299,43 @@ public class GroupViewService {
         return out;
     }
 
-    private MemberSummary toMemberSummary(String email, UserInfo u,
-                                          String groupId, String groupType,
-                                          boolean alertActive,
-                                          Instant checkInRequestedAt,
-                                          GroupMemberViewDto.DispatchOutcome dispatch) {
+    /**
+     * The saved places the roster may name, keyed by id — fetched for members
+     * whose location this group can see, and only those. A member behind the
+     * gate contributes nothing to the query, so the gate is applied before any
+     * place row is even read.
+     */
+    private Map<Long, UserSavedLocation> currentPlacesFor(Collection<UserInfo> users,
+                                                         String groupId, String groupType,
+                                                         boolean alertActive) {
+        if (savedLocationRepo == null || users == null || users.isEmpty()) return Map.of();
+        Set<Long> ids = new HashSet<>();
+        for (UserInfo u : users) {
+            if (u == null || u.getCurrentPlaceId() == null) continue;
+            if (!shouldShareLocation(u, groupId, groupType, alertActive)) continue;
+            ids.add(u.getCurrentPlaceId());
+        }
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, UserSavedLocation> out = new HashMap<>();
+        for (UserSavedLocation p : savedLocationRepo.findAllById(ids)) {
+            if (p != null && p.getId() != null) out.put(p.getId(), p);
+        }
+        return out;
+    }
+
+    MemberSummary toMemberSummary(String email, UserInfo u,
+                                  String groupId, String groupType,
+                                  boolean alertActive,
+                                  Instant checkInRequestedAt,
+                                  GroupMemberViewDto.DispatchOutcome dispatch,
+                                  Map<Long, UserSavedLocation> currentPlaces) {
         String dispatchWire = (dispatch == null
                 ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
                 : dispatch).wire();
         if (u == null) {
             return new MemberSummary(normalize(email), null, null, null, null,
-                    null, null, null, null, checkInRequestedAt, dispatchWire);
+                    null, null, null, null, checkInRequestedAt, dispatchWire,
+                    null, null, null, null);
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
@@ -312,10 +348,33 @@ public class GroupViewService {
         Double lat = u.getLastKnownLat();
         Double lng = u.getLastKnownLng();
         Instant locAt = u.getLastKnownLocationAt();
-        if (!shouldShareLocation(u, groupId, groupType, alertActive)) {
+        boolean shared = shouldShareLocation(u, groupId, groupType, alertActive);
+        if (!shared) {
             lat = null;
             lng = null;
             locAt = null;
+        }
+
+        // ── THE SAME GATE, FOR EVERY FIELD DERIVED FROM THE FIX (V83) ──────
+        // `located` is false both when the gate is closed and when there has
+        // never been a fix, and every derived field is null in both cases —
+        // identically. That is the point: a roster must not be able to tell
+        // "chose not to share with this group" from "location never turned on"
+        // (locked 2026-07-02; a person hiding from an abuser relies on it).
+        // Add a new location-derived field? It goes inside this branch.
+        boolean located = shared && lat != null && lng != null;
+        GroupMemberViewDto.AtPlace atPlace = null;
+        String lastSeenNear = null;
+        String locationSource = null;
+        Integer locationAccuracyM = null;
+        if (located) {
+            UserSavedLocation place = u.getCurrentPlaceId() == null || currentPlaces == null
+                    ? null
+                    : currentPlaces.get(u.getCurrentPlaceId());
+            atPlace = LocationPresenceService.atPlaceOf(place, u.getUserEmail(), u.getCurrentPlaceSince());
+            lastSeenNear = blankToNull(u.getLastSeenNearLabel());
+            locationSource = LocationPresenceService.normalizeSource(u.getLocationSource());
+            locationAccuracyM = u.getLocationAccuracyM();
         }
 
         return new MemberSummary(
@@ -327,7 +386,11 @@ public class GroupViewService {
                 u.getLastActiveAt(),
                 lat, lng, locAt,
                 checkInRequestedAt,
-                dispatchWire
+                dispatchWire,
+                atPlace,
+                lastSeenNear,
+                locationSource,
+                locationAccuracyM
         );
     }
 
@@ -403,6 +466,10 @@ public class GroupViewService {
         if (g.getMemberEmails() != null && g.getMemberEmails().stream()
                 .anyMatch(e -> e != null && e.equalsIgnoreCase(viewerEmail))) return "member";
         return "none";
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private static String normalize(String email) {

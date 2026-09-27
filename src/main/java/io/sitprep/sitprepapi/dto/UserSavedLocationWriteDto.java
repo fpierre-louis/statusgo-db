@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.service.LocationPresenceService;
 
 /**
  * The client-settable half of a saved location.
@@ -51,8 +52,24 @@ public record UserSavedLocationWriteDto(
         Double latitude,
         Double longitude,
         /** Null means "unchanged" on update, and "not home" on create. */
-        @JsonProperty("isHome") Boolean isHome
+        @JsonProperty("isHome") Boolean isHome,
+        /**
+         * {@code home | work | school | other} (V83). Null/blank means
+         * "unchanged" on update and "unspecified" on create; any other value is
+         * a 400.
+         */
+        String kind,
+        /** Opt-in to "At &lt;place&gt;". Null means "unchanged" on update and FALSE on create. */
+        Boolean sharePresence,
+        /** Match radius in metres; clamped to 50–2000. Null means "unchanged" / 150. */
+        Integer radiusM
 ) {
+    /** The pre-V83 shape — no presence fields. */
+    public UserSavedLocationWriteDto(String name, String address, Double latitude,
+                                     Double longitude, Boolean isHome) {
+        this(name, address, latitude, longitude, isHome, null, null, null);
+    }
+
     /** A new row for {@code ownerEmail}. Server-derived columns stay unset. */
     public UserSavedLocation toNewEntity(String ownerEmail) {
         UserSavedLocation e = new UserSavedLocation();
@@ -62,6 +79,9 @@ public record UserSavedLocationWriteDto(
         e.setLatitude(latitude);
         e.setLongitude(longitude);
         e.setHome(Boolean.TRUE.equals(isHome));
+        e.setKind(LocationPresenceService.normalizePlaceKind(kind));
+        e.setSharePresence(Boolean.TRUE.equals(sharePresence));
+        e.setRadiusM(LocationPresenceService.clampRadiusM(radiusM));
         return e;
     }
 

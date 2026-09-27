@@ -56,6 +56,7 @@ public class LiveLocationService {
     private final PlanActivationRepo activationRepo;
     private final HouseholdResolver householdResolver;
     private final WebSocketMessageSender ws;
+    private final LocationPresenceService presence;
 
     public LiveLocationService(LiveLocationSessionRepo sessionRepo,
                                LiveLocationPointRepo pointRepo,
@@ -63,7 +64,8 @@ public class LiveLocationService {
                                UserInfoRepo userInfoRepo,
                                PlanActivationRepo activationRepo,
                                HouseholdResolver householdResolver,
-                               WebSocketMessageSender ws) {
+                               WebSocketMessageSender ws,
+                               LocationPresenceService presence) {
         this.sessionRepo = sessionRepo;
         this.pointRepo = pointRepo;
         this.groupRepo = groupRepo;
@@ -71,6 +73,7 @@ public class LiveLocationService {
         this.activationRepo = activationRepo;
         this.householdResolver = householdResolver;
         this.ws = ws;
+        this.presence = presence;
     }
 
     @Transactional
@@ -161,12 +164,14 @@ public class LiveLocationService {
         point.setSpeedMps(request.speedMps());
         point.setHeadingDeg(request.headingDeg());
         point.setCapturedAt(validCapturedAt(request.capturedAt()));
+        point.setSource(LocationPresenceService.normalizeSource(request.source()));
         LiveLocationPoint savedPoint = pointRepo.save(point);
 
+        // Same derivations as the presence ping (source, accuracy, "At <place>",
+        // zip, "last seen near") — one write path's worth of logic, two callers.
         userInfoRepo.findByUserEmailIgnoreCase(actor).ifPresent(user -> {
-            user.setLastKnownLat(savedPoint.getLat());
-            user.setLastKnownLng(savedPoint.getLng());
-            user.setLastKnownLocationAt(savedPoint.getCapturedAt());
+            presence.applyFix(user, savedPoint.getLat(), savedPoint.getLng(),
+                    savedPoint.getSource(), savedPoint.getAccuracyM(), savedPoint.getCapturedAt());
             userInfoRepo.save(user);
         });
 

@@ -56,7 +56,9 @@ class LiveLocationServiceTest {
         householdResolver = mock(HouseholdResolver.class);
         ws = mock(WebSocketMessageSender.class);
         service = new LiveLocationService(
-                sessionRepo, pointRepo, groupRepo, userInfoRepo, activationRepo, householdResolver, ws);
+                sessionRepo, pointRepo, groupRepo, userInfoRepo, activationRepo, householdResolver, ws,
+                new LocationPresenceService(mock(io.sitprep.sitprepapi.repo.UserSavedLocationRepo.class),
+                        mock(NominatimGeocodeService.class)));
 
         when(sessionRepo.save(any(LiveLocationSession.class))).thenAnswer(inv -> {
             LiveLocationSession s = inv.getArgument(0);
@@ -164,6 +166,35 @@ class LiveLocationServiceTest {
                         && Double.valueOf(-111.89).equals(u.getLastKnownLng())
                         && u.getLastKnownLocationAt() != null));
         verify(ws).sendGroupMemberLocation(eq(GROUP_ID), any());
+    }
+
+    @Test
+    void updatePointRecordsTheSourceOnThePointAndTheUser() {
+        LiveLocationSession session = activeSession();
+        when(sessionRepo.findById(session.getId())).thenReturn(Optional.of(session));
+        when(userInfoRepo.findByUserEmailIgnoreCase(ACTOR)).thenReturn(Optional.of(user(LocationSharing.ALWAYS)));
+        when(groupRepo.findByGroupId(GROUP_ID)).thenReturn(Optional.of(group(false, ACTOR)));
+
+        service.updatePoint(ACTOR, session.getId(),
+                new LiveLocationPointRequest(40.76, -111.89, 9.4, 1.0, 180.0, Instant.now(), "Watch"));
+
+        verify(pointRepo).save(argThat(p -> "watch".equals(p.getSource())));
+        verify(userInfoRepo).save(argThat(u -> "watch".equals(u.getLocationSource())
+                && Integer.valueOf(9).equals(u.getLocationAccuracyM())));
+    }
+
+    @Test
+    void updatePointStoresAnUnknownSourceAsNull() {
+        LiveLocationSession session = activeSession();
+        when(sessionRepo.findById(session.getId())).thenReturn(Optional.of(session));
+        when(userInfoRepo.findByUserEmailIgnoreCase(ACTOR)).thenReturn(Optional.of(user(LocationSharing.ALWAYS)));
+        when(groupRepo.findByGroupId(GROUP_ID)).thenReturn(Optional.of(group(false, ACTOR)));
+
+        service.updatePoint(ACTOR, session.getId(),
+                new LiveLocationPointRequest(40.76, -111.89, null, null, null, Instant.now(), "toaster"));
+
+        verify(pointRepo).save(argThat(p -> p.getSource() == null));
+        verify(userInfoRepo).save(argThat(u -> u.getLocationSource() == null));
     }
 
     @Test

@@ -278,6 +278,59 @@ public class UserInfo {
     @Column(name = "last_known_zip", length = 12)
     private String lastKnownZip;
 
+    // -----------------------------------------------------------------
+    // Derived from the latest fix (V83, map-ideal BE-2). Every one of these
+    // is written ONLY by LocationPresenceService.applyFix and read ONLY
+    // through the roster's LocationSharing gate, which nulls them together
+    // with lastKnownLat/Lng.
+    //
+    // @JsonIgnore on all of them: this entity is still serialized raw by the
+    // /api/userinfo lookups (scoped by a DENYLIST in UserInfoResource) and
+    // bound raw by PUT/upsert bodies. A new location-derived field must never
+    // reach another user by being forgotten on that list, and must never be
+    // settable from a request body. The reflective PATCH is closed separately
+    // (UserInfoService.SERVER_DERIVED_FIELDS).
+    // -----------------------------------------------------------------
+
+    /** {@code phone | watch | web} for the latest fix; null when the client did not say. */
+    @JsonIgnore
+    @Column(name = "location_source", length = 16)
+    private String locationSource;
+
+    /** Reported accuracy of the latest fix, metres (1–100000); null when not reported. */
+    @JsonIgnore
+    @Column(name = "location_accuracy_m")
+    private Integer locationAccuracyM;
+
+    /**
+     * The {@link UserSavedLocation} (with {@code sharePresence = true}) the
+     * latest fix falls inside; null when outside all of them. Not a foreign key
+     * — see V83 — so readers must re-check that the place still exists, belongs
+     * to this user and still shares presence.
+     */
+    @JsonIgnore
+    @Column(name = "current_place_id")
+    private Long currentPlaceId;
+
+    /** When the fixes started falling inside {@link #currentPlaceId} — the arrival time, not the latest ping. */
+    @JsonIgnore
+    @Column(name = "current_place_since")
+    private Instant currentPlaceSince;
+
+    /** Short reverse-geocoded label for the latest fix ("Dry Creek"); null when unresolved. */
+    @JsonIgnore
+    @Column(name = "last_seen_near_label", length = 160)
+    private String lastSeenNearLabel;
+
+    /** Where {@link #lastSeenNearLabel} was resolved — the anchor its ~2 mi refresh throttle measures from. */
+    @JsonIgnore
+    @Column(name = "last_seen_near_lat")
+    private Double lastSeenNearLat;
+
+    @JsonIgnore
+    @Column(name = "last_seen_near_lng")
+    private Double lastSeenNearLng;
+
     /**
      * Per-group location sharing preference. Map of {@code groupId} →
      * sharing mode (one of {@code "always"}, {@code "check-in-only"},

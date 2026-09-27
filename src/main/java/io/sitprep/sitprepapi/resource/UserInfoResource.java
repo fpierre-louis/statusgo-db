@@ -374,11 +374,19 @@ public class UserInfoResource {
         if (body == null || body.lat() == null || body.lng() == null) {
             return ResponseEntity.badRequest().build();
         }
-        userInfoService.updateLastKnownLocationByEmail(email, body.lat(), body.lng());
+        userInfoService.updateLastKnownLocationByEmail(
+                email, body.lat(), body.lng(), body.source(), body.accuracyM());
         return ResponseEntity.noContent().build();
     }
 
-    public record UpdateLocationRequest(Double lat, Double lng) {}
+    /**
+     * {@code source} ({@code phone | watch | web}) and {@code accuracyM}
+     * (metres) are optional (V83). An unrecognised source is stored as null,
+     * not rejected — an older client, or a device type added later, must keep
+     * working. This is the ONLY endpoint a watch needs: see "Watch client
+     * contract" in {@code docs/epics/map-ideal-backend/EXEC.md}.
+     */
+    public record UpdateLocationRequest(Double lat, Double lng, String source, Double accuracyM) {}
 
     /**
      * Dedicated self-status mutation. Keeps SAFE / HELP / INJURED out of the

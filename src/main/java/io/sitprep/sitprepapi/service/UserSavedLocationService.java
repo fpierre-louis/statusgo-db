@@ -99,6 +99,14 @@ public class UserSavedLocationService {
         if (in.latitude() != null) existing.setLatitude(in.latitude());
         if (in.longitude() != null) existing.setLongitude(in.longitude());
 
+        // Presence fields (V83) obey the same partial contract: absent means
+        // unchanged. Turning sharePresence off takes effect on the very next
+        // roster read — the reader re-checks the flag on the matched place.
+        String kind = LocationPresenceService.normalizePlaceKind(in.kind());
+        if (kind != null) existing.setKind(kind);
+        if (in.sharePresence() != null) existing.setSharePresence(in.sharePresence());
+        if (in.radiusM() != null) existing.setRadiusM(LocationPresenceService.clampRadiusM(in.radiusM()));
+
         // ── THE FLAG ONLY MOVES WHEN THE CALLER ASKED ─────────────────────
         //
         // Every field above is partial — absent means unchanged — and the home

@@ -45,7 +45,7 @@ class MemberStatusProxyTest {
         service = new UserInfoService(userInfoRepo, events, groupRepo,
                 mock(PostService.class), mock(FollowService.class), mock(BlockService.class),
                 new com.fasterxml.jackson.databind.ObjectMapper(),
-                mock(WebSocketMessageSender.class), mock(NominatimGeocodeService.class),
+                mock(WebSocketMessageSender.class), mock(LocationPresenceService.class),
                 mock(HouseholdProvisioningService.class));
 
         maya = new UserInfo();

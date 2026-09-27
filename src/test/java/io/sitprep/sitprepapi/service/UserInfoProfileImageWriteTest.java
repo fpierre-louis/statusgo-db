@@ -48,7 +48,7 @@ class UserInfoProfileImageWriteTest {
         service = new UserInfoService(repo, mock(HouseholdEventService.class), mock(GroupRepo.class),
                 mock(PostService.class), mock(FollowService.class), mock(BlockService.class),
                 new ObjectMapper(), mock(WebSocketMessageSender.class),
-                mock(NominatimGeocodeService.class), mock(HouseholdProvisioningService.class));
+                mock(LocationPresenceService.class), mock(HouseholdProvisioningService.class));
         stored = new UserInfo();
         stored.setId("u-1");
         stored.setUserEmail("a@x.com");

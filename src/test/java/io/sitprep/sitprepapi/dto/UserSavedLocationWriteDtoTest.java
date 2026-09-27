@@ -37,7 +37,7 @@ class UserSavedLocationWriteDtoTest {
         // as `home`, so a client that echoed back what it read was ignored —
         // and silently, because FAIL_ON_UNKNOWN_PROPERTIES is off by default.
         String read = mapper.writeValueAsString(
-                new UserSavedLocationDto(1L, "Home", null, 40.34, -111.79, true, null, null, null, null));
+                new UserSavedLocationDto(1L, "Home", null, 40.34, -111.79, true, null, null, null, null, null, false, 150));
         assertThat(read).contains("\"isHome\":true");
 
         // Lenient, because that is what Spring Boot configures and therefore what
@@ -108,7 +108,10 @@ class UserSavedLocationWriteDtoTest {
         // defended, by hand. Structure beats a guard: absent fields cannot be set.
         var names = java.util.Arrays.stream(UserSavedLocationWriteDto.class.getRecordComponents())
                 .map(java.lang.reflect.RecordComponent::getName).toList();
+        // kind / sharePresence / radiusM (V83) are the owner's own choices about
+        // the place — client-settable by contract, not owner/id/server-derived.
         assertThat(names).containsExactlyInAnyOrder(
-                "name", "address", "latitude", "longitude", "isHome");
+                "name", "address", "latitude", "longitude", "isHome",
+                "kind", "sharePresence", "radiusM");
     }
 }

@@ -41,6 +41,10 @@ public class LiveLocationPoint {
     @Column(name = "heading_deg")
     private Double headingDeg;
 
+    /** {@code phone | watch | web}; null when the client did not say (V83). */
+    @Column(name = "source", length = 16)
+    private String source;
+
     @Column(name = "captured_at", nullable = false)
     private Instant capturedAt;
 

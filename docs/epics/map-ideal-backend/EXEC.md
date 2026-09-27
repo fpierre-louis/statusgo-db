@@ -58,17 +58,17 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 986 tests / 0 failures (one pre-existing fixture, `UserInfoServiceUpsertByFirebaseUidTest`, moved from `cdn.example.com` to the CDN host — its subject is retry-idempotency, not the host)*
 
 ### BE-2 · source, accuracy, place presence, last-seen (V83)
-- [ ] V83: `user_info` (+source, accuracy, current place id/since, last-seen label + anchor), `user_saved_location` (+kind, share_presence, radius_m), `live_location_points` (+source)
-- [ ] V83 rehearsed on a throwaway local Postgres DB cloned schema-only from `statusnowdb`
-- [ ] `PATCH /api/userinfo/me/location` accepts `{lat,lng,source?,accuracyM?}`; unknown source → null; accuracy clamp
-- [ ] Live-location points accept optional `source`
-- [ ] Saved places: `kind`, `sharePresence` (default false), `radiusM` (default 150, clamp 50–2000) on read + create/update
-- [ ] Match rule on every location write (both write paths); `since` preserved while the place is unchanged
-- [ ] `lastSeenNear` recomputed from `Place.shortLabel()` on the ~2 mi throttle
-- [ ] `MemberSummary.atPlace/lastSeenNear/locationSource/locationAccuracyM` — all under the existing gate
-- [ ] New `UserInfo` columns never serialize on the raw entity and cannot be written by the reflection PATCH
-- [ ] Tests: radius + accuracy, since-preservation, privacy gate nulls every new field
-- [ ] `./mvnw -q package` green; commit
+- [x] V83: `user_info` (+source, accuracy, current place id/since, last-seen label + anchor), `user_saved_location` (+kind, share_presence, radius_m), `live_location_points` (+source) — *verified by: `V83__location_source_and_place_presence.sql`; every new `@Column` has its DDL (compared field-by-field)*
+- [x] V83 rehearsed on a throwaway local Postgres DB cloned schema-only from `statusnowdb` — *verified by: `psql -1 -f` applied clean, re-applied clean (idempotent), CHECK rejected `kind='gym'`*
+- [x] `PATCH /api/userinfo/me/location` accepts `{lat,lng,source?,accuracyM?}`; unknown source → null; accuracy clamp — *verified by: `LocationPingFrameTest` (watch fix + lat/lng-only older client), `LocationPresenceServiceTest.sourceIsOneOfThreeOrNull/accuracyIsAPositiveClampedInt`*
+- [x] Live-location points accept optional `source` — *verified by: `LiveLocationServiceTest.updatePointRecordsTheSourceOnThePointAndTheUser` / `…UnknownSourceAsNull`*
+- [x] Saved places: `kind`, `sharePresence` (default false), `radiusM` (default 150, clamp 50–2000) on read + create/update — *verified by: `SavedPlacePresenceFieldsTest` (create, defaults, bad kind → IAE/400, partial update, JSON wire keys both DTOs)*
+- [x] Match rule on every location write (both write paths); `since` preserved while the place is unchanged — *verified by: `LocationPresenceServiceTest.insideTheRadiusMatches/accuracyWidensTheMatchByAtMost100m/onlyOptedInPlacesMatchAndTheNearestWins/sinceIsTheArrivalTimeAndSurvivesLaterPings`; both writers now go through `applyFix` (grep: no other `setLastKnownLat` in main)*
+- [x] `lastSeenNear` recomputed from `Place.shortLabel()` on the ~2 mi throttle — *verified by: `LocationPresenceServiceTest.labelIsResolvedOnce…/aLabelThatNoLongerDescribesTheFixIsCleared` (throttle measured from the label's anchor — see Deviations)*
+- [x] `MemberSummary.atPlace/lastSeenNear/locationSource/locationAccuracyM` — all under the existing gate — *verified by: `RosterLocationPrivacyGateTest` (gate nulls all 7 location fields; opted-out and never-fixed JSON identical minus identity; places behind the gate never queried; sharePresence flipped off / foreign place id → no atPlace)*
+- [x] New `UserInfo` columns never serialize on the raw entity and cannot be written by the reflection PATCH — *verified by: `SavedPlacePresenceFieldsTest.theDerivedUserInfoFieldsNeverSerializeRaw/theReflectivePatchCannotSetThem`*
+- [x] Tests: radius + accuracy, since-preservation, privacy gate nulls every new field — *verified by: 5 new/extended test classes above, all green*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1015 tests / 0 failures. `UserSavedLocationWriteDtoTest.noMassAssignment` pins the client-settable component list; extended with the three contract fields (still no owner/id/server-derived field)*
 
 ### BE-3 · phone
 - [ ] `MemberSummary.phone` only for a Household view whose viewer is owner/admin/member of it
@@ -121,7 +121,74 @@ school or work. We will eventually implement the app on watches.")
   `verifiedPublisher`, `verifiedPublisherEmergencyPostingEnabled`, `subscription*`, etc. BE-2 adds
   its own new server-derived fields to a deny-list; the general hole needs an owner decision
   (allow-list the editable fields).
+- **BE-2 · two anchor columns beyond the contract** (`user_info.last_seen_near_lat/lng`). The
+  contract says "the same ~2 mi throttle the zip already uses". That throttle compares against
+  the PREVIOUS fix, so someone moving in small steps never crosses 2 mi between two pings and
+  the label would describe a place they left miles ago. The label's throttle is measured from
+  where it was resolved; a label that no longer describes the fix and cannot be re-resolved is
+  cleared, not kept. Not on the wire.
+- **BE-2 · one reverse geocode now serves zip + label, on both write paths.** The zip keeps its
+  rule, but it is also refreshed when the label refresh fires, and live-location points (which
+  used to move `lastKnownLat/Lng` without touching the zip) now refresh it too. Strictly fresher;
+  the zip drives agency geo-alert targeting.
+- **BE-2 · `current_place_id` is not a foreign key.** `user_info` is saved from a stale in-memory
+  copy on every ping; `ON DELETE SET NULL` would turn a place deleted mid-ping into a 500. The
+  read path re-checks existence, ownership and `share_presence` instead.
+- **BE-2 · an unknown saved-place `kind` is a 400.** The contract is silent; unlike `source`
+  (device-originated, must stay lenient), `kind` comes from a fixed picker, so a stray value is a
+  client defect (same call as `ResourceCategory`).
+- **BE-2 · the roster WS frame carries the four fields too.** `MemberLocationFrame`
+  (`/topic/group/{id}/members/location`) gained `atPlace/lastSeenNear/locationSource/
+  locationAccuracyM`, appended; it is only published to groups whose gate is open, so it rides
+  the same gate. Live-location frames/DTOs are unchanged (the contract asks only that points
+  ACCEPT `source`).
 
 ## Watch client contract
 
-(Written with BE-2.)
+For the future watch app (and any other device). No watch-specific endpoint exists or is needed.
+
+**Feed location** — the same call the phone makes, authenticated as the user (Firebase ID token):
+
+```
+PATCH /api/userinfo/me/location
+{ "lat": 40.3916, "lng": -111.8508, "source": "watch", "accuracyM": 12 }
+→ 204 No Content    (400 when lat/lng missing or out of range; 401 without a token)
+```
+
+- `source`: `"phone" | "watch" | "web"`. Anything else is stored as null — never rejected — so a
+  device type added later keeps working before the server learns its name.
+- `accuracyM`: the platform's horizontal accuracy in metres, any positive number; rounded and
+  clamped to 1–100000. Omit it when the platform does not report one.
+- During a live-location session the watch may instead post points to
+  `PATCH /api/live-location/sessions/{id}/point` with the same optional `"source": "watch"`.
+- Send fixes at the cadence the phone uses (the server throttles its own reverse geocoding;
+  there is no server-side rate limit on this endpoint to rely on).
+
+**What the server derives from each fix** (`LocationPresenceService.applyFix`, one code path for
+both endpoints — a watch fix and a phone fix are indistinguishable downstream except for the
+recorded `source`):
+
+1. `lastKnownLat/Lng/LocationAt`, `locationSource`, `locationAccuracyM`.
+2. **Place presence** — among the user's OWN saved places with `sharePresence = true`, the
+   nearest whose distance ≤ `radiusM + min(accuracyM ?? 0, 100)`. Stored as
+   `current_place_id` + `current_place_since` (the arrival time, kept while the fix stays in the
+   same place; cleared when outside all of them).
+3. **"Last seen near"** — `Place.shortLabel()` from Nominatim, re-resolved only when the fix is
+   ~2 mi (0.03°) from where the label was last resolved.
+4. The jurisdiction zip (`lastKnownZip`), same geocode.
+5. A roster frame to each group whose sharing gate is open.
+
+**Privacy rules** (binding on any client that renders these):
+
+- Nothing a device sends decides visibility. The roster's `LocationSharing` gate (per-group
+  `always | check-in-only | never`) decides, and when it is closed EVERY location-derived field
+  is null: `lastKnownLat/Lng/LocationAt`, `atPlace`, `lastSeenNear`, `locationSource`,
+  `locationAccuracyM`, `inAlertIds`. A member who opted out and a member who never had a fix
+  look identical, and there is no field saying why (locked 2026-07-02).
+- "At <place>" only ever names a place the member saved AND opted to share
+  (`sharePresence`, default off, per place), re-checked at read time; it carries the member's own
+  label and kind, never coordinates or an address.
+- The derived columns are server-owned: never on the raw `/api/userinfo` entity JSON and never
+  writable through `PATCH /api/userinfo/{id}`.
+- A watch must not cache or re-share other members' locations beyond what the roster payload
+  it was served contains.

@@ -13,4 +13,7 @@ public interface UserSavedLocationRepo extends JpaRepository<UserSavedLocation, 
 
     /** The user's home, if they've designated one. */
     Optional<UserSavedLocation> findFirstByOwnerEmailIgnoreCaseAndIsHomeTrue(String ownerEmail);
+
+    /** The places a location fix may match for "At &lt;place&gt;" — opt-in ones only (V83). */
+    List<UserSavedLocation> findByOwnerEmailIgnoreCaseAndSharePresenceTrue(String ownerEmail);
 }

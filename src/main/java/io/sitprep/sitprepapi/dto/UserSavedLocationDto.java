@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.service.LocationPresenceService;
 
 /**
  * Read shape for {@link UserSavedLocation} (Thin-Client Refactor Phase 3 — DTO
@@ -26,7 +27,13 @@ public record UserSavedLocationDto(
         String city,
         String region,
         String state,
-        String country
+        String country,
+        /** {@code home | work | school | other}, or null when unspecified (V83). */
+        String kind,
+        /** Whether "At &lt;this place&gt;" may show on others' rosters. Default false. */
+        boolean sharePresence,
+        /** Presence match radius, metres (50–2000). */
+        int radiusM
 ) {
     public static UserSavedLocationDto from(UserSavedLocation l) {
         return new UserSavedLocationDto(
@@ -39,6 +46,9 @@ public record UserSavedLocationDto(
                 l.getCity(),
                 l.getRegion(),
                 l.getState(),
-                l.getCountry());
+                l.getCountry(),
+                LocationPresenceService.readPlaceKind(l.getKind()),
+                l.isSharePresence(),
+                LocationPresenceService.clampRadiusM(l.getRadiusM()));
     }
 }

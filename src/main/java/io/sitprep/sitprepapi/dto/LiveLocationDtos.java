@@ -31,8 +31,16 @@ public final class LiveLocationDtos {
             Double accuracyM,
             Double speedMps,
             Double headingDeg,
-            Instant capturedAt
-    ) {}
+            Instant capturedAt,
+            /** Optional {@code phone | watch | web} (V83); anything else is stored as null. */
+            String source
+    ) {
+        /** The pre-V83 shape. */
+        public LiveLocationPointRequest(Double lat, Double lng, Double accuracyM,
+                                        Double speedMps, Double headingDeg, Instant capturedAt) {
+            this(lat, lng, accuracyM, speedMps, headingDeg, capturedAt, null);
+        }
+    }
 
     public record LiveLocationMemberDto(
             String sessionId,
