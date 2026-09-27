@@ -148,16 +148,20 @@ public class GroupViewService {
         // whose location this group may see at all.
         Map<Long, UserSavedLocation> currentPlaces = currentPlacesFor(
                 byEmail.values(), g.getGroupId(), g.getGroupType(), alertActive);
+        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
+        // Phones travel only between members of the same household. The read
+        // gate above also admits platform admins and agency staff; neither is a
+        // member, so neither gets a phone number from this payload.
+        boolean includePhones = isHousehold && GroupRole.fromGroup(g, viewerEmail) != GroupRole.NONE;
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
                         g.getGroupId(), g.getGroupType(), alertActive,
                         askedAt.get(normalize(email)),
                         dispatch.get(normalize(email)),
-                        currentPlaces))
+                        currentPlaces, includePhones))
                 .toList();
 
-        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
         List<HouseholdManualMemberDto> manualMembers = isHousehold
                 ? manualMemberService.list(g.getGroupId())
                 : List.of();
@@ -328,14 +332,15 @@ public class GroupViewService {
                                   boolean alertActive,
                                   Instant checkInRequestedAt,
                                   GroupMemberViewDto.DispatchOutcome dispatch,
-                                  Map<Long, UserSavedLocation> currentPlaces) {
+                                  Map<Long, UserSavedLocation> currentPlaces,
+                                  boolean includePhone) {
         String dispatchWire = (dispatch == null
                 ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
                 : dispatch).wire();
         if (u == null) {
             return new MemberSummary(normalize(email), null, null, null, null,
                     null, null, null, null, checkInRequestedAt, dispatchWire,
-                    null, null, null, null);
+                    null, null, null, null, null);
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
@@ -390,7 +395,8 @@ public class GroupViewService {
                 atPlace,
                 lastSeenNear,
                 locationSource,
-                locationAccuracyM
+                locationAccuracyM,
+                includePhone ? blankToNull(u.getPhone()) : null
         );
     }
 

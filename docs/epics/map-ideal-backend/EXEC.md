@@ -71,9 +71,9 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1015 tests / 0 failures. `UserSavedLocationWriteDtoTest.noMassAssignment` pins the client-settable component list; extended with the three contract fields (still no owner/id/server-derived field)*
 
 ### BE-3 · phone
-- [ ] `MemberSummary.phone` only for a Household view whose viewer is owner/admin/member of it
-- [ ] Tests: household member sees it; group view, platform-admin/staff viewer, missing account → null
-- [ ] `./mvnw -q package` green; commit
+- [x] `MemberSummary.phone` only for a Household view whose viewer is owner/admin/member of it — *verified by: `GroupViewService.assemble` computes `includePhones = isHousehold && GroupRole.fromGroup(g, viewer) != NONE`; `RosterPhoneScopeTest.aHouseholdMemberSeesHouseholdPhones`*
+- [x] Tests: household member sees it; group view, platform-admin/staff viewer, missing account → null — *verified by: `RosterPhoneScopeTest` (3 tests; blank phone → null too). Agency staff take the same non-member branch as the platform admin (`GroupRole.NONE`), so the platform-admin case covers it*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1018 tests / 0 failures*
 
 ### BE-4 · inAlertIds
 - [ ] Same `id` as `/api/alerts/feed` cards (`NormalizedAlert.id()`), active alerts only

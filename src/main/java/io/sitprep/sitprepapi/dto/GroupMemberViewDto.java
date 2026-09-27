@@ -151,7 +151,21 @@ public record GroupMemberViewDto(
             /** {@code phone | watch | web} for the latest fix; null when the client did not say. */
             String locationSource,
             /** Reported accuracy of the latest fix in metres; null when not reported. */
-            Integer locationAccuracyM
+            Integer locationAccuracyM,
+
+            /**
+             * The member's own {@code UserInfo.phone} — so the map's "Call" is
+             * one tap in an emergency (BE-3).
+             *
+             * <p>ONLY when this is a Household view AND the viewer is one of that
+             * household's owner/admin/members. Null in every group, agency and
+             * community view, for a platform admin or agency staff reading a
+             * household they are not in, and for a roster email with no account.
+             * Manual members (dependents without accounts) are not
+             * {@code MemberSummary} rows at all. Not location-derived, so not
+             * behind the location gate.</p>
+             */
+            String phone
     ) {}
 
     /**
