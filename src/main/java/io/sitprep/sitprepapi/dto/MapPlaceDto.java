@@ -37,5 +37,17 @@ public record MapPlaceDto(
         String name,
         String address,
         String source,
-        boolean mappable
+        boolean mappable,
+        /**
+         * The meeting place's {@code meetingTier}, verbatim
+         * ({@code INDOOR_SAFE_ROOM | OUTSIDE_HOME | OUT_OF_TOWN | OTHER}) — so
+         * "first" meeting place is the household's own choice, not list order
+         * (BE-5). Null for every source that has no tier.
+         */
+        String tier,
+        /**
+         * The row's own {@code deploy} flag — meeting places and evacuation
+         * plans carry one. Null for sources that do not (home, saved places).
+         */
+        Boolean deploy
 ) {}

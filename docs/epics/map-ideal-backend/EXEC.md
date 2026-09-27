@@ -83,11 +83,11 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1028 tests / 0 failures*
 
 ### BE-5 · map DTOs
-- [ ] `MapPlaceDto.tier` (meetingTier verbatim) + `deploy`
-- [ ] `MapPoiDto.priorityReason` (`poster-urgent` iff URGENT), `createdAt`, `authorDisplayName`, `canSendAreaAlerts`
-- [ ] Asks on the map — ruling check at `MapDiscoveryService.java:66`
-- [ ] Tests
-- [ ] `./mvnw -q package` green; commit
+- [x] `MapPlaceDto.tier` (meetingTier verbatim) + `deploy` — *verified by: `MapDtoEnrichmentTest.mapPlacesCarryTheirOwnTierAndDeployVerbatim` (meeting place tier+deploy, evac plan deploy only, home neither)*
+- [x] `MapPoiDto.priorityReason` (`poster-urgent` iff URGENT), `createdAt`, `authorDisplayName`, `canSendAreaAlerts` — *verified by: `MapDtoEnrichmentTest` (HIGH ≠ URGENT; name/group-name/null, never contains `@`; capability true/false for agencies, null otherwise); legacy 22-arg constructor keeps Overpass/activation call sites unchanged; `cachedPoiPayloadsRoundTrip…` proves Jackson still binds the canonical constructor and pre-BE-5 cached payloads load*
+- [x] Asks on the map — ruling check at `MapDiscoveryService.java:66` — *verified by: line 65-66 reads only `// Community Post kinds that count as mutual aid on the map.` — no ruling; `git log -L` shows it unchanged since the file was created (b1e236a); no ruling in the FE epic docs. `ask` added for signed-in viewers (see Deviations); `asksAndNamesAreForSignedInViewersOnly`*
+- [x] Tests — *verified by: `MapDtoEnrichmentTest` (6)*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1034 tests / 0 failures*
 
 ### BE-6 · resource hours (V84)
 - [ ] V84 `resource_listing.hours_json jsonb NULL` (rehearsed locally)
@@ -153,6 +153,16 @@ school or work. We will eventually implement the app on watches.")
   nothing" about a point nobody looked up — the false calm the audit warns about.
 - **BE-4 · "active"** = the feed's own filter (not `AlertSafetyPolicy` SUPPRESS, which already
   drops expired/all-clear) plus lifecycle `active|updated` at read time.
+- **BE-5 · asks (and `authorDisplayName`) only for signed-in viewers.** No ruling excluded asks
+  (the kind set simply predates them), so they are added — but `GET /api/community/map` is
+  `permitAll` for guest browsing, while the community feed that already shows an ask with the
+  asker's name and place is authenticated. Putting "a person needs help here", with a name, on an
+  anonymous crawlable endpoint would widen exposure beyond anything the owner approved. A
+  signed-in viewer sees on the map exactly what they already see in the feed.
+- **BE-5 · `authorDisplayName` is "First Last"** (the same name the authenticated feed already
+  shows), or the group's name for a post authored as a group; the "Frank D." abbreviation is the
+  frontend's call. `createdAt` is also filled for group pins (the group's own `createdAt`), null
+  for external POIs.
 
 ## Watch client contract
 

@@ -93,5 +93,45 @@ public record MapPoiDto(
          * {@code String}s in a positional record is a silent argument shift
          * that javac accepts and production serves.</p>
          */
-        String logoImageUrl
-) {}
+        String logoImageUrl,
+
+        // ── BE-5 (2026-09-27) — appended, see the positional warning above ──
+
+        /**
+         * Why this pin is flagged as a priority, as a server-authored code.
+         * Exactly one reason exists: {@code "poster-urgent"} when the post's
+         * own {@code priority} is {@code URGENT}. Null otherwise — no other
+         * reason is inferred (not from wording, not from alerts).
+         */
+        String priorityReason,
+        /** When the source row was created: the post, or the group. Null for external POIs. */
+        java.time.Instant createdAt,
+        /**
+         * Who posted an aid/ask pin: the author's "First Last", or the group's
+         * name when the post speaks as a group. A name or null — never an
+         * email or its local-part. Null for signed-out viewers.
+         */
+        String authorDisplayName,
+        /**
+         * Agencies only: true iff the group holds the V80
+         * {@code SEND_AREA_ALERTS} capability. Null for every non-agency pin.
+         * Says nothing about WHICH area — agency↔area matching is unbacked.
+         */
+        Boolean canSendAreaAlerts
+) {
+    /** The pre-BE-5 shape: every appended field null. */
+    public MapPoiDto(String id, String family, String source, String name,
+                     Double lat, Double lng, Double distanceKm,
+                     Boolean verified, String verifiedKind, Integer memberCount,
+                     String viewerRole, String ownerUserId, String groupType,
+                     Long postId, String kind, String description, String placeLabel,
+                     String category, String website, String externalMapUrl, String attribution,
+                     String logoImageUrl) {
+        this(id, family, source, name, lat, lng, distanceKm,
+                verified, verifiedKind, memberCount, viewerRole, ownerUserId, groupType,
+                postId, kind, description, placeLabel,
+                category, website, externalMapUrl, attribution,
+                logoImageUrl,
+                null, null, null, null);
+    }
+}

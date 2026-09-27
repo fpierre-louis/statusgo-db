@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
@@ -65,6 +66,23 @@ public class MapDiscoveryService {
     // Community Post kinds that count as mutual aid on the map.
     private static final Set<String> AID_KINDS = Set.of("offer", "marketplace", "resource");
 
+    /**
+     * Asks join the aid layer for SIGNED-IN viewers only (BE-5, 2026-09-27).
+     *
+     * <p>No owner ruling excluded asks — the set above simply predates them
+     * (checked: its history, this file, the FE epic docs). They are added
+     * behind sign-in because this endpoint is {@code permitAll} for guest map
+     * browsing, while the community feed that already shows asks, with the
+     * asker's name and place, is authenticated. An ask is a person saying they
+     * need help at a location; putting that on an anonymous, crawlable endpoint
+     * would widen who can see it. Signed-in viewers see on the map what they
+     * already see in the feed — no more.</p>
+     */
+    private static final Set<String> AID_KINDS_SIGNED_IN = Set.of("offer", "marketplace", "resource", "ask");
+
+    /** The single server-authored priority reason (see {@link MapPoiDto#priorityReason}). */
+    static final String PRIORITY_POSTER_URGENT = "poster-urgent";
+
     // Viewport sanity caps: a country-band view is legitimate, but an
     // inverted, non-finite, or near-planet box is either abuse or an FE
     // bug — reject with a clean 400 instead of range-scanning on it.
@@ -110,6 +128,11 @@ public class MapDiscoveryService {
 
             double dist = haversineKm(centerLat, centerLng, lat, lng);
             int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
+            // V80 capability, verbatim. Says the agency MAY send area alerts —
+            // nothing about which area (agency↔area matching is unbacked).
+            Boolean canSendAreaAlerts = agency
+                    ? AgencyAuthorizationService.hasCapability(g, AgencyCapability.SEND_AREA_ALERTS)
+                    : null;
             pois.add(new MapPoiDto(
                     "group:" + g.getGroupId(),
                     agency ? "agency" : "group",
@@ -125,15 +148,22 @@ public class MapDiscoveryService {
                     // The circle's own uploaded logo, when it has one. Blank is
                     // normalised to null here rather than at the client: an
                     // empty string is a value, and a value means "draw it".
-                    blankToNull(g.getLogoImageUrl())
+                    blankToNull(g.getLogoImageUrl()),
+                    null,                     // priorityReason — posts only
+                    g.getCreatedAt(),
+                    null,                     // authorDisplayName — posts only
+                    canSendAreaAlerts
             ));
         }
 
         // ── Proprietary: mutual-aid Posts (z≥13 / neighborhood band) ──
         if (band >= 2) {
+            boolean signedIn = viewer != null && !viewer.isBlank();
             List<Post> aid = postRepo.findAidInBounds(
-                    PostStatus.OPEN, AID_KINDS, minLat, maxLat, minLng, maxLng);
+                    PostStatus.OPEN, signedIn ? AID_KINDS_SIGNED_IN : AID_KINDS,
+                    minLat, maxLat, minLng, maxLng);
             sources.add("proprietary:post");
+            Map<String, String> authorNames = signedIn ? authorNamesFor(aid) : Map.of();
             for (Post p : aid) {
                 Double lat = p.getLatitude();
                 Double lng = p.getLongitude();
@@ -149,7 +179,11 @@ public class MapDiscoveryService {
                         null,                           // groupType — aid posts are not circles
                         p.getId(), p.getKind(), p.getDescription(), p.getPlaceLabel(),
                         null, null, null, null,         // external fields
-                        null                            // an aid post is not a circle
+                        null,                           // an aid post is not a circle
+                        p.getPriority() == Post.PostPriority.URGENT ? PRIORITY_POSTER_URGENT : null,
+                        p.getCreatedAt(),
+                        signedIn ? authorNames.get(authorKey(p)) : null,
+                        null                            // canSendAreaAlerts — agencies only
                 ));
             }
         }
@@ -217,6 +251,57 @@ public class MapDiscoveryService {
         return byEmail;
     }
 
+    /**
+     * "First Last" per post author, or the group's name for a post that speaks
+     * as a group — two batched lookups for the whole viewport, keyed by
+     * {@link #authorKey}. An author with no name set is simply absent (the pin
+     * gets null): never an email, never its local-part.
+     */
+    private Map<String, String> authorNamesFor(List<Post> posts) {
+        Map<String, String> out = new HashMap<>();
+        List<String> groupIds = posts.stream()
+                .map(Post::getAuthoredAsGroupId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct().toList();
+        if (!groupIds.isEmpty()) {
+            for (Group g : groupRepo.findAllById(groupIds)) {
+                String name = blankToNull(g.getGroupName());
+                if (name != null) out.put("group:" + g.getGroupId(), name.trim());
+            }
+        }
+        List<String> emails = posts.stream()
+                .filter(p -> p.getAuthoredAsGroupId() == null || p.getAuthoredAsGroupId().isBlank())
+                .map(Post::getRequesterEmail)
+                .filter(e -> e != null && !e.isBlank())
+                .map(e -> e.trim().toLowerCase())
+                .distinct().toList();
+        if (!emails.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(emails)) {
+                String name = personName(u);
+                if (name != null && u.getUserEmail() != null) {
+                    out.put("user:" + u.getUserEmail().trim().toLowerCase(), name);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String authorKey(Post p) {
+        if (p.getAuthoredAsGroupId() != null && !p.getAuthoredAsGroupId().isBlank()) {
+            return "group:" + p.getAuthoredAsGroupId();
+        }
+        return p.getRequesterEmail() == null ? "" : "user:" + p.getRequesterEmail().trim().toLowerCase();
+    }
+
+    /** "First Last", "First", or null. */
+    static String personName(UserInfo u) {
+        if (u == null) return null;
+        String f = u.getUserFirstName() == null ? "" : u.getUserFirstName().trim();
+        String l = u.getUserLastName() == null ? "" : u.getUserLastName().trim();
+        String name = (f + " " + l).trim();
+        return name.isEmpty() ? null : name;
+    }
+
     private static boolean isAgency(Group g, boolean verified, String verifiedKind) {
         if (g.isAgencyAuthorized()) return true;
         return verified && verifiedKind != null
@@ -243,7 +328,7 @@ public class MapDiscoveryService {
     private static String aidName(Post p) {
         if (p.getTitle() != null && !p.getTitle().isBlank()) return p.getTitle();
         String d = p.getDescription();
-        if (d == null || d.isBlank()) return "Neighbor offer";
+        if (d == null || d.isBlank()) return "ask".equalsIgnoreCase(p.getKind()) ? "Neighbor request" : "Neighbor offer";
         String firstLine = d.strip().split("\\R", 2)[0];
         return firstLine.length() > 60 ? firstLine.substring(0, 57) + "…" : firstLine;
     }
@@ -261,7 +346,8 @@ public class MapDiscoveryService {
                 p.groupType(),
                 p.postId(), p.kind(), p.description(), p.placeLabel(),
                 p.category(), p.website(), p.externalMapUrl(), p.attribution(),
-                p.logoImageUrl());
+                p.logoImageUrl(),
+                p.priorityReason(), p.createdAt(), p.authorDisplayName(), p.canSendAreaAlerts());
     }
 
     /** An empty string is a value, and a value means "draw it". Null means don't. */

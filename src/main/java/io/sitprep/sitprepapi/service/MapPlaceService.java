@@ -114,7 +114,9 @@ public class MapPlaceService {
             }
             out.add(place("meetup:" + m.getId(), "meetup",
                     m.getLat(), m.getLng(),
-                    nz(m.getName(), "Meeting place"), m.getAddress(), "meeting_place"));
+                    nz(m.getName(), "Meeting place"), m.getAddress(), "meeting_place",
+                    m.getMeetingTier() == null ? null : m.getMeetingTier().name(),
+                    m.isDeploy()));
         }
 
         // 3. Shelters — from the evacuation plan, same household-then-owner scope.
@@ -135,7 +137,8 @@ public class MapPlaceService {
             if (!hasCoords && !namedByAHuman) continue;
             out.add(place("shelter:" + e.getId(), "shelter",
                     e.getLat(), e.getLng(),
-                    nz(e.getShelterName(), "Shelter"), e.getShelterAddress(), "evacuation_plan"));
+                    nz(e.getShelterName(), "Shelter"), e.getShelterAddress(), "evacuation_plan",
+                    null, e.isDeploy()));
         }
 
         // 4. The caller's own saved places (personal — scoped to the caller only).
@@ -158,8 +161,15 @@ public class MapPlaceService {
     /** Builds a place row, deriving `mappable` from the coordinates it was given. */
     private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
                                      String name, String address, String source) {
+        return place(id, kind, lat, lng, name, address, source, null, null);
+    }
+
+    /** With the source row's own tier / deploy flag, verbatim; null where the row has none. */
+    private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
+                                     String name, String address, String source,
+                                     String tier, Boolean deploy) {
         return new MapPlaceDto(id, kind, lat, lng, name, address, source,
-                GeoUtil.validLatLng(lat, lng));
+                GeoUtil.validLatLng(lat, lng), tier, deploy);
     }
 
     private static boolean isPresent(String v) {
