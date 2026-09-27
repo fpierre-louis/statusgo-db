@@ -35,7 +35,7 @@ class UserInfoServiceUpsertByFirebaseUidTest {
         first.setUserFirstName("Ada");
         first.setUserLastName("Lovelace");
         first.setTitle("Prepared Neighbor");
-        first.setProfileImageUrl("https://cdn.example.com/ada.png");
+        first.setProfileImageUrl("https://sitprepimages.com/profile/ada.png");
 
         UserInfo firstSaved = userInfoService.upsertByFirebaseUid(uid, first);
 
@@ -57,6 +57,6 @@ class UserInfoServiceUpsertByFirebaseUidTest {
         assertThat(persisted.getUserFirstName()).isEqualTo("Ada");
         assertThat(persisted.getUserLastName()).isEqualTo("Lovelace");
         assertThat(persisted.getTitle()).isEqualTo("Prepared Neighbor");
-        assertThat(persisted.getProfileImageUrl()).isEqualTo("https://cdn.example.com/ada.png");
+        assertThat(persisted.getProfileImageUrl()).isEqualTo("https://sitprepimages.com/profile/ada.png");
     }
 }

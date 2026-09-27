@@ -264,17 +264,22 @@ public class GroupService {
         return rollup;
     }
 
+    /** Outcome of a nudge: whether a push went out, and whether it was silent. */
+    public record NudgeResult(boolean sent, boolean silent) {}
+
     /**
      * Nudge ONE member — the person sheet's "Nudge" button, as against the
      * admin rollup's ping-everyone-missing. Same cooldown, same event row, so
      * the two paths cannot be used to double the rate.
      *
-     * @return true if a push went out; false if the nudge was still cooling down
+     * <p>{@code @Transactional} sits on THIS method. Until 2026-09-27 it sat one
+     * line higher, on the {@link NudgeResult} record declaration, where Spring
+     * never looks — so the cooldown read and the nudge event write ran in no
+     * shared transaction at all.</p>
+     *
+     * @return whether a push went out (false while the nudge is cooling down)
      */
     @Transactional
-    /** Outcome of a nudge: whether a push went out, and whether it was silent. */
-    public record NudgeResult(boolean sent, boolean silent) {}
-
     public NudgeResult nudgeMember(String groupId, String callerEmail, String subjectEmail) {
         if (callerEmail == null || callerEmail.isBlank()) {
             throw new SecurityException("Sign in to nudge someone");

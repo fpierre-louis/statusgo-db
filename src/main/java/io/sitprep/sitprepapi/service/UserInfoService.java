@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.LocationSharing;
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.util.ProfileImageUrlPolicy;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
@@ -313,7 +314,8 @@ public class UserInfoService {
         existing.setAddress(incoming.getAddress());
         existing.setUserStatus(incoming.getUserStatus());
         existing.setStatusColor(incoming.getStatusColor());
-        existing.setProfileImageUrl(incoming.getProfileImageUrl());
+        existing.setProfileImageUrl(profileImageForFullUpdate(
+                existing.getProfileImageUrl(), incoming.getProfileImageUrl()));
         existing.setSubscription(incoming.getSubscription());
         existing.setSubscriptionPackage(incoming.getSubscriptionPackage());
         existing.setDateSubscribed(incoming.getDateSubscribed());
@@ -327,6 +329,22 @@ public class UserInfoService {
         }
 
         return userInfoRepo.save(existing);
+    }
+
+    /**
+     * The avatar a full update (PUT) stores.
+     *
+     * <p>A value equal to what is already stored passes untouched — the edit
+     * form echoes the whole record back, and a legacy avatar written before the
+     * allow-list existed must not turn every name edit into a 400 ("existing
+     * rows are not rewritten"). A CHANGED value must pass
+     * {@link ProfileImageUrlPolicy}; null or blank clears.</p>
+     *
+     * @throws IllegalArgumentException (→ 400) for a changed, disallowed URL
+     */
+    static String profileImageForFullUpdate(String stored, String incoming) {
+        if (incoming != null && incoming.equals(stored)) return stored;
+        return ProfileImageUrlPolicy.normalizeForWrite(incoming);
     }
 
     public void deleteUser(String id) { userInfoRepo.deleteById(id); }
@@ -696,6 +714,19 @@ public class UserInfoService {
 
             if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;
 
+            // The avatar is validated OUTSIDE the reflective try below, which
+            // swallows every exception — a policy failure thrown in there would
+            // be printed and ignored, and the disallowed URL would simply not be
+            // written with a 200. The client must hear 400.
+            if ("profileImageUrl".equals(key)) {
+                if (!(value instanceof String s)) {
+                    throw new IllegalArgumentException("profileImageUrl must be a string");
+                }
+                if (s.equals(userInfo.getProfileImageUrl())) return; // unchanged legacy value
+                userInfo.setProfileImageUrl(ProfileImageUrlPolicy.normalizeForWrite(s));
+                return;
+            }
+
             try {
                 Field field = ReflectionUtils.findField(UserInfo.class, key);
                 if (field != null) {
@@ -870,7 +901,7 @@ public class UserInfoService {
 
         if (patch.getUserFirstName() != null) entity.setUserFirstName(patch.getUserFirstName());
         if (patch.getUserLastName()  != null) entity.setUserLastName(patch.getUserLastName());
-        if (patch.getProfileImageUrl()!= null) entity.setProfileImageUrl(patch.getProfileImageUrl());
+        if (patch.getProfileImageUrl() != null) applyUpsertProfileImage(entity, patch.getProfileImageUrl());
         if (patch.getPhone()         != null) entity.setPhone(patch.getPhone());
         if (patch.getAddress()       != null) entity.setAddress(patch.getAddress());
         if (patch.getTitle()         != null) entity.setTitle(patch.getTitle());
@@ -889,6 +920,32 @@ public class UserInfoService {
         }
 
         // email handled by caller (uid upsert may need special rules)
+    }
+
+    /**
+     * Avatar on the sign-in upsert paths ({@code POST /api/userinfo},
+     * {@code POST /api/userinfo/firebase}).
+     *
+     * <p>Same allow-list as PUT/PATCH, but a disallowed value is DROPPED rather
+     * than refused. These are the sign-in calls: a 400 here would lock a person
+     * out of the app because a provider moved its avatar CDN. Dropping keeps
+     * sign-in working, still never stores the URL, and leaves the stored avatar
+     * as it was — {@code MeService} backfills a blank one from the verified
+     * token's {@code picture} claim on the next {@code /api/me}.</p>
+     */
+    private static void applyUpsertProfileImage(UserInfo entity, String incoming) {
+        if (incoming.equals(entity.getProfileImageUrl())) return;
+        if (incoming.isBlank()) {
+            entity.setProfileImageUrl(null);
+            return;
+        }
+        if (ProfileImageUrlPolicy.isAllowed(incoming)) {
+            entity.setProfileImageUrl(incoming.trim());
+        } else {
+            org.slf4j.LoggerFactory.getLogger(UserInfoService.class)
+                    .warn("upsert: dropped a profileImageUrl outside the host allow-list (uid={})",
+                            entity.getFirebaseUid());
+        }
     }
 
     /**
