@@ -165,7 +165,18 @@ public record GroupMemberViewDto(
              * {@code MemberSummary} rows at all. Not location-derived, so not
              * behind the location gate.</p>
              */
-            String phone
+            String phone,
+
+            /**
+             * Ids of the ACTIVE alerts whose area contains the member's latest
+             * fix — the same {@code id} as {@code /api/alerts/feed} cards (BE-4).
+             * {@code []} when located and inside none. Null when the location is
+             * withheld or absent (same gate as above), and also when the
+             * server cannot tell yet (the point's NWS zones are not cached — a
+             * lookup is queued). Never {@code []} on unknown: that would say
+             * "inside nothing" about a place nobody checked.
+             */
+            List<String> inAlertIds
     ) {}
 
     /**

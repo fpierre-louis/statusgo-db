@@ -58,7 +58,7 @@ class LiveLocationServiceTest {
         service = new LiveLocationService(
                 sessionRepo, pointRepo, groupRepo, userInfoRepo, activationRepo, householdResolver, ws,
                 new LocationPresenceService(mock(io.sitprep.sitprepapi.repo.UserSavedLocationRepo.class),
-                        mock(NominatimGeocodeService.class)));
+                        mock(NominatimGeocodeService.class), null));
 
         when(sessionRepo.save(any(LiveLocationSession.class))).thenAnswer(inv -> {
             LiveLocationSession s = inv.getArgument(0);

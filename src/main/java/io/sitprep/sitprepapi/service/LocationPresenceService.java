@@ -57,11 +57,24 @@ public class LocationPresenceService {
 
     private final UserSavedLocationRepo savedLocationRepo;
     private final NominatimGeocodeService geocode;
+    private final NwsZoneService zones;
 
     public LocationPresenceService(UserSavedLocationRepo savedLocationRepo,
-                                   NominatimGeocodeService geocode) {
+                                   NominatimGeocodeService geocode,
+                                   NwsZoneService zones) {
         this.savedLocationRepo = savedLocationRepo;
         this.geocode = geocode;
+        this.zones = zones;
+    }
+
+    /**
+     * Queue a background NWS zone lookup for this fix so the next roster read
+     * can answer {@code inAlertIds} from cache (BE-4). Non-blocking. Called on
+     * the presence ping only — live-location points arrive every few seconds
+     * while moving, and the roster read warms any point it misses anyway.
+     */
+    public void warmAlertZones(double lat, double lng) {
+        if (zones != null) zones.warmPoint(lat, lng);
     }
 
     /** What a fix resolved to — the matched place, for a roster frame. Null when outside every shared place. */

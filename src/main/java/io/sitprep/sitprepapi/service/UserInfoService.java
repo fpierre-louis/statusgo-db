@@ -549,6 +549,7 @@ public class UserInfoService {
         userInfoRepo.findByUserEmailIgnoreCase(email.trim()).ifPresent(u -> {
             LocationPresenceService.FixResult fix =
                     presence.applyFix(u, lat, lng, source, accuracyM, Instant.now());
+            presence.warmAlertZones(lat, lng);
             UserInfo saved = userInfoRepo.save(u);
 
             final String frameEmail = saved.getUserEmail() == null

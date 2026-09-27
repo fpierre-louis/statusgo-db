@@ -76,11 +76,11 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1018 tests / 0 failures*
 
 ### BE-4 · inAlertIds
-- [ ] Same `id` as `/api/alerts/feed` cards (`NormalizedAlert.id()`), active alerts only
-- [ ] Zone lookups cache-only on the roster read; misses queue a background warm; the location write warms
-- [ ] `[]` when located and in none; null when withheld/absent
-- [ ] Tests: polygon containment, zone match, gate nulls it, no NWS call on read
-- [ ] `./mvnw -q package` green; commit
+- [x] Same `id` as `/api/alerts/feed` cards (`NormalizedAlert.id()`), active alerts only — *verified by: `MemberAlertAreaServiceTest.idsAreTheFeedCardIdsForTheSamePoint` (builds the real `AlertFeedService.feedFor` for the same point and snapshot; every inAlertIds entry is a feed card id); `expiredCancelledAndPointAlertsHaveNoInside`*
+- [x] Zone lookups cache-only on the roster read; misses queue a background warm; the location write warms — *verified by: `unknownZonesAreNullNotEmptyAndNeverANetworkCall` (warmPoint called, `zoneCodesForPoint` never); `NwsZoneService.warmPoint` is de-duplicated per key, ≤200 pending, single warm thread; the presence ping calls `warmAlertZones`*
+- [x] `[]` when located and in none; null when withheld/absent — *verified by: `emptyListWhenLocatedAndInsideNothing`; `RosterLocationPrivacyGateTest` (gate closed → null; opted-out ≡ never-fixed still holds; idsFor called only for visible members). Also null while the point's zones are unknown — see Deviations*
+- [x] Tests: polygon containment, zone match, gate nulls it, no NWS call on read — *verified by: `GeoJsonAreaTest` (hole, non-convex, multipolygon, non-area), `MemberAlertAreaServiceTest` (6), `RosterLocationPrivacyGateTest` (7)*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1028 tests / 0 failures*
 
 ### BE-5 · map DTOs
 - [ ] `MapPlaceDto.tier` (meetingTier verbatim) + `deploy`
@@ -142,6 +142,17 @@ school or work. We will eventually implement the app on watches.")
   locationAccuracyM`, appended; it is only published to groups whose gate is open, so it rides
   the same gate. Live-location frames/DTOs are unchanged (the contract asks only that points
   ACCEPT `source`).
+- **BE-4 · "zone codes include … OR polygon contains" narrowed to geometry-first.** For an alert
+  WITH a polygon, only containment counts; zones are used only for alerts without geometry. A
+  storm-based warning's UGC lists every county it touches, so OR-ing zones would put a whole
+  county "inside" a polygon a few miles wide. Same tier order as the feed's own `matchTypeFor`.
+  Point geometries (quakes) and alerts with neither polygon nor UGC (FEMA) are never "inside".
+- **BE-4 · `inAlertIds` is also null while the point's NWS zones are unknown** (not yet cached —
+  e.g. after a dyno restart; a background lookup is queued and the next read answers). The
+  contract lists null only for withheld/absent location; answering `[]` here would state "inside
+  nothing" about a point nobody looked up — the false calm the audit warns about.
+- **BE-4 · "active"** = the feed's own filter (not `AlertSafetyPolicy` SUPPRESS, which already
+  drops expired/all-clear) plus lifecycle `active|updated` at read time.
 
 ## Watch client contract
 

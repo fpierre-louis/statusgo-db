@@ -138,6 +138,12 @@ public class NwsZoneService {
     /** UGC code -> {lat, lng} centroid. Present only once warmed. */
     private final Map<String, double[]> zoneCentroids = new ConcurrentHashMap<>();
 
+    /** Point cache keys queued by {@link #warmPoint} and not yet resolved. */
+    private final Set<String> pendingPointWarms = ConcurrentHashMap.newKeySet();
+
+    /** Ceiling on {@link #warmPoint} requests waiting at once. */
+    private static final int MAX_PENDING_POINT_WARMS = 200;
+
     /** UGC codes already attempted (success or failure) so warm() doesn't retry in a loop. */
     private final Set<String> centroidAttempted = ConcurrentHashMap.newKeySet();
 
@@ -201,6 +207,47 @@ public class NwsZoneService {
             pointZones.put(key, codes);
         }
         return codes;
+    }
+
+    /**
+     * The zone codes for a point IF they are already cached — never a network
+     * call. Empty when the point has not been resolved yet (unknown), which is
+     * NOT the same as a cached empty set (resolved: no NWS zone covers it).
+     *
+     * <p>For read paths that serve many points at once — a roster of members —
+     * where a miss must degrade to "unknown" rather than fan out one blocking
+     * NWS request per member. Pair with {@link #warmPoint} so the next read
+     * hits.</p>
+     */
+    public Optional<Set<String>> cachedZoneCodesForPoint(double lat, double lng) {
+        if (!enabled) return Optional.empty();
+        return Optional.ofNullable(pointZones.get(String.format(Locale.ROOT, POINT_KEY_FMT, lat, lng)));
+    }
+
+    /**
+     * Queue a background resolution of a point's zone codes. Non-blocking,
+     * de-duplicated per cache key, and bounded: at most
+     * {@link #MAX_PENDING_POINT_WARMS} points wait at once, and they share the
+     * single warm thread with centroid warming, so a burst of members can never
+     * become a burst against api.weather.gov.
+     */
+    public void warmPoint(double lat, double lng) {
+        if (!enabled || !Double.isFinite(lat) || !Double.isFinite(lng)) return;
+        String key = String.format(Locale.ROOT, POINT_KEY_FMT, lat, lng);
+        if (pointZones.containsKey(key)) return;
+        if (pendingPointWarms.size() >= MAX_PENDING_POINT_WARMS) return;
+        if (!pendingPointWarms.add(key)) return;
+        try {
+            warmPool.execute(() -> {
+                try {
+                    zoneCodesForPoint(lat, lng);
+                } finally {
+                    pendingPointWarms.remove(key);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            pendingPointWarms.remove(key); // pool shut down — nothing to do
+        }
     }
 
     private Set<String> fetchZoneCodes(double lat, double lng) throws Exception {

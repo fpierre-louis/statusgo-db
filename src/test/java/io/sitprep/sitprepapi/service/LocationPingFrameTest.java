@@ -55,7 +55,7 @@ class LocationPingFrameTest {
         placeRepo = mock(UserSavedLocationRepo.class);
         ws = mock(WebSocketMessageSender.class);
         LocationPresenceService presence =
-                new LocationPresenceService(placeRepo, mock(NominatimGeocodeService.class));
+                new LocationPresenceService(placeRepo, mock(NominatimGeocodeService.class), null);
         service = new UserInfoService(userRepo, mock(HouseholdEventService.class), groupRepo,
                 mock(PostService.class), mock(FollowService.class), mock(BlockService.class),
                 new ObjectMapper(), ws, presence, mock(HouseholdProvisioningService.class));

@@ -26,7 +26,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +48,7 @@ class RosterLocationPrivacyGateTest {
     private static final String SHARING = "cat@x.com";     // full fix, sharing = always
 
     private final UserSavedLocationRepo placeRepo = mock(UserSavedLocationRepo.class);
+    private final MemberAlertAreaService alertAreas = mock(MemberAlertAreaService.class);
     private GroupViewService service;
 
     @BeforeEach
@@ -55,7 +58,9 @@ class RosterLocationPrivacyGateTest {
         service = new GroupViewService(groupRepo, userInfoRepo, mock(GroupPostRepo.class),
                 mock(HouseholdManualMemberService.class), mock(HouseholdAccompanimentService.class),
                 mock(PlatformAccessService.class), mock(AgencyStaffService.class),
-                mock(CheckInRequestService.class), mock(NotificationLogRepo.class), placeRepo);
+                mock(CheckInRequestService.class), mock(NotificationLogRepo.class), placeRepo, alertAreas);
+        when(alertAreas.activeAreas()).thenReturn(List.of());
+        when(alertAreas.idsFor(anyList(), anyDouble(), anyDouble())).thenReturn(List.of("urn:oid:heat"));
 
         Group hh = new Group();
         hh.setGroupId(HH);
@@ -128,6 +133,7 @@ class RosterLocationPrivacyGateTest {
         assertThat(m.lastSeenNear()).isNull();
         assertThat(m.locationSource()).isNull();
         assertThat(m.locationAccuracyM()).isNull();
+        assertThat(m.inAlertIds()).isNull();
     }
 
     @Test
@@ -152,6 +158,14 @@ class RosterLocationPrivacyGateTest {
         assertThat(m.lastSeenNear()).isEqualTo("Dry Creek");
         assertThat(m.locationSource()).isEqualTo("watch");
         assertThat(m.locationAccuracyM()).isEqualTo(12);
+        assertThat(m.inAlertIds()).containsExactly("urn:oid:heat");
+    }
+
+    @Test
+    void alertAreasAreTestedOnlyForMembersWhoseLocationIsVisible() {
+        roster();
+        // HIDDEN and SHARING sit at the same coordinate; only SHARING is tested.
+        verify(alertAreas, times(1)).idsFor(anyList(), anyDouble(), anyDouble());
     }
 
     @Test

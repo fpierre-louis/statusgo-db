@@ -41,7 +41,7 @@ class LocationPresenceServiceTest {
     void setUp() {
         repo = mock(UserSavedLocationRepo.class);
         geocode = mock(NominatimGeocodeService.class);
-        service = new LocationPresenceService(repo, geocode);
+        service = new LocationPresenceService(repo, geocode, null);
         ann = new UserInfo();
         ann.setUserEmail(ME);
         ann.setLastKnownZip("84043"); // zip already known: only the label drives geocoding below

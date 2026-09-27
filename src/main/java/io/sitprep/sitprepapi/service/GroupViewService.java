@@ -47,6 +47,7 @@ public class GroupViewService {
     private final CheckInRequestService checkInRequestService;
     private final NotificationLogRepo notificationLogRepo;
     private final UserSavedLocationRepo savedLocationRepo;
+    private final MemberAlertAreaService alertAreas;
 
     public GroupViewService(GroupRepo groupRepo,
                             UserInfoRepo userInfoRepo,
@@ -57,7 +58,8 @@ public class GroupViewService {
                             AgencyStaffService agencyStaffService,
                             CheckInRequestService checkInRequestService,
                             NotificationLogRepo notificationLogRepo,
-                            UserSavedLocationRepo savedLocationRepo) {
+                            UserSavedLocationRepo savedLocationRepo,
+                            MemberAlertAreaService alertAreas) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.postRepo = postRepo;
@@ -68,6 +70,7 @@ public class GroupViewService {
         this.checkInRequestService = checkInRequestService;
         this.notificationLogRepo = notificationLogRepo;
         this.savedLocationRepo = savedLocationRepo;
+        this.alertAreas = alertAreas;
     }
 
     @Transactional(readOnly = true)
@@ -153,13 +156,20 @@ public class GroupViewService {
         // gate above also admits platform admins and agency staff; neither is a
         // member, so neither gets a phone number from this payload.
         boolean includePhones = isHousehold && GroupRole.fromGroup(g, viewerEmail) != GroupRole.NONE;
+        // Built once per ingest snapshot (not per member, not per read), and
+        // only when at least one member's location is visible here at all.
+        List<MemberAlertAreaService.AreaAlert> activeAreas =
+                anyLocated(byEmail.values(), g.getGroupId(), g.getGroupType(), alertActive)
+                        && alertAreas != null
+                        ? alertAreas.activeAreas()
+                        : null;
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
                         g.getGroupId(), g.getGroupType(), alertActive,
                         askedAt.get(normalize(email)),
                         dispatch.get(normalize(email)),
-                        currentPlaces, includePhones))
+                        currentPlaces, includePhones, activeAreas))
                 .toList();
 
         List<HouseholdManualMemberDto> manualMembers = isHousehold
@@ -327,20 +337,32 @@ public class GroupViewService {
         return out;
     }
 
+    private static boolean anyLocated(Collection<UserInfo> users, String groupId,
+                                      String groupType, boolean alertActive) {
+        for (UserInfo u : users) {
+            if (u != null && u.getLastKnownLat() != null && u.getLastKnownLng() != null
+                    && shouldShareLocation(u, groupId, groupType, alertActive)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     MemberSummary toMemberSummary(String email, UserInfo u,
                                   String groupId, String groupType,
                                   boolean alertActive,
                                   Instant checkInRequestedAt,
                                   GroupMemberViewDto.DispatchOutcome dispatch,
                                   Map<Long, UserSavedLocation> currentPlaces,
-                                  boolean includePhone) {
+                                  boolean includePhone,
+                                  List<MemberAlertAreaService.AreaAlert> activeAreas) {
         String dispatchWire = (dispatch == null
                 ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
                 : dispatch).wire();
         if (u == null) {
             return new MemberSummary(normalize(email), null, null, null, null,
                     null, null, null, null, checkInRequestedAt, dispatchWire,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null);
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
@@ -372,6 +394,7 @@ public class GroupViewService {
         String lastSeenNear = null;
         String locationSource = null;
         Integer locationAccuracyM = null;
+        List<String> inAlertIds = null;
         if (located) {
             UserSavedLocation place = u.getCurrentPlaceId() == null || currentPlaces == null
                     ? null
@@ -380,6 +403,9 @@ public class GroupViewService {
             lastSeenNear = blankToNull(u.getLastSeenNearLabel());
             locationSource = LocationPresenceService.normalizeSource(u.getLocationSource());
             locationAccuracyM = u.getLocationAccuracyM();
+            inAlertIds = activeAreas == null || alertAreas == null
+                    ? null
+                    : alertAreas.idsFor(activeAreas, lat, lng);
         }
 
         return new MemberSummary(
@@ -396,7 +422,8 @@ public class GroupViewService {
                 lastSeenNear,
                 locationSource,
                 locationAccuracyM,
-                includePhone ? blankToNull(u.getPhone()) : null
+                includePhone ? blankToNull(u.getPhone()) : null,
+                inAlertIds
         );
     }
 

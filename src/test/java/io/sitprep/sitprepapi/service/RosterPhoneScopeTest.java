@@ -49,7 +49,7 @@ class RosterPhoneScopeTest {
         service = new GroupViewService(groupRepo, userRepo, mock(GroupPostRepo.class),
                 mock(HouseholdManualMemberService.class), mock(HouseholdAccompanimentService.class),
                 platform, mock(AgencyStaffService.class), mock(CheckInRequestService.class),
-                mock(NotificationLogRepo.class), mock(UserSavedLocationRepo.class));
+                mock(NotificationLogRepo.class), mock(UserSavedLocationRepo.class), null);
         when(userRepo.findByUserEmailIn(anyList())).thenReturn(List.of(
                 user(MOM, "+1 801 555 0100"), user(KID, "801-555-0101"), user(NO_PHONE, "  ")));
     }
