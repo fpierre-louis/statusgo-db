@@ -230,7 +230,7 @@ class SharePreviewVisibilityTest {
                         "OFFICIAL",
                         null,
                         Instant.parse("2026-01-01T00:00:00Z"),
-                        null, null, null, null)));
+                        null, null, null, null, null)));
 
         ResponseEntity<?> res = resource.shareResource(42L, BOT);
         String html = String.valueOf(res.getBody());

@@ -97,12 +97,12 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1052 tests / 0 failures*
 
 ### BE-7 · "Still here?" (V85)
-- [ ] V85 `map_confirmation` + unique `(target_type, target_id, user_email)` (rehearsed locally)
-- [ ] `POST /api/map/confirmations` → 200 `{count,lastAt,mine:true}`; 429 inside 10 min; authenticated
-- [ ] `confirmations: {count,lastAt} | null` on `ResourceListingDto` + `MapPoiDto` (distinct users, 7 days)
-- [ ] Separate from `post_confirm` ("Me too")
-- [ ] Tests incl. cooldown
-- [ ] `./mvnw -q package` green; commit
+- [x] V85 `map_confirmation` + unique `(target_type, target_id, user_email)` (rehearsed locally) — *verified by: applied + re-applied on the schema clone; duplicate (type,id,user) rejected by the unique index; `target_type='group'` rejected by the CHECK*
+- [x] `POST /api/map/confirmations` → 200 `{count,lastAt,mine:true}`; 429 inside 10 min; authenticated — *verified by: `MapConfirmationServiceTest.theEndpointAnswers200Then429WithRetryAfter/theEndpointRequiresSignIn` (401), `aReconfirmInsideTenMinutesIsRefused` (retry 360 s), `MapIdealPersistenceTest.aPersonIsOneRowAndTheCooldownHoldsAgainstTheRealTable` (H2)*
+- [x] `confirmations: {count,lastAt} | null` on `ResourceListingDto` + `MapPoiDto` (distinct users, 7 days) — *verified by: `MapIdealPersistenceTest.confirmationSummariesCountDistinctPeopleInTheLastSevenDays` (real JPQL on H2: 8-day-old row excluded, unconfirmed target absent → null); one batched query per target type per response*
+- [x] Separate from `post_confirm` ("Me too") — *verified by: own table/entity/repo/service; no read or write of `post_confirm` anywhere in the diff (`git diff --stat` shows no PostConfirm file touched)*
+- [x] Tests incl. cooldown — *verified by: `MapConfirmationServiceTest` (7), `MapIdealPersistenceTest` (4)*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1061 tests / 0 failures*
 
 ## Deviations / narrowings
 
@@ -179,6 +179,15 @@ school or work. We will eventually implement the app on watches.")
   `closesAt` (null when open around the clock for the next week), closed → `opensAt`.
 - **BE-6 · a stored schedule is re-validated on read;** one that no longer parses reports
   `hours: null, openNow: null` rather than a guess.
+- **BE-7 · wire details the contract left open.** `targetId` is the bare id: `"42"` (resource),
+  `"123"` (community post = `MapPoiDto.postId`), `"node/123"` (OSM = `MapPoiDto.id` minus
+  `"overpass:"`). The 429 body repeats the current `{count, lastAt, mine: true}` plus
+  `retryAfterSeconds`, and sets `Retry-After`. 400 = unknown type / malformed id; 404 = a resource
+  that is not APPROVED, or a post that is missing or not community-scope (404, not 403, so group
+  post ids cannot be probed). OSM ids are validated by form only — OSM places live in the
+  Overpass tile cache, not a table. `confirmations` is attached to aid-post and OSM POIs only
+  (groups/agencies/activation places are not "still here" targets). Two simultaneous first
+  confirms by one person: the unique index keeps one, the other gets a bare 429.
 
 ## Watch client contract
 

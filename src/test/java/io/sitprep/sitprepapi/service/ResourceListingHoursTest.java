@@ -35,7 +35,7 @@ class ResourceListingHoursTest {
     @BeforeEach
     void setUp() {
         repo = mock(ResourceListingRepo.class);
-        service = new ResourceListingService(repo);
+        service = new ResourceListingService(repo, null);
         when(repo.save(any())).thenAnswer(i -> i.getArgument(0));
         row = new ResourceListing();
         row.setId(9L);

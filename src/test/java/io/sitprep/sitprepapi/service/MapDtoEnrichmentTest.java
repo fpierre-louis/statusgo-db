@@ -55,7 +55,7 @@ class MapDtoEnrichmentTest {
         userRepo = mock(UserInfoRepo.class);
         ExternalPoiCacheService external = mock(ExternalPoiCacheService.class);
         when(external.getPois(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of());
-        discovery = new MapDiscoveryService(groupRepo, postRepo, userRepo, external);
+        discovery = new MapDiscoveryService(groupRepo, postRepo, userRepo, external, null);
 
         when(groupRepo.findPublicInBounds(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenReturn(List.of(
@@ -159,7 +159,7 @@ class MapDtoEnrichmentTest {
                 .thenReturn(List.of(post(2L, "offer", Post.PostPriority.MEDIUM, "frank@x.com", null)));
         ExternalPoiCacheService external = mock(ExternalPoiCacheService.class);
         when(external.getPois(anyDouble(), anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of());
-        discovery = new MapDiscoveryService(groupRepo, postRepo, userRepo, external);
+        discovery = new MapDiscoveryService(groupRepo, postRepo, userRepo, external, null);
 
         Map<String, MapPoiDto> guest = pois(null);
         verify(postRepo).findAidInBounds(any(), kinds.capture(), anyDouble(), anyDouble(), anyDouble(), anyDouble());

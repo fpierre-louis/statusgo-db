@@ -117,7 +117,14 @@ public record MapPoiDto(
          * {@code SEND_AREA_ALERTS} capability. Null for every non-agency pin.
          * Says nothing about WHICH area — agency↔area matching is unbacked.
          */
-        Boolean canSendAreaAlerts
+        Boolean canSendAreaAlerts,
+        /**
+         * "Still here?" (V85): distinct people who confirmed this place in the
+         * last 7 days, and the latest time — aid posts and OSM places only.
+         * Null when nobody has, and for every other family. Unrelated to the
+         * post's "Me too" count.
+         */
+        MapConfirmationDtos.ConfirmationSummary confirmations
 ) {
     /** The pre-BE-5 shape: every appended field null. */
     public MapPoiDto(String id, String family, String source, String name,
@@ -132,6 +139,15 @@ public record MapPoiDto(
                 postId, kind, description, placeLabel,
                 category, website, externalMapUrl, attribution,
                 logoImageUrl,
-                null, null, null, null);
+                null, null, null, null, null);
+    }
+
+    /** Copy with {@link #confirmations} set (records are immutable). */
+    public MapPoiDto withConfirmations(MapConfirmationDtos.ConfirmationSummary c) {
+        return new MapPoiDto(id, family, source, name, lat, lng, distanceKm,
+                verified, verifiedKind, memberCount, viewerRole, ownerUserId, groupType,
+                postId, kind, description, placeLabel,
+                category, website, externalMapUrl, attribution,
+                logoImageUrl, priorityReason, createdAt, authorDisplayName, canSendAreaAlerts, c);
     }
 }

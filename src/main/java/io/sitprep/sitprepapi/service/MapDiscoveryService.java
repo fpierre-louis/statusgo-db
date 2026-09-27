@@ -46,13 +46,16 @@ public class MapDiscoveryService {
     private final PostRepo postRepo;
     private final UserInfoRepo userInfoRepo;
     private final ExternalPoiCacheService externalPois;
+    private final MapConfirmationService confirmations;
 
     public MapDiscoveryService(GroupRepo groupRepo, PostRepo postRepo, UserInfoRepo userInfoRepo,
-                               ExternalPoiCacheService externalPois) {
+                               ExternalPoiCacheService externalPois,
+                               MapConfirmationService confirmations) {
         this.groupRepo = groupRepo;
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.externalPois = externalPois;
+        this.confirmations = confirmations;
     }
 
     // Verified-publisher kinds that mark an OFFICIAL agency. Mirrors the small
@@ -152,7 +155,8 @@ public class MapDiscoveryService {
                     null,                     // priorityReason — posts only
                     g.getCreatedAt(),
                     null,                     // authorDisplayName — posts only
-                    canSendAreaAlerts
+                    canSendAreaAlerts,
+                    null                      // confirmations — not a "still here" target
             ));
         }
 
@@ -183,7 +187,8 @@ public class MapDiscoveryService {
                         p.getPriority() == Post.PostPriority.URGENT ? PRIORITY_POSTER_URGENT : null,
                         p.getCreatedAt(),
                         signedIn ? authorNames.get(authorKey(p)) : null,
-                        null                            // canSendAreaAlerts — agencies only
+                        null,                           // canSendAreaAlerts — agencies only
+                        null                            // confirmations — attached after the cap
                 ));
             }
         }
@@ -211,6 +216,7 @@ public class MapDiscoveryService {
         int cap = capFor(band);
         boolean capped = pois.size() > cap;
         if (capped) pois = new ArrayList<>(pois.subList(0, cap));
+        pois = withConfirmations(pois);
 
         return new MapDiscoveryDto(
                 pois,
@@ -337,6 +343,35 @@ public class MapDiscoveryService {
         return Math.round(v * 10.0) / 10.0;
     }
 
+    /**
+     * Attach "Still here?" counts to the aid posts and OSM places that survived
+     * the cap — one query per target type for the whole response.
+     */
+    private List<MapPoiDto> withConfirmations(List<MapPoiDto> pois) {
+        if (confirmations == null || pois.isEmpty()) return pois;
+        Map<String, String> postTarget = new HashMap<>();
+        Map<String, String> osmTarget = new HashMap<>();
+        for (MapPoiDto p : pois) {
+            if ("proprietary:post".equals(p.source()) && p.postId() != null) {
+                postTarget.put(p.id(), String.valueOf(p.postId()));
+            } else if ("overpass".equals(p.source()) && p.id() != null && p.id().startsWith("overpass:")) {
+                osmTarget.put(p.id(), p.id().substring("overpass:".length()));
+            }
+        }
+        if (postTarget.isEmpty() && osmTarget.isEmpty()) return pois;
+        Instant now = Instant.now();
+        var byPost = confirmations.summaries("post", postTarget.values(), now);
+        var byOsm = confirmations.summaries("osm", osmTarget.values(), now);
+        List<MapPoiDto> out = new ArrayList<>(pois.size());
+        for (MapPoiDto p : pois) {
+            var c = postTarget.containsKey(p.id()) ? byPost.get(postTarget.get(p.id()))
+                    : osmTarget.containsKey(p.id()) ? byOsm.get(osmTarget.get(p.id()))
+                    : null;
+            out.add(c == null ? p : p.withConfirmations(c));
+        }
+        return out;
+    }
+
     /** Copy a MapPoi with distanceKm filled in (records are immutable). */
     private static MapPoiDto withDistance(MapPoiDto p, Double distanceKm) {
         return new MapPoiDto(
@@ -347,7 +382,8 @@ public class MapDiscoveryService {
                 p.postId(), p.kind(), p.description(), p.placeLabel(),
                 p.category(), p.website(), p.externalMapUrl(), p.attribution(),
                 p.logoImageUrl(),
-                p.priorityReason(), p.createdAt(), p.authorDisplayName(), p.canSendAreaAlerts());
+                p.priorityReason(), p.createdAt(), p.authorDisplayName(), p.canSendAreaAlerts(),
+                p.confirmations());
     }
 
     /** An empty string is a value, and a value means "draw it". Null means don't. */

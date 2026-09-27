@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.util.OpeningHours;
 import io.sitprep.sitprepapi.domain.ResourceListing;
+import io.sitprep.sitprepapi.dto.MapConfirmationDtos;
 import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.dto.SubmitResourceRequest;
 import io.sitprep.sitprepapi.repo.ResourceListingRepo;
@@ -37,9 +38,11 @@ public class ResourceListingService {
     private static final double EARTH_RADIUS_KM = 6371.0;
 
     private final ResourceListingRepo repo;
+    private final MapConfirmationService confirmations;
 
-    public ResourceListingService(ResourceListingRepo repo) {
+    public ResourceListingService(ResourceListingRepo repo, MapConfirmationService confirmations) {
         this.repo = repo;
+        this.confirmations = confirmations;
     }
 
     /**
@@ -77,13 +80,30 @@ public class ResourceListingService {
         List<ResourceListingDto> out = new ArrayList<>(national.size() + nearby.size());
         out.addAll(national);
         out.addAll(nearby);
+        return withConfirmations(out);
+    }
+
+    /** "Still here?" counts for the whole board in one query (V85). */
+    private List<ResourceListingDto> withConfirmations(List<ResourceListingDto> rows) {
+        if (confirmations == null || rows.isEmpty()) return rows;
+        Map<String, MapConfirmationDtos.ConfirmationSummary> byId = confirmations.summaries("resource",
+                rows.stream().map(d -> String.valueOf(d.id())).toList(), Instant.now());
+        if (byId.isEmpty()) return rows;
+        List<ResourceListingDto> out = new ArrayList<>(rows.size());
+        for (ResourceListingDto d : rows) {
+            var c = byId.get(String.valueOf(d.id()));
+            out.add(c == null ? d : new ResourceListingDto(d.id(), d.title(), d.description(), d.category(),
+                    d.latitude(), d.longitude(), d.address(), d.contact(), d.source(), d.distanceKm(),
+                    d.createdAt(), d.hours(), d.openNow(), d.closesAt(), d.opensAt(), c));
+        }
         return out;
     }
 
     public Optional<ResourceListingDto> findPublicPreview(Long id) {
         if (id == null) return Optional.empty();
         return repo.findByIdAndStatus(id, ResourceListing.Status.APPROVED)
-                .map(r -> toDto(r, null));
+                .map(r -> toDto(r, null))
+                .map(d -> withConfirmations(List.of(d)).get(0));
     }
 
     /** Record a resident's submission. Auto-approved for closed beta. */
@@ -131,7 +151,7 @@ public class ResourceListingService {
         }
         Object hours = body.get("hours");
         r.setHoursJson(hours == null ? null : validHours(hours).toJson());
-        return toDto(repo.save(r), null);
+        return withConfirmations(List.of(toDto(repo.save(r), null))).get(0);
     }
 
     private static OpeningHours validHours(Object raw) {
@@ -177,7 +197,8 @@ public class ResourceListingService {
                 hours == null ? null : hours.toJson(),
                 status.openNow(),
                 status.closesAt(),
-                status.opensAt()
+                status.opensAt(),
+                null
         );
     }
 

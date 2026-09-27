@@ -41,7 +41,7 @@ class ResourceListingResourceTest {
                 "COMMUNITY",
                 null,
                 Instant.parse("2026-09-10T12:00:00Z"),
-                null, null, null, null);
+                null, null, null, null, null);
         when(service.findPublicPreview(42L)).thenReturn(Optional.of(dto));
 
         ResponseEntity<ApiResponse<ResourceListingDto>> res = resource.preview(42L);

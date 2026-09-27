@@ -32,5 +32,11 @@ public record ResourceListingDto(
         /** While open: the next closing instant (null when open around the clock). */
         Instant closesAt,
         /** While closed: the next opening instant. */
-        Instant opensAt
+        Instant opensAt,
+        /**
+         * "Still here?" (V85): distinct people who confirmed this listing in the
+         * last 7 days, and the latest time. Null when nobody has. Unrelated to
+         * any post "Me too" count.
+         */
+        MapConfirmationDtos.ConfirmationSummary confirmations
 ) {}
