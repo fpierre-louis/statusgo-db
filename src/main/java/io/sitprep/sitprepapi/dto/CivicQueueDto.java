@@ -94,7 +94,28 @@ public record CivicQueueDto(
             // via the same PublicCdn key→URL fold the community feed uses; no R2
             // change). Null when the report has no photo. Lets an agency triage
             // from the picture (a fallen sign says more than "Other · Reported").
-            String imageUrl
+            String imageUrl,
+            // Agency Slice 4 — derived from authoritative linked work orders.
+            // resolutionReady is an operator prompt, never a public status
+            // transition; an authorized operator must still confirm RESOLVED.
+            LinkedWorkSummary linkedWork
+    ) {}
+
+    public record LinkedWorkSummary(
+            int total,
+            int active,
+            int inProgress,
+            int completed,
+            int cancelled,
+            boolean resolutionReady,
+            List<LinkedWorkOrderRef> workOrders
+    ) {}
+
+    public record LinkedWorkOrderRef(
+            Long id,
+            String title,
+            String status,
+            Instant updatedAt
     ) {}
 
     /**

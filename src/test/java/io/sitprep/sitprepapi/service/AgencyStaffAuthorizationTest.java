@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.domain.AgencyStaff;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.repo.AgencyStaffRepo;
@@ -14,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +53,9 @@ class AgencyStaffAuthorizationTest {
         Group g = new Group();
         g.setGroupId("g-1");
         g.setAgencyAuthorized(authorized);
+        g.setAgencyCapabilities(authorized
+                ? Set.of(AgencyCapability.OPERATE_CIVIC_QUEUE)
+                : Set.of());
         g.setOwnerEmail("owner@city.gov");
         g.setAdminEmails(List.of("admin@city.gov"));
         g.setMemberEmails(List.of("resident@example.com"));

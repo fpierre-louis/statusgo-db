@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -329,6 +330,29 @@ public interface PostRepo extends JpaRepository<Post, Long> {
 
     /** Work orders spawned from a given source civic report (re-point on merge). */
     List<Post> findBySourcePostId(Long sourcePostId);
+
+    /** Batched linked-work fold for the agency civic queue. */
+    List<Post> findBySourcePostIdIn(Collection<Long> sourcePostIds);
+
+    /**
+     * First linked work start advances an acknowledged canonical report to
+     * scheduled. The expected-state predicate makes simultaneous starts
+     * idempotent and prevents regression of an already-resolved report.
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+           UPDATE Post p
+              SET p.civicStatus = :next,
+                  p.scheduledFor = :scheduledAt
+            WHERE p.id = :id
+              AND p.civicStatus = :expected
+              AND p.mergedIntoPostId IS NULL
+           """)
+    int transitionCivicToScheduled(@Param("id") Long id,
+                                   @Param("expected") String expected,
+                                   @Param("next") String next,
+                                   @Param("scheduledAt") Instant scheduledAt);
 
     /**
      * Move a single task into a project (or out, with {@code projectId=null}).

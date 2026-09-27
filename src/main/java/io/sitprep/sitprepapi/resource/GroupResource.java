@@ -66,6 +66,11 @@ public class GroupResource {
     @PostMapping
     public Group createGroup(@RequestBody Group group) {
         String caller = AuthUtils.requireAuthenticatedEmail();
+        // Agency status and capabilities are platform-provisioned. Group is a
+        // legacy entity-bound request, so clear these server-owned fields even
+        // if a permissive/older JSON mapper populated them.
+        group.setAgencyAuthorized(false);
+        group.setAgencyCapabilities(new java.util.LinkedHashSet<>());
         // Force the creator into the owner / admin / member slots so they
         // can never create a group they aren't part of.
         group.setOwnerEmail(caller);
@@ -178,6 +183,10 @@ public class GroupResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         Group group = groupService.getGroupByPublicId(groupId);
         com.fasterxml.jackson.databind.node.ObjectNode node = objectMapper.valueToTree(group);
+        node.put("jurisdictionReady",
+                io.sitprep.sitprepapi.service.AgencyAuthorizationService.isJurisdictionReady(group));
+        node.set("viewerAgencyPermissions", objectMapper.valueToTree(
+                io.sitprep.sitprepapi.service.AgencyAuthorizationService.viewerPermissions(group, caller)));
         if (!hasRelationshipTo(group, caller)) {
             RELATIONSHIP_ONLY_FIELDS.forEach(node::remove);
         }

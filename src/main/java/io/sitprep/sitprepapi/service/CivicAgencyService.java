@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 
 /**
@@ -85,6 +86,98 @@ public class CivicAgencyService {
 
     /** Unmerge outcome — the restored report + the canonical it left. */
     public record UnmergeResult(Long postId, Long formerCanonicalId) {}
+
+    /** Compact, public-safe work-order reference for an agency queue row. */
+    public record LinkedWorkOrder(Long id, String title, String status, Instant updatedAt) {}
+
+    /** Derived operational progress. It is never persisted as civic status. */
+    public record LinkedWorkProgress(
+            int total,
+            int active,
+            int inProgress,
+            int completed,
+            int cancelled,
+            boolean resolutionReady,
+            List<LinkedWorkOrder> workOrders
+    ) {
+        static LinkedWorkProgress empty() {
+            return new LinkedWorkProgress(0, 0, 0, 0, 0, false, List.of());
+        }
+    }
+
+    /**
+     * Work beginning is the only automatic civic transition: an acknowledged
+     * canonical report becomes scheduled. Completion remains a derived prompt
+     * so no resident is told an issue is resolved without operator confirmation.
+     */
+    @Transactional
+    public Long scheduleReportWhenLinkedWorkStarts(Long workOrderId) {
+        if (workOrderId == null) return null;
+        Post workOrder = taskRepo.findById(workOrderId).orElse(null);
+        if (workOrder == null || workOrder.getSourcePostId() == null) return null;
+
+        Post source = taskRepo.findById(workOrder.getSourcePostId()).orElse(null);
+        if (source == null || source.getCivicStatus() == null) return null;
+        if (source.getMergedIntoPostId() != null) {
+            source = taskRepo.findById(source.getMergedIntoPostId()).orElse(null);
+        }
+        if (source == null || source.getCivicStatus() == null) return null;
+
+        int advanced = taskRepo.transitionCivicToScheduled(
+                source.getId(),
+                CivicStatus.ACKNOWLEDGED.wire(),
+                CivicStatus.SCHEDULED.wire(),
+                Instant.now());
+        return advanced == 1 ? source.getId() : null;
+    }
+
+    /** One batched fold for every canonical report currently visible in a queue. */
+    @Transactional(readOnly = true)
+    public Map<Long, LinkedWorkProgress> linkedWorkProgress(Collection<Long> canonicalReportIds) {
+        if (canonicalReportIds == null || canonicalReportIds.isEmpty()) return Map.of();
+
+        Map<Long, List<Post>> bySource = taskRepo.findBySourcePostIdIn(canonicalReportIds).stream()
+                .filter(p -> p.getSourcePostId() != null && "task".equalsIgnoreCase(p.getKind()))
+                .collect(Collectors.groupingBy(Post::getSourcePostId));
+        Map<Long, LinkedWorkProgress> result = new HashMap<>();
+        for (Long reportId : canonicalReportIds) {
+            List<Post> work = bySource.getOrDefault(reportId, List.of()).stream()
+                    .sorted(Comparator.comparing(Post::getUpdatedAt,
+                            Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList();
+            if (work.isEmpty()) {
+                result.put(reportId, LinkedWorkProgress.empty());
+                continue;
+            }
+
+            int active = 0, inProgress = 0, completed = 0, cancelled = 0;
+            List<LinkedWorkOrder> refs = new ArrayList<>();
+            for (Post item : work) {
+                Post.PostStatus status = item.getStatus() == null ? Post.PostStatus.OPEN : item.getStatus();
+                if (status == Post.PostStatus.CANCELLED) {
+                    cancelled++;
+                } else if (status == Post.PostStatus.DONE
+                        || status == Post.PostStatus.CLOSED
+                        || status == Post.PostStatus.ARCHIVED) {
+                    completed++;
+                } else {
+                    active++;
+                    if (status == Post.PostStatus.IN_PROGRESS
+                            || status == Post.PostStatus.VERIFICATION_PENDING) {
+                        inProgress++;
+                    }
+                }
+                refs.add(new LinkedWorkOrder(
+                        item.getId(), item.getTitle(), status.name(), item.getUpdatedAt()));
+            }
+            int nonCancelled = work.size() - cancelled;
+            result.put(reportId, new LinkedWorkProgress(
+                    work.size(), active, inProgress, completed, cancelled,
+                    nonCancelled > 0 && completed == nonCancelled,
+                    List.copyOf(refs)));
+        }
+        return Map.copyOf(result);
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // Create-path auto-derive (D2)

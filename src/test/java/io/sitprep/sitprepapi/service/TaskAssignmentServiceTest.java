@@ -3,9 +3,12 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.TaskAssignee;
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.domain.TaskAssignee.Role;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +43,9 @@ class TaskAssignmentServiceTest {
     private TaskAssigneeRepo assigneeRepo;
     private PostRepo taskRepo;
     private AdminAuditLogService audit;
+    private UserInfoRepo userInfoRepo;
+    private NotificationLogRepo notificationLogRepo;
+    private NotificationService notifications;
     private TaskAssignmentService svc;
 
     private Post openTask() {
@@ -71,7 +77,11 @@ class TaskAssignmentServiceTest {
         assigneeRepo = mock(TaskAssigneeRepo.class);
         taskRepo = mock(PostRepo.class);
         audit = mock(AdminAuditLogService.class);
-        svc = new TaskAssignmentService(assigneeRepo, taskRepo, audit);
+        userInfoRepo = mock(UserInfoRepo.class);
+        notificationLogRepo = mock(NotificationLogRepo.class);
+        notifications = mock(NotificationService.class);
+        svc = new TaskAssignmentService(
+                assigneeRepo, taskRepo, audit, userInfoRepo, notificationLogRepo, notifications);
         when(taskRepo.findById(TASK)).thenReturn(Optional.of(openTask()));
         when(assigneeRepo.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
         when(assigneeRepo.save(any())).thenAnswer(i -> i.getArgument(0));
@@ -102,6 +112,41 @@ class TaskAssignmentServiceTest {
         verify(taskRepo).updateAssigneeMirror(eq(TASK), eq("lead@x.com"), any(), any());
         verify(audit).record(eq("admin@x.com"), eq("task.assign"), eq("task"), eq("8146"), any());
         verify(audit, never()).record(any(), eq("task.lead-change"), any(), any(), any());
+    }
+
+    @Test
+    void addLead_newWorker_emitsOneDeepLinkedAssignmentNotification() {
+        UserInfo worker = new UserInfo();
+        worker.setUserEmail("lead@x.com");
+        worker.setFcmtoken("token-1");
+        when(userInfoRepo.findByUserEmailIgnoreCase("lead@x.com")).thenReturn(Optional.of(worker));
+        when(assigneeRepo.findByPostIdAndPrimaryTrue(TASK))
+                .thenReturn(Optional.of(lead("lead@x.com", true)));
+
+        svc.addLead(TASK, "lead@x.com", "admin@x.com");
+
+        verify(notifications).deliverPresenceAwareForGroup(
+                eq("lead@x.com"), eq("New work assignment"), anyString(), eq("SitPrep"),
+                isNull(), eq("task_assigned"), eq("8146"), eq("/work-orders/8146"),
+                eq(GROUP), eq("token-1"), eq(GROUP), eq(PushPolicyService.Category.TASK_ASSIGNED));
+    }
+
+    @Test
+    void addLead_existingLeadAndSelfAssignmentDoNotNotify() {
+        when(assigneeRepo.findByPostIdAndEmailIgnoreCase(TASK, "lead@x.com"))
+                .thenReturn(Optional.of(lead("lead@x.com", true)));
+        svc.addLead(TASK, "lead@x.com", "admin@x.com");
+        verifyNoInteractions(notifications);
+
+        reset(assigneeRepo);
+        when(taskRepo.findById(TASK)).thenReturn(Optional.of(openTask()));
+        when(assigneeRepo.findByPostIdAndEmailIgnoreCase(TASK, "self@x.com")).thenReturn(Optional.empty());
+        when(assigneeRepo.findByPostIdAndRole(TASK, Role.LEAD)).thenReturn(List.of());
+        when(assigneeRepo.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+        when(assigneeRepo.findByPostIdAndPrimaryTrue(TASK))
+                .thenReturn(Optional.of(lead("self@x.com", true)));
+        svc.addLead(TASK, "self@x.com", "self@x.com");
+        verifyNoInteractions(notifications);
     }
 
     @Test

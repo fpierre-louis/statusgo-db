@@ -51,6 +51,19 @@ public class WebSocketMessageSender {
         this.messagingTemplate = messagingTemplate;
     }
 
+    /**
+     * Publish a versioned event on a migrated stream. Legacy sender methods
+     * intentionally remain unchanged until each topic completes its dual-publish
+     * namespace migration.
+     */
+    public void sendEvent(String destination, String eventType, Object data) {
+        if (destination == null || destination.isBlank()) {
+            throw new IllegalArgumentException("destination is required");
+        }
+        messagingTemplate.convertAndSend(
+                destination.trim(), RealtimeEnvelope.v1(eventType, data));
+    }
+
     // --- Direct messages ---
     /**
      * Push a new DM frame to one participant's personal topic
@@ -444,8 +457,4 @@ public class WebSocketMessageSender {
         messagingTemplate.convertAndSend("/topic/notifications/" + key, payload);
     }
 
-    // --- Generic updates ---
-    public void sendGenericUpdate(String topic, Object dto) {
-        messagingTemplate.convertAndSend("/topic/" + topic, dto);
-    }
 }

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
@@ -130,7 +131,8 @@ public class AgencyCivicResource {
     public record MergeRequest(List<Long> duplicateIds) {}
 
     private void requireAgencyAdmin(String groupId, String caller) {
-        agencyAuth.requireAgencyAdmin(loadAgency(groupId), caller);
+        agencyAuth.requireAgencyAdminCapability(
+                loadAgency(groupId), caller, AgencyCapability.OPERATE_CIVIC_QUEUE);
     }
 
     /**

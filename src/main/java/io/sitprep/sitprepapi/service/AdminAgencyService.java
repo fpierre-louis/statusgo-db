@@ -90,7 +90,10 @@ public class AdminAgencyService {
         group.setJurisdictionType(normalizeJurisdictionType(req == null ? null : req.jurisdictionType()));
         stampGeo(group, req == null ? null : req.lat(), req == null ? null : req.lng(),
                 req == null ? null : req.radiusMiles());
-        group.setAgencyAuthorized(true);
+        // Direct platform provisioning has always enabled the verified
+        // publisher's emergency-posting flag below, so grant the matching
+        // group capability here as one atomic provisioning decision.
+        agencyAuthorizationService.applyApprovedCapabilities(group, true);
         addAdminIfAbsent(group, ownerEmail);
         // An admin must also be a member — the same invariant GroupService.addAdmin
         // enforces ("admin must be a member too"). Provisioning did not honour it,
@@ -131,7 +134,7 @@ public class AdminAgencyService {
         String before = geoSummary(group);
         stampGeo(group, req == null ? null : req.lat(), req == null ? null : req.lng(),
                 req == null ? null : req.radiusMiles());
-        group.setAgencyAuthorized(true);
+        agencyAuthorizationService.grantCoreCapabilities(group);
         group.setUpdatedAt(Instant.now());
         Group saved = groupRepo.save(group);
         adminAuditLogService.record(

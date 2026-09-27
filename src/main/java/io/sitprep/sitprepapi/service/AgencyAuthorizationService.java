@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
@@ -11,6 +12,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -21,6 +24,10 @@ import java.util.Set;
 public class AgencyAuthorizationService {
 
     public static final double MAX_RADIUS_MILES = 50.0;
+    private static final Set<AgencyCapability> CORE_CAPABILITIES = Set.of(
+            AgencyCapability.OPERATE_CIVIC_QUEUE,
+            AgencyCapability.MANAGE_WORK,
+            AgencyCapability.MANAGE_STAFF);
 
     private final UserInfoRepo userInfoRepo;
     private final UserGeoService userGeoService;
@@ -35,17 +42,20 @@ public class AgencyAuthorizationService {
     }
 
     public void requireAgencyPostingAllowed(Group agency, String callerEmail) {
-        if (agency == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agency group not found");
-        }
-        if (!GroupRole.fromGroup(agency, callerEmail).isAtLeastAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group admin or owner role required");
-        }
-        if (!agency.isAgencyAuthorized()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agency is not authorized to post");
-        }
-        if (!hasGeo(agency) && legacyZips(agency).isEmpty()) {
+        requireAgencyAdminCapability(agency, callerEmail, AgencyCapability.SEND_AREA_ALERTS);
+        if (!isJurisdictionReady(agency)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agency has no authorized jurisdiction");
+        }
+    }
+
+    /** Admin/owner gate for an individual server-owned agency capability. */
+    public void requireAgencyAdminCapability(Group agency,
+                                             String callerEmail,
+                                             AgencyCapability capability) {
+        requireAgencyAdmin(agency, callerEmail);
+        if (!hasCapability(agency, capability)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Agency is not provisioned for " + capability.name());
         }
     }
 
@@ -106,6 +116,65 @@ public class AgencyAuthorizationService {
         if (!agency.isAgencyAuthorized()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not an authorized agency");
         }
+        if (!hasCapability(agency, AgencyCapability.OPERATE_CIVIC_QUEUE)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Agency is not provisioned for OPERATE_CIVIC_QUEUE");
+        }
+    }
+
+    /**
+     * Apply the organization-level grants created by an approval decision.
+     * Calling this again is idempotent and deliberately revokes area-alert
+     * authority when the current approval does not include it.
+     */
+    public void applyApprovedCapabilities(Group agency, boolean areaAlertsEnabled) {
+        if (agency == null) return;
+        grantCoreCapabilities(agency);
+        if (areaAlertsEnabled) {
+            agency.getAgencyCapabilities().add(AgencyCapability.SEND_AREA_ALERTS);
+        } else {
+            agency.getAgencyCapabilities().remove(AgencyCapability.SEND_AREA_ALERTS);
+        }
+    }
+
+    /** Grant the non-broadcast capabilities every authorized agency receives. */
+    public void grantCoreCapabilities(Group agency) {
+        if (agency == null) return;
+        agency.setAgencyAuthorized(true);
+        ensureCapabilitySet(agency).addAll(CORE_CAPABILITIES);
+    }
+
+    /** Immutable, enum-ordered capability snapshot for DTOs and policy checks. */
+    public static Set<AgencyCapability> capabilitiesOf(Group agency) {
+        EnumSet<AgencyCapability> out = EnumSet.noneOf(AgencyCapability.class);
+        if (agency != null && agency.getAgencyCapabilities() != null) {
+            out.addAll(agency.getAgencyCapabilities());
+        }
+        return Collections.unmodifiableSet(out);
+    }
+
+    public static boolean hasCapability(Group agency, AgencyCapability capability) {
+        return agency != null
+                && capability != null
+                && agency.getAgencyCapabilities() != null
+                && agency.getAgencyCapabilities().contains(capability);
+    }
+
+    /**
+     * Mutable permissions for this viewer. Staff capability grants are a later
+     * slice; today only an agency owner/admin receives the group's operations.
+     */
+    public static Set<AgencyCapability> viewerPermissions(Group agency, String callerEmail) {
+        if (agency == null || !agency.isAgencyAuthorized()
+                || !GroupRole.fromGroup(agency, callerEmail).isAtLeastAdmin()) {
+            return Set.of();
+        }
+        return capabilitiesOf(agency);
+    }
+
+    /** Radius or ZIP readiness, matching the alert recipient resolver. */
+    public static boolean isJurisdictionReady(Group agency) {
+        return hasGeo(agency) || !legacyZips(agency).isEmpty();
     }
 
     /**
@@ -140,7 +209,7 @@ public class AgencyAuthorizationService {
         return new ArrayList<>(byEmail.values());
     }
 
-    public boolean hasGeo(Group agency) {
+    public static boolean hasGeo(Group agency) {
         return agency != null
                 && GeoUtil.validLatLng(agency.getJurisdictionLat(), agency.getJurisdictionLng())
                 && agency.getJurisdictionRadiusMiles() != null
@@ -168,5 +237,12 @@ public class AgencyAuthorizationService {
             if (zip != null && !zip.isBlank()) out.add(zip.trim());
         }
         return out;
+    }
+
+    private static Set<AgencyCapability> ensureCapabilitySet(Group agency) {
+        if (agency.getAgencyCapabilities() == null) {
+            agency.setAgencyCapabilities(new LinkedHashSet<>());
+        }
+        return agency.getAgencyCapabilities();
     }
 }

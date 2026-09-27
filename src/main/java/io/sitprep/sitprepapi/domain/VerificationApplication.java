@@ -102,6 +102,18 @@ public class VerificationApplication {
     @Column(length = 1000)
     private String reviewerNotes;
 
+    @Column(name = "applicant_status_note", length = 1000)
+    private String applicantStatusNote;
+
+    @Column(name = "status_token_hash", length = 64)
+    private String statusTokenHash;
+
+    @Column(name = "status_token_expires_at")
+    private Instant statusTokenExpiresAt;
+
+    @Column(name = "status_token_revoked_at")
+    private Instant statusTokenRevokedAt;
+
     @Column(length = 160)
     private String reviewerEmail;
 

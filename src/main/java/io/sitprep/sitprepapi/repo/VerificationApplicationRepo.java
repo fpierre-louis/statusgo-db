@@ -24,6 +24,14 @@ public interface VerificationApplicationRepo extends JpaRepository<VerificationA
 
     List<VerificationApplication> findAllByOrderByUpdatedAtDesc();
 
+    @Query("""
+           SELECT a FROM VerificationApplication a
+            WHERE LOWER(a.applicantEmail) = LOWER(:email)
+               OR LOWER(a.submitterEmail) = LOWER(:email)
+            ORDER BY a.updatedAt DESC
+           """)
+    List<VerificationApplication> findApplicantRequests(@Param("email") String email);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
            UPDATE VerificationApplication a

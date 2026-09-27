@@ -6,6 +6,9 @@ import io.sitprep.sitprepapi.domain.VerificationApplicationNote;
 import io.sitprep.sitprepapi.dto.AddAgencyRequestNoteRequest;
 import io.sitprep.sitprepapi.dto.AgencyRequestDetailDto;
 import io.sitprep.sitprepapi.dto.AgencyRequestDto;
+import io.sitprep.sitprepapi.dto.AgencyRequestStatusDto;
+import io.sitprep.sitprepapi.dto.AgencyRequestSubmissionDto;
+import io.sitprep.sitprepapi.dto.AgencyApplicantResponseRequest;
 import io.sitprep.sitprepapi.dto.AssignAgencyRequestRequest;
 import io.sitprep.sitprepapi.dto.AuthorizeAgencyRequestRequest;
 import io.sitprep.sitprepapi.dto.BulkAssignAgencyRequestsRequest;
@@ -22,7 +25,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -30,6 +40,9 @@ import java.util.UUID;
 
 @Service
 public class AgencyRequestService {
+
+    private static final SecureRandom STATUS_TOKEN_RANDOM = new SecureRandom();
+    private static final int STATUS_TOKEN_DAYS = 90;
 
     private static final Set<VerificationApplication.Status> OPEN_STATUSES = Set.of(
             VerificationApplication.Status.SUBMITTED,
@@ -62,7 +75,7 @@ public class AgencyRequestService {
     }
 
     @Transactional
-    public AgencyRequestDto create(CreateAgencyRequestRequest req, String submitterEmail) {
+    public AgencyRequestSubmissionDto create(CreateAgencyRequestRequest req, String submitterEmail) {
         String officialEmail = requireEmail(req == null ? null : req.officialEmail(), "officialEmail");
         String agencyName = requireText(req == null ? null : req.agencyName(), "agencyName", 240);
         String actor = normalizeEmail(submitterEmail);
@@ -72,7 +85,7 @@ public class AgencyRequestService {
                 .findFirstByOfficialEmailIgnoreCaseAndPublicNameIgnoreCaseAndStatusInOrderByUpdatedAtDesc(
                         officialEmail, agencyName, OPEN_STATUSES);
         if (duplicate.isPresent()) {
-            return toDto(duplicate.get());
+            return submission(duplicate.get(), null);
         }
 
         Instant now = Instant.now();
@@ -93,6 +106,9 @@ public class AgencyRequestService {
         app.setNotes(trim(req == null ? null : req.message(), 1000));
         app.setStatus(VerificationApplication.Status.SUBMITTED);
         app.setSubmittedAt(now);
+        String statusToken = newStatusToken();
+        app.setStatusTokenHash(hashStatusToken(statusToken));
+        app.setStatusTokenExpiresAt(now.plus(STATUS_TOKEN_DAYS, ChronoUnit.DAYS));
         VerificationApplication saved = applicationRepo.save(app);
         adminAuditLogService.record(
                 actor,
@@ -100,7 +116,43 @@ public class AgencyRequestService {
                 "request",
                 String.valueOf(saved.getId()),
                 "agency=" + agencyName + "; officialEmail=" + officialEmail);
-        return toDto(saved);
+        return submission(saved, statusToken);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgencyRequestStatusDto> applicantRequests(String callerEmail) {
+        String caller = requireActor(callerEmail);
+        return applicationRepo.findApplicantRequests(caller).stream()
+                .map(AgencyRequestStatusDto::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AgencyRequestStatusDto applicantStatus(Long id, String token, String callerEmail) {
+        VerificationApplication app = requireApp(id);
+        requireApplicantAccess(app, token, callerEmail);
+        return AgencyRequestStatusDto.from(app);
+    }
+
+    @Transactional
+    public AgencyRequestStatusDto applicantRespond(Long id,
+                                                   AgencyApplicantResponseRequest req,
+                                                   String token,
+                                                   String callerEmail) {
+        VerificationApplication app = requireApp(id);
+        requireApplicantAccess(app, token, callerEmail);
+        if (app.getStatus() != VerificationApplication.Status.NEEDS_INFO) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This request is not waiting for information");
+        }
+        String message = requireText(req == null ? null : req.message(), "message", 1000);
+        VerificationApplicationNote note = new VerificationApplicationNote();
+        note.setApplicationId(id);
+        note.setAuthorEmail(firstPresent(normalizeEmail(callerEmail), app.getApplicantEmail(), app.getOfficialEmail()));
+        note.setNote(message);
+        noteRepo.save(note);
+        app.setStatus(VerificationApplication.Status.IN_REVIEW);
+        app.setApplicantStatusNote("Additional information received. Review is continuing.");
+        return AgencyRequestStatusDto.from(applicationRepo.save(app));
     }
 
     @Transactional(readOnly = true)
@@ -219,6 +271,7 @@ public class AgencyRequestService {
         app.setStatus(next);
         app.setReviewerEmail(actor);
         app.setReviewerNotes(trim(req == null ? null : req.reviewerNotes(), 1000));
+        app.setApplicantStatusNote(trim(req == null ? null : req.applicantStatusNote(), 1000));
         app.setReviewedAt(Instant.now());
         VerificationApplication saved = applicationRepo.save(app);
         adminAuditLogService.record(
@@ -366,8 +419,68 @@ public class AgencyRequestService {
                 findGroup(requireApp(id).getGroupId()));
     }
 
+    @Transactional
+    public void revokeApplicantStatusLink(Long id, String actorEmail) {
+        String actor = requireActor(actorEmail);
+        VerificationApplication app = requireApp(id);
+        app.setStatusTokenRevokedAt(Instant.now());
+        applicationRepo.save(app);
+        adminAuditLogService.record(actor, "REVOKED_REQUEST_STATUS_LINK", "request",
+                String.valueOf(id), "Applicant status capability revoked");
+    }
+
     private AgencyRequestDto toDto(VerificationApplication app) {
         return AgencyRequestDto.from(app, findGroup(app.getGroupId()));
+    }
+
+    private static AgencyRequestSubmissionDto submission(VerificationApplication app, String token) {
+        return new AgencyRequestSubmissionDto(
+                app.getId(), firstPresent(app.getPublicName(), app.getLegalName(), "Agency request"),
+                app.getStatus() == null ? null : app.getStatus().name(), token,
+                token == null ? null : app.getStatusTokenExpiresAt(), app.getSubmittedAt());
+    }
+
+    private static boolean owns(VerificationApplication app, String caller) {
+        return caller != null && (sameEmail(app.getApplicantEmail(), caller)
+                || sameEmail(app.getSubmitterEmail(), caller));
+    }
+
+    private static void requireApplicantAccess(VerificationApplication app,
+                                               String token,
+                                               String callerEmail) {
+        if (!owns(app, normalizeEmail(callerEmail)) && !validStatusToken(app, token, Instant.now())) {
+            // Hide whether an id exists from callers without ownership or the
+            // capability token.
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Request not found");
+        }
+    }
+
+    private static boolean validStatusToken(VerificationApplication app, String rawToken, Instant now) {
+        if (rawToken == null || rawToken.isBlank()
+                || app.getStatusTokenHash() == null
+                || app.getStatusTokenRevokedAt() != null
+                || app.getStatusTokenExpiresAt() == null
+                || !app.getStatusTokenExpiresAt().isAfter(now)) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                app.getStatusTokenHash().getBytes(StandardCharsets.US_ASCII),
+                hashStatusToken(rawToken.trim()).getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private static String newStatusToken() {
+        byte[] bytes = new byte[32];
+        STATUS_TOKEN_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String hashStatusToken(String token) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
     }
 
     private VerificationApplication requireApp(Long id) {

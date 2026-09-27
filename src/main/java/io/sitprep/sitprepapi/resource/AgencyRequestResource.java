@@ -4,6 +4,9 @@ import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.dto.AddAgencyRequestNoteRequest;
 import io.sitprep.sitprepapi.dto.AgencyRequestDetailDto;
 import io.sitprep.sitprepapi.dto.AgencyRequestDto;
+import io.sitprep.sitprepapi.dto.AgencyRequestStatusDto;
+import io.sitprep.sitprepapi.dto.AgencyRequestSubmissionDto;
+import io.sitprep.sitprepapi.dto.AgencyApplicantResponseRequest;
 import io.sitprep.sitprepapi.dto.AssignAgencyRequestRequest;
 import io.sitprep.sitprepapi.dto.AuthorizeAgencyRequestRequest;
 import io.sitprep.sitprepapi.dto.BulkAssignAgencyRequestsRequest;
@@ -39,8 +42,29 @@ public class AgencyRequestResource {
     }
 
     @PostMapping("/api/agency/requests")
-    public ResponseEntity<AgencyRequestDto> create(@RequestBody CreateAgencyRequestRequest req) {
+    public ResponseEntity<AgencyRequestSubmissionDto> create(@RequestBody CreateAgencyRequestRequest req) {
         return ResponseEntity.ok(service.create(req, AuthUtils.getCurrentUserEmail()));
+    }
+
+    @GetMapping("/api/agency/requests/mine")
+    public ResponseEntity<List<AgencyRequestStatusDto>> mine() {
+        return ResponseEntity.ok(service.applicantRequests(AuthUtils.requireAuthenticatedEmail()));
+    }
+
+    @GetMapping("/api/agency/requests/{id}/status")
+    public ResponseEntity<AgencyRequestStatusDto> applicantStatus(
+            @PathVariable Long id,
+            @RequestParam(value = "token", required = false) String token) {
+        return ResponseEntity.ok(service.applicantStatus(id, token, AuthUtils.getCurrentUserEmail()));
+    }
+
+    @PostMapping("/api/agency/requests/{id}/status/respond")
+    public ResponseEntity<AgencyRequestStatusDto> applicantRespond(
+            @PathVariable Long id,
+            @RequestParam(value = "token", required = false) String token,
+            @RequestBody AgencyApplicantResponseRequest req) {
+        return ResponseEntity.ok(service.applicantRespond(
+                id, req, token, AuthUtils.getCurrentUserEmail()));
     }
 
     @GetMapping("/api/admin/requests")
@@ -150,6 +174,17 @@ public class AgencyRequestResource {
         var access = resolve(token);
         access.require(PlatformPermission.GRANT_AUTHORITY_STAMP);
         return ResponseEntity.ok(service.provision(id, access.auditActorEmail()));
+    }
+
+    @PostMapping("/api/admin/requests/{id}/status-link/revoke")
+    public ResponseEntity<Void> revokeStatusLink(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token
+    ) {
+        var access = resolve(token);
+        access.require(PlatformPermission.REVIEW_AGENCY_REQUESTS);
+        service.revokeApplicantStatusLink(id, access.auditActorEmail());
+        return ResponseEntity.noContent().build();
     }
 
     private PlatformAccessService.PlatformAccess resolve(String token) {

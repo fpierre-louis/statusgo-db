@@ -13,5 +13,8 @@ public record AgencyAlertResultDto(
         Long postId,
         int recipientCount,
         List<String> targetedZips,
-        boolean duplicate
+        boolean duplicate,
+        String status,
+        int deliveredCount,
+        int failedCount
 ) {}

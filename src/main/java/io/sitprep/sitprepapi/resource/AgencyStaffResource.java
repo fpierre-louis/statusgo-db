@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.AgencyStaff;
 import io.sitprep.sitprepapi.domain.Group;
@@ -106,6 +107,6 @@ public class AgencyStaffResource {
         if (access.role() != PlatformRole.NONE) {
             return; // platform admin — allowed to manage any agency's staff (D-e)
         }
-        agencyAuth.requireAgencyAdmin(agency, caller);
+        agencyAuth.requireAgencyAdminCapability(agency, caller, AgencyCapability.MANAGE_STAFF);
     }
 }

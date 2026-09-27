@@ -1,3 +1,3 @@
 package io.sitprep.sitprepapi.dto;
 
-public record PatchAgencyRequestRequest(String state, String reviewerNotes) {}
+public record PatchAgencyRequestRequest(String state, String reviewerNotes, String applicantStatusNote) {}

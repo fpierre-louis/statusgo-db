@@ -2,13 +2,17 @@ package io.sitprep.sitprepapi.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Entity
 @Table(name = "groups")
@@ -243,7 +247,20 @@ public class Group {
     private Double jurisdictionRadiusMiles;
 
     @Column(name = "agency_authorized", columnDefinition = "boolean NOT NULL DEFAULT false")
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private boolean agencyAuthorized = false;
+
+    /**
+     * Operations this agency has been explicitly provisioned to perform.
+     * Emergency/area alert authority is deliberately separate from the broad
+     * {@link #agencyAuthorized} organization stamp.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "group_agency_capability", joinColumns = @JoinColumn(name = "group_id"))
+    @Enumerated(EnumType.STRING)
+    @Column(name = "capability", nullable = false, length = 48)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private Set<AgencyCapability> agencyCapabilities = new LinkedHashSet<>();
 
     // -----------------------------------------------------------------
     // Multi-tenant claim lifecycle — Phase 1 (V43__unified_workorder_schema).

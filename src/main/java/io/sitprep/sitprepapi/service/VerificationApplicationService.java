@@ -315,7 +315,7 @@ public class VerificationApplicationService {
                 group.setJurisdictionLng(lng);
                 group.setJurisdictionRadiusMiles(radiusMiles);
                 group.setLogoImageUrl(logoImageUrl);
-                group.setAgencyAuthorized(true);
+                agencyAuthorizationService.applyApprovedCapabilities(group, emergencyPostingEnabled);
                 group.setLatitude(lat);
                 group.setLongitude(lng);
                 addAdminIfAbsent(group, publisherEmail);

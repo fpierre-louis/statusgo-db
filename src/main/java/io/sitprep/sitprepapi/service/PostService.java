@@ -1275,6 +1275,9 @@ public class PostService {
         // Slice 3 — per-canonical duplicate ids for mergedDuplicateCount/ids.
         Map<Long, List<Long>> dupsByCanonical = civicAgencyService.duplicateIdsByCanonical(
                 rows.stream().map(Post::getId).collect(Collectors.toList()));
+        Map<Long, CivicAgencyService.LinkedWorkProgress> workByCanonical =
+                civicAgencyService.linkedWorkProgress(
+                        rows.stream().map(Post::getId).collect(Collectors.toList()));
 
         CivicStatus filter = (statusWire == null || statusWire.isBlank())
                 ? null : CivicStatus.fromWire(statusWire.trim().toLowerCase());
@@ -1292,7 +1295,9 @@ public class PostService {
             }
             if (filter != null && s != filter) continue;
             reports.add(toCivicSummary(p, tagsByPost.getOrDefault(p.getId(), List.of()),
-                    dupsByCanonical.getOrDefault(p.getId(), List.of())));
+                    dupsByCanonical.getOrDefault(p.getId(), List.of()),
+                    workByCanonical.getOrDefault(
+                            p.getId(), CivicAgencyService.LinkedWorkProgress.empty())));
         }
         int total = reported + acknowledged + scheduled + resolved;
         return new CivicQueueDto(
@@ -1301,7 +1306,10 @@ public class PostService {
     }
 
     private static CivicQueueDto.CivicReportSummary toCivicSummary(
-            Post p, List<CivicAgencyService.AgencyTag> tags, List<Long> mergedDuplicateIds) {
+            Post p,
+            List<CivicAgencyService.AgencyTag> tags,
+            List<Long> mergedDuplicateIds,
+            CivicAgencyService.LinkedWorkProgress linkedWork) {
         List<CivicQueueDto.AgencyRef> tagged = new ArrayList<>();
         for (CivicAgencyService.AgencyTag t : tags) {
             tagged.add(new CivicQueueDto.AgencyRef(
@@ -1322,6 +1330,17 @@ public class PostService {
             Object a = wd.get("addressStreet");
             if (a != null && !a.toString().isBlank()) formattedAddress = a.toString().trim();
         }
+        CivicQueueDto.LinkedWorkSummary linkedWorkDto = new CivicQueueDto.LinkedWorkSummary(
+                linkedWork.total(),
+                linkedWork.active(),
+                linkedWork.inProgress(),
+                linkedWork.completed(),
+                linkedWork.cancelled(),
+                linkedWork.resolutionReady(),
+                linkedWork.workOrders().stream()
+                        .map(w -> new CivicQueueDto.LinkedWorkOrderRef(
+                                w.id(), w.title(), w.status(), w.updatedAt()))
+                        .toList());
         return new CivicQueueDto.CivicReportSummary(
                 p.getId(),
                 p.getCivicCategory(),
@@ -1346,7 +1365,8 @@ public class PostService {
                 mergedDuplicateIds == null ? 0 : mergedDuplicateIds.size(),
                 mergedDuplicateIds == null ? List.of() : mergedDuplicateIds,
                 // First photo → public URL (same fold as imageKeys→imageUrls).
-                firstImageUrl(p));
+                firstImageUrl(p),
+                linkedWorkDto);
     }
 
     /** The report's first image key resolved to a public URL, or null. */
@@ -2112,6 +2132,10 @@ public class PostService {
         if (rows == 0) {
             throw new IllegalStateException(
                     "Post must be open or claimed before marking in-progress");
+        }
+        Long scheduledReportId = civicAgencyService.scheduleReportWhenLinkedWorkStarts(postId);
+        if (scheduledReportId != null && scheduledReportId > 0) {
+            refetchAndBroadcast(scheduledReportId);
         }
         auditWorkOrder(t, "task.start", t.getStatus() + " -> IN_PROGRESS");
         return refetchAndBroadcast(postId);

@@ -1067,29 +1067,38 @@ public class NotificationService {
      * {@code interruption-level: time-sensitive} so it still breaks
      * through Focus modes (see {@link #applyIosLockScreenAffordances}).</p>
      */
-    public void sendHazardAlertBatch(List<UserInfo> recipients,
-                                     String title,
-                                     String body,
-                                     String referenceId,
-                                     String targetUrl) {
-        sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl, null);
+    public record HazardBatchResult(int attempted, int delivered, int failed, String lastError) {}
+
+    public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
+                                                  String title,
+                                                  String body,
+                                                  String referenceId,
+                                                  String targetUrl) {
+        return sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl, null);
     }
 
-    public void sendHazardAlertBatch(List<UserInfo> recipients,
-                                     String title,
-                                     String body,
-                                     String referenceId,
-                                     String targetUrl,
-                                     String additionalData) {
-        if (recipients == null || recipients.isEmpty()) return;
+    public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
+                                                  String title,
+                                                  String body,
+                                                  String referenceId,
+                                                  String targetUrl,
+                                                  String additionalData) {
+        if (recipients == null || recipients.isEmpty()) {
+            return new HazardBatchResult(0, 0, 0, null);
+        }
 
         final String type = "hazard_alert";
         List<String> batchTokens = new ArrayList<>();
         List<UserInfo> batchUsers = new ArrayList<>();
+        int attempted = 0;
+        int delivered = 0;
+        int failed = 0;
+        String lastError = null;
 
         for (UserInfo u : recipients) {
             String email = u != null ? u.getUserEmail() : null;
             if (email == null) continue;
+            attempted++;
 
             // Foregrounded client → best-effort in-app STOMP banner.
             // Unlike before, this does NOT skip FCM: the recipient still
@@ -1112,68 +1121,84 @@ public class NotificationService {
             if (token == null || token.isEmpty()) {
                 saveLogRow(email, type, null, title, body, referenceId, targetUrl,
                         additionalData, false, "No token", null, null, null);
+                failed++;
+                lastError = "No token";
                 continue;
             }
             batchTokens.add(token);
             batchUsers.add(u);
         }
 
-        if (batchTokens.isEmpty()) return;
+        for (BatchRange range : hazardBatchRanges(batchTokens.size())) {
+            int start = range.start();
+            int end = range.end();
+            List<String> tokens = batchTokens.subList(start, end);
+            List<UserInfo> users = batchUsers.subList(start, end);
+            MulticastMessage multicast = MulticastMessage.builder()
+                    .addAllTokens(tokens)
+                    .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                    .putData("notificationType", type)
+                    .putData("referenceId", safe(referenceId))
+                    .putData("targetUrl", safe(targetUrl))
+                    .putData("title", safe(title))
+                    .putData("body", safe(body))
+                    .putData("additionalData", safe(additionalData))
+                    .putData("channelId", channelForType(type))
+                    .putData("category", categoryForType(type))
+                    .setAndroidConfig(AndroidConfig.builder()
+                            .setPriority(AndroidConfig.Priority.HIGH)
+                            .setNotification(AndroidNotification.builder().setSound("default").build())
+                            .build())
+                    .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData))
+                    .build();
 
-        MulticastMessage multicast = MulticastMessage.builder()
-                .addAllTokens(batchTokens)
-                .setNotification(Notification.builder()
-                        .setTitle(title)
-                        .setBody(body)
-                        .build())
-                .putData("notificationType", type)
-                .putData("referenceId", safe(referenceId))
-                .putData("targetUrl", safe(targetUrl))
-                .putData("title", safe(title))
-                .putData("body", safe(body))
-                .putData("additionalData", safe(additionalData))
-                .putData("channelId", channelForType(type))
-                .putData("category", categoryForType(type))
-                .setAndroidConfig(AndroidConfig.builder()
-                        .setPriority(AndroidConfig.Priority.HIGH)
-                        .setNotification(AndroidNotification.builder()
-                                .setSound("default")
-                                .build())
-                        .build())
-                .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData))
-                .build();
-
-        try {
-            BatchResponse resp = FirebaseMessaging.getInstance().sendEachForMulticast(multicast);
-            List<SendResponse> responses = resp.getResponses();
-            for (int i = 0; i < responses.size() && i < batchUsers.size(); i++) {
-                SendResponse r = responses.get(i);
-                UserInfo u = batchUsers.get(i);
-                String token = batchTokens.get(i);
-                if (r.isSuccessful()) {
-                    saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                            additionalData, true, null, null, null, null);
-                } else {
-                    FirebaseMessagingException ex = r.getException();
-                    String err = ex != null ? ex.getMessage() : "Unknown FCM error";
-                    saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                            additionalData, false, err, null, null, null);
-                    handleFcmDeliveryError(ex, u.getUserEmail(), token);
+            try {
+                BatchResponse resp = FirebaseMessaging.getInstance().sendEachForMulticast(multicast);
+                List<SendResponse> responses = resp.getResponses();
+                for (int i = 0; i < users.size(); i++) {
+                    UserInfo u = users.get(i);
+                    String token = tokens.get(i);
+                    SendResponse response = i < responses.size() ? responses.get(i) : null;
+                    if (response != null && response.isSuccessful()) {
+                        delivered++;
+                        saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                                additionalData, true, null, null, null, null);
+                    } else {
+                        failed++;
+                        FirebaseMessagingException ex = response == null ? null : response.getException();
+                        String err = ex != null ? ex.getMessage() : "Unknown FCM error";
+                        lastError = err;
+                        saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                                additionalData, false, err, null, null, null);
+                        handleFcmDeliveryError(ex, u.getUserEmail(), token);
+                    }
+                }
+                logger.info("📣 Hazard-alert multicast '{}' chunk {}-{}: {} delivered, {} failed",
+                        referenceId, start, end, resp.getSuccessCount(), resp.getFailureCount());
+            } catch (Exception e) {
+                lastError = e.getMessage();
+                failed += users.size();
+                logger.error("❌ Hazard-alert multicast send failed for {} chunk {}-{}: {}",
+                        referenceId, start, end, e.getMessage(), e);
+                for (int i = 0; i < users.size(); i++) {
+                    saveLogRow(users.get(i).getUserEmail(), type, tokens.get(i),
+                            title, body, referenceId, targetUrl, additionalData,
+                            false, e.getMessage(), null, null, null);
                 }
             }
-            logger.info("📣 Hazard-alert multicast '{}': {} delivered, {} failed",
-                    referenceId, resp.getSuccessCount(), resp.getFailureCount());
-        } catch (Exception e) {
-            logger.error("❌ Hazard-alert multicast send failed for {}: {}", referenceId, e.getMessage(), e);
-            // Whole-batch failure — log a failed row per recipient so the
-            // inbox still reflects the intent.
-            for (int i = 0; i < batchUsers.size(); i++) {
-                saveLogRow(batchUsers.get(i).getUserEmail(), type, batchTokens.get(i),
-                        title, body, referenceId, targetUrl, additionalData,
-                        false, e.getMessage(), null, null, null);
-            }
         }
+        return new HazardBatchResult(attempted, delivered, failed, lastError);
     }
+
+    static List<BatchRange> hazardBatchRanges(int recipientCount) {
+        List<BatchRange> ranges = new ArrayList<>();
+        for (int start = 0; start < Math.max(0, recipientCount); start += 500) {
+            ranges.add(new BatchRange(start, Math.min(start + 500, recipientCount)));
+        }
+        return ranges;
+    }
+
+    record BatchRange(int start, int end) {}
 
     /**
      * APNs block for a {@code hazard_alert} multicast. Mirrors the APNs

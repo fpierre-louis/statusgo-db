@@ -128,6 +128,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/readiness/assessment/questions").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/readiness/assessment/evaluate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/agency/requests").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/agency/requests/*/status").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/agency/requests/*/respond").permitAll()
 
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()

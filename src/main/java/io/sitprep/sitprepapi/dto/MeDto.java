@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.dto;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -375,6 +376,12 @@ public record MeDto(
              * Always false for non-agency groups and pending rows.
              */
             boolean agencyStaff,
+            /** Organization operations provisioned by platform review. */
+            java.util.Set<AgencyCapability> agencyCapabilities,
+            /** Mutation permissions available to this viewer in this agency. */
+            java.util.Set<AgencyCapability> viewerAgencyPermissions,
+            /** True when either valid radius or authorized ZIP coverage exists. */
+            boolean jurisdictionReady,
             /**
              * Group record's audit timestamp — bumped on group-field
              * edits (name, alert toggled, etc.). Retained for legacy

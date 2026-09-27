@@ -7,11 +7,13 @@ import io.sitprep.sitprepapi.domain.Post.PostPriority;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.AgencyAlertResultDto;
+import io.sitprep.sitprepapi.dto.AgencyAlertStatusDto;
 import io.sitprep.sitprepapi.dto.SendAgencyAlertRequest;
 import io.sitprep.sitprepapi.repo.AgencyAlertRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,11 +34,10 @@ import java.util.Set;
  * clamping, an idempotency guard against double-sends, and recipients found
  * by an indexed zip lookup (Slice C) rather than a Haversine scan.
  *
- * <p><b>v1 scope notes:</b> dispatch reuses {@code sendHazardAlertBatch}
- * (one batched multicast, still subject to the notification layer) and runs
- * within this transaction — fine for beta volume; move it off-transaction /
- * async when a single blast can exceed a few thousand recipients. Stale
- * recipients are bounded by a {@value #RECENCY_DAYS}-day last-seen window.</p>
+ * <p>Submission commits an official feed post, recipient snapshot, and queued
+ * dispatch record atomically. {@link AgencyAlertDispatchService} performs the
+ * provider call after commit. Stale recipients are bounded by a
+ * {@value #RECENCY_DAYS}-day last-seen window.</p>
  */
 @Service
 public class AgencyAlertService {
@@ -48,18 +49,15 @@ public class AgencyAlertService {
     private final AgencyAlertRepo agencyAlertRepo;
     private final PostRepo postRepo;
     private final AgencyAuthorizationService agencyAuthorizationService;
-    private final NotificationService notificationService;
 
     public AgencyAlertService(GroupRepo groupRepo,
                               AgencyAlertRepo agencyAlertRepo,
                               PostRepo postRepo,
-                              AgencyAuthorizationService agencyAuthorizationService,
-                              NotificationService notificationService) {
+                              AgencyAuthorizationService agencyAuthorizationService) {
         this.groupRepo = groupRepo;
         this.agencyAlertRepo = agencyAlertRepo;
         this.postRepo = postRepo;
         this.agencyAuthorizationService = agencyAuthorizationService;
-        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -95,8 +93,8 @@ public class AgencyAlertService {
 
         String title = trim(req == null ? null : req.title(), 200);
         String body = trim(req == null ? null : req.body(), 2000);
-        if (title == null && body == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Alert needs a title or a message");
+        if (title == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Alert title is required");
         }
         String tier = normalizeTier(req == null ? null : req.officialTier());
 
@@ -120,7 +118,10 @@ public class AgencyAlertService {
             if (existing != null) {
                 return new AgencyAlertResultDto(existing.getId(), existing.getPostId(),
                         existing.getRecipientCount() == null ? 0 : existing.getRecipientCount(),
-                        targetZips, true);
+                        targetZips, true,
+                        statusOf(existing).name(),
+                        existing.getDeliveredCount(),
+                        existing.getFailedCount());
             }
             throw dup;
         }
@@ -148,22 +149,47 @@ public class AgencyAlertService {
         // Recipients — radius when provisioned, legacy zip lookup otherwise.
         Instant since = Instant.now().minus(RECENCY_DAYS, ChronoUnit.DAYS);
         List<UserInfo> recipients = agencyAuthorizationService.recipients(group, since);
-
-        String pushTitle = title != null ? title : ("Alert from " + safe(group.getGroupName()));
-        notificationService.sendHazardAlertBatch(
-                recipients,
-                pushTitle,
-                body == null ? "" : body,
-                "agency-alert:" + savedPost.getId(),
-                "/community/posts/" + savedPost.getId()
-        );
+        List<String> recipientSnapshot = recipients.stream()
+                .map(UserInfo::getUserEmail)
+                .filter(email -> email != null && !email.isBlank())
+                .map(email -> email.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
 
         alert.setPostId(savedPost.getId());
-        alert.setRecipientCount(recipients.size());
-        alert.setDispatchedAt(Instant.now());
+        alert.setRecipientCount(recipientSnapshot.size());
+        alert.setRecipientEmails(recipientSnapshot);
+        alert.setDispatchStatus(AgencyAlert.DispatchStatus.QUEUED);
+        alert.setQueuedAt(Instant.now());
+        alert.setNextAttemptAt(alert.getQueuedAt());
         agencyAlertRepo.save(alert);
 
-        return new AgencyAlertResultDto(alert.getId(), savedPost.getId(), recipients.size(), targetZips, false);
+        return new AgencyAlertResultDto(alert.getId(), savedPost.getId(), recipientSnapshot.size(), targetZips, false,
+                alert.getDispatchStatus().name(), 0, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgencyAlertStatusDto> list(String groupId, String callerEmail, int limit) {
+        Group group = groupRepo.findByGroupId(groupId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        agencyAuthorizationService.requireAgencyAdmin(group, callerEmail);
+        int bounded = Math.max(1, Math.min(limit, 50));
+        return agencyAlertRepo.findByPublisherGroupIdOrderByCreatedAtDesc(
+                        groupId, PageRequest.of(0, bounded)).stream()
+                .map(AgencyAlertStatusDto::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AgencyAlertStatusDto get(String groupId, Long alertId, String callerEmail) {
+        Group group = groupRepo.findByGroupId(groupId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        agencyAuthorizationService.requireAgencyAdmin(group, callerEmail);
+        AgencyAlert alert = agencyAlertRepo.findById(alertId)
+                .filter(candidate -> groupId.equals(candidate.getPublisherGroupId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Alert not found"));
+        return AgencyAlertStatusDto.from(alert);
     }
 
     private static String buildDedupKey(String groupId, String clientKey, String title, String body) {
@@ -181,6 +207,12 @@ public class AgencyAlertService {
         return TIERS.contains(v) ? v : "advisory";
     }
 
+    private static AgencyAlert.DispatchStatus statusOf(AgencyAlert alert) {
+        return alert.getDispatchStatus() == null
+                ? AgencyAlert.DispatchStatus.QUEUED
+                : alert.getDispatchStatus();
+    }
+
 
     private static String trim(String raw, int max) {
         if (raw == null) return null;
@@ -189,7 +221,4 @@ public class AgencyAlertService {
         return v.length() <= max ? v : v.substring(0, max);
     }
 
-    private static String safe(String s) {
-        return s == null ? "your area" : s;
-    }
 }

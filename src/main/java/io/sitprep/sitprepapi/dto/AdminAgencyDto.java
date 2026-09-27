@@ -1,8 +1,11 @@
 package io.sitprep.sitprepapi.dto;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.service.AgencyAuthorizationService;
 
 import java.util.List;
+import java.util.Set;
 
 public record AdminAgencyDto(
         String groupId,
@@ -21,6 +24,7 @@ public record AdminAgencyDto(
         Double jurisdictionRadiusMiles,
         String jurisdictionType,
         String groupUrl,
+        Set<AgencyCapability> agencyCapabilities,
         /**
          * The agency's admin roster — needed by the platform console to render
          * and manage admins (Lane B2 of
@@ -57,6 +61,7 @@ public record AdminAgencyDto(
                 group.getJurisdictionRadiusMiles(),
                 group.getJurisdictionType(),
                 group.getGroupId() == null ? null : "/groups/" + group.getGroupId(),
+                AgencyAuthorizationService.capabilitiesOf(group),
                 // Defensive copy of an EAGER @ElementCollection — never hand a
                 // Hibernate-managed PersistentBag out on a DTO. Nulls are
                 // filtered rather than copied: legacy rows can carry them (every

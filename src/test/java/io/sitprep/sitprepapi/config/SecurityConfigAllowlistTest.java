@@ -83,6 +83,10 @@ class SecurityConfigAllowlistTest {
             "GET,  /api/readiness/assessment/questions",
             "POST, /api/readiness/assessment/evaluate",
             "POST, /api/agency/requests",
+            // Applicant status links use a one-time capability token rather
+            // than requiring the applicant to create an account.
+            "GET,  /api/agency/requests/does-not-exist/status?token=nope",
+            "POST, /api/agency/requests/does-not-exist/respond?token=nope",
             // Ghost-tenant opt-out — signed token in the URL is the auth.
             "GET,  /api/public/outreach/opt-out?token=nope",
     })

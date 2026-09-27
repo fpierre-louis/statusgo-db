@@ -6,10 +6,16 @@ import io.sitprep.sitprepapi.domain.TaskAssignee;
 import io.sitprep.sitprepapi.domain.TaskAssignee.Role;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.EnumSet;
@@ -54,6 +60,8 @@ import java.util.Set;
 @Service
 public class TaskAssignmentService {
 
+    private static final Logger log = LoggerFactory.getLogger(TaskAssignmentService.class);
+
     /** Terminal states an assignment can't be applied to (parity with legacy assign). */
     private static final Set<PostStatus> CLOSED =
             EnumSet.of(PostStatus.DONE, PostStatus.CANCELLED, PostStatus.ARCHIVED);
@@ -61,12 +69,21 @@ public class TaskAssignmentService {
     private final TaskAssigneeRepo assigneeRepo;
     private final PostRepo taskRepo;
     private final AdminAuditLogService audit;
+    private final UserInfoRepo userInfoRepo;
+    private final NotificationLogRepo notificationLogRepo;
+    private final NotificationService notifications;
 
     public TaskAssignmentService(TaskAssigneeRepo assigneeRepo, PostRepo taskRepo,
-                                 AdminAuditLogService audit) {
+                                 AdminAuditLogService audit,
+                                 UserInfoRepo userInfoRepo,
+                                 NotificationLogRepo notificationLogRepo,
+                                 NotificationService notifications) {
         this.assigneeRepo = assigneeRepo;
         this.taskRepo = taskRepo;
         this.audit = audit;
+        this.userInfoRepo = userInfoRepo;
+        this.notificationLogRepo = notificationLogRepo;
+        this.notifications = notifications;
     }
 
     // -----------------------------------------------------------------
@@ -107,6 +124,7 @@ public class TaskAssignmentService {
         rederiveMirror(taskId);
         audit.record(actor, "task.assign", "task", String.valueOf(taskId),
                 "LEAD = " + lead + (row.isPrimary() ? " (primary)" : "") + grp(t));
+        if (existing.isEmpty()) notifyNewAssignmentAfterCommit(t, row, actor);
     }
 
     /**
@@ -206,6 +224,7 @@ public class TaskAssignmentService {
         rederiveMirror(taskId);
         audit.record(actor, "task.add-helper", "task", String.valueOf(taskId),
                 "HELPER + " + helper + grp(t));
+        notifyNewAssignmentAfterCommit(t, row, actor);
     }
 
     /**
@@ -271,6 +290,51 @@ public class TaskAssignmentService {
                 primary == null ? null : primary.getEmail(),
                 primary == null ? null : primary.getAssignedBy(),
                 primary == null ? null : primary.getAssignedAt());
+    }
+
+    private void notifyNewAssignmentAfterCommit(Post task, TaskAssignee assignee, String actor) {
+        String recipient = norm(assignee.getEmail());
+        if (recipient == null || recipient.equals(norm(actor))) return;
+        Instant assignedAt = assignee.getAssignedAt() == null ? Instant.now() : assignee.getAssignedAt();
+        Runnable dispatch = () -> dispatchNewAssignment(task, assignee.getRole(), recipient, assignedAt);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { dispatch.run(); }
+            });
+        } else {
+            dispatch.run();
+        }
+    }
+
+    private void dispatchNewAssignment(Post task, Role role, String recipient, Instant assignedAt) {
+        try {
+            String referenceId = String.valueOf(task.getId());
+            if (notificationLogRepo.countByRecipientTypeReferenceSince(
+                    recipient, "task_assigned", referenceId, assignedAt.minusSeconds(5)) > 0) {
+                return;
+            }
+            userInfoRepo.findByUserEmailIgnoreCase(recipient).ifPresent(user ->
+                    notifications.deliverPresenceAwareForGroup(
+                            recipient,
+                            "New work assignment",
+                            task.getTitle() == null || task.getTitle().isBlank()
+                                    ? "You've been added to a work order as " + role.name().toLowerCase()
+                                    : task.getTitle(),
+                            "SitPrep",
+                            null,
+                            "task_assigned",
+                            referenceId,
+                            "/work-orders/" + task.getId(),
+                            task.getGroupId(),
+                            user.getFcmtoken(),
+                            task.getGroupId(),
+                            PushPolicyService.Category.TASK_ASSIGNED));
+        } catch (Exception error) {
+            // Assignment is the durable contract; a provider/logging failure
+            // must not turn a committed authority change into an API error.
+            log.warn("Task assignment notification failed task={} recipient={}: {}",
+                    task.getId(), recipient, error.getMessage());
+        }
     }
 
     /** Load the task; reject assignment on a closed/terminal work order. */
