@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.util.OpeningHours;
 import io.sitprep.sitprepapi.domain.ResourceListing;
 import io.sitprep.sitprepapi.dto.ResourceListingDto;
 import io.sitprep.sitprepapi.dto.SubmitResourceRequest;
@@ -11,9 +12,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -102,7 +105,41 @@ public class ResourceListingService {
         r.setSource(ResourceListing.Source.COMMUNITY);
         r.setStatus(ResourceListing.Status.APPROVED);
         r.setSubmittedByEmail(submitterEmail);
+        r.setHoursJson(req.hours() == null ? null : validHours(req.hours()).toJson());
         return toDto(repo.save(r), null);
+    }
+
+    /**
+     * Set or clear a listing's hours — {@code PATCH /api/resources/{id}} with
+     * {@code {"hours": {...}}} or {@code {"hours": null}}.
+     *
+     * <p>Only the resident who submitted the listing may change it. OFFICIAL
+     * and imported rows carry no submitter and are therefore not editable
+     * here — they change through their seeder / importer.</p>
+     */
+    @Transactional
+    public ResourceListingDto updateHours(Long id, Map<String, Object> body, String callerEmail) {
+        if (body == null || !body.containsKey("hours")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body must carry an \"hours\" field");
+        }
+        ResourceListing r = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (r.getSubmittedByEmail() == null || callerEmail == null
+                || !r.getSubmittedByEmail().trim().equalsIgnoreCase(callerEmail.trim())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the person who added this resource can change its hours");
+        }
+        Object hours = body.get("hours");
+        r.setHoursJson(hours == null ? null : validHours(hours).toJson());
+        return toDto(repo.save(r), null);
+    }
+
+    private static OpeningHours validHours(Object raw) {
+        try {
+            return OpeningHours.parse(raw);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -110,6 +147,21 @@ public class ResourceListingService {
     // ---------------------------------------------------------------------
 
     private ResourceListingDto toDto(ResourceListing r, Double distanceKm) {
+        return toDto(r, distanceKm, Instant.now());
+    }
+
+    ResourceListingDto toDto(ResourceListing r, Double distanceKm, Instant now) {
+        // Hours are re-read through the validator: a row that somehow no longer
+        // parses reports NO hours and NO open state — never a guess.
+        OpeningHours hours = null;
+        if (r.getHoursJson() != null) {
+            try {
+                hours = OpeningHours.parse(r.getHoursJson());
+            } catch (IllegalArgumentException ignored) {
+                hours = null;
+            }
+        }
+        OpeningHours.Status status = hours == null ? OpeningHours.Status.UNKNOWN : hours.statusAt(now);
         return new ResourceListingDto(
                 r.getId(),
                 r.getTitle(),
@@ -121,7 +173,11 @@ public class ResourceListingService {
                 r.getContact(),
                 r.getSource() == null ? null : r.getSource().name(),
                 distanceKm,
-                r.getCreatedAt()
+                r.getCreatedAt(),
+                hours == null ? null : hours.toJson(),
+                status.openNow(),
+                status.closesAt(),
+                status.opensAt()
         );
     }
 

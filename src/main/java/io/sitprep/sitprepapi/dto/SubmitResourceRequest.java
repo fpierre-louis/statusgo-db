@@ -14,5 +14,10 @@ public record SubmitResourceRequest(
         String address,
         String contact,
         Double latitude,
-        Double longitude
+        Double longitude,
+        /**
+         * Optional weekly hours (V84) — {@code {tz, weekly, note?}}; see
+         * {@code OpeningHours}. Malformed → 400. Absent → no hours.
+         */
+        Object hours
 ) {}

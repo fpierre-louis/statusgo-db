@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Community resource board — see {@link io.sitprep.sitprepapi.domain.ResourceListing}.
@@ -63,5 +64,17 @@ public class ResourceListingResource {
     public ResponseEntity<ApiResponse<ResourceListingDto>> submit(@RequestBody SubmitResourceRequest req) {
         String email = AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(ApiResponse.ok(service.submit(req, email), ApiMeta.now()));
+    }
+
+    /**
+     * {@code PATCH /api/resources/{id}} — {@code {"hours": {...}}} sets the
+     * weekly hours, {@code {"hours": null}} clears them (V84). Submitter only
+     * (403 otherwise, 404 when missing, 400 when malformed).
+     */
+    @PatchMapping("/{id}")
+    public ResponseEntity<ApiResponse<ResourceListingDto>> updateHours(@PathVariable Long id,
+                                                                       @RequestBody Map<String, Object> body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(service.updateHours(id, body, email), ApiMeta.now()));
     }
 }

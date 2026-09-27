@@ -4,7 +4,11 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * One entry on the community resource board — a place or service that
@@ -105,6 +109,17 @@ public class ResourceListing {
     /** Email of the resident who submitted a COMMUNITY listing. */
     @Column(length = 160)
     private String submittedByEmail;
+
+    /**
+     * Weekly opening hours (V84) — the normalised shape produced by
+     * {@link io.sitprep.sitprepapi.util.OpeningHours#toJson()}; validated before
+     * every write. Null when the listing has no hours, and then nothing about it
+     * is ever reported as open. Native JSONB, the {@code Post.workDetails}
+     * pattern.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "hours_json", columnDefinition = "jsonb")
+    private Map<String, Object> hoursJson;
 
     @Column(nullable = false)
     private Instant createdAt;

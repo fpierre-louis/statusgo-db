@@ -90,11 +90,11 @@ school or work. We will eventually implement the app on watches.")
 - [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1034 tests / 0 failures*
 
 ### BE-6 · resource hours (V84)
-- [ ] V84 `resource_listing.hours_json jsonb NULL` (rehearsed locally)
-- [ ] Validation (IANA tz, 0–3 ranges/day, HH:mm, midnight crossing) → 400 on malformed
-- [ ] `ResourceListingDto.hours/openNow/closesAt/opensAt`; `openNow` null without hours
-- [ ] Tests incl. DST + midnight crossing
-- [ ] `./mvnw -q package` green; commit
+- [x] V84 `resource_listing.hours_json jsonb NULL` (rehearsed locally) — *verified by: applied + re-applied on the schema clone; CHECK rejects a non-object (`'[1]'`); `MapIdealPersistenceTest.resourceHoursRoundTripAsJsonb` (real Hibernate JSON mapping on H2)*
+- [x] Validation (IANA tz, 0–3 ranges/day, HH:mm, midnight crossing) → 400 on malformed — *verified by: `OpeningHoursTest.refusesMalformedSchedules` (13 cases), `ResourceListingHoursTest.submitStores…/theSubmitterSetsAndClearsHours` (400 via ResponseStatusException)*
+- [x] `ResourceListingDto.hours/openNow/closesAt/opensAt`; `openNow` null without hours — *verified by: `ResourceListingHoursTest.noHoursMeansNoOpenState/theReadIsComputedAtReadTime/aStoredScheduleThatNoLongerParsesReportsNothing`*
+- [x] Tests incl. DST + midnight crossing — *verified by: `OpeningHoursTest` spring-forward (range spanning the gap; start inside the skipped hour), fall-back (repeated hour counted once), Fri 18:00–02:00 open Sat 01:00, adjacent 20:00–24:00 + 00:00–03:00 merge, 24/7 has no close*
+- [x] `./mvnw -q package` green; commit — *verified by: EXIT=0, 1052 tests / 0 failures*
 
 ### BE-7 · "Still here?" (V85)
 - [ ] V85 `map_confirmation` + unique `(target_type, target_id, user_email)` (rehearsed locally)
@@ -163,6 +163,22 @@ school or work. We will eventually implement the app on watches.")
   shows), or the group's name for a post authored as a group; the "Frank D." abbreviation is the
   frontend's call. `createdAt` is also filled for group pins (the group's own `createdAt`), null
   for external POIs.
+- **BE-6 · no "resource MapPoiDto" exists, so hours ship on `ResourceListingDto` only.** Resource
+  listings never become `MapPoiDto` (the map converts them client-side); the POI families are
+  groups, aid posts, Overpass amenities and activation places. Adding always-null hours fields to
+  `MapPoiDto` would be noise; OSM `opening_hours` parsing is a separate grammar and out of scope.
+- **BE-6 · the update path is new:** there was no resource update endpoint at all, so "create/update
+  accept hours" got `PATCH /api/resources/{id}` `{"hours": {...} | null}` — submitter only (403
+  otherwise; OFFICIAL/imported rows have no submitter and change through their seeder), 404 when
+  missing, 400 when malformed or when the body has no `hours` key.
+- **BE-6 · shape details the contract left open:** `"24:00"` is allowed as an END ("until
+  midnight"); equal start and end is refused (0 h or 24 h? — use `["00:00","24:00"]`); unknown
+  top-level fields are refused; `note` ≤ 280 chars; a missing day is closed. A schedule with NO
+  ranges on any day (e.g. note-only "By appointment") yields `openNow: null` — it is not a
+  schedule, so it makes no open/closed claim. Only the relevant boundary is set: open →
+  `closesAt` (null when open around the clock for the next week), closed → `opensAt`.
+- **BE-6 · a stored schedule is re-validated on read;** one that no longer parses reports
+  `hours: null, openNow: null` rather than a guess.
 
 ## Watch client contract
 

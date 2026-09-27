@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.dto;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Read-shape for one community resource board entry. {@code distanceKm}
@@ -20,5 +21,16 @@ public record ResourceListingDto(
         String contact,
         String source,
         Double distanceKm,
-        Instant createdAt
+        Instant createdAt,
+        /** The weekly schedule as stored ({@code {tz, weekly, note?}}); null when the listing has none (V84). */
+        Map<String, Object> hours,
+        /**
+         * Server-computed from {@link #hours} at read time. Null when there are
+         * no hours (or no ranges on any day) — never assumed open.
+         */
+        Boolean openNow,
+        /** While open: the next closing instant (null when open around the clock). */
+        Instant closesAt,
+        /** While closed: the next opening instant. */
+        Instant opensAt
 ) {}
