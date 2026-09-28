@@ -83,8 +83,9 @@ which `ensureOwns` already 403s — a separate broken admin flow.
 - [x] ADDED (same class, found while tracing): `POST /api/userinfo` kept a body `firebaseUid` and only filled the verified uid when the body had none — a caller could bind their row to another account's uid. Now always the verified uid, like the email. *verified by: read-back of the resource (the `/firebase` endpoint already did this)*
 - [x] Update the server-derived test (now 403 rather than a silent skip) — *verified by: `SavedPlacePresenceFieldsTest` 7/7*
 - [x] `./mvnw package` — *verified by: 1093 tests, 0 failures, 0 errors*
-- [ ] Push; verify live
-- [ ] Re-run the prod reproduction: 403
+- [x] Push; verify live — *verified by: `662acb4` → statusgo-db release at 19:36:46 (`heroku releases`); the 403 body names the refused field*
+- [x] Re-run the prod reproduction — *verified by, as `agent-b` on api.sitprep.app: escalation PATCH → **403** "Field 'verifiedPublisherEmergencyPostingEnabled' cannot be changed through this endpoint"; `bio`+`subscription` → 403 and the bio did not land; `bio` alone → 200; PUT with `subscription: Premium` → 200, stored plan still Basic/Monthly; `POST /api/userinfo` with a foreign body uid → stored uid is the caller's own. Probe bio cleared afterwards.*
+- [x] Was it used? — *verified by: read-only `heroku pg:psql` on prod — 84 users, 0 hold `verified_publisher` or the emergency flag, 0 with a flag and no `verified_by`. (A set-then-unset leaves no trace; the current state is clean.)*
 
 ## Logged, not fixed
 
