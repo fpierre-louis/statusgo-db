@@ -138,11 +138,14 @@ class SavedPlacePresenceFieldsTest {
                 mock(BlockService.class), json, mock(WebSocketMessageSender.class),
                 mock(LocationPresenceService.class), mock(HouseholdProvisioningService.class));
 
-        svc.patchUserById("u-1", Map.of(
+        // Refused outright since 2026-09-27 (the PATCH is an allow-list now;
+        // these were silently skipped before). Either way: never written.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> svc.patchUserById("u-1", Map.of(
                 "currentPlaceId", 99L,
                 "lastSeenNearLabel", "Somewhere I am not",
                 "locationSource", "watch",
-                "locationAccuracyM", 3));
+                "locationAccuracyM", 3)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
 
         assertThat(u.getCurrentPlaceId()).isNull();
         assertThat(u.getLastSeenNearLabel()).isNull();

@@ -531,12 +531,10 @@ public class UserInfoResource {
     public ResponseEntity<UserInfo> createOrUpsert(@RequestBody UserInfo incoming) {
         String email = AuthUtils.requireAuthenticatedEmail();
         incoming.setUserEmail(email);
-        // Pass verified UID through too so the upsertByEmail fallback path
-        // (which also accepts uid for back-compat) attaches it correctly.
-        String uid = AuthUtils.getCurrentFirebaseUid();
-        if (uid != null && (incoming.getFirebaseUid() == null || incoming.getFirebaseUid().isBlank())) {
-            incoming.setFirebaseUid(uid);
-        }
+        // The uid is ALWAYS the verified one — like the email above. It used to
+        // be filled in only when the body had none, so a body uid was kept and
+        // a caller could bind their own row to another account's uid.
+        incoming.setFirebaseUid(AuthUtils.getCurrentFirebaseUid());
         UserInfo saved = userInfoService.upsertByEmail(email, incoming);
         return ResponseEntity.ok(saved);
     }

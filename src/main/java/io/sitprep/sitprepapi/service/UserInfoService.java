@@ -16,11 +16,13 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.ReflectionUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
@@ -40,6 +42,45 @@ public class UserInfoService {
             "locationSource", "locationAccuracyM",
             "currentPlaceId", "currentPlaceSince",
             "lastSeenNearLabel", "lastSeenNearLat", "lastSeenNearLng");
+
+    /**
+     * The ONLY {@code UserInfo} fields {@code PATCH /api/userinfo/{id}} may
+     * write — what a person legitimately edits about themselves, taken from
+     * every frontend caller. Any other real field is refused with 403.
+     *
+     * <p>This was a deny-list until 2026-09-27, and a user could PATCH their
+     * own {@code verifiedPublisherEmergencyPostingEnabled} — the one gate on
+     * posting a pinned emergency-tier official alert — plus the rest of the
+     * verified-publisher block, subscription, {@code firebaseUid} and
+     * {@code baseHouseholdId}. A new column is now unwritable until someone
+     * decides it belongs here. See docs/epics/userinfo-write-privilege/EXEC.md.
+     */
+    static final Set<String> CLIENT_WRITABLE_FIELDS = Set.of(
+            // profile (EditProfilePage)
+            "userFirstName", "userLastName", "title", "phone", "address",
+            "profileImageUrl", "bio", "coverImageUrl", "profileVisibility",
+            // own status (the editor's diff can carry it; /me/status is the main path)
+            "userStatus", "statusColor",
+            // push token (AuthContext, useNotificationPermission, WelcomeWizard)
+            "fcmtoken",
+            // WelcomeWizard: manual ZIP + onboarding step timestamps
+            "lastKnownZip",
+            "onboardingCompletedAt", "onboardingTermsAcceptedAt",
+            "onboardingLocationEnabledAt", "onboardingNotificationsEnabledAt");
+
+    /**
+     * Keys the PATCH ignores rather than refuses — 200, nothing written.
+     *
+     * <p>{@code joinedGroupIDs} / {@code managedGroupIDs}: a denormalised cache
+     * the SERVER maintains (GroupService) and nothing authoritative reads
+     * (MeService reads membership from the Group side). {@code Members.js}
+     * PATCHes it, and those writes have never landed: the fields are
+     * {@code Set<String>}, JSON arrives as a List, and the reflective setter's
+     * exception was swallowed. Ignored explicitly now, so the caller keeps its
+     * 200 and the server's copy cannot be overwritten.
+     */
+    private static final Set<String> PATCH_IGNORED_KEYS =
+            Set.of("id", "userEmail", "joinedGroupIDs", "managedGroupIDs");
 
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
@@ -325,17 +366,17 @@ public class UserInfoService {
         existing.setStatusColor(incoming.getStatusColor());
         existing.setProfileImageUrl(profileImageForFullUpdate(
                 existing.getProfileImageUrl(), incoming.getProfileImageUrl()));
-        existing.setSubscription(incoming.getSubscription());
-        existing.setSubscriptionPackage(incoming.getSubscriptionPackage());
-        existing.setDateSubscribed(incoming.getDateSubscribed());
         existing.setFcmtoken(incoming.getFcmtoken());
         existing.setManagedGroupIDs(incoming.getManagedGroupIDs());
         existing.setJoinedGroupIDs(incoming.getJoinedGroupIDs());
 
-        // ✅ keep uid if provided (but don’t null it)
-        if (incoming.getFirebaseUid() != null && !incoming.getFirebaseUid().isBlank()) {
-            existing.setFirebaseUid(incoming.getFirebaseUid().trim());
-        }
+        // NOT copied (2026-09-27): subscription, subscriptionPackage,
+        // dateSubscribed and a body firebaseUid. PUT's contract is "echo the
+        // whole record back" (LeaveGroup sends {...user, joinedGroupIDs}), so
+        // those arrive on every legitimate call — and copying them let a user
+        // set their own plan or rebind their row to another uid. Ignored
+        // silently for that reason; PATCH refuses them outright. The uid is
+        // bound only from a verified token (upsertByFirebaseUid).
 
         return userInfoRepo.save(existing);
     }
@@ -713,15 +754,23 @@ public class UserInfoService {
         // after a successful save when (and only when) it actually changed.
         String oldUserStatus = userInfo.getUserStatus();
 
+        // Judge EVERY key before writing ANY — a refused field must not leave
+        // the allowed ones half-applied. Checked here, outside the reflective
+        // try/catch below, which swallows exceptions.
+        for (String key : updates.keySet()) {
+            if (key == null || PATCH_IGNORED_KEYS.contains(key)) continue;
+            if (CLIENT_WRITABLE_FIELDS.contains(key)) continue;
+            // Not a UserInfo field at all (the profile editor also sends
+            // latitude / longitude / dateOfBirth): ignored, as it always was.
+            if (ReflectionUtils.findField(UserInfo.class, key) == null) continue;
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Field '" + key + "' cannot be changed through this endpoint");
+        }
+
         updates.forEach((rawKey, value) -> {
             if (rawKey == null || value == null) return;
             String key = rawKey;
-            if (Set.of("id", "userEmail").contains(key)) return;
-            // Written only by LocationPresenceService from a real fix. A client
-            // that could PATCH these could claim "At school" without being there.
-            if (SERVER_DERIVED_FIELDS.contains(key)) return;
-
-            if ("firebaseUid".equals(key) && (value.toString().isBlank())) return;
+            if (!CLIENT_WRITABLE_FIELDS.contains(key)) return;
 
             // The avatar is validated OUTSIDE the reflective try below, which
             // swallows every exception — a policy failure thrown in there would
@@ -968,13 +1017,12 @@ public class UserInfoService {
                 ? patch.getUserStatus() : "NO RESPONSE");
         entity.setStatusColor(patch != null && patch.getStatusColor() != null
                 ? patch.getStatusColor() : "Gray");
-        entity.setSubscription(patch != null && patch.getSubscription() != null
-                ? patch.getSubscription() : "Basic");
-        entity.setSubscriptionPackage(patch != null && patch.getSubscriptionPackage() != null
-                ? patch.getSubscriptionPackage() : "Monthly");
-        if (patch != null && patch.getDateSubscribed() != null) {
-            entity.setDateSubscribed(patch.getDateSubscribed());
-        }
+        // The plan a new account starts on is the server's to decide — a client
+        // value here let a sign-up choose its own subscription. The app sends
+        // exactly these defaults, so nothing it does changes.
+        entity.setSubscription("Basic");
+        entity.setSubscriptionPackage("Monthly");
+        entity.setDateSubscribed(Instant.now());
         if (entity.getGuestAccount() == null) {
             entity.setGuestAccount(false);
         }
