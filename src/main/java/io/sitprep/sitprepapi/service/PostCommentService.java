@@ -394,21 +394,27 @@ public class PostCommentService {
     }
 
     /**
-     * Most-recent comment per post, batched. Used by
+     * Most-recent TOP-LEVEL comment per post, batched. Used by
      * {@code PostService.withEngagement} to fold the IG/FB-style "latest
      * reply teased below the post" preview onto every PostDto in one
      * extra query (plus one batched author-profile lookup) rather than N.
+     * Nested replies are never the preview — see
+     * {@link PostCommentRepo#findLatestTopLevelByPostIdIn}.
      *
      * <p>Snippet is the comment body trimmed to ~80 chars with "…" if
-     * truncated. The reply quote-prefix ({@code "> Replying to ..."}) is
-     * stripped so the preview shows the actual reply text, not the
-     * boilerplate quote header. Author first-name falls back to the
-     * email-prefix when the profile can't be resolved.</p>
+     * truncated. The legacy reply quote-prefix ({@code "> Replying to ..."},
+     * pre-V59 rows that carry no parent id) is stripped so the preview shows
+     * the actual text, not the boilerplate quote header.</p>
+     *
+     * <p><b>A missing name stays null.</b> This used to fall back to the
+     * email's local part, but a sliced email is not a name — and this is a
+     * public feed, so it also published part of the commenter's address to
+     * every viewer. The FE renders its own placeholder for null.</p>
      */
     @Transactional(Transactional.TxType.SUPPORTS)
     public Map<Long, CommentPreviewDto> loadLatestPreviewsByPostIds(Collection<Long> postIds) {
         if (postIds == null || postIds.isEmpty()) return Map.of();
-        List<PostComment> latest = commentRepo.findLatestByPostIdIn(postIds);
+        List<PostComment> latest = commentRepo.findLatestTopLevelByPostIdIn(postIds);
         if (latest.isEmpty()) return Map.of();
 
         // Batch-load author profiles in one round trip.
@@ -429,8 +435,10 @@ public class PostCommentService {
         for (PostComment c : latest) {
             String email = c.getAuthor();
             UserInfo u = email == null ? null : profilesByEmail.get(email);
-            String first = u != null ? u.getUserFirstName()
-                    : (email != null ? email.split("@")[0] : "Neighbor");
+            // Profile values or null — no email-derived stand-in (see method doc).
+            String first = u != null ? blankToNull(u.getUserFirstName()) : null;
+            String last = u != null ? blankToNull(u.getUserLastName()) : null;
+            String authorUserId = u != null ? u.getId() : null;
             // DtoImages.avatar normalizes the raw column value through PublicCdn
             // — legacy Firebase URLs, stale R2 keys, signed S3 URLs all return
             // null so the wire contract guarantees the FE either renders the
@@ -448,7 +456,9 @@ public class PostCommentService {
             out.put(c.getPostId(), new CommentPreviewDto(
                     c.getId(),
                     email,
+                    authorUserId,
                     first,
+                    last,
                     avatarUrl,
                     body,
                     c.getTimestamp()
@@ -657,6 +667,10 @@ public class PostCommentService {
                             actorUserId
                     ));
         }
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     private String snippet(String content, int maxLen) {

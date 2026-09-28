@@ -167,9 +167,9 @@ public record PostDto(
          */
         Set<String> viewerEmojis,
         /**
-         * Most recent comment on this post as a compact preview, or
-         * {@code null} when the post has no comments. Folded in by the
-         * listing path via one batched query. Drives the IG/FB-style
+         * Most recent TOP-LEVEL comment on this post as a compact preview,
+         * or {@code null} when the post has none (nested replies are never
+         * the preview). Folded in by the listing path via one batched query. Drives the IG/FB-style
          * "preview the latest reply under the post card" surface on the
          * community feed.
          */
@@ -834,7 +834,7 @@ public record PostDto(
      * Returns a copy with the most-recent comment preview folded in.
      * Chained after {@link #withReactions} in {@code PostService.withEngagement}
      * so the listing path can populate the IG/FB-style preview in the
-     * same single row pass. Null preview is valid (no comments).
+     * same single row pass. Null preview is valid (no top-level comments).
      */
     public PostDto withLatestComment(CommentPreviewDto preview) {
         return new PostDto(
