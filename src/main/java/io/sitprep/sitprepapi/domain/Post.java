@@ -375,6 +375,12 @@ public class Post {
      */
     @Column(name = "is_free", nullable = false,
             columnDefinition = "boolean NOT NULL DEFAULT false")
+    // THE JSON KEY IS "isFree" (Composer V2 C0a, 2026-09-28). Lombok generates
+    // isFree()/setFree() for a boolean named isFree, so Jackson bound the key
+    // as "free" — and the composer sends "isFree", which Spring silently
+    // ignored (FAIL_ON_UNKNOWN_PROPERTIES is off). Every Free listing was
+    // stored isFree=false. Pinning the name makes the request key match.
+    @com.fasterxml.jackson.annotation.JsonProperty("isFree")
     private boolean isFree = false;
 
     /**

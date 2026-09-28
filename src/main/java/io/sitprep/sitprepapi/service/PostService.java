@@ -697,6 +697,8 @@ public class PostService {
             if (incoming.getImageKeys().size() > 5) {
                 throw new IllegalArgumentException("A post can have at most 5 images.");
             }
+            // Every attached image must be the author's own upload (C0b).
+            requireOwnedImageKeys(incoming.getImageKeys(), requesterEmail, List.of());
             t.getImageKeys().addAll(incoming.getImageKeys());
         }
 
@@ -2318,9 +2320,14 @@ public class PostService {
         if (patch.getImageKeys() != null && isAuthor) {
             Set<String> incoming = new HashSet<>(patch.getImageKeys());
             List<String> existing = t.getImageKeys() == null ? List.of() : t.getImageKeys();
-            removedKeys = existing.stream()
+            // Newly attached keys must be the author's own uploads; keys the
+            // post already holds are exempt (legacy unstamped photos keep
+            // working through an edit) (C0b).
+            requireOwnedImageKeys(patch.getImageKeys(), t.getRequesterEmail(), existing);
+            // Only the author's own, otherwise-unreferenced uploads are freed.
+            removedKeys = freeableImageKeys(t.getId(), existing.stream()
                     .filter(k -> k != null && !k.isBlank() && !incoming.contains(k))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()), t.getRequesterEmail());
             t.getImageKeys().clear();
             t.getImageKeys().addAll(patch.getImageKeys());
         }
@@ -2622,9 +2629,12 @@ public class PostService {
         // when a post is deleted was a recurring storage leak before
         // 2026-05-11 — every deleted ask/marketplace listing left its
         // photos behind paying for storage forever).
+        // Only the author's own, otherwise-unreferenced uploads go with the
+        // post (C0b) — never an object someone else uploaded and this post
+        // merely pointed at.
         List<String> imageKeys = t.getImageKeys() == null
                 ? List.of()
-                : new ArrayList<>(t.getImageKeys());
+                : freeableImageKeys(t.getId(), new ArrayList<>(t.getImageKeys()), t.getRequesterEmail());
         // V51: deleting a project container detaches its children to standalone
         // (project_id → NULL) — NEVER cascade-deletes real work orders. Done
         // explicitly (belt-and-suspenders with the ON DELETE SET NULL FK, and the
@@ -2657,6 +2667,65 @@ public class PostService {
      * object, transient network) doesn't strand the rest. Always runs
      * afterCommit so a failed DB transaction never deletes user photos.
      */
+    /**
+     * THE ATTACH GUARD (Composer V2 C0b, 2026-09-28). A post may only carry
+     * images its author uploaded.
+     *
+     * <p>Image keys are public — every PostDto ships them as URLs — and a post
+     * delete frees its keys from R2. So attaching a stranger's avatar, group
+     * logo or evidence photo to your own post, then deleting the post,
+     * destroyed the original: the uploader check on {@code DELETE /api/images}
+     * was bypassed by going through a post. Every key not already on this post
+     * must exist and carry the author's uploader stamp (written at upload by
+     * StorageService). Unknown object → 400; any other owner, or an unstamped
+     * (pre-stamping) object → 403, the same "cannot prove you own it" reading
+     * the image resource uses.</p>
+     */
+    void requireOwnedImageKeys(Collection<String> keys, String authorEmail, Collection<String> alreadyOnPost) {
+        if (keys == null || keys.isEmpty()) return;
+        String authorTag = StorageService.uploaderTag(authorEmail);
+        for (String key : keys) {
+            if (key == null || key.isBlank()) continue;
+            if (alreadyOnPost != null && alreadyOnPost.contains(key)) continue;
+            StorageService.ObjectOwner owner = storage.ownerOf(key);
+            if (owner == null || !owner.exists()) {
+                throw new IllegalArgumentException("Unknown image: upload it first.");
+            }
+            if (owner.uploaderTag() == null || !owner.uploaderTag().equals(authorTag)) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.FORBIDDEN,
+                        "A post can only include images you uploaded.");
+            }
+        }
+    }
+
+    /**
+     * THE FREE GUARD (C0b). Of {@code keys}, the ones safe to delete from R2
+     * when they leave this post: stamped by the post's author AND referenced by
+     * no other post. Everything else is kept — an orphaned object in R2 beats
+     * destroying someone else's (the work-photos path's rule, applied here).
+     */
+    List<String> freeableImageKeys(Long postId, Collection<String> keys, String authorEmail) {
+        if (keys == null || keys.isEmpty()) return List.of();
+        String authorTag = StorageService.uploaderTag(authorEmail);
+        List<String> out = new ArrayList<>();
+        for (String key : keys) {
+            if (key == null || key.isBlank()) continue;
+            StorageService.ObjectOwner owner;
+            try {
+                owner = storage.ownerOf(key);
+            } catch (Exception e) {
+                log.warn("R2 owner lookup failed for key={}: {} — keeping it", key, e.getMessage());
+                continue;
+            }
+            if (owner == null || !owner.exists() || owner.uploaderTag() == null
+                    || !owner.uploaderTag().equals(authorTag)) continue;
+            if (postId != null && taskRepo.countOtherPostsWithImageKey(postId, key) > 0) continue;
+            out.add(key);
+        }
+        return out;
+    }
+
     private void deleteR2ObjectsBestEffort(Collection<String> keys, String context) {
         if (keys == null || keys.isEmpty()) return;
         for (String k : keys) {
