@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.PostComment;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.CommentPreviewDto;
@@ -28,7 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       reply newer than its conversation starter became the card's preview
  *       and read as an answer to the post;</li>
  *   <li>a commenter with no first name was shown as their email's local part
- *       on a public feed.</li>
+ *       on a public feed;</li>
+ *   <li>the snippet was cut from raw content, so a mention printed as a raw
+ *       {@code @[uid:...]} token, or was sliced in half by the 80-char cut.</li>
  * </ul>
  */
 @SpringBootTest
@@ -175,5 +178,29 @@ class CommentPreviewTopLevelTest {
         assertThat(preview.authorFirstName()).isNull();
         assertThat(preview.authorLastName()).isNull();
         assertThat(preview.authorUserId()).isNull();
+    }
+
+    @Test
+    void aMentionBecomesThePlainNameEvenWhenTheRawTokenCrossesTheCut() {
+        long postId = newPostId();
+        String authorEmail = newEmail("eve");
+        user(authorEmail, "Eve", "Park");
+        UserInfo ana = user(newEmail("ana"), "Ana", "Reyes");
+
+        String lead = "Water is over the curb on Maple and the storm drain is blocked, cc ";
+        String token = MentionToken.of(ana.getId());
+        // Precondition: the RAW token straddles the 80-char cut, so truncating
+        // before resolving would print half a token. Resolved, "@Ana Reyes" fits.
+        assertThat(lead.length()).isLessThan(80);
+        assertThat(lead.length() + token.length()).isGreaterThan(80);
+
+        comment(postId, authorEmail, lead + token + " can you check it before tonight?", null);
+
+        String snippet = commentService.loadLatestPreviewsByPostIds(List.of(postId)).get(postId).snippet();
+
+        assertThat(snippet)
+                .doesNotContain("@[uid:")
+                .contains("@Ana Reyes")
+                .endsWith("…");
     }
 }

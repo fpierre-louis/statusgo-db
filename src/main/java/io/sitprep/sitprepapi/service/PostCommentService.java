@@ -38,9 +38,11 @@ import java.util.stream.Collectors;
  *       else comments on their post</li>
  * </ul>
  *
- * <p>Replies use the quote-prefix content convention from {@code PostComments}
- * ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}). No
- * {@code parentCommentId} column — see {@link PostComment} class doc.</p>
+ * <p>Replies carry a real parent reference ({@code parentCommentId}, V59),
+ * capped at one level deep by {@code resolveParent}. Pre-V59 replies still use
+ * the old quote-prefix content convention
+ * ({@code "> Replying to {name}:\n> {snippet}\n\n{content}"}) with no parent
+ * id — see {@link PostComment} class doc.</p>
  */
 @Service
 public class PostCommentService {
@@ -402,9 +404,11 @@ public class PostCommentService {
      * {@link PostCommentRepo#findLatestTopLevelByPostIdIn}.
      *
      * <p>Snippet is the comment body trimmed to ~80 chars with "…" if
-     * truncated. The legacy reply quote-prefix ({@code "> Replying to ..."},
-     * pre-V59 rows that carry no parent id) is stripped so the preview shows
-     * the actual text, not the boilerplate quote header.</p>
+     * truncated. Mention tokens are resolved to {@code @Name} before the cut
+     * (one batched lookup via {@link MentionService#toPlainTextAll}). The
+     * legacy reply quote-prefix ({@code "> Replying to ..."}, pre-V59 rows
+     * that carry no parent id) is stripped so the preview shows the actual
+     * text, not the boilerplate quote header.</p>
      *
      * <p><b>A missing name stays null.</b> This used to fall back to the
      * email's local part, but a sliced email is not a name — and this is a
@@ -431,8 +435,15 @@ public class PostCommentService {
                             Function.identity(),
                             (a, b) -> a));
 
+        // Mention tokens -> "@Name" for the whole page in one id lookup. Done
+        // BEFORE truncation: truncating first prints a raw @[uid:...] token, or
+        // cuts one in half so no resolver can ever read it again.
+        List<String> plainBodies = mentionService.toPlainTextAll(
+                latest.stream().map(PostComment::getContent).collect(Collectors.toList()));
+
         Map<Long, CommentPreviewDto> out = new HashMap<>(latest.size());
-        for (PostComment c : latest) {
+        for (int i = 0; i < latest.size(); i++) {
+            PostComment c = latest.get(i);
             String email = c.getAuthor();
             UserInfo u = email == null ? null : profilesByEmail.get(email);
             // Profile values or null — no email-derived stand-in (see method doc).
@@ -448,7 +459,7 @@ public class PostCommentService {
             // Strip the "> Replying to ...:" quote prefix so the preview
             // shows the actual reply text, not the quoted header. Then
             // collapse whitespace + truncate at ~80 chars.
-            String body = c.getContent() == null ? "" : c.getContent();
+            String body = plainBodies.get(i) == null ? "" : plainBodies.get(i);
             body = body.replaceFirst("(?s)^>.*?\\n\\n", "").trim();
             body = body.replaceAll("\\s+", " ");
             if (body.length() > 80) body = body.substring(0, 80).trim() + "…";

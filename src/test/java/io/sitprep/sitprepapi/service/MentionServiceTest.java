@@ -8,11 +8,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Resolution rules: rename survival, tombstones, and the edit diff. */
@@ -103,5 +106,16 @@ class MentionServiceTest {
     void plainTextForPushBodies() {
         assertThat(service.toPlainText("morning " + MentionToken.of(ANA)))
                 .isEqualTo("morning @Ana Reyes");
+    }
+
+    @Test
+    @DisplayName("batch plain text: one lookup for every content, input order kept")
+    void batchPlainTextIsOneLookup() {
+        // The feed preview converts a page of comments at once; a lookup per
+        // row would be the N+1 this form exists to avoid.
+        List<String> out = service.toPlainTextAll(Arrays.asList(
+                "hi " + MentionToken.of(ANA), "no mention", null, MentionToken.of(BEN) + " ok"));
+        assertThat(out).containsExactly("hi @Ana Reyes", "no mention", null, "@Ben Ortiz ok");
+        verify(repo, times(1)).findAllById(any());
     }
 }

@@ -91,6 +91,27 @@ public class MentionService {
     }
 
     /**
+     * {@link #toPlainText(String)} for a list of contents, with ONE id lookup
+     * for the whole batch. For list surfaces (the feed's comment preview, one
+     * row per post) where the single-content form would issue a query per row.
+     * Same resolver, same substitution; returns results in input order, and a
+     * null or mention-free entry comes back unchanged.
+     */
+    @Transactional(readOnly = true)
+    public List<String> toPlainTextAll(List<String> contents) {
+        if (contents == null || contents.isEmpty()) return List.of();
+        List<String> ids = new ArrayList<>();
+        for (String c : contents) ids.addAll(MentionToken.extractIds(c));
+        Map<String, String> names = new HashMap<>();
+        for (MentionDto m : resolve(ids)) names.put(m.userId(), m.displayName());
+        List<String> out = new ArrayList<>(contents.size());
+        for (String c : contents) {
+            out.add(MentionToken.hasMention(c) ? MentionToken.toPlainText(c, names) : c);
+        }
+        return out;
+    }
+
+    /**
      * Ids present in {@code updated} but not in {@code previous}.
      *
      * <p><b>Edits notify only what was added.</b> Re-notifying everyone on every
