@@ -12,6 +12,7 @@ import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.PostConfirm;
 import io.sitprep.sitprepapi.repo.AskBookmarkRepo;
 import io.sitprep.sitprepapi.repo.PostConfirmRepo;
+import io.sitprep.sitprepapi.repo.PostFollowRepo;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -91,6 +92,7 @@ public class PostService {
     private final PublisherPublishAuditService publisherPublishAuditService;
     private final AgencyAuthorizationService agencyAuthorizationService;
     private final PostConfirmRepo postConfirmRepo;
+    private final PostFollowRepo postFollowRepo;
     private final AskBookmarkRepo askBookmarkRepo;
     private final WorkOrderQuotaService workOrderQuotaService;
     private final AdminAuditLogService adminAuditLogService;
@@ -125,6 +127,7 @@ public class PostService {
                        PublisherPublishAuditService publisherPublishAuditService,
                        AgencyAuthorizationService agencyAuthorizationService,
                        PostConfirmRepo postConfirmRepo,
+                       PostFollowRepo postFollowRepo,
                        AskBookmarkRepo askBookmarkRepo,
                        WorkOrderQuotaService workOrderQuotaService,
                        AdminAuditLogService adminAuditLogService,
@@ -147,6 +150,7 @@ public class PostService {
         this.publisherPublishAuditService = publisherPublishAuditService;
         this.agencyAuthorizationService = agencyAuthorizationService;
         this.postConfirmRepo = postConfirmRepo;
+        this.postFollowRepo = postFollowRepo;
         this.askBookmarkRepo = askBookmarkRepo;
         this.workOrderQuotaService = workOrderQuotaService;
         this.adminAuditLogService = adminAuditLogService;
@@ -2630,6 +2634,10 @@ public class PostService {
         if ("project".equals(t.getKind())) {
             taskRepo.detachChildrenOfProject(id);
         }
+        // Child rows keyed by task_id with no FK on the H2 profile: confirms
+        // and thread follows go with the post (B2, 2026-09-28).
+        postConfirmRepo.deleteAllByPostId(id);
+        postFollowRepo.deleteAllByPostId(id);
         taskRepo.delete(t);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {

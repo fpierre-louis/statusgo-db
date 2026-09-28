@@ -51,6 +51,17 @@ class AccountDeletionCoversAllAuthoredContentTest {
     }
 
     @Test
+    void sweepsConfirmsAndThreadFollows() throws Exception {
+        // B2 (2026-09-28): both carry the user's email. PostConfirm was missed
+        // from the day it shipped; PostFollow is new with V86.
+        String src = source();
+        assertTrue(src.contains("DELETE FROM PostConfirm c WHERE LOWER(c.userEmail) = :e"),
+                "\"I see it too\" confirms must be deleted with the account");
+        assertTrue(src.contains("DELETE FROM PostFollow f WHERE LOWER(f.userEmail) = :e"),
+                "thread follows must be deleted with the account");
+    }
+
+    @Test
     void stillDeletesTheAccountItselfAndItsAuthEntry() throws Exception {
         String src = source();
         // Guard the two that make the deletion real, so a refactor of the

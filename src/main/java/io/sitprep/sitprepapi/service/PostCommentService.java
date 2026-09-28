@@ -57,6 +57,7 @@ public class PostCommentService {
     private final PostCommentReactionService reactionService;
     private final PostReadAuthorizer readAuthorizer;
     private final MentionService mentionService;
+    private final ThreadContextService threadContext;
 
     public PostCommentService(PostCommentRepo commentRepo,
                               PostRepo taskRepo,
@@ -65,7 +66,8 @@ public class PostCommentService {
                               NotificationService notificationService,
                               PostCommentReactionService reactionService,
                               PostReadAuthorizer readAuthorizer,
-                              MentionService mentionService) {
+                              MentionService mentionService,
+                              ThreadContextService threadContext) {
         this.commentRepo = commentRepo;
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
@@ -74,6 +76,7 @@ public class PostCommentService {
         this.reactionService = reactionService;
         this.readAuthorizer = readAuthorizer;
         this.mentionService = mentionService;
+        this.threadContext = threadContext;
     }
 
     /**
@@ -144,6 +147,11 @@ public class PostCommentService {
                     notifyMentioned(saved, out, saved.getMentionedUserIds());
                 } catch (Exception e) {
                     log.error("Mention fan-out failed for new task comment id={}", saved.getId(), e);
+                }
+                try {
+                    notifyFollowers(saved, out);
+                } catch (Exception e) {
+                    log.error("Follower fan-out failed for new task comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -550,6 +558,52 @@ public class PostCommentService {
             d.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             d.setAuthorUserId(u.getId());
         });
+    }
+
+    /**
+     * "X replied to a post you follow" — the thread Follow bell's delivery
+     * (B2 / V86). Without this, following a thread would be a flag nothing
+     * reads. Who is skipped (the replier, the author, the @-mentioned, block
+     * relationships) is decided in {@link ThreadContextService#followerEmailsToNotify}.
+     */
+    private void notifyFollowers(PostComment saved, PostCommentDto enriched) {
+        Long postId = saved.getPostId();
+        if (postId == null) return;
+        Optional<Post> taskOpt = taskRepo.findById(postId);
+        if (taskOpt.isEmpty()) return;
+        Post task = taskOpt.get();
+
+        java.util.Set<String> mentioned = new java.util.HashSet<>(
+                mentionService.emailsFor(saved.getMentionedUserIds()));
+        List<String> recipients = threadContext.followerEmailsToNotify(
+                postId, saved.getAuthor(), task.getRequesterEmail(), mentioned);
+        if (recipients.isEmpty()) return;
+
+        String name = enriched.getAuthorFirstName() != null ? enriched.getAuthorFirstName() : "Someone";
+        String title = (task.getTitle() != null && !task.getTitle().isBlank())
+                ? "New reply on \"" + snippet(task.getTitle(), 60) + "\""
+                : "New reply on a post you follow";
+        String body = name + " replied: " + snippet(mentionService.toPlainText(enriched.getContent()), 80);
+        String targetUrl = "/community/posts/" + task.getId();
+        String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(saved.getAuthor())
+                .map(UserInfo::getId)
+                .orElse(null);
+
+        for (String email : recipients) {
+            userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
+                    notificationService.deliverPresenceAware(
+                            u.getUserEmail(),
+                            title,
+                            body,
+                            name,
+                            enriched.getAuthorProfileImageUrl(),
+                            "reply_on_followed",
+                            String.valueOf(task.getId()),
+                            targetUrl,
+                            null,
+                            u.getFcmtoken(),
+                            actorUserId));
+        }
     }
 
     /**

@@ -24,6 +24,13 @@ public interface PostConfirmRepo extends JpaRepository<PostConfirm, Long> {
 
     long countByPostId(Long postId);
 
+    /**
+     * The most recent confirms on one post — the thread's "seen by" facepile
+     * (B2). Ten, not three, so the caller can skip block relationships and
+     * still fill three faces.
+     */
+    List<PostConfirm> findTop10ByPostIdOrderByCreatedAtDesc(Long postId);
+
     /** Batched fetch for a list of tasks (community feed listing) — folded in-memory. */
     List<PostConfirm> findByPostIdIn(Collection<Long> postIds);
 

@@ -154,7 +154,12 @@ public class AccountDeletionService {
                   bulkDelete("DELETE FROM GroupPostReaction r WHERE LOWER(r.userEmail) = :e", e)
                 + bulkDelete("DELETE FROM GroupPostCommentReaction r WHERE LOWER(r.userEmail) = :e", e)
                 + bulkDelete("DELETE FROM PostReaction r WHERE LOWER(r.userEmail) = :e", e)
-                + bulkDelete("DELETE FROM PostCommentReaction r WHERE LOWER(r.userEmail) = :e", e);
+                + bulkDelete("DELETE FROM PostCommentReaction r WHERE LOWER(r.userEmail) = :e", e)
+                // "I see it too" and thread follows also carry the user's email
+                // (B2, 2026-09-28). The confirm table was missed here since it
+                // shipped; the screen's "reactions you've made" covers both.
+                + bulkDelete("DELETE FROM PostConfirm c WHERE LOWER(c.userEmail) = :e", e)
+                + bulkDelete("DELETE FROM PostFollow f WHERE LOWER(f.userEmail) = :e", e);
         int comments =
                   bulkDelete("DELETE FROM GroupPostComment c WHERE LOWER(c.author) = :e", e)
                 + bulkDelete("DELETE FROM PostComment c WHERE LOWER(c.author) = :e", e);

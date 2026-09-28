@@ -9,6 +9,7 @@ import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
 import io.sitprep.sitprepapi.repo.FollowRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostConfirmRepo;
+import io.sitprep.sitprepapi.repo.PostFollowRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
@@ -59,6 +60,7 @@ class PostLiabilityGateTest {
                 mock(PublisherPublishAuditService.class),
                 mock(AgencyAuthorizationService.class),
                 mock(PostConfirmRepo.class),
+                mock(PostFollowRepo.class),
                 mock(AskBookmarkRepo.class),
                 mock(WorkOrderQuotaService.class),
                 mock(AdminAuditLogService.class),
