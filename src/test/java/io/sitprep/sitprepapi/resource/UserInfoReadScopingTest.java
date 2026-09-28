@@ -37,11 +37,11 @@ import static org.mockito.Mockito.*;
  * fields on this list and would silently start re-writing the token every boot
  * without them), and a stranger gets the record minus the private fields.</p>
  *
- * <p>The phone assertion is the one that looks like an oversight and is not.
- * MapView fetches a subgroup owner's profile specifically to show their phone
- * number during an emergency; stripping it server-side breaks that before any
- * frontend could stop asking. It is recorded here so the exception stays a
- * decision rather than becoming an accident.</p>
+ * <p>Phone was the one deliberate exception until 2026-09-27: MapView fetched a
+ * subgroup owner's profile for their number, and the household person sheet
+ * did the same. Both now read members-only sources (the household roster's
+ * MemberSummary.phone, and GET /api/groups/{id}/owner-contact), so phone is
+ * self-only like the rest (docs/epics/privacy-push-token-and-phone/EXEC.md).</p>
  */
 class UserInfoReadScopingTest {
 
@@ -153,10 +153,11 @@ class UserInfoReadScopingTest {
     }
 
     @Test
-    void phoneIsDeliberatelyStillVisibleCrossUser() {
-        // MapView shows a subgroup owner's phone during an emergency. Removing
-        // this needs a coordinated frontend change, not a unilateral strip.
-        assertEquals("+15551234567", read(STRANGER).get("phone").asText());
+    void phoneIsSelfOnly() {
+        // A stranger used to read any user's number here. Members get it from
+        // group-scoped payloads now; the subject still sees their own.
+        org.junit.jupiter.api.Assertions.assertFalse(read(STRANGER).has("phone"));
+        assertEquals("+15551234567", read(SUBJECT).get("phone").asText());
     }
 
     @Test

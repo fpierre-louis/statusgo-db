@@ -120,12 +120,12 @@ public class UserInfoResource {
      * the reviewed artifact: adding a sensitive field later means adding a line
      * here, not re-deriving a payload.</p>
      *
-     * <p><b>{@code phone} is deliberately NOT on this list</b>, and it is the one
-     * loose end. MapView reads the subgroup owner's phone cross-user, on purpose,
-     * so an emergency contact is one tap away — removing it server-side would
-     * break that before the frontend could stop asking. It needs a coordinated
-     * change (read it from a group-scoped payload, which knows the caller is a
-     * member), not a unilateral strip. Flagged, not fixed.</p>
+     * <p>{@code phone} joined the list 2026-09-27 — the loose end the 2026-08-24
+     * pass left on purpose, now closed by the coordinated change it asked for:
+     * the household person sheet reads the roster's members-only phone
+     * (GroupMemberViewDto.MemberSummary.phone), and MapView's "Call owner" reads
+     * {@code GET /api/groups/{id}/owner-contact}, which checks membership. Until
+     * then any signed-in user could read any user's phone by email.</p>
      */
     private static final Set<String> SELF_ONLY_FIELDS = Set.of(
             // Push-spoofing primitive: hand this out and you can address
@@ -146,7 +146,9 @@ public class UserInfoResource {
             "assessmentSummaryJson",
             // Internal billing state, set by platform admins.
             "subscriptionOverridePackage", "subscriptionOverrideExpiresAt",
-            "subscriptionOverrideReason", "subscriptionOverrideBy", "subscriptionOverrideAt"
+            "subscriptionOverrideReason", "subscriptionOverrideBy", "subscriptionOverrideAt",
+            // Personal phone number. Members get it from group-scoped payloads.
+            "phone"
     );
 
     @GetMapping("/{id}")
@@ -430,6 +432,22 @@ public class UserInfoResource {
     }
 
     public record UpdateSearchableRequest(Boolean searchable) {}
+
+    /**
+     * Sign-out releases this device's push token. Body {@code {"token": "…"}}
+     * is the device's own FCM token; the stored token is cleared only when it
+     * matches (or when no token is sent). See
+     * {@link UserInfoService#releaseFcmTokenByEmail}. Always 204 — whether a
+     * token was cleared is not the caller's business.
+     */
+    @DeleteMapping("/me/fcm-token")
+    public ResponseEntity<Void> releaseMyFcmToken(@RequestBody(required = false) ReleaseFcmTokenRequest body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        userInfoService.releaseFcmTokenByEmail(email, body == null ? null : body.token());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record ReleaseFcmTokenRequest(String token) {}
 
     /**
      * Set the caller's "home base" (main) household — the one the dashboard

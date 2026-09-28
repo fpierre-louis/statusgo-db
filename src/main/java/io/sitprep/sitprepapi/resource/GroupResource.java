@@ -44,6 +44,9 @@ public class GroupResource {
     private GroupService groupService;
 
     @Autowired
+    private io.sitprep.sitprepapi.service.GroupOwnerContactService groupOwnerContactService;
+
+    @Autowired
     private io.sitprep.sitprepapi.service.GroupPostReadReceiptService groupPostReadReceiptService;
 
     @Autowired
@@ -225,6 +228,21 @@ public class GroupResource {
      * the service compute {@code viewerStatus}; anonymous callers get
      * {@code viewerStatus = NONE}.</p>
      */
+    /**
+     * The group owner's phone, for members of the group or of a linked parent
+     * group ({@link io.sitprep.sitprepapi.service.GroupOwnerContactService}).
+     * 404 when the group is unknown or the caller may not see it — the same
+     * answer for both. {@code phone} is null when none is on file.
+     */
+    @GetMapping("/{groupId}/owner-contact")
+    public ResponseEntity<io.sitprep.sitprepapi.service.GroupOwnerContactService.OwnerContact> getOwnerContact(
+            @PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return groupOwnerContactService.ownerContact(groupId, caller)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/{groupId}/preview")
     public ResponseEntity<io.sitprep.sitprepapi.dto.GroupPreviewDto> getGroupPreview(
             @PathVariable String groupId

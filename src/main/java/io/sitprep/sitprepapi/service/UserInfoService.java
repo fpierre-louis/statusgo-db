@@ -665,6 +665,33 @@ public class UserInfoService {
     }
 
     /**
+     * Sign-out: stop addressing pushes to THIS device — backs
+     * {@code DELETE /api/userinfo/me/fcm-token}.
+     *
+     * <p>Until 2026-09-27 sign-out sent {@code PATCH {"fcmtoken": null}}, which
+     * {@link #patchUserById} drops (it skips null values), so a signed-out
+     * phone kept receiving the account's notifications. There is ONE token per
+     * user and the last device to register wins, so the release is
+     * compare-and-clear: a device may only clear its own token, never a newer
+     * phone's. With no token (the device could not read it) it clears — a
+     * signed-out device still receiving pushes is the worse failure, and the
+     * other device re-registers on its next start.</p>
+     *
+     * @return true when a token was cleared
+     */
+    @Transactional
+    public boolean releaseFcmTokenByEmail(String email, String deviceToken) {
+        if (email == null || email.isBlank()) return false;
+        UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(email.trim()).orElse(null);
+        if (u == null || u.getFcmtoken() == null || u.getFcmtoken().isBlank()) return false;
+        String device = deviceToken == null ? "" : deviceToken.trim();
+        if (!device.isEmpty() && !device.equals(u.getFcmtoken().trim())) return false;
+        u.setFcmtoken(null);
+        userInfoRepo.save(u);
+        return true;
+    }
+
+    /**
      * Set the caller's "home base" (main) household — the one the dashboard
      * anchors to. Only a household the user actually belongs to (member,
      * admin, or owner) can be made base; non-member ids + non-household
