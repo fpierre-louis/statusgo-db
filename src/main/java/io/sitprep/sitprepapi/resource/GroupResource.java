@@ -47,6 +47,9 @@ public class GroupResource {
     private io.sitprep.sitprepapi.service.GroupOwnerContactService groupOwnerContactService;
 
     @Autowired
+    private io.sitprep.sitprepapi.service.GroupLeaveService groupLeaveService;
+
+    @Autowired
     private io.sitprep.sitprepapi.service.GroupPostReadReceiptService groupPostReadReceiptService;
 
     @Autowired
@@ -376,6 +379,18 @@ public class GroupResource {
         } catch (SecurityException se) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, se.getMessage());
         }
+    }
+
+    /**
+     * The caller leaves the group. 204; 409 for the owner (transfer or delete
+     * first); 404 when the group is unknown or the caller is not in it. See
+     * {@link io.sitprep.sitprepapi.service.GroupLeaveService}.
+     */
+    @PostMapping("/{groupId}/leave")
+    public ResponseEntity<Void> leave(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        groupLeaveService.leave(groupId, caller);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{groupId}/members/approve")
