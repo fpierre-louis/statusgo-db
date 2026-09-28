@@ -59,5 +59,10 @@ left off on purpose (2026-08-24 note) because two screens read it cross-user:
 - [x] BE: token release endpoint + service + tests — *verified by: `PrivacyPushTokenAndPhoneTest$PushTokenRelease` 4/4 (own token cleared; a newer phone's survives with no write; no token → clears; nothing stored → no-op)*
 - [x] BE: owner-contact endpoint + service + tests — *verified by: `$OwnerContact` 6/6 (member gets it, case-insensitive; two-sided parent gets it; parent-lists-only refused; child-claims-only refused; stranger and unknown group identical; blank phone → null, never a placeholder)*
 - [x] BE: `phone` → `SELF_ONLY_FIELDS` — *verified by: `UserInfoReadScopingTest.phoneIsSelfOnly` (was `phoneIsDeliberatelyStillVisibleCrossUser`, which pinned the loose end this closes: stranger → no key, subject → own number); full `./mvnw package` 1104/0/0*
-- [ ] FE: logout, HHPersonSheet, MapView; tests; build
-- [ ] Deploy BE, then FE; verify on prod
+- [x] FE: logout, HHPersonSheet, MapView; tests; build — *verified by: Status Now `45f50984a`; vitest 1239/1239; build clean; lint: only pre-existing noInlineConfig warnings. HHPersonSheet's two callers (Family page, Home) both build people from the member view, which carries `phone`*
+- [x] Deploy BE, then FE; verify on prod — *verified by: statusgo-db release of `f9df1a3`; FE Heroku v62 + Netlify sitprep.app both serve `me/fcm-token` in the entry bundle. On api.sitprep.app with the test accounts:*
+  - *token: stored `agent-probe-…`; `DELETE /me/fcm-token {another device's token}` 204 → unchanged; `{this device's}` 204 → null*
+  - *phone: agent-a reading agent-b by email → no `phone` key; agent-b reading itself → its number*
+  - *owner-contact on agent-b's household: stranger 404; member 200 `{ownerEmail, phone}`*
+  - *roster: agent-b's `/groups/{hh}/member` carries its phone; agent-a gets 403 for that roster*
+  - *cleanup: the fictional number cleared*
