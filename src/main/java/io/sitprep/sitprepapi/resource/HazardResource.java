@@ -1,11 +1,13 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.HazardCategory;
 import io.sitprep.sitprepapi.dto.HazardDto;
 import io.sitprep.sitprepapi.service.HazardService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -19,6 +21,7 @@ import java.util.List;
  *       — the agency area-alert gate.</li>
  *   <li>{@code GET /api/hazards?minLat&minLng&maxLat&maxLng} — PUBLIC, like
  *       the community map; never names a reporter.</li>
+ *   <li>{@code GET /api/hazards/categories} — the preset list (signed-in).</li>
  * </ul>
  */
 @RestController
@@ -26,6 +29,8 @@ import java.util.List;
 public class HazardResource {
 
     public record VoteRequest(String vote) {}
+    /** One category as the report sheet offers it — the server's list, so the app keeps no second copy. */
+    public record CategoryDto(String key, String label, boolean blocksRoutes, int radiusM, long lifetimeHours) {}
     public record AgencyRequest(String agencyGroupId) {}
 
     private final HazardService hazards;
@@ -52,6 +57,14 @@ public class HazardResource {
     @PostMapping("/{id}/clear")
     public ResponseEntity<HazardDto> clear(@PathVariable Long id, @RequestBody AgencyRequest body) {
         return ResponseEntity.ok(hazards.clear(id, body == null ? null : body.agencyGroupId(), AuthUtils.requireAuthenticatedEmail()));
+    }
+
+    /** The preset categories, in the order the report sheet shows them. Signed-in (only reporters need it). */
+    @GetMapping("/categories")
+    public ResponseEntity<List<CategoryDto>> categories() {
+        return ResponseEntity.ok(Arrays.stream(HazardCategory.values())
+                .map(c -> new CategoryDto(c.wire(), c.label(), c.blocksRoutes(), c.radiusM(), c.lifetime().toHours()))
+                .toList());
     }
 
     @GetMapping
