@@ -156,6 +156,23 @@ class PublicPayloadPrivacyTest {
     }
 
     @Test
+    @DisplayName("the public hazard payload has no person-identifying field")
+    void hazardPayloadCarriesNoPerson() {
+        // A record, so the sentinel scan above (no-arg constructor) cannot
+        // build it; its components are fixed at compile time, so a name check
+        // is exact here. lat/lng are the hazard's location, not a person's.
+        List<String> offenders = new ArrayList<>();
+        for (java.lang.reflect.RecordComponent rc : HazardDto.class.getRecordComponents()) {
+            String lower = rc.getName().toLowerCase(Locale.ROOT);
+            if (SENSITIVE.stream().anyMatch(lower::contains)
+                    || lower.contains("reporter") || lower.contains("requester") || lower.contains("author")) {
+                offenders.add(rc.getName());
+            }
+        }
+        assertThat(offenders).as("HazardDto is served to anonymous callers").isEmpty();
+    }
+
+    @Test
     @DisplayName("the search hit's email join key never serialises")
     void searchHitJoinKeyNeverSerialises() throws Exception {
         AskSearchHitDto h = new AskSearchHitDto();
@@ -203,6 +220,10 @@ class PublicPayloadPrivacyTest {
                 "/api/public/**",               // signed-token opt-out
                 "/api/billing/webhook",         // Stripe, no payload of ours
                 "/api/community/map",           // POIs; plots no individuals by design
+                // Hazard reports (V87): the coordinates are the HAZARD's, and the
+                // payload never names who reported — asserted below and in
+                // HazardServiceTest.theDtoCarriesNoReporter.
+                "/api/hazards",
                 "/api/retail/products",         // catalogue
                 "/api/readiness/assessment",    // question bank + scoring
                 "/api/agency/requests",         // inbound only

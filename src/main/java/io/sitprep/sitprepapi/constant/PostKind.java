@@ -102,7 +102,20 @@ public enum PostKind {
      * roll-up status is DERIVED from its children on read. The {@code title}
      * IS the recipient label, so a title is required.
      */
-    PROJECT("project");
+    PROJECT("project"),
+
+    /**
+     * Neighbor hazard report (V87) — fire, flooding, a closed or damaged road,
+     * downed lines, hazmat, a crash, debris. A post so it reaches the feed and
+     * carries comments and photos; its hazard specifics (category, radius,
+     * lifetime, official / cleared) live in {@code hazard_report}, and its
+     * state (Reported / Confirmed / Official / Cleared / Expired) is computed by
+     * {@code HazardService} from {@code hazard_vote}. The title IS the category
+     * label, so a title is required. Created only through
+     * {@code POST /api/hazards}, which enforces the reporting guards.
+     * docs/epics/hazard-reports (frontend repo).
+     */
+    HAZARD("hazard");
 
     private final String wire;
 

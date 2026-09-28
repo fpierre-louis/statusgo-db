@@ -120,6 +120,8 @@ public class SecurityConfig {
                         // Guest map browsing — auth-optional by the resource's own
                         // contract (a signed-in viewer additionally gets viewerRole).
                         .requestMatchers(HttpMethod.GET, "/api/community/map").permitAll()
+                        // Hazard reports read like the community map: public, no reporter.
+                        .requestMatchers(HttpMethod.GET, "/api/hazards").permitAll()
 
                         // Public marketing surfaces, each with a public FE route:
                         // /emergency-supplies (affiliate reviewers must reach it
