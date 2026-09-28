@@ -737,8 +737,12 @@ public class PostService {
             // a legacy client (or a stale cached composer build) might
             // still send. Description must be present unless this is a
             // bare repost whose parent card is the visible content.
+            // Composer V2 C9a (owner Q4): a post / tip may be a photo with no
+            // words, and a civic report's note is optional (the category +
+            // point ARE the report). Everything else still needs its body.
             boolean hasParentPost = t.getParentPostId() != null;
-            if (!hasParentPost && (incoming.getDescription() == null || incoming.getDescription().isBlank())) {
+            if (!hasParentPost && (incoming.getDescription() == null || incoming.getDescription().isBlank())
+                    && !descriptionOptional(t.getKind(), incoming.getImageKeys())) {
                 throw new IllegalArgumentException(
                         "description required for kind=" + t.getKind());
             }
@@ -778,21 +782,9 @@ public class PostService {
             }
             t.setPrice(incoming.getPrice());
             t.setFree(incoming.isFree());
-            // Payment-method handles. Sized so an attacker can't bloat
-            // a row with a megabyte of garbage. Validates as parseable
-            // JSON before persist; null/empty/invalid → no handles.
-            String pm = incoming.getPaymentMethodsJson();
-            if (pm != null && !pm.isBlank()) {
-                if (pm.length() > 4096) {
-                    throw new IllegalArgumentException("paymentMethodsJson too large");
-                }
-                try {
-                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(pm);
-                } catch (Exception je) {
-                    throw new IllegalArgumentException("paymentMethodsJson is not valid JSON");
-                }
-                t.setPaymentMethodsJson(pm);
-            }
+            // Payment methods: only the seven known keys, handles length-
+            // checked, and none at all on a Free listing (C9d).
+            t.setPaymentMethodsJson(normalizePaymentMethods(incoming.getPaymentMethodsJson(), incoming.isFree()));
         }
 
         // Community-redesign per-type fields (official / news / civic-report).
@@ -811,19 +803,10 @@ public class PostService {
         // here too — the civic multi-agency resolver (V53) needs it (its zip side
         // matches the group_jurisdiction_zips join on the full zip, not the
         // 3-char zipBucket).
-        String civicPostcode = null;
-        if (t.getGroupId() == null && t.getLatitude() != null && t.getLongitude() != null) {
-            try {
-                NominatimGeocodeService.Place p = geocode.reverse(t.getLatitude(), t.getLongitude());
-                if (p != null) {
-                    t.setZipBucket(p.zipBucket());
-                    t.setPlaceLabel(p.shortLabel());
-                    civicPostcode = p.postcode();
-                }
-            } catch (Exception e) {
-                log.debug("Post geo enrichment failed: {}", e.getMessage());
-            }
-        }
+        String civicPostcode = enrichPlace(t);
+
+        // Neighbour post rate limit (C9e) — after validation, before persist.
+        requireUnderNeighbourPostLimit(t);
 
         // Metered monetization (Phase 2) — a group-scoped work order counts
         // against the owning group's monthly plan allowance. Personal tasks
@@ -2298,7 +2281,13 @@ public class PostService {
             UserGeneratedContentFilter.requireAcceptable(
                     "community post", patch.getTitle(), patch.getDescription());
         }
-        if (patch.getTitle() != null) t.setTitle(patch.getTitle());
+        if (patch.getTitle() != null) {
+            PostKind kindEnum = PostKind.fromWire(t.getKind());
+            if (kindEnum != null && kindEnum.requiresTitle() && patch.getTitle().isBlank()) {
+                throw new IllegalArgumentException("title required for kind=" + t.getKind());
+            }
+            t.setTitle(patch.getTitle());
+        }
         if (patch.getDescription() != null) t.setDescription(patch.getDescription());
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
         if (patch.getDueAt() != null) t.setDueAt(patch.getDueAt());
@@ -2318,6 +2307,9 @@ public class PostService {
         // "broadening edit != broadening delete" (DELETE is also author-only).
         List<String> removedKeys = List.of();
         if (patch.getImageKeys() != null && isAuthor) {
+            if (patch.getImageKeys().size() > 5) {
+                throw new IllegalArgumentException("A post can have at most 5 images.");
+            }
             Set<String> incoming = new HashSet<>(patch.getImageKeys());
             List<String> existing = t.getImageKeys() == null ? List.of() : t.getImageKeys();
             // Newly attached keys must be the author's own uploads; keys the
@@ -2331,8 +2323,27 @@ public class PostService {
             t.getImageKeys().clear();
             t.getImageKeys().addAll(patch.getImageKeys());
         }
-        if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
-        if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
+        // A civic report keeps its point: its agency tags were derived from it
+        // at create (applyCreateTags) and there is no re-tag path, so a moved
+        // point would desync them. The composer locks the location on edit
+        // (C9c). Other posts may move; validate, and re-derive the place tag.
+        boolean civic = "civic-report".equals(t.getKind());
+        boolean pointChanged = false;
+        if (!civic && (patch.getLatitude() != null || patch.getLongitude() != null)) {
+            GeoUtil.requireValidLatLng(
+                    patch.getLatitude() != null ? patch.getLatitude() : t.getLatitude(),
+                    patch.getLongitude() != null ? patch.getLongitude() : t.getLongitude());
+            pointChanged = !java.util.Objects.equals(patch.getLatitude(), t.getLatitude())
+                    || !java.util.Objects.equals(patch.getLongitude(), t.getLongitude());
+            if (patch.getLatitude() != null) t.setLatitude(patch.getLatitude());
+            if (patch.getLongitude() != null) t.setLongitude(patch.getLongitude());
+        }
+        if (pointChanged) enrichPlace(t);
+        // Listing + report fields (C9c) — author-only, like the photos.
+        if (isAuthor) applyAuthorKindFields(t, patch);
+        // The body rule holds after an edit too (C9a): an edit may not empty a
+        // photo-less post's text.
+        requireBodyAfterEdit(t);
         // Work-order triage bag (V47): replace-if-present, matching this method's
         // per-field patch semantics. When the bag is replaced, re-derive the
         // denormalized need_type column so it can't drift from the bag.
@@ -2667,6 +2678,145 @@ public class PostService {
      * object, transient network) doesn't strand the rest. Always runs
      * afterCommit so a failed DB transaction never deletes user photos.
      */
+    // ── Composer V2 C9 (a–e) ─────────────────────────────────────────────
+
+    /** Kinds with their own posting limits, or not community posts at all. */
+    static final Set<String> RATE_EXEMPT_KINDS = Set.of("hazard", "official", "news", "task", "project");
+    static final int NEIGHBOUR_POSTS_PER_HOUR = 10;
+
+    /**
+     * C9a (owner Q4): a civic report's note is optional; a post / tip may be
+     * a photo with no words. Every other kind keeps its body rule.
+     */
+    static boolean descriptionOptional(String kind, Collection<String> imageKeys) {
+        if ("civic-report".equals(kind)) return true;
+        boolean hasImage = imageKeys != null && imageKeys.stream().anyMatch(k -> k != null && !k.isBlank());
+        return hasImage && ("post".equals(kind) || "tip".equals(kind));
+    }
+
+    /** The body rule, re-checked after a PATCH (body-only kinds, not reposts). */
+    private static void requireBodyAfterEdit(Post t) {
+        PostKind kindEnum = PostKind.fromWire(t.getKind());
+        if (kindEnum == null || kindEnum.requiresTitle() || t.getParentPostId() != null) return;
+        if (!"post".equals(t.getKind()) && !"tip".equals(t.getKind()) && !"civic-report".equals(t.getKind())) return;
+        boolean blank = t.getDescription() == null || t.getDescription().isBlank();
+        if (blank && !descriptionOptional(t.getKind(), t.getImageKeys())) {
+            throw new IllegalArgumentException("description required for kind=" + t.getKind());
+        }
+    }
+
+    /** The seven payment methods: handle strings, then plain yeses. */
+    static final Set<String> PAYMENT_HANDLE_KEYS = Set.of("venmo", "cashApp", "zelle", "paypal");
+    static final Set<String> PAYMENT_FLAG_KEYS = Set.of("applePay", "googlePay", "cashOnPickup");
+    static final int MAX_HANDLE_LENGTH = 64;
+
+    /**
+     * C9d — only the seven known keys; handles trimmed and 1–64 chars; flags
+     * kept only when true; a Free listing carries NO handles (the card would
+     * otherwise show "Free" over a row of ways to pay). Returns the
+     * normalized JSON, or null when nothing is left.
+     */
+    static String normalizePaymentMethods(String json, boolean isFree) {
+        if (json == null || json.isBlank() || isFree) return null;
+        if (json.length() > 4096) throw new IllegalArgumentException("paymentMethodsJson too large");
+        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode node;
+        try {
+            node = om.readTree(json);
+        } catch (Exception je) {
+            throw new IllegalArgumentException("paymentMethodsJson is not valid JSON");
+        }
+        if (node == null || !node.isObject()) throw new IllegalArgumentException("paymentMethodsJson must be an object");
+        com.fasterxml.jackson.databind.node.ObjectNode out = om.createObjectNode();
+        java.util.Iterator<Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> it = node.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> e = it.next();
+            String key = e.getKey();
+            com.fasterxml.jackson.databind.JsonNode v = e.getValue();
+            if (PAYMENT_HANDLE_KEYS.contains(key)) {
+                String handle = v == null || v.isNull() ? "" : v.asText("").trim();
+                if (handle.isEmpty()) continue;
+                if (handle.length() > MAX_HANDLE_LENGTH) {
+                    throw new IllegalArgumentException("A payment handle can be at most " + MAX_HANDLE_LENGTH + " characters.");
+                }
+                out.put(key, handle);
+            } else if (PAYMENT_FLAG_KEYS.contains(key)) {
+                if (v != null && v.asBoolean(false)) out.put(key, true);
+            } else {
+                throw new IllegalArgumentException("Unknown payment method: " + key);
+            }
+        }
+        return out.isEmpty() ? null : out.toString();
+    }
+
+    /**
+     * C9c — the author's per-kind fields on PATCH. isFree is a primitive, so
+     * "absent" can't be told from false: a price in the patch means Price
+     * mode, isFree=true means Free, and neither leaves the listing alone.
+     */
+    private void applyAuthorKindFields(Post t, Post patch) {
+        if ("marketplace".equals(t.getKind())) {
+            if (patch.getPrice() != null && patch.isFree()) {
+                throw new IllegalArgumentException("Listing can be priced or free, not both");
+            }
+            if (patch.getPrice() != null) {
+                t.setPrice(patch.getPrice());
+                t.setFree(false);
+            } else if (patch.isFree()) {
+                t.setPrice(null);
+                t.setFree(true);
+            }
+            if (t.isFree()) {
+                t.setPaymentMethodsJson(null);
+            } else if (patch.getPaymentMethodsJson() != null) {
+                t.setPaymentMethodsJson(normalizePaymentMethods(patch.getPaymentMethodsJson(), false));
+            }
+        }
+        if ("civic-report".equals(t.getKind()) && patch.getCivicCategory() != null) {
+            String cat = patch.getCivicCategory().trim().toLowerCase();
+            if (!CivicCategory.isValid(cat)) {
+                throw new IllegalArgumentException("civicCategory must be one of " + CivicCategory.ALLOWED_WIRE_VALUES);
+            }
+            t.setCivicCategory(cat);
+        }
+    }
+
+    /**
+     * Reverse-geocode a community post's point into zipBucket + placeLabel
+     * (the card's place tag). Returns the full postcode for the civic
+     * resolver, or null. Best-effort. Used by create and, when the point
+     * moves, by PATCH (the Q5 audit: a tip given a location by edit had no tag).
+     */
+    private String enrichPlace(Post t) {
+        if (t.getGroupId() != null || t.getLatitude() == null || t.getLongitude() == null) return null;
+        try {
+            NominatimGeocodeService.Place p = geocode.reverse(t.getLatitude(), t.getLongitude());
+            if (p != null) {
+                t.setZipBucket(p.zipBucket());
+                t.setPlaceLabel(p.shortLabel());
+                return p.postcode();
+            }
+        } catch (Exception e) {
+            log.debug("Post geo enrichment failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * C9e — 10 community posts per author per rolling hour, counted in the
+     * database so it holds across dynos. Hazard reports (their own 5/hour +
+     * sentence), official / news (publisher limits) and non-community kinds
+     * are exempt.
+     */
+    void requireUnderNeighbourPostLimit(Post t) {
+        if (t.getGroupId() != null || t.getKind() == null || RATE_EXEMPT_KINDS.contains(t.getKind())) return;
+        long recent = taskRepo.countRecentNeighbourPosts(
+                t.getRequesterEmail(), RATE_EXEMPT_KINDS, Instant.now().minus(Duration.ofHours(1)));
+        if (recent >= NEIGHBOUR_POSTS_PER_HOUR) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many posts in the last hour");
+        }
+    }
+
     /**
      * THE ATTACH GUARD (Composer V2 C0b, 2026-09-28). A post may only carry
      * images its author uploaded.

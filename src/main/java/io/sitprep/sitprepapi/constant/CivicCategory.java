@@ -17,6 +17,9 @@ public enum CivicCategory {
     STREETLIGHT("streetlight"),
     DEBRIS("debris"),
     WATER("water"),
+    // A downed or damaged traffic sign (Composer V2 C9b, K7). varchar(16), no
+    // CHECK constraint, so no migration.
+    SIGN("sign"),
     OTHER("other");
 
     private final String wire;

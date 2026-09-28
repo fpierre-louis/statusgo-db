@@ -47,6 +47,22 @@ public interface PostRepo extends JpaRepository<Post, Long> {
      */
     long countByGroupIdAndKindAndCreatedAtGreaterThanEqual(String groupId, String kind, Instant since);
 
+    /**
+     * Community (groupId null) posts one author made since {@code since},
+     * leaving out the kinds with their own limits (Composer V2 C9e — the
+     * neighbour post rate limit).
+     */
+    @Query("""
+            select count(p) from Post p
+             where lower(p.requesterEmail) = lower(:email)
+               and p.groupId is null
+               and p.kind not in :exemptKinds
+               and p.createdAt >= :since
+            """)
+    long countRecentNeighbourPosts(@Param("email") String email,
+                                   @Param("exemptKinds") Collection<String> exemptKinds,
+                                   @Param("since") Instant since);
+
     // ---------------------------------------------------------------------
     // Conditional status transitions (audit DB-03, C-3).
     //
