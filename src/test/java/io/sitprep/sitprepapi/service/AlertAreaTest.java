@@ -29,6 +29,7 @@ class AlertAreaTest {
     @Autowired PostService postService;
     @Autowired AlertPostRepo alertPostRepo;
     @Autowired ObjectMapper objectMapper;
+    @Autowired AlertDispatchService dispatchService;
     @MockBean NominatimGeocodeService geocode;
 
     private static final Map<String, Object> POLYGON = Map.of(
@@ -42,6 +43,28 @@ class AlertAreaTest {
         assertThat(AlertDispatchService.areaGeojsonOf(POLYGON)).contains("\"Polygon\"");
         assertThat(AlertDispatchService.areaGeojsonOf(Map.of("type", "Point", "coordinates", List.of(1, 2)))).isNull();
         assertThat(AlertDispatchService.areaGeojsonOf(null)).isNull();
+    }
+
+    @Test
+    void aPostDispatchedBeforeV89GetsItsAreaOnTheNextTickButAResolvedOneDoesNot() {
+        Object live = POLYGON;
+
+        AlertPost old = new AlertPost();
+        old.setAlertId("nws-backfill-1");
+        old.setGeocellId("841");
+        old.setPostId(424242L);
+        old = alertPostRepo.save(old);
+        dispatchService.backfillArea(old, live);
+        assertThat(alertPostRepo.findById(old.getId()).orElseThrow().getAreaGeojson()).contains("Polygon");
+
+        AlertPost resolved = new AlertPost();
+        resolved.setAlertId("nws-backfill-2");
+        resolved.setGeocellId("841");
+        resolved.setPostId(424243L);
+        resolved.setResolvedAt(java.time.Instant.now());
+        resolved = alertPostRepo.save(resolved);
+        dispatchService.backfillArea(resolved, live);
+        assertThat(alertPostRepo.findById(resolved.getId()).orElseThrow().getAreaGeojson()).isNull();
     }
 
     @Test

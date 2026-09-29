@@ -284,7 +284,13 @@ public class AlertDispatchService {
                 // Application-side dedup ahead of the unique-index
                 // safety net. Cheap (one indexed lookup) and avoids a
                 // failed insert + rollback for the common case.
-                if (alertPostRepo.findByAlertIdAndGeocellId(alertId, zipBucket).isPresent()) continue;
+                Optional<AlertPost> existing = alertPostRepo.findByAlertIdAndGeocellId(alertId, zipBucket);
+                if (existing.isPresent()) {
+                    // V89 backfill: a post dispatched before its area was kept
+                    // gets it on the next tick while the alert is still live.
+                    backfillArea(existing.get(), a.geometry());
+                    continue;
+                }
 
                 // Template match drives both severity-eligibility and
                 // body content. No template = not eligible (e.g. NWS
@@ -490,6 +496,19 @@ public class AlertDispatchService {
         // by `sourceKey` being non-null and machine-owned. A separate boolean
         // would be a third way to say the same thing.
         return t;
+    }
+
+    /** Fill a missing area on an already-dispatched row (V89). Best-effort. */
+    void backfillArea(AlertPost ap, Object geometry) {
+        if (ap == null || ap.getAreaGeojson() != null || ap.getResolvedAt() != null) return;
+        String area = areaGeojsonOf(geometry);
+        if (area == null) return;
+        try {
+            ap.setAreaGeojson(area);
+            alertPostRepo.save(ap);
+        } catch (Exception e) {
+            log.debug("AlertDispatch: area backfill failed for post {}: {}", ap.getPostId(), e.getMessage());
+        }
     }
 
     /** Largest area kept with a post; storm polygons are a few KB. */
