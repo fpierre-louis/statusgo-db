@@ -119,6 +119,25 @@ public class GroupResource {
     /** Body of {@link #setAlert}. One field, deliberately. */
     public record SetAlertRequest(boolean active) {}
 
+    /**
+     * Keep the running check-in going for another window without restarting
+     * it — answers so far still count (ask-to-check-in plan C-4). Organizers
+     * only. 409 when no check-in is running.
+     */
+    @PostMapping("/{groupId}/alert/continue")
+    public ResponseEntity<ContinueCheckInDto> continueCheckIn(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        requireAdminOf(groupId);
+        try {
+            return ResponseEntity.ok(new ContinueCheckInDto(groupService.continueCheckIn(groupId, caller)));
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
+    }
+
+    /** When the continued check-in now ends by itself. */
+    public record ContinueCheckInDto(java.time.Instant alertExpiresAt) {}
+
     @DeleteMapping("/{groupId}")
     public void deleteGroup(@PathVariable String groupId) {
         requireOwnerOf(groupId);

@@ -92,6 +92,15 @@ public class Group {
     @Column(name = "checkin_reminders_fired")
     private Integer checkInRemindersFired;
 
+    /**
+     * When the running check-in ends by itself (V90). Set to start + the decay
+     * window when a check-in starts; "Continue" pushes it back WITHOUT touching
+     * {@link #alertActivatedAt}, so answers given so far still count. Null for
+     * check-ins that were running before V90 — those end at start + window.
+     */
+    @Column(name = "alert_expires_at")
+    private Instant alertExpiresAt;
+
     private Instant createdAt;
     private String description;
     private String groupCode;

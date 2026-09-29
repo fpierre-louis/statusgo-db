@@ -40,6 +40,10 @@ public class GroupService {
     private NotificationService notificationService; // setter-injected
     private final CheckInRequestService checkInRequestService;
 
+    /** How long a check-in runs before it ends by itself (the decay window). */
+    @org.springframework.beans.factory.annotation.Value("${app.groupAlert.decayHours:48}")
+    private int checkInHours = 48;
+
     public GroupService(GroupRepo groupRepo,
                         UserInfoRepo userInfoRepo,
                         WebSocketMessageSender webSocketMessageSender,
@@ -224,13 +228,35 @@ public class GroupService {
                 .map(UserInfo::getUserFirstName)
                 .filter(n -> n != null && !n.isBlank())
                 .orElse("Your group admin");
+        nudgeMissing(group, rollup, callerEmail, callerName);
+        return rollup;
+    }
 
+    /**
+     * The scheduled follow-up to the people who haven't answered (ask-to-check-in
+     * plan C-3): the same nudge an organizer's "ask everyone who hasn't
+     * answered" sends, with the same 10-minute cooldown and the same record of
+     * who was asked, signed by the group rather than a person. Returns how many
+     * were reminded.
+     */
+    @Transactional
+    public int remindMissing(Group group) {
+        CheckInRollupDto rollup = buildCheckInRollup(group);
+        if (!rollup.active() || rollup.missing() <= 0) return 0;
+        String sender = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType())
+                ? "Your household"
+                : (group.getGroupName() != null && !group.getGroupName().isBlank() ? group.getGroupName() : "Your group");
+        return nudgeMissing(group, rollup, null, sender);
+    }
+
+    /** Nudge every member the rollup counts as missing; the recorder owns the cooldown. */
+    private int nudgeMissing(Group group, CheckInRollupDto rollup, String senderEmail, String senderName) {
         Set<String> missingEmails = rollup.members().stream()
                 .filter(m -> !m.accounted())
                 .map(CheckInRollupDto.Member::email)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (missingEmails.isEmpty()) return rollup;
+        if (missingEmails.isEmpty()) return 0;
 
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(new ArrayList<>(missingEmails));
         int pinged = 0;
@@ -240,19 +266,43 @@ public class GroupService {
             // false is the only thing standing between "Nudge" and a push that
             // bypasses quiet hours on every tap.
             if (!householdEventService.recordNudge(
-                    group.getGroupId(), callerEmail, user.getUserEmail())) {
+                    group.getGroupId(), senderEmail, user.getUserEmail())) {
                 continue;
             }
-            pushNudge(group, user, callerName);
+            pushNudge(group, user, senderName);
             // Only the people actually nudged are recorded as asked: the
             // cooldown above skips the rest, and a skipped nudge is not an ask.
             checkInRequestService.recordAsked(
-                    group, java.util.List.of(user.getUserEmail()), callerEmail);
+                    group, java.util.List.of(user.getUserEmail()), senderEmail);
             pinged++;
         }
         logger.info("Pinged {} of {} missing check-in member(s) for group {}",
                 pinged, users.size(), group.getGroupId());
-        return rollup;
+        return pinged;
+    }
+
+    /**
+     * Keep a running check-in going for another window WITHOUT restarting it
+     * (ask-to-check-in plan C-4). The start stays put, so every answer given so
+     * far still counts; only the automatic end moves. The "auto-ends in 12
+     * hours" reminder re-arms against the new end. Organizers only (checked by
+     * the resource). Returns the new end, or throws when nothing is running.
+     */
+    @Transactional
+    public Instant continueCheckIn(String groupId, String callerEmail) {
+        Group group = getGroupByPublicId(groupId);
+        if (!"Active".equalsIgnoreCase(group.getAlert()) || group.getAlertActivatedAt() == null) {
+            throw new IllegalStateException("There is no check-in running to continue");
+        }
+        Instant until = Instant.now().plus(java.time.Duration.ofHours(checkInHours));
+        group.setAlertExpiresAt(until);
+        Integer fired = group.getCheckInRemindersFired();
+        if (fired != null && fired > GroupCheckInReminderService.ENDING_SOON_SLOT) {
+            group.setCheckInRemindersFired(GroupCheckInReminderService.ENDING_SOON_SLOT);
+        }
+        groupRepo.save(group);
+        logger.info("Check-in continued for group {} by {} until {}", groupId, callerEmail, until);
+        return until;
     }
 
     /** Outcome of a nudge: whether a push went out, and whether it was silent. */
@@ -303,6 +353,10 @@ public class GroupService {
         boolean silent = notificationService.shouldSendSilently(them);
         userInfoRepo.findByUserEmailIgnoreCase(them)
                 .ifPresent(u -> pushNudge(group, u, callerName));
+        // Asking one person IS asking them (ask-to-check-in plan K1): record it
+        // like ask-everyone and ping-missing do, so the board can say "asked 5m
+        // ago" instead of "not yet asked".
+        checkInRequestService.recordAsked(group, java.util.List.of(them), me);
         return new NudgeResult(true, silent);
     }
 
@@ -616,10 +670,13 @@ public class GroupService {
         boolean becameInactive = "Active".equalsIgnoreCase(previousAlert) && !becameActive;
 
         if (becameActive) {
-            group.setAlertActivatedAt(Instant.now());
+            Instant start = Instant.now();
+            group.setAlertActivatedAt(start);
+            group.setAlertExpiresAt(start.plus(java.time.Duration.ofHours(checkInHours)));
             group.setCheckInRemindersFired(0);
         } else if (becameInactive) {
             group.setAlertActivatedAt(null);
+            group.setAlertExpiresAt(null);
             group.setCheckInRemindersFired(0);
         }
 

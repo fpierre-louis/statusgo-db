@@ -71,6 +71,21 @@ public class GroupCheckInReminderService {
     private static final long[] SLOT_MINUTES = { 30, 4 * 60, 12 * 60, 24 * 60, 36 * 60 };
 
     /**
+     * The "auto-ends in 12 hours" slot. It is due 12 hours before the check-in's
+     * END ({@code alertExpiresAt}, V90), not 36 hours after its start, so it
+     * fires again after "Continue" pushes the end back
+     * ({@code GroupService.continueCheckIn} re-arms it).
+     */
+    public static final int ENDING_SOON_SLOT = 4;
+    private static final long ENDING_SOON_BEFORE_MINUTES = 12 * 60;
+
+    /**
+     * Slots that ALSO remind the people who haven't answered (owner ruling C-3:
+     * 30 minutes and 4 hours in). Later slots are organizer-only.
+     */
+    private static final int LAST_MEMBER_FOLLOW_UP_SLOT = 1;
+
+    /**
      * Human-readable labels per slot — drives the notification body
      * copy. Kept aligned with {@link #SLOT_MINUTES}.
      */
@@ -86,18 +101,24 @@ public class GroupCheckInReminderService {
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
     private final HouseholdEventService householdEventService;
+    private final GroupService groupService;
 
     @Value("${app.groupAlert.reminderSweepBatchSize:200}")
     private int sweepBatchSize;
 
+    @Value("${app.groupAlert.decayHours:48}")
+    private int decayHours = 48;
+
     public GroupCheckInReminderService(GroupRepo groupRepo,
                                        UserInfoRepo userInfoRepo,
                                        NotificationService notificationService,
-                                       HouseholdEventService householdEventService) {
+                                       HouseholdEventService householdEventService,
+                                       GroupService groupService) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
         this.householdEventService = householdEventService;
+        this.groupService = groupService;
     }
 
     /**
@@ -140,7 +161,11 @@ public class GroupCheckInReminderService {
                 int alreadyFired = g.getCheckInRemindersFired() == null
                         ? 0 : g.getCheckInRemindersFired();
                 long elapsedMinutes = Duration.between(g.getAlertActivatedAt(), now).toMinutes();
-                int dueSlot = highestSlotIndexAt(elapsedMinutes);
+                Instant endsAt = g.getAlertExpiresAt() != null
+                        ? g.getAlertExpiresAt()
+                        : g.getAlertActivatedAt().plus(Duration.ofHours(decayHours));
+                long minutesToEnd = Duration.between(now, endsAt).toMinutes();
+                int dueSlot = dueSlotAt(elapsedMinutes, minutesToEnd);
                 if (dueSlot < 0 || dueSlot < alreadyFired) {
                     // Either we haven't reached the 1st slot yet, or
                     // we've already fired everything that's due.
@@ -170,10 +195,14 @@ public class GroupCheckInReminderService {
         return totalFired;
     }
 
-    /** Highest slot index whose minute-threshold has been reached, or -1. */
-    private static int highestSlotIndexAt(long elapsedMinutes) {
+    /**
+     * Highest slot due, or -1: the elapsed-time slots before
+     * {@link #ENDING_SOON_SLOT}, and that one when the END is 12 hours away.
+     */
+    static int dueSlotAt(long elapsedMinutes, long minutesToEnd) {
+        if (minutesToEnd <= ENDING_SOON_BEFORE_MINUTES) return ENDING_SOON_SLOT;
         int idx = -1;
-        for (int i = 0; i < SLOT_MINUTES.length; i++) {
+        for (int i = 0; i < ENDING_SOON_SLOT; i++) {
             if (elapsedMinutes >= SLOT_MINUTES[i]) idx = i;
         }
         return idx;
@@ -209,7 +238,11 @@ public class GroupCheckInReminderService {
         List<UserInfo> members = group.getMemberEmails() == null
                 ? List.of()
                 : userInfoRepo.findByUserEmailIn(group.getMemberEmails());
-        body = rollupBody(body, members, group);
+        // The slot's question AND the tally. The tally used to REPLACE the
+        // question, so "Continue or end the check-in?" and "Auto-ends in 12
+        // hours" never reached anyone (ask-to-check-in audit 2026-09-29).
+        String tally = rollupBody(null, members, group);
+        if (tally != null) body = body + " " + tally;
         for (UserInfo user : users) {
             String token = user.getFcmtoken();
             notificationService.deliverPresenceAwareForGroup(
@@ -237,8 +270,21 @@ public class GroupCheckInReminderService {
             }
         }
 
-        log.info("GroupCheckInReminder: fired slot {} for group {} ({} admins/owners)",
-                slotIndex, group.getGroupId(), users.size());
+        // The people who haven't answered hear about it too, on the first
+        // slots only (C-3) — the same nudge, cooldown and "asked" record as an
+        // organizer's "ask everyone who hasn't answered".
+        int reminded = 0;
+        if (slotIndex <= LAST_MEMBER_FOLLOW_UP_SLOT) {
+            try {
+                reminded = groupService.remindMissing(group);
+            } catch (Exception inner) {
+                log.warn("GroupCheckInReminder: member follow-up failed for group {}: {}",
+                        group.getGroupId(), inner.getMessage());
+            }
+        }
+
+        log.info("GroupCheckInReminder: fired slot {} for group {} ({} admins/owners, {} members reminded)",
+                slotIndex, group.getGroupId(), users.size(), reminded);
     }
 
     private static String rollupBody(String fallback, List<UserInfo> members, Group group) {

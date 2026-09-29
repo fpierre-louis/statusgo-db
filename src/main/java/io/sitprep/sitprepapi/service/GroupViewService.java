@@ -257,8 +257,17 @@ public class GroupViewService {
                 g.getOwnerEmail(),
                 g.getAdminEmails() == null ? List.of() : List.copyOf(g.getAdminEmails()),
                 g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs()),
-                g.getPlanTier()
+                g.getPlanTier(),
+                checkInEndsAt(g)
         );
+    }
+
+    /** The running check-in's automatic end: V90's column, else start + window. */
+    private Instant checkInEndsAt(Group g) {
+        if (!"active".equalsIgnoreCase(g.getAlert()) || g.getAlertActivatedAt() == null) return null;
+        return g.getAlertExpiresAt() != null
+                ? g.getAlertExpiresAt()
+                : g.getAlertActivatedAt().plus(java.time.Duration.ofHours(checkInHours));
     }
 
     /**
@@ -497,6 +506,9 @@ public class GroupViewService {
         return new GroupMemberViewDto.ViewerCapabilities(
                 c.setOthersStatus(), c.nudge(), c.askEveryone(), c.pingMissing());
     }
+
+    @org.springframework.beans.factory.annotation.Value("${app.groupAlert.decayHours:48}")
+    private int checkInHours = 48;
 
     private String resolveViewerRole(Group g, String viewerEmail) {
         if (viewerEmail == null || viewerEmail.isBlank()) return "none";

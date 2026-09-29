@@ -113,7 +113,13 @@ public record GroupMemberViewDto(
             List<String> adminEmails,
             List<String> subGroupIds,
             /** Org plan tier enum name (PlanTier); null reads as FREE. */
-            String planTier
+            String planTier,
+            /**
+             * When the running check-in ends by itself — null when none is
+             * running. "Continue" pushes it back without resetting answers (V90;
+             * ask-to-check-in plan K4). Appended last: positional record.
+             */
+            Instant alertExpiresAt
     ) {}
 
     public record MemberSummary(

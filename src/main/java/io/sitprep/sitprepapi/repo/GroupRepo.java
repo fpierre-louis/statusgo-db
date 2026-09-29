@@ -127,10 +127,12 @@ public interface GroupRepo extends JpaRepository<Group, String> {
         "SELECT g FROM Group g " +
         "WHERE LOWER(g.alert) = 'active' " +
         "AND g.alertActivatedAt IS NOT NULL " +
-        "AND g.alertActivatedAt < :cutoff " +
+        "AND ((g.alertExpiresAt IS NOT NULL AND g.alertExpiresAt < :now) " +
+        "  OR (g.alertExpiresAt IS NULL AND g.alertActivatedAt < :cutoff)) " +
         "ORDER BY g.alertActivatedAt ASC"
     )
     List<Group> findStaleActiveAlerts(@Param("cutoff") java.time.Instant cutoff,
+                                      @Param("now") java.time.Instant now,
                                       org.springframework.data.domain.Pageable page);
 
     /**

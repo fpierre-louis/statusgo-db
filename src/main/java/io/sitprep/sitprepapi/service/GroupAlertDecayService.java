@@ -128,7 +128,7 @@ public class GroupAlertDecayService {
     @Transactional
     public int decayOnce() {
         Instant cutoff = Instant.now().minus(Duration.ofHours(decayHours));
-        List<Group> stale = groupRepo.findStaleActiveAlerts(cutoff, PageRequest.of(0, sweepBatchSize));
+        List<Group> stale = groupRepo.findStaleActiveAlerts(cutoff, Instant.now(), PageRequest.of(0, sweepBatchSize));
         if (stale.isEmpty()) return 0;
 
         Instant now = Instant.now();
@@ -137,6 +137,7 @@ public class GroupAlertDecayService {
             g.setAlert(null);
             g.setActiveHazardType(null);
             g.setAlertActivatedAt(null);
+            g.setAlertExpiresAt(null);
             g.setCheckInRemindersFired(0);
             g.setUpdatedAt(now);
             frames.add(new GroupAlertFrame(
