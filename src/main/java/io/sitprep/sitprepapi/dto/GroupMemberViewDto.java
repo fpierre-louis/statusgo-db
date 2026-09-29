@@ -70,8 +70,28 @@ public record GroupMemberViewDto(
          * when an adult has claimed them via a "with me" accompaniment.</p>
          */
         StatusRollup rollup,
-        MetaDto meta
+        MetaDto meta,
+        /**
+         * What the VIEWER may do to other members here — computed by
+         * {@code MemberActionPolicy}, the same class the endpoints enforce with,
+         * so the client offers only what the API will accept (map sheet audit
+         * 2026-09-29, Phase 2). Appended last: this is a positional record.
+         */
+        ViewerCapabilities viewerCapabilities
 ) {
+
+    /**
+     * @param setOthersStatus answer "check in" for someone else
+     * @param nudge           ping one member
+     * @param askEveryone     request a check-in from the whole group
+     * @param pingMissing     nudge everyone who hasn't answered the active alert
+     */
+    public record ViewerCapabilities(
+            boolean setOthersStatus,
+            boolean nudge,
+            boolean askEveryone,
+            boolean pingMissing
+    ) {}
 
     public record GroupInfo(
             String groupId,

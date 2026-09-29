@@ -206,7 +206,8 @@ public class GroupViewService {
                 recentPosts,
                 pinnedPosts,
                 rollup,
-                new MetaDto(Instant.now(), DTO_VERSION)
+                new MetaDto(Instant.now(), DTO_VERSION),
+                viewerCapabilities(g, viewerEmail)
         );
     }
 
@@ -489,6 +490,12 @@ public class GroupViewService {
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    private static GroupMemberViewDto.ViewerCapabilities viewerCapabilities(Group g, String viewerEmail) {
+        MemberActionPolicy.Capabilities c = MemberActionPolicy.of(g, viewerEmail);
+        return new GroupMemberViewDto.ViewerCapabilities(
+                c.setOthersStatus(), c.nudge(), c.askEveryone(), c.pingMissing());
     }
 
     private String resolveViewerRole(Group g, String viewerEmail) {

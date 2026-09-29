@@ -175,23 +175,14 @@ public class GroupService {
         Group group = getGroupByPublicId(groupId);
         String me = callerEmail.trim().toLowerCase();
 
-        boolean isMember = group.getMemberEmails() != null && group.getMemberEmails().stream()
-                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
-        if (!isMember) {
+        if (!MemberActionPolicy.onRoster(group, me)) {
             throw new SecurityException("Only members can request a check-in");
         }
-
-        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE
-                .equalsIgnoreCase(group.getGroupType());
-        if (!isHousehold) {
-            boolean isAdmin = group.getAdminEmails() != null && group.getAdminEmails().stream()
-                    .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
-            boolean isOwner = group.getOwnerEmail() != null
-                    && group.getOwnerEmail().equalsIgnoreCase(me);
-            if (!isAdmin && !isOwner) {
-                throw new SecurityException(
-                        "Only admins can request a check-in for this group");
-            }
+        // Household: any member; other groups: owner or admin. The same rule
+        // the member-view's viewerCapabilities.askEveryone reports.
+        if (!MemberActionPolicy.canAskEveryone(group, me)) {
+            throw new SecurityException(
+                    "Only admins can request a check-in for this group");
         }
 
         String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
@@ -289,9 +280,12 @@ public class GroupService {
         String me = callerEmail.trim().toLowerCase(Locale.ROOT);
         String them = subjectEmail.trim().toLowerCase(Locale.ROOT);
 
-        boolean callerIsMember = safeList(group.getMemberEmails()).stream()
-                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
-        if (!callerIsMember) throw new SecurityException("Only members can nudge");
+        if (!MemberActionPolicy.onRoster(group, me)) throw new SecurityException("Only members can nudge");
+        // D-2 (owner, 2026-09-29): outside a household only owners and admins
+        // nudge. The member-view's viewerCapabilities reads the same policy.
+        if (!MemberActionPolicy.canNudge(group, me)) {
+            throw new SecurityException("Only organizers can ping people in this group");
+        }
 
         boolean subjectIsMember = safeList(group.getMemberEmails()).stream()
                 .anyMatch(e -> e != null && e.equalsIgnoreCase(them));
