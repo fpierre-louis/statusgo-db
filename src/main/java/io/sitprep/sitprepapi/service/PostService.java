@@ -86,6 +86,8 @@ public class PostService {
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
     private final AlertPostRepo alertPostRepo;
+    private final io.sitprep.sitprepapi.repo.HazardReportRepo hazardReportRepo;
+    private final io.sitprep.sitprepapi.repo.HazardVoteRepo hazardVoteRepo;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
@@ -144,8 +146,12 @@ public class PostService {
                        CivicAgencyService civicAgencyService,
                        PostReadAuthorizer readAuthorizer,
                        PostMentionService mentions,
-                       AlertPostRepo alertPostRepo) {
+                       AlertPostRepo alertPostRepo,
+                       io.sitprep.sitprepapi.repo.HazardReportRepo hazardReportRepo,
+                       io.sitprep.sitprepapi.repo.HazardVoteRepo hazardVoteRepo) {
         this.taskRepo = taskRepo;
+        this.hazardReportRepo = hazardReportRepo;
+        this.hazardVoteRepo = hazardVoteRepo;
         this.mentions = mentions;
         this.alertPostRepo = alertPostRepo;
         this.userInfoRepo = userInfoRepo;
@@ -494,6 +500,39 @@ public class PostService {
      * withAuthors because every read path funnels through it.
      */
     private List<PostDto> withHazardAreas(List<PostDto> dtos) {
+        return withHazardFacts(withAlertAreas(dtos));
+    }
+
+    /**
+     * A neighbour hazard report's map facts (category, state, radius) onto its
+     * post, so the preview draws the map's own hazard mark. Two batched
+     * queries, hazard posts only. State comes from HazardService.stateOf —
+     * HazardService depends on this class, so the static rule is shared rather
+     * than the service injected.
+     */
+    private List<PostDto> withHazardFacts(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty() || hazardReportRepo == null || hazardVoteRepo == null) return dtos;
+        List<Long> ids = dtos.stream()
+                .filter(d -> "hazard".equals(d.kind()) && d.id() != null && d.community() != null)
+                .map(PostDto::id)
+                .toList();
+        if (ids.isEmpty()) return dtos;
+        Map<Long, io.sitprep.sitprepapi.domain.HazardReport> reports = new HashMap<>();
+        for (io.sitprep.sitprepapi.domain.HazardReport h : hazardReportRepo.findAllById(ids)) reports.put(h.getTaskId(), h);
+        if (reports.isEmpty()) return dtos;
+        Map<Long, List<io.sitprep.sitprepapi.domain.HazardVote>> votesById = hazardVoteRepo.findByTaskIdIn(ids).stream()
+                .collect(Collectors.groupingBy(io.sitprep.sitprepapi.domain.HazardVote::getTaskId));
+        Instant now = Instant.now();
+        return dtos.stream().map(d -> {
+            io.sitprep.sitprepapi.domain.HazardReport h = reports.get(d.id());
+            if (h == null) return d;
+            String state = HazardService.stateOf(h, votesById.getOrDefault(d.id(), List.of()), now);
+            return d.withCommunity(d.community().withHazard(
+                    new PostDto.CommunityExtras.HazardFacts(h.getCategory(), state, h.getRadiusM())));
+        }).collect(Collectors.toList());
+    }
+
+    private List<PostDto> withAlertAreas(List<PostDto> dtos) {
         if (dtos == null || dtos.isEmpty() || alertPostRepo == null) return dtos;
         List<Long> ids = dtos.stream()
                 .filter(d -> "alert-update".equals(d.kind()) && d.id() != null && d.community() != null)

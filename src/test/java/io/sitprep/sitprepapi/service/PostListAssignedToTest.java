@@ -83,7 +83,9 @@ class PostListAssignedToTest {
                 // false and would silently hide every row from these tests.
                 new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)),
                 org.mockito.Mockito.mock(PostMentionService.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
         // withEngagement dereferences the reaction summaries — hand it real empties
         // (a mock would default them to null → NPE inside the fold).
         when(reactionService.loadThankSummary(any(), any()))

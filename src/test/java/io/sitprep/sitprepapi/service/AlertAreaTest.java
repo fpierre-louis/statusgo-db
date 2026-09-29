@@ -30,6 +30,7 @@ class AlertAreaTest {
     @Autowired AlertPostRepo alertPostRepo;
     @Autowired ObjectMapper objectMapper;
     @Autowired AlertDispatchService dispatchService;
+    @Autowired HazardService hazardService;
     @MockBean NominatimGeocodeService geocode;
 
     private static final Map<String, Object> POLYGON = Map.of(
@@ -37,6 +38,19 @@ class AlertAreaTest {
             "coordinates", List.of(List.of(
                     List.of(-111.9, 40.7), List.of(-111.8, 40.7),
                     List.of(-111.8, 40.8), List.of(-111.9, 40.7))));
+
+    @Test
+    void aHazardPostCarriesItsMapFacts() throws Exception {
+        when(geocode.reverse(anyDouble(), anyDouble())).thenReturn(null);
+        var dto = hazardService.report(new HazardService.ReportRequest(
+                "flood", 40.39, -111.85, "Water over the road", List.of(), 40.3901, -111.8501),
+                "hazard-reporter-" + System.nanoTime() + "@example.com");
+        PostDto read = postService.findDtoById(dto.id(), "viewer@example.com").orElseThrow();
+        JsonNode h = objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("hazard");
+        assertThat(h.path("category").asText()).isEqualTo("flood");
+        assertThat(h.path("state").asText()).isEqualTo("reported");
+        assertThat(h.path("radiusM").asInt()).isEqualTo(dto.radiusM());
+    }
 
     @Test
     void onlyAPolygonIsKeptAsAnArea() {

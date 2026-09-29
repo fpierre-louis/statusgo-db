@@ -85,7 +85,9 @@ class PostPersonalScopeVisibilityTest {
                 mock(CivicAgencyService.class),
                 authorizer,
                 org.mockito.Mockito.mock(PostMentionService.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
         // withEngagement dereferences the reaction summaries — real empties.
         when(reactionService.loadThankSummary(any(), any()))
                 .thenReturn(new PostReactionService.ThankSummary(Map.of(), Set.of()));

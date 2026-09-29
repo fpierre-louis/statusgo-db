@@ -68,7 +68,9 @@ class WorkOrderReopenRestoreTest {
                 // false and would silently hide every row from these tests.
                 new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)),
                 org.mockito.Mockito.mock(PostMentionService.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
         // refetchAndBroadcast registers an afterCommit synchronization.
         TransactionSynchronizationManager.initSynchronization();
     }
