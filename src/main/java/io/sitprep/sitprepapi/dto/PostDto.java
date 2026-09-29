@@ -273,7 +273,16 @@ public record PostDto(
          * empty list is a real, distinct value: a project with no tasks yet.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        List<PostDto> children
+        List<PostDto> children,
+        /**
+         * @-mentions in {@code description} (V88, Composer V2 C9f): one entry
+         * per {@code @[uid:...]} token, in order. {@code fromEntity} carries
+         * the ids; PostService's {@code withAuthors} fold resolves the names
+         * for a whole page in one query (a deleted account reads "Former
+         * member"). The FE renders links from this list and never looks names
+         * up itself. Never null on the wire.
+         */
+        List<MentionDto> mentions
 ) {
 
     /**
@@ -507,7 +516,7 @@ public record PostDto(
                 assigneeEmail, parentPost, c,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children);
+                assignees, projectRollup, children, mentions);
     }
 
     public record ParentPostPreview(
@@ -527,6 +536,15 @@ public record PostDto(
             String authoredAsGroupType
     ) {
         public static ParentPostPreview fromEntity(Post t, UserInfo author, String groupName, String groupType) {
+            return fromEntity(t, author, groupName, groupType, t == null ? null : t.getDescription());
+        }
+
+        /**
+         * With the description already rendered as plain text (Composer V2
+         * C9f): a quoted repost shows "@Ana", never a raw @[uid:…] token.
+         */
+        public static ParentPostPreview fromEntity(Post t, UserInfo author, String groupName, String groupType,
+                                                   String plainDescription) {
             if (t == null || t.getId() == null) return null;
             List<String> urls = (t.getImageKeys() == null ? List.<String>of() : t.getImageKeys()).stream()
                     .map(PublicCdn::toPublicUrl)
@@ -538,7 +556,7 @@ public record PostDto(
                     author == null ? null : author.getUserLastName(),
                     author == null ? null : DtoImages.avatar(author.getProfileImageUrl()),
                     t.getTitle(),
-                    t.getDescription(),
+                    plainDescription,
                     t.getKind(),
                     t.getCreatedAt(),
                     t.getPlaceLabel(),
@@ -623,11 +641,47 @@ public record PostDto(
                 List.of(),
                 /* projectRollup — folded by PostService.withProjectRollup */ null,
                 /* children      — folded by PostService on the detail path */ null
-        );
+        ,
+                /* mentions — ids only; names resolve in PostService.withAuthors */ mentionsFromIds(t.getMentionedUserIds()));
     }
 
     public static PostDto fromEntity(Post t) {
         return fromEntity(t, null);
+    }
+
+    /**
+     * The mention entries for a post's stored ids, names not yet resolved
+     * (Composer V2 C9f). PostService.withAuthors replaces them with resolved
+     * {@link MentionDto}s for a whole page at once.
+     */
+    static List<MentionDto> mentionsFromIds(List<String> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return ids.stream().map(id -> new MentionDto(id, null, false)).toList();
+    }
+
+    /** Copy with the resolved mention list (Composer V2 C9f). */
+    public PostDto withMentions(List<MentionDto> resolved) {
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                parentPost,
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees, projectRollup, children, resolved == null ? List.of() : resolved);
     }
 
     /**
@@ -690,7 +744,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -762,7 +816,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -793,7 +847,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -827,7 +881,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -858,7 +912,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -905,7 +959,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -934,7 +988,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        );
+        , mentions);
     }
 
     /**
@@ -964,7 +1018,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees == null ? List.of() : assignees,
-                projectRollup, children);
+                projectRollup, children, mentions);
     }
 
     /**
@@ -994,7 +1048,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children);
+                assignees, projectRollup, children, mentions);
     }
 
     /**
@@ -1025,7 +1079,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children);
+                assignees, projectRollup, children, mentions);
     }
 
     // -------------------------------------------------------------------

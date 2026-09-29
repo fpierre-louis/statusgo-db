@@ -71,7 +71,8 @@ class PostImageOwnershipTest {
                 mock(TaskAssignmentService.class),
                 mock(AgencyJurisdictionService.class),
                 mock(CivicAgencyService.class),
-                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)));
+                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)),
+                org.mockito.Mockito.mock(PostMentionService.class));
         when(storage.ownerOf("task/mine.jpg"))
                 .thenReturn(new StorageService.ObjectOwner(true, StorageService.uploaderTag(AUTHOR)));
         when(storage.ownerOf("profile/victim.jpg"))

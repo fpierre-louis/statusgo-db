@@ -79,6 +79,8 @@ public class PostService {
     private static final Set<String> AUTHORIZED_KINDS = PostKind.ALLOWED_WIRE_VALUES;
 
     private final PostRepo taskRepo;
+    /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
+    private final PostMentionService mentions;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
@@ -135,8 +137,10 @@ public class PostService {
                        TaskAssignmentService taskAssignmentService,
                        AgencyJurisdictionService agencyJurisdictionService,
                        CivicAgencyService civicAgencyService,
-                       PostReadAuthorizer readAuthorizer) {
+                       PostReadAuthorizer readAuthorizer,
+                       PostMentionService mentions) {
         this.taskRepo = taskRepo;
+        this.mentions = mentions;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
@@ -267,13 +271,39 @@ public class PostService {
                         Function.identity(),
                         (a, b) -> a
                 ));
-        return dtos.stream()
+        List<PostDto> authored = dtos.stream()
                 .map(d -> {
                     if (d.requesterEmail() == null) return d;
                     UserInfo u = byEmail.get(d.requesterEmail().toLowerCase(Locale.ROOT));
                     return (u == null) ? d : d.withAuthor(u);
                 })
                 .collect(Collectors.toList());
+        return withMentionNames(authored);
+    }
+
+    /**
+     * Resolve every post's @-mention names for the whole page in ONE lookup
+     * (Composer V2 C9f). Rides withAuthors because every PostService read
+     * path already goes through it.
+     */
+    private List<PostDto> withMentionNames(List<PostDto> dtos) {
+        if (mentions == null || dtos == null || dtos.isEmpty()) return dtos;
+        Set<String> ids = new LinkedHashSet<>();
+        for (PostDto d : dtos) {
+            if (d.mentions() == null) continue;
+            for (io.sitprep.sitprepapi.dto.MentionDto m : d.mentions()) {
+                if (m.userId() != null) ids.add(m.userId().toLowerCase(Locale.ROOT));
+            }
+        }
+        if (ids.isEmpty()) return dtos;
+        Map<String, io.sitprep.sitprepapi.dto.MentionDto> byId = mentions.resolveAll(ids);
+        return dtos.stream().map(d -> {
+            if (d.mentions() == null || d.mentions().isEmpty()) return d;
+            List<io.sitprep.sitprepapi.dto.MentionDto> resolved = d.mentions().stream()
+                    .map(m -> byId.getOrDefault(m.userId() == null ? "" : m.userId().toLowerCase(Locale.ROOT), m))
+                    .collect(Collectors.toList());
+            return d.withMentions(resolved);
+        }).collect(Collectors.toList());
     }
 
     /**
@@ -429,7 +459,8 @@ public class PostService {
                             parent,
                             author,
                             authoredGroup == null ? null : authoredGroup.getGroupName(),
-                            authoredGroup == null ? null : authoredGroup.getGroupType()
+                            authoredGroup == null ? null : authoredGroup.getGroupType(),
+                            plainText(parent.getDescription())
                     ));
                 })
                 .collect(Collectors.toList());
@@ -750,6 +781,10 @@ public class PostService {
             t.setDescription(incoming.getDescription() == null ? null : incoming.getDescription().trim());
         }
         UserGeneratedContentFilter.requireAcceptable("community post", t.getTitle(), t.getDescription());
+        requireStorableDescription(t.getDescription());
+        // @-mentions (C9f): derived from the description's tokens, never taken
+        // from the client.
+        t.setMentionedUserIds(new ArrayList<>(io.sitprep.sitprepapi.constant.MentionToken.extractIds(t.getDescription())));
 
         // ── Bundles / projects (V51) ──────────────────────────────────────────
         // The NEW project_id container link — entirely separate from the repost
@@ -841,6 +876,7 @@ public class PostService {
             civicAgencyService.applyCreateTags(saved, civicPostcode);
             saved = taskRepo.findById(saved.getId()).orElse(saved); // reflect the mirror write
         }
+        notifyMentionsAfterCommit(saved, requesterEmail, saved.getMentionedUserIds());
         PostDto dto = PostDto.fromEntity(saved);
         // Fold authored-as-group identity (name + type) + the work-order assignee
         // roster so the newly-created post returns fully shaped — no second FE
@@ -1295,7 +1331,7 @@ public class PostService {
                 reports);
     }
 
-    private static CivicQueueDto.CivicReportSummary toCivicSummary(
+    private CivicQueueDto.CivicReportSummary toCivicSummary(
             Post p,
             List<CivicAgencyService.AgencyTag> tags,
             List<Long> mergedDuplicateIds,
@@ -1336,7 +1372,7 @@ public class PostService {
                 p.getCivicCategory(),
                 p.getCivicStatus(),
                 p.getTitle(),
-                p.getDescription(),
+                plainText(p.getDescription()),
                 p.getLatitude(),
                 p.getLongitude(),
                 p.getPlaceLabel(),
@@ -2272,6 +2308,8 @@ public class PostService {
     @Transactional
     public PostDto patch(Long postId, Post patch, String callerEmail) {
         Post t = mustExist(postId);
+        // Captured before the edit so only mentions the edit ADDS are notified.
+        final String descriptionBefore = t.getDescription();
         boolean isAuthor = callerEmail != null && t.getRequesterEmail() != null
                 && t.getRequesterEmail().equalsIgnoreCase(callerEmail);
         // Life-safety flag set BEFORE the edit — audited if it changes (a
@@ -2288,7 +2326,12 @@ public class PostService {
             }
             t.setTitle(patch.getTitle());
         }
-        if (patch.getDescription() != null) t.setDescription(patch.getDescription());
+        if (patch.getDescription() != null) {
+            requireStorableDescription(patch.getDescription());
+            t.setDescription(patch.getDescription());
+            t.getMentionedUserIds().clear();
+            t.getMentionedUserIds().addAll(io.sitprep.sitprepapi.constant.MentionToken.extractIds(patch.getDescription()));
+        }
         if (patch.getPriority() != null) t.setPriority(patch.getPriority());
         if (patch.getDueAt() != null) t.setDueAt(patch.getDueAt());
         if (patch.getTags() != null) {
@@ -2369,6 +2412,10 @@ public class PostService {
         // and zero-trust holds even if the client lowered priority in this patch.
         deriveLifeSafety(t);
         Post saved = taskRepo.save(t);
+        if (patch.getDescription() != null && mentions != null) {
+            notifyMentionsAfterCommit(saved, callerEmail,
+                    mentions.newlyMentioned(descriptionBefore, saved.getDescription()));
+        }
         // Life-safety flag change → persistent audit (Guardrail 1). Scoped
         // naturally to work orders: a community post has no life-safety flags,
         // so the sets are equal and nothing is written.
@@ -2678,6 +2725,40 @@ public class PostService {
      * object, transient network) doesn't strand the rest. Always runs
      * afterCommit so a failed DB transaction never deletes user photos.
      */
+    // ── Composer V2 C9f · post @mentions ─────────────────────────────────
+
+    /** The description column's size. A mention token (43 chars) is longer
+     *  than the name it shows, so the composer's display count can't guard it. */
+    static final int MAX_DESCRIPTION_CHARS = 4096;
+
+    /** A description as readable text: @[uid:…] tokens become "@Name". */
+    private String plainText(String description) {
+        if (description == null || mentions == null) return description;
+        return io.sitprep.sitprepapi.constant.MentionToken.hasMention(description)
+                ? mentions.toPlainText(description) : description;
+    }
+
+    static void requireStorableDescription(String description) {
+        if (description != null && description.length() > MAX_DESCRIPTION_CHARS) {
+            throw new IllegalArgumentException("This post is too long. Shorten it and try again.");
+        }
+    }
+
+    /** Mention notices ride AFTER COMMIT so a rolled-back write pings no one. */
+    private void notifyMentionsAfterCommit(Post saved, String actorEmail, List<String> ids) {
+        if (mentions == null || saved == null || ids == null || ids.isEmpty()) return;
+        final Post post = saved;
+        final List<String> toNotify = List.copyOf(ids);
+        Runnable send = () -> mentions.notifyPostMentioned(post, actorEmail, toNotify);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { send.run(); }
+            });
+        } else {
+            send.run();
+        }
+    }
+
     // ── Composer V2 C9 (a–e) ─────────────────────────────────────────────
 
     /** Kinds with their own posting limits, or not community posts at all. */
@@ -3018,12 +3099,14 @@ public class PostService {
                 }
             }
 
-            String title = firstNonBlank(t.getTitle(), excerpt(t.getDescription(), 72), "SitPrep community post");
+            // A crawler preview must never show a raw @[uid:…] token (C9f).
+            String plainBody = plainText(t.getDescription());
+            String title = firstNonBlank(t.getTitle(), excerpt(plainBody, 72), "SitPrep community post");
             StringBuilder desc = new StringBuilder("From ").append(author);
             if (t.getPlaceLabel() != null && !t.getPlaceLabel().isBlank()) {
                 desc.append(" near ").append(t.getPlaceLabel().trim());
             }
-            String body = excerpt(t.getDescription(), 150);
+            String body = excerpt(plainBody, 150);
             if (body != null && !body.equals(title)) {
                 desc.append(": ").append(body);
             } else {

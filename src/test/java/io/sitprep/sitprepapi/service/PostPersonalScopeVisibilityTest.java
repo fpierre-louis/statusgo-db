@@ -83,7 +83,8 @@ class PostPersonalScopeVisibilityTest {
                 mock(TaskAssignmentService.class),
                 mock(AgencyJurisdictionService.class),
                 mock(CivicAgencyService.class),
-                authorizer);
+                authorizer,
+                org.mockito.Mockito.mock(PostMentionService.class));
         // withEngagement dereferences the reaction summaries — real empties.
         when(reactionService.loadThankSummary(any(), any()))
                 .thenReturn(new PostReactionService.ThankSummary(Map.of(), Set.of()));

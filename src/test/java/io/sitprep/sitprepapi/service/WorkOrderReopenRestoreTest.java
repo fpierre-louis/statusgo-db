@@ -66,7 +66,8 @@ class WorkOrderReopenRestoreTest {
                 mock(CivicAgencyService.class),
                 // Real authorizer, not a mock: a mock's canRead defaults to
                 // false and would silently hide every row from these tests.
-                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)));
+                new PostReadAuthorizer(mock(GroupRepo.class), mock(TaskAssigneeRepo.class)),
+                org.mockito.Mockito.mock(PostMentionService.class));
         // refetchAndBroadcast registers an afterCommit synchronization.
         TransactionSynchronizationManager.initSynchronization();
     }

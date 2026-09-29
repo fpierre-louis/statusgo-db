@@ -43,6 +43,7 @@ public class GroupPostCommentService {
     private final GroupPostCommentReactionService reactionService;
     private final GroupPostService postService;
     private final MentionService mentionService;
+    private final BlockService blockService;
 
     public GroupPostCommentService(
             GroupPostCommentRepo commentRepo,
@@ -52,7 +53,8 @@ public class GroupPostCommentService {
             NotificationService notificationService,
             GroupPostCommentReactionService reactionService,
             GroupPostService postService,
-            MentionService mentionService
+            MentionService mentionService,
+            BlockService blockService
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
@@ -61,6 +63,7 @@ public class GroupPostCommentService {
         this.notificationService = notificationService;
         this.reactionService = reactionService;
         this.postService = postService;
+        this.blockService = blockService;
         this.mentionService = mentionService;
     }
 
@@ -602,6 +605,8 @@ public class GroupPostCommentService {
 
         for (String email : emails) {
             if (saved.getAuthor() != null && saved.getAuthor().equalsIgnoreCase(email)) continue;
+            // Composer V2 C9f: never across a block, in either direction.
+            if (blockService.isAnyBlock(saved.getAuthor(), email)) continue;
             userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
                     notificationService.deliverPresenceAware(
                             u.getUserEmail(), title, body, mentionerName,

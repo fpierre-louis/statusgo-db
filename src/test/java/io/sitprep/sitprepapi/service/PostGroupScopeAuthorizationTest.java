@@ -88,7 +88,8 @@ class PostGroupScopeAuthorizationTest {
                 mock(TaskAssignmentService.class),
                 mock(AgencyJurisdictionService.class),
                 mock(CivicAgencyService.class),
-                authorizer);
+                authorizer,
+                org.mockito.Mockito.mock(PostMentionService.class));
     }
 
     private Group group(String id) {

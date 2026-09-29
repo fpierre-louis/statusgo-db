@@ -57,6 +57,7 @@ public class PostCommentService {
     private final PostCommentReactionService reactionService;
     private final PostReadAuthorizer readAuthorizer;
     private final MentionService mentionService;
+    private final BlockService blockService;
     private final ThreadContextService threadContext;
 
     public PostCommentService(PostCommentRepo commentRepo,
@@ -67,7 +68,8 @@ public class PostCommentService {
                               PostCommentReactionService reactionService,
                               PostReadAuthorizer readAuthorizer,
                               MentionService mentionService,
-                              ThreadContextService threadContext) {
+                              ThreadContextService threadContext,
+                              BlockService blockService) {
         this.commentRepo = commentRepo;
         this.taskRepo = taskRepo;
         this.userInfoRepo = userInfoRepo;
@@ -77,6 +79,7 @@ public class PostCommentService {
         this.readAuthorizer = readAuthorizer;
         this.mentionService = mentionService;
         this.threadContext = threadContext;
+        this.blockService = blockService;
     }
 
     /**
@@ -717,6 +720,11 @@ public class PostCommentService {
         for (String email : emails) {
             // Mentioning yourself is not an event.
             if (saved.getAuthor() != null && saved.getAuthor().equalsIgnoreCase(email)) continue;
+            // Composer V2 C9f: never across a block (either direction), and
+            // never to someone who can't read the thread — a group-scoped or
+            // personal post must not leak a snippet through a notice.
+            if (blockService.isAnyBlock(saved.getAuthor(), email)) continue;
+            if (!readAuthorizer.canRead(task, email)) continue;
             userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
                     notificationService.deliverPresenceAware(
                             u.getUserEmail(),

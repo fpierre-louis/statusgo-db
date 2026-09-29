@@ -238,6 +238,19 @@ public class Post {
     private List<String> imageKeys = new ArrayList<>();
 
     /**
+     * Ids of accounts @-mentioned in {@link #description} (V88, Composer V2
+     * C9f). Denormalized from the {@code @[uid:...]} tokens by PostService on
+     * create / patch — never taken from the client — so the notify path and
+     * "posts where I was mentioned" don't parse prose. Content is the source of
+     * truth; this is the index. EAGER like {@link #imageKeys}.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "task_mentions", joinColumns = @JoinColumn(name = "task_id"))
+    @Column(name = "mentioned_user_id")
+    @OrderColumn(name = "ord")
+    private List<String> mentionedUserIds = new ArrayList<>();
+
+    /**
      * USER-AUTHORED topic tags, and strictly that as of V62.
      *
      * <p>This column used to carry three unrelated channels at once —
