@@ -14,7 +14,6 @@ import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
-import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -211,7 +210,7 @@ class MapDtoEnrichmentTest {
         hh.setGroupType("Household");
 
         Map<String, MapPlaceDto> byId = new HashMap<>();
-        for (MapPlaceDto p : new MapPlaceService(meets, evacs, mock(UserSavedLocationRepo.class))
+        for (MapPlaceDto p : new MapPlaceService(meets, evacs, mock(io.sitprep.sitprepapi.repo.OriginLocationRepo.class), mock(io.sitprep.sitprepapi.repo.PlanActivationRepo.class))
                 .forHousehold(hh, null)) {
             byId.put(p.id(), p);
         }

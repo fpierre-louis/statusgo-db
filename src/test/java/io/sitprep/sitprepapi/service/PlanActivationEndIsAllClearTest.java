@@ -52,6 +52,10 @@ class PlanActivationEndIsAllClearTest {
     @BeforeEach
     void setUp() {
         activationRepo = mock(PlanActivationRepo.class);
+        // The household lookup is a default method on the repo (one query for
+        // the all-clear and the map); run it for real over the stubbed queries.
+        org.mockito.Mockito.when(activationRepo.findLiveForHousehold(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenCallRealMethod();
         GroupRepo groupRepo = mock(GroupRepo.class);
         userInfoRepo = mock(UserInfoRepo.class);
         HouseholdAccessService householdAccess = mock(HouseholdAccessService.class);

@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.PlanRowReconciler;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.MeetingPlaceTier;
@@ -114,7 +115,9 @@ public class MeetingPlaceService {
         // replace THAT household's meeting places + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
         if (target != null) {
-            meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByHouseholdId(target));
+            meetingPlaceRepository.deleteAll(PlanRowReconciler.reconcile(
+                    meetingPlaceRepository.findByHouseholdId(target), places,
+                    MeetingPlace::getId, MeetingPlace::setId));
             places.forEach(place -> {
                 place.setOwnerEmail(ownerEmail);
                 place.setHouseholdId(target);
@@ -123,7 +126,9 @@ public class MeetingPlaceService {
             activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
             return saved;
         }
-        meetingPlaceRepository.deleteAll(meetingPlaceRepository.findByOwnerEmail(ownerEmail));
+        meetingPlaceRepository.deleteAll(PlanRowReconciler.reconcile(
+                meetingPlaceRepository.findByOwnerEmail(ownerEmail), places,
+                MeetingPlace::getId, MeetingPlace::setId));
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
         places.forEach(place -> {
             place.setOwnerEmail(ownerEmail);

@@ -8,14 +8,14 @@ package io.sitprep.sitprepapi.dto;
  *
  * @param id       stable, source-prefixed id for FE keying/dedup
  *                 (e.g. {@code "group:<gid>"}, {@code "shelter:<id>"})
- * @param kind     render discriminator: {@code house | meetup | shelter | saved}
+ * @param kind     render discriminator: {@code house | meetup | shelter | start}
  * @param lat      latitude (double precision). NULL when the row was saved
  *                 with an address but never geocoded — see {@code mappable}.
  * @param lng      longitude (double precision). NULL under the same condition.
  * @param name     display name
  * @param address  free-form address, may be null
  * @param source   originating table: {@code group | meeting_place |
- *                 evacuation_plan | user_saved_location}
+ *                 evacuation_plan | origin_location}
  * @param mappable whether this place can be drawn on a map — i.e. whether
  *                 {@code lat}/{@code lng} are both present and valid.
  *                 <p>
@@ -49,5 +49,13 @@ public record MapPlaceDto(
          * The row's own {@code deploy} flag — meeting places and evacuation
          * plans carry one. Null for sources that do not (home, saved places).
          */
-        Boolean deploy
+        Boolean deploy,
+        /**
+         * What this place is in the plan (plan-locations audit 2026-09-29):
+         * {@code home} · {@code meeting} / {@code shelter} (the plan's primary,
+         * no deployment live) · {@code selected-meeting} / {@code selected-shelter}
+         * (what the live deployment selected) · {@code start} (a starting point
+         * as entered in the plan). Appended last: positional record.
+         */
+        String role
 ) {}

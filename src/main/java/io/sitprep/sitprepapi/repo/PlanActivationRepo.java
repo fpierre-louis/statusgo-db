@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.repo;
 
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.PlanActivation;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -7,7 +8,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 public interface PlanActivationRepo extends JpaRepository<PlanActivation, String> {
 
@@ -126,4 +134,39 @@ public interface PlanActivationRepo extends JpaRepository<PlanActivation, String
         "ORDER BY a.expiresAt ASC"
     )
     List<String> findIdsExpiredBefore(@Param("cutoff") Instant cutoff, Pageable page);
+
+    /**
+     * Every live activation for one household, newest first — the ONE answer
+     * to "is a plan deployed here", shared by the all-clear and the map's plan
+     * places (plan-locations audit 2026-09-29).
+     *
+     * <p>Two sources, unioned and deduped by id, and both still needed: the
+     * email scan (owner + every current member) finds rows launched by anyone in
+     * the household, including pre-V79 rows with no {@code householdId}; the
+     * household scan finds rows that name this household, including one
+     * launched by somebody who has since left.</p>
+     */
+    default List<PlanActivation> findLiveForHousehold(Group household, Instant now) {
+        if (household == null) return List.of();
+        Set<String> people = new LinkedHashSet<>();
+        if (household.getOwnerEmail() != null && !household.getOwnerEmail().isBlank()) {
+            people.add(household.getOwnerEmail().trim().toLowerCase(Locale.ROOT));
+        }
+        if (household.getMemberEmails() != null) {
+            for (String raw : household.getMemberEmails()) {
+                if (raw != null && !raw.isBlank()) people.add(raw.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        Map<String, PlanActivation> live = new LinkedHashMap<>();
+        for (String email : people) {
+            for (PlanActivation a : findActiveByOwnerEmail(email, now)) live.put(a.getId(), a);
+        }
+        if (household.getGroupId() != null) {
+            for (PlanActivation a : findLiveByHouseholdId(household.getGroupId(), now)) live.put(a.getId(), a);
+        }
+        List<PlanActivation> out = new ArrayList<>(live.values());
+        out.sort(Comparator.comparing(PlanActivation::getActivatedAt,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return out;
+    }
 }

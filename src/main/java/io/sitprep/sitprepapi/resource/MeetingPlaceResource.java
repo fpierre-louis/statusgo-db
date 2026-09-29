@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.util.RequestFields;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.MeetingPlaceTier;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
@@ -45,6 +46,8 @@ public class MeetingPlaceResource {
 
         List<MeetingPlace> meetingPlaces = placesData.stream().map(data -> {
             MeetingPlace place = new MeetingPlace();
+            // The row's id, so the save updates it in place (PlanRowReconciler).
+            place.setId(RequestFields.longOrNull(data.get("id")));
             place.setOwnerEmail(ownerEmail);
             place.setName((String) data.get("name"));
             place.setLocation((String) data.get("location"));
@@ -53,8 +56,8 @@ public class MeetingPlaceResource {
             place.setTierKey((String) data.get("tierKey"));
             place.setMeetingTier(parseMeetingTier(data.get("meetingTier"), place.getTierKey()));
             place.setAdditionalInfo((String) data.get("additionalInfo"));
-            place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
-            place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+            place.setLat(RequestFields.doubleOrNull(data.get("lat")));
+            place.setLng(RequestFields.doubleOrNull(data.get("lng")));
             place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
             return place;
         }).collect(Collectors.toList());
@@ -80,8 +83,8 @@ public class MeetingPlaceResource {
         place.setAdditionalInfo((String) data.get("additionalInfo"));
         place.setTierKey((String) data.get("tierKey"));
         place.setMeetingTier(parseMeetingTier(data.get("meetingTier"), place.getTierKey()));
-        place.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
-        place.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+        place.setLat(RequestFields.doubleOrNull(data.get("lat")));
+        place.setLng(RequestFields.doubleOrNull(data.get("lng")));
         place.setDeploy(Boolean.TRUE.equals(data.get("deploy")));
         return ResponseEntity.ok(toDto(meetingPlaceService.addMeetingPlace(place), ownerEmail));
     }

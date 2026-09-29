@@ -3,43 +3,67 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
-import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.domain.OriginLocation;
+import io.sitprep.sitprepapi.domain.PlanActivation;
 import io.sitprep.sitprepapi.dto.MapPlaceDto;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
-import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
+import io.sitprep.sitprepapi.repo.OriginLocationRepo;
+import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * Assembles the household map's "places" layer straight from the durable
- * backend tables — the read path the frontend used to fake from localStorage
- * (gap B / gap C of docs/MAP_REBUILD_PLAN.md). Places now sync across devices
- * and survive a cache clear.
+ * Assembles the household map's PLAN places — what the household would use in
+ * an emergency, not everything it ever saved (plan-locations audit 2026-09-29,
+ * owner rulings Q-1..Q-4).
  *
- * <p>Household-owned plans (home, meeting places, shelters) are keyed by
- * {@code householdId}, falling back to the household owner's {@code ownerEmail}
- * for rows not yet backfilled by {@code HouseholdBackfillRunner}. The caller's
- * personal saved locations are added from their own account (they're personal,
- * so scoped to the caller, never fanned out to the whole household).</p>
+ * <ul>
+ *   <li><b>A plan is deployed</b> (a live {@code PlanActivation} for this
+ *       household): the meeting place and the shelter THAT DEPLOYMENT SELECTED
+ *       ({@code role = selected-meeting | selected-shelter}), and nothing it
+ *       didn't select.</li>
+ *   <li><b>No plan deployed:</b> the plan's primary meeting place and primary
+ *       shelter ({@code role = meeting | shelter}) — the one marked to use
+ *       ({@code deploy}), else the first by tier.</li>
+ *   <li><b>Always:</b> the household home ({@code role = home}) and the plan's
+ *       starting points — Home, Work, Kids' school as entered in the plan
+ *       ({@code kind = start}, {@code role = start}); one that is the home
+ *       itself is not drawn twice.</li>
+ * </ul>
+ *
+ * <p>Members' PERSONAL saved places left this feed (Q-3): they are opt-in
+ * presence, not the plan.</p>
+ *
+ * <p>Household-owned plans are keyed by {@code householdId}, falling back to
+ * the household owner's {@code ownerEmail} for rows not yet backfilled by
+ * {@code HouseholdBackfillRunner}.</p>
  */
 @Service
 public class MapPlaceService {
 
+    /** A starting point this close to the home IS the home — drawn once. */
+    private static final double SAME_PLACE_KM = 0.1;
+
     private final MeetingPlaceRepo meetingPlaceRepo;
     private final EvacuationPlanRepo evacuationPlanRepo;
-    private final UserSavedLocationRepo userSavedLocationRepo;
+    private final OriginLocationRepo originLocationRepo;
+    private final PlanActivationRepo activationRepo;
 
     public MapPlaceService(MeetingPlaceRepo meetingPlaceRepo,
                            EvacuationPlanRepo evacuationPlanRepo,
-                           UserSavedLocationRepo userSavedLocationRepo) {
+                           OriginLocationRepo originLocationRepo,
+                           PlanActivationRepo activationRepo) {
         this.meetingPlaceRepo = meetingPlaceRepo;
         this.evacuationPlanRepo = evacuationPlanRepo;
-        this.userSavedLocationRepo = userSavedLocationRepo;
+        this.originLocationRepo = originLocationRepo;
+        this.activationRepo = activationRepo;
     }
 
     @Transactional(readOnly = true)
@@ -49,127 +73,135 @@ public class MapPlaceService {
 
         // THE OWNER-EMAIL FALLBACK ONLY APPLIES TO AN ACTUAL HOUSEHOLD.
         //
-        // Both fallbacks below exist for household rows predating
+        // The fallbacks below exist for household rows predating
         // HouseholdBackfillRunner, which have no householdId yet. That is a
         // reasonable bridge for a household and a data leak for anything else:
-        // hand this method a business or neighborhood group and both
-        // household-scoped queries necessarily return empty — no MeetingPlace or
-        // EvacuationPlan row can carry a non-household group id — so the
-        // fallbacks fire and return the group owner's PERSONAL meeting places
-        // and shelter destinations to whoever asked.
-        //
-        // MapPlaceResource now filters on groupType before calling here, so this
-        // is redundant with its caller today. It stays because the fallback is
-        // the dangerous half: the next caller of this service should not have to
-        // know that passing the wrong kind of group turns it into a disclosure.
-        String ownerEmail = "Household".equalsIgnoreCase(household.getGroupType())
-                ? household.getOwnerEmail()
-                : null;
+        // hand this method a business or neighborhood group and the
+        // household-scoped queries necessarily return empty — no plan row can
+        // carry a non-household group id — so the fallbacks would fire and
+        // return the group owner's PERSONAL places to whoever asked.
+        // MapPlaceResource filters on groupType too; this stays because the
+        // fallback is the dangerous half.
+        boolean isHousehold = "Household".equalsIgnoreCase(household.getGroupType());
+        String ownerEmail = isHousehold ? household.getOwnerEmail() : null;
 
         // A PLACE THAT EXISTS IS RETURNED EVEN WHEN IT CANNOT BE DRAWN.
-        //
-        // Each source below used to `continue` past a row with null
-        // coordinates. Nothing in this backend geocodes on write — the only
-        // caller of forward geocoding is the FE-facing GeocodeResource — so an
-        // address-only meeting place is the ordinary output of the evacuation
-        // wizard, not an edge case. Dropping those rows made a household's own
-        // saved places invisible to the map, and when every place it owned was
-        // address-only the client said "No meeting places or shelters yet" —
-        // a statement the record contradicts.
-        //
-        // Rows now carry `mappable`. The client lists what exists and pins only
-        // what it can place. Do NOT geocode here to satisfy the flag: an
-        // external call inside this read path would hold a DB connection open
-        // across the network, and a best-effort miss would put us right back on
-        // the false statement.
-        //
-        // The retain predicate per source is deliberately NOT "the row exists".
-        // It is "the row carries something a human typed" — see the shelter
-        // case below for why that distinction is load-bearing.
+        // Nothing in this backend geocodes on write, so an address-only row is
+        // the ordinary output of the wizard. Rows carry `mappable`; the client
+        // lists what exists and pins only what it can place. Do NOT geocode
+        // here (an external call inside a read path).
 
-        // 1. Home / anchor — from the household Group itself.
+        // 1. Home — from the household Group itself.
         if (household.getLatitude() != null && household.getLongitude() != null) {
             out.add(place("group:" + hid, "house",
                     household.getLatitude(), household.getLongitude(),
                     nz(household.getGroupName(), "Home"),
-                    household.getAddress(), "group"));
+                    household.getAddress(), "group", null, null, "home"));
         } else if (isPresent(household.getAddress())) {
-            // A household with an address but no geocode — routine, because
-            // CreateHouseholdGroup clears lat/lng on every keystroke unless the
-            // user picks an autocomplete suggestion.
             out.add(place("group:" + hid, "house", null, null,
                     nz(household.getGroupName(), "Home"),
-                    household.getAddress(), "group"));
+                    household.getAddress(), "group", null, null, "home"));
         }
 
-        // 2. Meeting places — household-scoped, owner fallback for un-backfilled rows.
-        List<MeetingPlace> meets = meetingPlaceRepo.findByHouseholdId(hid);
-        if (meets.isEmpty() && ownerEmail != null) {
-            meets = meetingPlaceRepo.findByOwnerEmail(ownerEmail);
+        // 2. The deployment, if one is live — the newest wins.
+        PlanActivation live = isHousehold
+                ? activationRepo.findLiveForHousehold(household, Instant.now()).stream().findFirst().orElse(null)
+                : null;
+
+        // 3. Meeting place — the deployment's selection, else the plan's primary.
+        MeetingPlace meet;
+        String meetRole;
+        if (live != null) {
+            meet = live.getMeetingPlaceId() == null ? null
+                    : meetingPlaceRepo.findById(live.getMeetingPlaceId()).orElse(null);
+            meetRole = "selected-meeting";
+        } else {
+            List<MeetingPlace> meets = meetingPlaceRepo.findByHouseholdId(hid);
+            if (meets.isEmpty() && ownerEmail != null) meets = meetingPlaceRepo.findByOwnerEmail(ownerEmail);
+            meet = meets.stream()
+                    .filter(MapPlaceService::isRealMeetingPlace)
+                    .min(Comparator.comparing((MeetingPlace m) -> !m.isDeploy())
+                            .thenComparing(m -> m.getMeetingTier() == null ? Integer.MAX_VALUE : m.getMeetingTier().ordinal())
+                            .thenComparing(MeetingPlace::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(null);
+            meetRole = "meeting";
         }
-        for (MeetingPlace m : meets) {
-            if (!isPresent(m.getName()) && !isPresent(m.getAddress())
-                    && (m.getLat() == null || m.getLng() == null)) {
-                continue; // an empty row is not a place
-            }
-            out.add(place("meetup:" + m.getId(), "meetup",
-                    m.getLat(), m.getLng(),
-                    nz(m.getName(), "Meeting place"), m.getAddress(), "meeting_place",
-                    m.getMeetingTier() == null ? null : m.getMeetingTier().name(),
-                    m.isDeploy()));
+        if (meet != null && isRealMeetingPlace(meet)) {
+            out.add(place("meetup:" + meet.getId(), "meetup",
+                    meet.getLat(), meet.getLng(),
+                    nz(meet.getName(), "Meeting place"), meet.getAddress(), "meeting_place",
+                    meet.getMeetingTier() == null ? null : meet.getMeetingTier().name(),
+                    meet.isDeploy(), meetRole));
         }
 
-        // 3. Shelters — from the evacuation plan, same household-then-owner scope.
-        //
-        // THE PREDICATE HERE IS THE SHARP EDGE. EvacuationPlanService
-        // .updateRouteNotes creates a plan row with no shelter fields whenever
-        // a household saves route notes and has no prior plan. Testing the
-        // nz()-defaulted name would make every such household sprout a phantom
-        // place literally named "Shelter". So the test is against the RAW
-        // entity fields, before any defaulting.
-        List<EvacuationPlan> evacs = evacuationPlanRepo.findByHouseholdId(hid);
-        if (evacs.isEmpty() && ownerEmail != null) {
-            evacs = evacuationPlanRepo.findByOwnerEmail(ownerEmail);
+        // 4. Shelter — same rule. THE PREDICATE IS THE SHARP EDGE:
+        // EvacuationPlanService.updateRouteNotes creates a plan row with no
+        // shelter fields; testing a defaulted name would sprout a phantom
+        // place literally named "Shelter". Test the RAW fields.
+        EvacuationPlan shelter;
+        String shelterRole;
+        if (live != null) {
+            shelter = live.getEvacPlanId() == null ? null
+                    : evacuationPlanRepo.findById(live.getEvacPlanId()).orElse(null);
+            shelterRole = "selected-shelter";
+        } else {
+            List<EvacuationPlan> evacs = evacuationPlanRepo.findByHouseholdId(hid);
+            if (evacs.isEmpty() && ownerEmail != null) evacs = evacuationPlanRepo.findByOwnerEmail(ownerEmail);
+            shelter = evacs.stream()
+                    .filter(MapPlaceService::isRealShelter)
+                    .min(Comparator.comparing((EvacuationPlan e) -> !e.isDeploy())
+                            .thenComparing(EvacuationPlan::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(null);
+            shelterRole = "shelter";
         }
-        for (EvacuationPlan e : evacs) {
-            boolean hasCoords = e.getLat() != null && e.getLng() != null;
-            boolean namedByAHuman = isPresent(e.getShelterName()) || isPresent(e.getShelterAddress());
-            if (!hasCoords && !namedByAHuman) continue;
-            out.add(place("shelter:" + e.getId(), "shelter",
-                    e.getLat(), e.getLng(),
-                    nz(e.getShelterName(), "Shelter"), e.getShelterAddress(), "evacuation_plan",
-                    null, e.isDeploy()));
+        if (shelter != null && isRealShelter(shelter)) {
+            out.add(place("shelter:" + shelter.getId(), "shelter",
+                    shelter.getLat(), shelter.getLng(),
+                    nz(shelter.getShelterName(), "Shelter"), shelter.getShelterAddress(), "evacuation_plan",
+                    null, shelter.isDeploy(), shelterRole));
         }
 
-        // 4. The caller's own saved places (personal — scoped to the caller only).
-        //    UserSavedLocation's coordinate columns are NOT NULL and create()
-        //    rejects an invalid pair, so these are always mappable; the guard
-        //    stays as a belt-and-braces check rather than a live case.
-        if (callerEmail != null) {
-            for (UserSavedLocation s :
-                    userSavedLocationRepo.findByOwnerEmailIgnoreCaseOrderByIsHomeDescNameAsc(callerEmail)) {
-                if (s.getLatitude() == null || s.getLongitude() == null) continue;
-                out.add(place("saved:" + s.getId(), s.isHome() ? "house" : "saved",
-                        s.getLatitude(), s.getLongitude(),
-                        nz(s.getName(), "Saved place"), s.getAddress(), "user_saved_location"));
-            }
-        }
+        // 5. Starting points — every one the plan names, household-scoped.
+        List<OriginLocation> origins = originLocationRepo.findByHouseholdId(hid);
+        if (origins.isEmpty() && ownerEmail != null) origins = originLocationRepo.findByOwnerEmailIgnoreCase(ownerEmail);
+        origins.stream()
+                .filter(o -> isPresent(o.getName()) || isPresent(o.getAddress()) || GeoUtil.validLatLng(o.getLat(), o.getLng()))
+                .filter(o -> !isTheHome(o, household))
+                .sorted(Comparator.comparing(OriginLocation::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .forEach(o -> out.add(place("start:" + o.getId(), "start",
+                        o.getLat(), o.getLng(),
+                        nz(o.getName(), "Starting point"), o.getAddress(), "origin_location",
+                        null, null, "start")));
 
         return out;
     }
 
-    /** Builds a place row, deriving `mappable` from the coordinates it was given. */
-    private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
-                                     String name, String address, String source) {
-        return place(id, kind, lat, lng, name, address, source, null, null);
+    private static boolean isRealMeetingPlace(MeetingPlace m) {
+        return isPresent(m.getName()) || isPresent(m.getAddress()) || (m.getLat() != null && m.getLng() != null);
     }
 
-    /** With the source row's own tier / deploy flag, verbatim; null where the row has none. */
+    private static boolean isRealShelter(EvacuationPlan e) {
+        return (e.getLat() != null && e.getLng() != null)
+                || isPresent(e.getShelterName()) || isPresent(e.getShelterAddress());
+    }
+
+    /** A starting point at the household's own home is the home — drawn once. */
+    private static boolean isTheHome(OriginLocation o, Group household) {
+        if (GeoUtil.validLatLng(o.getLat(), o.getLng())
+                && GeoUtil.validLatLng(household.getLatitude(), household.getLongitude())) {
+            return GeoUtil.haversineKm(o.getLat(), o.getLng(),
+                    household.getLatitude(), household.getLongitude()) < SAME_PLACE_KM;
+        }
+        return isPresent(o.getAddress()) && isPresent(household.getAddress())
+                && o.getAddress().trim().equalsIgnoreCase(household.getAddress().trim());
+    }
+
+    /** Builds a place row, deriving `mappable` from the coordinates it was given. */
     private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
                                      String name, String address, String source,
-                                     String tier, Boolean deploy) {
+                                     String tier, Boolean deploy, String role) {
         return new MapPlaceDto(id, kind, lat, lng, name, address, source,
-                GeoUtil.validLatLng(lat, lng), tier, deploy);
+                GeoUtil.validLatLng(lat, lng), tier, deploy, role);
     }
 
     private static boolean isPresent(String v) {

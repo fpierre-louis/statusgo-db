@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.util.RequestFields;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.dto.EvacuationPlanDto;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
@@ -65,6 +66,8 @@ public class EvacuationPlanResource {
 
         List<EvacuationPlan> evacuationPlans = plansData.stream().map(data -> {
             EvacuationPlan plan = new EvacuationPlan();
+            // The row's id, so the save updates it in place (PlanRowReconciler).
+            plan.setId(RequestFields.longOrNull(data.get("id")));
             plan.setOwnerEmail(ownerEmail); // enforce owner from top-level field
             plan.setName((String) data.get("name"));
             plan.setOrigin((String) data.get("origin"));
@@ -73,8 +76,8 @@ public class EvacuationPlanResource {
             plan.setShelterName((String) data.get("shelterName"));
             plan.setShelterAddress((String) data.get("shelterAddress"));
             plan.setShelterPhoneNumber((String) data.get("shelterPhoneNumber"));
-            plan.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
-            plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+            plan.setLat(RequestFields.doubleOrNull(data.get("lat")));
+            plan.setLng(RequestFields.doubleOrNull(data.get("lng")));
             plan.setTravelMode((String) data.get("travelMode"));
             plan.setShelterInfo((String) data.get("shelterInfo"));
             plan.setPrimaryRouteNotes((String) data.get("primaryRouteNotes"));
@@ -107,8 +110,8 @@ public class EvacuationPlanResource {
         plan.setShelterName((String) data.get("shelterName"));
         plan.setShelterAddress((String) data.get("shelterAddress"));
         plan.setShelterPhoneNumber((String) data.get("shelterPhoneNumber"));
-        plan.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
-        plan.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+        plan.setLat(RequestFields.doubleOrNull(data.get("lat")));
+        plan.setLng(RequestFields.doubleOrNull(data.get("lng")));
         plan.setTravelMode((String) data.get("travelMode"));
         plan.setShelterInfo((String) data.get("shelterInfo"));
         plan.setPrimaryRouteNotes((String) data.get("primaryRouteNotes"));

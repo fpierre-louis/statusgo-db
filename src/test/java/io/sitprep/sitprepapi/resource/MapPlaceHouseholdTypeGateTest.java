@@ -6,7 +6,6 @@ import io.sitprep.sitprepapi.dto.MapPlaceDto;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
-import io.sitprep.sitprepapi.repo.UserSavedLocationRepo;
 import io.sitprep.sitprepapi.service.MapPlaceService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +60,7 @@ class MapPlaceHouseholdTypeGateTest {
         groupRepo = mock(GroupRepo.class);
         meetingPlaceRepo = mock(MeetingPlaceRepo.class);
         evacuationPlanRepo = mock(EvacuationPlanRepo.class);
-        service = new MapPlaceService(meetingPlaceRepo, evacuationPlanRepo, mock(UserSavedLocationRepo.class));
+        service = new MapPlaceService(meetingPlaceRepo, evacuationPlanRepo, mock(io.sitprep.sitprepapi.repo.OriginLocationRepo.class), mock(io.sitprep.sitprepapi.repo.PlanActivationRepo.class));
         resource = new MapPlaceResource(service, groupRepo);
 
         when(groupRepo.findByGroupId("biz-1")).thenReturn(Optional.of(businessCircle()));

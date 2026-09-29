@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.PlanRowReconciler;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.dto.RouteNotesDto;
@@ -31,7 +32,9 @@ public class EvacuationPlanService {
         // replace THAT household's evacuation plans + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
         if (target != null) {
-            evacuationPlanRepo.deleteAll(evacuationPlanRepo.findByHouseholdId(target));
+            evacuationPlanRepo.deleteAll(PlanRowReconciler.reconcile(
+                    evacuationPlanRepo.findByHouseholdId(target), evacuationPlans,
+                    EvacuationPlan::getId, EvacuationPlan::setId));
             evacuationPlans.forEach(plan -> {
                 plan.setOwnerEmail(ownerEmail);
                 plan.setHouseholdId(target);
@@ -41,8 +44,11 @@ public class EvacuationPlanService {
             return saved;
         }
 
-        // Delete all existing plans for the user to prevent duplicates
-        evacuationPlanRepo.deleteByOwnerEmail(ownerEmail);
+        // Update rows in place by id; delete only the ones the list dropped
+        // (PlanRowReconciler — a live deployment keeps its shelter's id).
+        evacuationPlanRepo.deleteAll(PlanRowReconciler.reconcile(
+                evacuationPlanRepo.findByOwnerEmail(ownerEmail), evacuationPlans,
+                EvacuationPlan::getId, EvacuationPlan::setId));
 
         // Ensure each plan is assigned to the correct owner + household
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);

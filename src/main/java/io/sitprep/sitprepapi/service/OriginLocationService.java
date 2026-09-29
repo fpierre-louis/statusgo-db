@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.PlanRowReconciler;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.repo.OriginLocationRepo;
@@ -73,14 +74,16 @@ public class OriginLocationService {
         // replace THAT household's origins + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
         if (target != null) {
-            repo.deleteAll(repo.findByHouseholdId(target));
+            repo.deleteAll(PlanRowReconciler.reconcile(
+                    repo.findByHouseholdId(target), origins, OriginLocation::getId, OriginLocation::setId));
             origins.forEach(origin -> {
                 origin.setOwnerEmail(ownerEmail);
                 origin.setHouseholdId(target);
             });
             return repo.saveAll(origins);
         }
-        repo.deleteAll(repo.findByOwnerEmailIgnoreCase(ownerEmail));
+        repo.deleteAll(PlanRowReconciler.reconcile(
+                repo.findByOwnerEmailIgnoreCase(ownerEmail), origins, OriginLocation::getId, OriginLocation::setId));
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
         origins.forEach(origin -> {
             origin.setOwnerEmail(ownerEmail);

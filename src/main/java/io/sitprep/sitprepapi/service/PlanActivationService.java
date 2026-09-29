@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.MapPoiDto;
@@ -690,42 +691,13 @@ public class PlanActivationService {
         Instant now = Instant.now();
 
         // The SAME candidate set MeService resolves Home's activation from —
-        // owner plus every member — because the whole defect is those two
-        // reading a different set. A row this misses stays live and Home keeps
-        // showing it.
-        Set<String> owners = new LinkedHashSet<>();
-        addOwnerEmail(owners, household.getOwnerEmail());
-        if (household.getMemberEmails() != null) {
-            household.getMemberEmails().forEach(raw -> addOwnerEmail(owners, raw));
-        }
-
-        // The lowercased SET above dedupes the EMAILS. An id-keyed dedupe of the
-        // rows was removed once as unreachable — re-arming proved nothing could
-        // reach it, because an activation has exactly one owner and
-        // `findActiveByOwnerEmail` matches on LOWER(ownerEmail). That reasoning
-        // held while the email scan was the only source. It is now one of two,
-        // and they deliberately overlap, so the row-level dedupe below is real
-        // this time — see its note.
-        // TWO SOURCES, UNIONED, AND BOTH ARE STILL NEEDED.
-        //
-        //   * the email scan finds rows launched by anyone currently in the
-        //     household — including pre-V79 rows, which carry no householdId;
-        //   * the household scan finds rows that NAME this household, which is
-        //     the only way to catch one launched by somebody who has since left
-        //     the member list. The email scan cannot see those at all: it is
-        //     built from the household's CURRENT members, so a departure
-        //     silently orphans their live activation and Home keeps ranking
-        //     EVACUATING off a row nothing can close.
-        //
-        // Keyed by id, because the two sources overlap for every row written
-        // since V79 and ending one twice would move its endedAt.
+        // owner plus every member, unioned with the rows that name this
+        // household — because the whole defect is those two reading a
+        // different set. A row this misses stays live and Home keeps showing
+        // it. One query now, shared with the map's plan places
+        // (PlanActivationRepo.findLiveForHousehold).
         Map<String, PlanActivation> live = new LinkedHashMap<>();
-        for (String owner : owners) {
-            for (PlanActivation a : activationRepo.findActiveByOwnerEmail(owner, now)) {
-                live.put(a.getId(), a);
-            }
-        }
-        for (PlanActivation a : activationRepo.findLiveByHouseholdId(householdId, now)) {
+        for (PlanActivation a : activationRepo.findLiveForHousehold(household, now)) {
             live.put(a.getId(), a);
         }
         if (live.isEmpty()) {
@@ -779,12 +751,6 @@ public class PlanActivationService {
                         log.error("All clear push fan-out failed household activation={}", newest.getId(), e);
                     }
                 });
-    }
-
-    private static void addOwnerEmail(Set<String> into, String raw) {
-        if (raw == null) return;
-        String v = raw.trim().toLowerCase(Locale.ROOT);
-        if (!v.isEmpty()) into.add(v);
     }
 
     /**
@@ -918,7 +884,7 @@ public class PlanActivationService {
 
         if (a.getMeetingPlaceId() != null) {
             meetingPlaceRepo.findById(a.getMeetingPlaceId()).ifPresent(m -> {
-                if (finite(m.getLat(), m.getLng())) {
+                if (GeoUtil.validLatLng(m.getLat(), m.getLng())) {
                     pois.add(planPoi("activation:meeting:" + m.getId(), "amenity", "meetup",
                             m.getName() != null ? m.getName() : "Meeting place",
                             m.getLat(), m.getLng(), m.getAddress()));
@@ -928,7 +894,7 @@ public class PlanActivationService {
 
         if (a.getEvacPlanId() != null) {
             evacuationPlanRepo.findById(a.getEvacPlanId()).ifPresent(e -> {
-                if (finite(e.getLat(), e.getLng())) {
+                if (GeoUtil.validLatLng(e.getLat(), e.getLng())) {
                     String name = e.getShelterName() != null ? e.getShelterName()
                             : e.getDestination() != null ? e.getDestination() : "Shelter";
                     pois.add(planPoi("activation:shelter:" + e.getId(), "shelter", "shelter-primary",
@@ -938,15 +904,21 @@ public class PlanActivationService {
         }
 
         if (includePrivate) {
-            if (finite(a.getLat(), a.getLng())) {
+            if (GeoUtil.validLatLng(a.getLat(), a.getLng())) {
                 String ownerName = a.getOwnerName() != null ? a.getOwnerName() : "Owner";
                 pois.add(planPoi("activation:owner:" + a.getId(), "agency", "owner",
                         ownerName + " location", a.getLat(), a.getLng(), null));
             }
-            originLocationRepo.findByOwnerEmailIgnoreCase(a.getOwnerEmail()).stream()
-                    .filter(o -> finite(o.getLat(), o.getLng()))
-                    .findFirst()
-                    .ifPresent(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity", "origin",
+            // EVERY starting point the plan names (Home, Work, Kids' school), not
+            // the first one found — household-scoped, owner email only for rows
+            // not yet backfilled (plan-locations audit 2026-09-29).
+            List<OriginLocation> origins = a.getHouseholdId() != null
+                    ? originLocationRepo.findByHouseholdId(a.getHouseholdId())
+                    : List.of();
+            if (origins.isEmpty()) origins = originLocationRepo.findByOwnerEmailIgnoreCase(a.getOwnerEmail());
+            origins.stream()
+                    .filter(o -> GeoUtil.validLatLng(o.getLat(), o.getLng()))
+                    .forEach(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity", "origin",
                             o.getName() != null ? o.getName() : "Starting point",
                             o.getLat(), o.getLng(), o.getAddress())));
         }
@@ -965,12 +937,6 @@ public class PlanActivationService {
                 null, null, null, null,           // category, website, externalMapUrl, attribution
                 null                              // logoImageUrl — not a circle
         );
-    }
-
-    private static boolean finite(Double lat, Double lng) {
-        return lat != null && lng != null
-                && !lat.isNaN() && !lng.isNaN()
-                && !lat.isInfinite() && !lng.isInfinite();
     }
 
     private static String normalizeOperationalMode(

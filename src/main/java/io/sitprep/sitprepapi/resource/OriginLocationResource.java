@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.util.RequestFields;
 import io.sitprep.sitprepapi.domain.OriginLocation;
 import io.sitprep.sitprepapi.dto.OriginLocationDto;
 import io.sitprep.sitprepapi.service.OriginLocationService;
@@ -49,11 +50,13 @@ public class OriginLocationResource {
 
         List<OriginLocation> origins = originData.stream().map(data -> {
             OriginLocation origin = new OriginLocation();
+            // The row's id, so the save updates it in place (PlanRowReconciler).
+            origin.setId(RequestFields.longOrNull(data.get("id")));
             origin.setOwnerEmail(ownerEmail);
             origin.setName((String) data.get("name"));
             origin.setAddress((String) data.get("address"));
-            origin.setLat(data.get("lat") != null ? ((Number) data.get("lat")).doubleValue() : null);
-            origin.setLng(data.get("lng") != null ? ((Number) data.get("lng")).doubleValue() : null);
+            origin.setLat(RequestFields.doubleOrNull(data.get("lat")));
+            origin.setLng(RequestFields.doubleOrNull(data.get("lng")));
             return origin;
         }).collect(Collectors.toList());
 
