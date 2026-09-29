@@ -54,6 +54,8 @@ public class AskService {
     private final AskBookmarkRepo bookmarkRepo;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
+    private final PostService postService;
+    private final MentionService mentionService;
 
     public AskService(AskQuestionRepo questionRepo,
                       AskAnswerRepo answerRepo,
@@ -61,7 +63,11 @@ public class AskService {
                       AskVoteRepo voteRepo,
                       AskBookmarkRepo bookmarkRepo,
                       UserInfoRepo userInfoRepo,
-                      NominatimGeocodeService geocode) {
+                      NominatimGeocodeService geocode,
+                      PostService postService,
+                      MentionService mentionService) {
+        this.postService = postService;
+        this.mentionService = mentionService;
         this.questionRepo = questionRepo;
         this.answerRepo = answerRepo;
         this.tipRepo = tipRepo;
@@ -447,6 +453,7 @@ public class AskService {
         List<AskSearchHitDto> hits = new ArrayList<>(qs.size() + ts.size());
         for (AskQuestion item : qs) hits.add(searchHit(item, hazards));
         for (AskTip item : ts) hits.add(searchHit(item, hazards));
+        hits.addAll(communityTipHits(q, viewerEmail, hazards));
 
         // Hot-score sort: hazard-matched first, then hot DESC, then recency DESC.
         hits.sort(SEARCH_HIT_COMPARATOR);
@@ -677,6 +684,63 @@ public class AskService {
         h.setAuthorEmail(t.getAuthorEmail());
         h.setHref("/ask/tips/" + t.getId());
         return h;
+    }
+
+    /** Community tips folded into one Ask search (C9h). */
+    private static final int COMMUNITY_TIP_SEARCH_CAP = 20;
+
+    /**
+     * Composer V2 C9h (owner Q5) — community-feed tips are part of the one
+     * content universe Ask searches: kind {@code community-tip}, linking to
+     * the post, carrying its place tag.
+     *
+     * <p><b>Signed-in viewers only.</b> Ask reads are open to anonymous
+     * visitors, but the community feed is not; folding neighbours' posts into
+     * an anonymous search would widen their audience past the feed's own
+     * gate. Blocks and read rules come from {@code PostService}.</p>
+     */
+    private List<AskSearchHitDto> communityTipHits(String q, String viewerEmail, Set<String> hazards) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return List.of();
+        List<PostDto> posts;
+        try {
+            posts = postService.searchCommunityTips(null, q, viewerEmail, 0, COMMUNITY_TIP_SEARCH_CAP);
+        } catch (RuntimeException e) {
+            // One source failing must not sink the whole search box.
+            log.warn("Community tip search failed: {}", e.getMessage());
+            return List.of();
+        }
+        if (posts.isEmpty()) return List.of();
+        List<String> plain = mentionService.toPlainTextAll(
+                posts.stream().map(PostDto::description).toList());
+        List<AskSearchHitDto> out = new ArrayList<>(posts.size());
+        for (int i = 0; i < posts.size(); i++) {
+            PostDto p = posts.get(i);
+            String body = plain.get(i) == null ? "" : plain.get(i).strip();
+            Set<String> topics = p.community() == null ? null : p.community().hazardTags();
+            AskSearchHitDto h = new AskSearchHitDto();
+            h.setKind("community-tip");
+            h.setKey(String.valueOf(p.id()));
+            // A tip has no title (the body is the post), so its first line is.
+            h.setTitle(!isBlank(p.title()) ? p.title() : firstLine(body));
+            h.setSnippet(snippet(body));
+            h.setHazardTags(topics);
+            h.setPlaceLabel(p.placeLabel());
+            h.setVoteScore(p.thanksCount());
+            h.setCreatedAt(p.createdAt());
+            h.setHazardMatched(intersects(topics, hazards));
+            h.setHotScore(hotScore(p.thanksCount(), p.createdAt()));
+            // Join key for foldSearchAuthors, not wire data — the field is @JsonIgnore.
+            h.setAuthorEmail(p.requesterEmail());
+            h.setHref("/community/posts/" + p.id());
+            out.add(h);
+        }
+        return out;
+    }
+
+    private static String firstLine(String body) {
+        if (body == null || body.isBlank()) return "Community tip";
+        String line = body.strip().split("\\R", 2)[0].strip();
+        return line.length() <= 80 ? line : line.substring(0, 79) + "…";
     }
 
     private List<AskSearchHitDto> foldSearchAuthors(List<AskSearchHitDto> hits) {

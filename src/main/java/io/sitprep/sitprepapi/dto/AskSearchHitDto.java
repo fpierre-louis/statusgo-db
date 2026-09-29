@@ -13,7 +13,7 @@ import java.util.Set;
  */
 @Data
 public class AskSearchHitDto {
-    /** "guide" | "question" | "tip". */
+    /** "guide" | "question" | "tip" | "community-tip" (a feed tip, C9h). */
     private String kind;
 
     /** Stable identifier — numeric for question/tip (stringified), slug for guide. */
@@ -25,6 +25,9 @@ public class AskSearchHitDto {
 
     private Set<String> tags;
     private Set<String> hazardTags;
+
+    /** A community tip's place tag ("Sugar House"); null for Ask content (C9h). */
+    private String placeLabel;
 
     private int voteScore;
     private Instant createdAt;

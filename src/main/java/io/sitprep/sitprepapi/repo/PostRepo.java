@@ -413,6 +413,37 @@ public interface PostRepo extends JpaRepository<Post, Long> {
     );
 
     /**
+     * Composer V2 C9h — community tips by topic and/or text, with NO radius
+     * (owner Q5: a located tip is radius-bound in the feed, so search is how
+     * it reaches past the radius). Groupless tips only; blocked authors are
+     * excluded in the query so a page is never short. {@code like} is a
+     * lowercased, {@code !}-escaped pattern. {@code textTopic} lets a search
+     * for "flood" find a tip tagged flood whose text never says it.
+     * Callers pass non-null sentinels, never null, for the unused filters.
+     */
+    @Query("""
+        SELECT t FROM Post t
+         WHERE t.kind = 'tip'
+           AND t.groupId IS NULL
+           AND t.status IN :statuses
+           AND LOWER(t.requesterEmail) NOT IN :blocked
+           AND (:anyTopic = true OR :topic MEMBER OF t.hazardTags)
+           AND (:anyText = true
+                OR LOWER(COALESCE(t.description, '')) LIKE :like ESCAPE '!'
+                OR LOWER(COALESCE(t.title, '')) LIKE :like ESCAPE '!'
+                OR :textTopic MEMBER OF t.hazardTags)
+         ORDER BY t.createdAt DESC, t.id DESC
+        """)
+    List<Post> searchCommunityTips(@Param("statuses") Set<PostStatus> statuses,
+                                   @Param("blocked") Collection<String> blocked,
+                                   @Param("anyTopic") boolean anyTopic,
+                                   @Param("topic") String topic,
+                                   @Param("anyText") boolean anyText,
+                                   @Param("like") String like,
+                                   @Param("textTopic") String textTopic,
+                                   Pageable page);
+
+    /**
      * Distinct zip-buckets that have any task with coords. Used by
      * {@code AlertModeService} to find "populated cells" — the set of
      * geocells whose mode the cron should recompute on each tick.

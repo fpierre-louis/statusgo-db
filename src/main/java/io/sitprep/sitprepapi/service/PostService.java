@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException;
 import io.sitprep.sitprepapi.constant.CivicCategory;
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.constant.OfficialTier;
+import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.AskBookmark;
 import io.sitprep.sitprepapi.domain.Follow;
@@ -41,6 +42,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import org.springframework.data.domain.PageRequest;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -821,6 +823,10 @@ public class PostService {
             // checked, and none at all on a Free listing (C9d).
             t.setPaymentMethodsJson(normalizePaymentMethods(incoming.getPaymentMethodsJson(), incoming.isFree()));
         }
+        // C9h — a tip's topics (owner Q5). Ignored on every other kind.
+        if (PostKind.TIP.wire().equals(t.getKind())) {
+            t.getHazardTags().addAll(tipTopics(incoming.getHazardTags()));
+        }
 
         // Community-redesign per-type fields (official / news / civic-report).
         // @RequestBody binds the raw columns; this authorizes + defaults them.
@@ -1500,6 +1506,60 @@ public class PostService {
                         .reversed())
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAssignees(withAuthors(dtos)))), email);
+    }
+
+    /** Page cap for {@link #searchCommunityTips}. */
+    public static final int TIP_SEARCH_MAX_LIMIT = 50;
+    /** Longest search text honoured; the rest is ignored. */
+    static final int TIP_SEARCH_MAX_QUERY = 100;
+    /**
+     * Stands in for "no value" in the tip query: no email or hazard key can
+     * equal it. (Not a NUL — Postgres rejects 0x00 in a text parameter.)
+     */
+    private static final String NO_MATCH = "(none)";
+
+    /**
+     * Composer V2 C9h — community tips by topic and/or text, regardless of
+     * location (owner Q5). Each row keeps its {@code placeLabel}, so a result
+     * still says where the tip is from. Unknown topic → 400. Both filters
+     * empty → the newest tips anywhere.
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> searchCommunityTips(String topic, String q, String viewerEmail,
+                                             int offset, int limit) {
+        String topicKey = null;
+        if (topic != null && !topic.isBlank()) {
+            topicKey = HazardType.parse(topic)
+                    .map(HazardType::wire)
+                    .filter(w -> !HazardType.OTHER.wire().equals(w))
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown topic: " + topic));
+        }
+        String text = q == null ? "" : q.trim();
+        if (text.length() > TIP_SEARCH_MAX_QUERY) text = text.substring(0, TIP_SEARCH_MAX_QUERY);
+        String like = "%" + text.toLowerCase(Locale.ROOT)
+                .replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        String textTopic = HazardType.parse(text).map(HazardType::wire).orElse(NO_MATCH);
+
+        Set<String> blocked = (viewerEmail == null || viewerEmail.isBlank())
+                ? Set.of() : blockService.getBlockSet(viewerEmail);
+        Set<String> blockedOrSentinel = blocked.isEmpty() ? Set.of(NO_MATCH) : blocked;
+
+        int effLimit = limit <= 0 ? TIP_SEARCH_MAX_LIMIT : Math.min(limit, TIP_SEARCH_MAX_LIMIT);
+        int effOffset = Math.max(0, offset);
+        // Offset paging on a page-aligned window: offsets from the X-Next-Cursor
+        // header are always multiples of the limit.
+        List<Post> rows = taskRepo.searchCommunityTips(
+                EnumSet.of(PostStatus.OPEN, PostStatus.CLAIMED),
+                blockedOrSentinel,
+                topicKey == null, topicKey == null ? NO_MATCH : topicKey,
+                text.isEmpty(), like, textTopic,
+                PageRequest.of(effOffset / effLimit, effLimit));
+
+        List<PostDto> dtos = rows.stream()
+                .filter(t -> readAuthorizer.canRead(t, viewerEmail))
+                .map(t -> PostDto.fromEntity(t, null))
+                .collect(Collectors.toList());
+        return withEngagement(withParentPosts(withAuthoredAsGroups(withAssignees(withAuthors(dtos)))), viewerEmail);
     }
 
     /**
@@ -2830,6 +2890,25 @@ public class PostService {
         return out.isEmpty() ? null : out.toString();
     }
 
+    /** A tip names at most this many topics (C9h). */
+    static final int MAX_TIP_TOPICS = 3;
+
+    /**
+     * C9h — a tip's topics are the hazard vocabulary ({@link HazardType}), so
+     * search runs over a closed set. Unknown values are dropped (the
+     * vocabulary's own rule); {@code other} is the dispatcher's catch-all and
+     * says nothing a reader could search for, so it is dropped too. More than
+     * three known topics is a 400 rather than a silent trim.
+     */
+    static Set<String> tipTopics(Collection<String> raw) {
+        Set<String> out = new LinkedHashSet<>(HazardType.normalize(raw));
+        out.remove(HazardType.OTHER.wire());
+        if (out.size() > MAX_TIP_TOPICS) {
+            throw new IllegalArgumentException("A tip can have up to " + MAX_TIP_TOPICS + " topics");
+        }
+        return out;
+    }
+
     /**
      * C9c — the author's per-kind fields on PATCH. isFree is a primitive, so
      * "absent" can't be told from false: a price in the patch means Price
@@ -2852,6 +2931,11 @@ public class PostService {
             } else if (patch.getPaymentMethodsJson() != null) {
                 t.setPaymentMethodsJson(normalizePaymentMethods(patch.getPaymentMethodsJson(), false));
             }
+        }
+        if (PostKind.TIP.wire().equals(t.getKind()) && patch.isHazardTagsSent()) {
+            Set<String> topics = tipTopics(patch.getHazardTags());
+            t.getHazardTags().clear();
+            t.getHazardTags().addAll(topics);
         }
         if ("civic-report".equals(t.getKind()) && patch.getCivicCategory() != null) {
             String cat = patch.getCivicCategory().trim().toLowerCase();

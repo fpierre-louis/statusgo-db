@@ -288,6 +288,21 @@ public class Post {
     private Set<String> hazardTags = new HashSet<>();
 
     /**
+     * Whether a request body carried {@code hazardTags} at all (Composer V2
+     * C9h). The set starts empty, so without this a PATCH that says nothing
+     * about topics can't be told from one that clears them. Set only by the
+     * setter below — Hibernate uses field access and never calls it.
+     */
+    @Transient
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private boolean hazardTagsSent;
+
+    public void setHazardTags(Set<String> hazardTags) {
+        this.hazardTags = hazardTags == null ? new HashSet<>() : hazardTags;
+        this.hazardTagsSent = true;
+    }
+
+    /**
      * Where this post came from — {@code nws} | {@code usgs} | {@code agency} |
      * {@code user}. Null on rows predating V62 that no backfill could classify.
      *

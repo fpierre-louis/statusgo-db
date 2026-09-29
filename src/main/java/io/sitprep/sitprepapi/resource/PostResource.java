@@ -118,6 +118,25 @@ public class PostResource {
         return rb.body(ApiResponse.ok(page, ApiMeta.now()));
     }
 
+    /**
+     * Composer V2 C9h — community tips by topic and/or text, with no radius
+     * (owner Q5). Signed-in, like the feed.
+     */
+    @GetMapping("/api/community/tips")
+    public ResponseEntity<ApiResponse<List<PostDto>>> searchCommunityTips(
+            @RequestParam(value = "topic", required = false) String topic,
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        String viewer = AuthUtils.requireAuthenticatedEmail();
+        List<PostDto> page = tasks.searchCommunityTips(topic, q, viewer, offset, limit);
+        int effLimit = limit <= 0 ? PostService.TIP_SEARCH_MAX_LIMIT : Math.min(limit, PostService.TIP_SEARCH_MAX_LIMIT);
+        ResponseEntity.BodyBuilder rb = ResponseEntity.ok();
+        if (page.size() == effLimit) rb.header("X-Next-Cursor", String.valueOf(Math.max(0, offset) + effLimit));
+        return rb.body(ApiResponse.ok(page, ApiMeta.now()));
+    }
+
     @GetMapping("/api/agencies")
     public ResponseEntity<ApiResponse<List<PostService.AgencyDto>>> agencies(
             @RequestParam(value = "lat", required = false) Double lat,
