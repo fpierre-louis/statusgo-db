@@ -287,16 +287,16 @@ public class MeService {
         // of truth. ownerEmail matters for agencies created before the owner
         // signs in for the first time.
         List<Group> ownerGroupList = safeGet("groupRepo.findByOwnerEmailIgnoreCase", logCtx,
-                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByOwnerEmailIgnoreCase(email),
+                () -> email.isBlank() ? List.<Group>of() : withSummaryCollections(groupRepo.findByOwnerEmailIgnoreCase(email)),
                 List.of());
         List<Group> adminGroupList = safeGet("groupRepo.findByAdminEmail", logCtx,
-                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByAdminEmail(email),
+                () -> email.isBlank() ? List.<Group>of() : withSummaryCollections(groupRepo.findByAdminEmail(email)),
                 List.of());
         List<Group> memberGroupList = safeGet("groupRepo.findByMemberEmail", logCtx,
-                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByMemberEmail(email),
+                () -> email.isBlank() ? List.<Group>of() : withSummaryCollections(groupRepo.findByMemberEmail(email)),
                 List.of());
         List<Group> pendingGroupList = safeGet("groupRepo.findByPendingMemberEmail", logCtx,
-                () -> email.isBlank() ? List.<Group>of() : groupRepo.findByPendingMemberEmail(email),
+                () -> email.isBlank() ? List.<Group>of() : withSummaryCollections(groupRepo.findByPendingMemberEmail(email)),
                 List.of());
 
         Map<String, Group> groupsById = new LinkedHashMap<>();
@@ -470,7 +470,9 @@ public class MeService {
                 .filter(id -> id != null && !representedIds.contains(id))
                 .toList();
         if (!missingStaffIds.isEmpty()) {
-            for (Group g : groupRepo.findAllById(missingStaffIds)) {
+            List<Group> staffGroups = safeGet("groupRepo.findAllById(staff)", logCtx,
+                    () -> withSummaryCollections(groupRepo.findAllById(missingStaffIds)), List.<Group>of());
+            for (Group g : staffGroups) {
                 if (g == null || g.getGroupId() == null) continue;
                 if (householdIds.contains(g.getGroupId())) continue;
                 if (!g.isAgencyAuthorized()) continue;
@@ -985,6 +987,29 @@ public class MeService {
                 g.getAlert(),
                 g.getActiveHazardType()
         );
+    }
+
+    /**
+     * Materialize the collections {@link #toGroupSummary} reads, while the
+     * sub-fetch session is still open.
+     *
+     * <p>2026-09-29: every /me for a user in an agency-capable group 500'd with
+     * {@code LazyInitializationException: Group.agencyCapabilities — no Session}.
+     * The groups are loaded in {@link #safeGet}'s REQUIRES_NEW transactions and
+     * summarized after those sessions close; Group has more collections than
+     * Hibernate fetches in one SELECT, so the extras (agencyCapabilities,
+     * jurisdictionZips — read by capabilitiesOf / isJurisdictionReady) are
+     * secondary selects that need a live session despite FetchType.EAGER. Same
+     * trap as the challengeProgress note in the household builder.</p>
+     */
+    private static List<Group> withSummaryCollections(List<Group> groups) {
+        if (groups == null) return List.of();
+        for (Group g : groups) {
+            if (g == null) continue;
+            org.hibernate.Hibernate.initialize(g.getAgencyCapabilities());
+            org.hibernate.Hibernate.initialize(g.getJurisdictionZips());
+        }
+        return groups;
     }
 
     private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds) {
