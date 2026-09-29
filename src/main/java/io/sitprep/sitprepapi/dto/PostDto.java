@@ -390,7 +390,14 @@ public record PostDto(
             @JsonInclude(JsonInclude.Include.NON_EMPTY)
             Set<String> hazardTags,
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            String sourceKey
+            String sourceKey,
+            // A dispatched alert's own area — GeoJSON Polygon/MultiPolygon,
+            // embedded as JSON (not a string) so the client hands it straight
+            // to its map. Folded from AlertPost (V89) in withHazardAreas; null
+            // for every other post and for zone-only alerts.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @com.fasterxml.jackson.annotation.JsonRawValue
+            String area
     ) {
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -426,7 +433,8 @@ public record PostDto(
                     isMarketplace ? trim(t.getPickupNote()) : null,
                     t.getHazardTags() == null || t.getHazardTags().isEmpty()
                             ? null : Set.copyOf(t.getHazardTags()),
-                    trim(t.getSourceKey()));
+                    trim(t.getSourceKey()),
+                    null /* area — folded from AlertPost by withHazardAreas */);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -442,13 +450,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -457,20 +465,20 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         /**
@@ -484,14 +492,21 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
                     taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus,
-                    until, condition, pickupNote, hazardTags, sourceKey);
+                    until, condition, pickupNote, hazardTags, sourceKey, area);
         }
 
         /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
         public CommunityExtras withCanonicalStatus(String status) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area);
+        }
+
+        /** Fold a dispatched alert's area (V89). */
+        public CommunityExtras withArea(String geojson) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }
@@ -1096,6 +1111,13 @@ public record PostDto(
             new TypeReference<>() {};
 
     private static PublisherIdentity publisherIdentity(UserInfo u) {
+        // SitPrep's own posts (the alert dispatcher) say so, so clients draw
+        // the SitPrep mark instead of an initial. No verified state: the
+        // card's badge rules are unchanged.
+        if (u != null && io.sitprep.sitprepapi.constant.SystemAccounts.isSitPrep(u.getUserEmail())) {
+            return new PublisherIdentity(io.sitprep.sitprepapi.constant.SystemAccounts.SITPREP_AUTHOR_TYPE,
+                    null, null, null, null, null);
+        }
         if (u == null || !u.isVerifiedPublisher()) {
             return new PublisherIdentity(null, null, null, null, null, null);
         }

@@ -39,6 +39,7 @@ class PostRulesC9Test {
 
     @Autowired PostService postService;
     @Autowired PostRepo postRepo;
+    @Autowired io.sitprep.sitprepapi.repo.UserInfoRepo userInfoRepo;
     @MockBean NominatimGeocodeService geocode;
     @MockBean StorageService storage;
 
@@ -233,6 +234,25 @@ class PostRulesC9Test {
     }
 
     // ── C9e · neighbour rate limit ─────────────────────────────────────────
+
+    @Test
+    void sitPrepsDispatcherIsNeverRateLimitedAndItsPostsSaySitPrep() {
+        String sitprep = io.sitprep.sitprepapi.constant.SystemAccounts.SITPREP_EMAIL;
+        if (userInfoRepo.findByUserEmail(sitprep).isEmpty()) {
+            io.sitprep.sitprepapi.domain.UserInfo u = new io.sitprep.sitprepapi.domain.UserInfo();
+            u.setUserEmail(sitprep);
+            u.setUserFirstName("SitPrep");
+            userInfoRepo.save(u);
+        }
+        PostDto last = null;
+        for (int i = 0; i <= PostService.NEIGHBOUR_POSTS_PER_HOUR; i++) {
+            Post p = post("alert-update");
+            p.setTitle("Flash flood warning " + i);
+            p.setDescription("Move to higher ground.");
+            last = postService.create(p, sitprep);
+        }
+        assertThat(last.authorType()).isEqualTo("sitprep");
+    }
 
     @Test
     void theEleventhPostInAnHourIs429ButAHazardIsNotCounted() {

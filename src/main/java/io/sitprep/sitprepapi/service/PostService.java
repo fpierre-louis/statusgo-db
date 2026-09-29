@@ -7,6 +7,8 @@ import io.sitprep.sitprepapi.constant.CivicCategory;
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.constant.OfficialTier;
 import io.sitprep.sitprepapi.constant.HazardType;
+import io.sitprep.sitprepapi.domain.AlertPost;
+import io.sitprep.sitprepapi.repo.AlertPostRepo;
 import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.AskBookmark;
 import io.sitprep.sitprepapi.domain.Follow;
@@ -83,6 +85,7 @@ public class PostService {
     private final PostRepo taskRepo;
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
+    private final AlertPostRepo alertPostRepo;
     private final UserInfoRepo userInfoRepo;
     private final NominatimGeocodeService geocode;
     private final WebSocketMessageSender ws;
@@ -140,9 +143,11 @@ public class PostService {
                        AgencyJurisdictionService agencyJurisdictionService,
                        CivicAgencyService civicAgencyService,
                        PostReadAuthorizer readAuthorizer,
-                       PostMentionService mentions) {
+                       PostMentionService mentions,
+                       AlertPostRepo alertPostRepo) {
         this.taskRepo = taskRepo;
         this.mentions = mentions;
+        this.alertPostRepo = alertPostRepo;
         this.userInfoRepo = userInfoRepo;
         this.geocode = geocode;
         this.ws = ws;
@@ -280,7 +285,7 @@ public class PostService {
                     return (u == null) ? d : d.withAuthor(u);
                 })
                 .collect(Collectors.toList());
-        return withMentionNames(authored);
+        return withHazardAreas(withMentionNames(authored));
     }
 
     /**
@@ -483,6 +488,30 @@ public class PostService {
      * Tasks with no comments are absent from the count map; we default to 0
      * for missing keys so the FE renders the comment icon without a count.</p>
      */
+    /**
+     * A dispatched alert's area (V89) onto its post, so the card and thread
+     * draw the real outline. One batched query, alert-update posts only; rides
+     * withAuthors because every read path funnels through it.
+     */
+    private List<PostDto> withHazardAreas(List<PostDto> dtos) {
+        if (dtos == null || dtos.isEmpty() || alertPostRepo == null) return dtos;
+        List<Long> ids = dtos.stream()
+                .filter(d -> "alert-update".equals(d.kind()) && d.id() != null && d.community() != null)
+                .map(PostDto::id)
+                .toList();
+        if (ids.isEmpty()) return dtos;
+        Map<Long, String> areas = new HashMap<>();
+        for (AlertPost ap : alertPostRepo.findByPostIdIn(ids)) {
+            if (ap.getAreaGeojson() != null) areas.putIfAbsent(ap.getPostId(), ap.getAreaGeojson());
+        }
+        if (areas.isEmpty()) return dtos;
+        return dtos.stream()
+                .map(d -> areas.containsKey(d.id())
+                        ? d.withCommunity(d.community().withArea(areas.get(d.id())))
+                        : d)
+                .collect(Collectors.toList());
+    }
+
     private List<PostDto> withEngagement(List<PostDto> dtos, String viewerEmail) {
         if (dtos == null || dtos.isEmpty()) return dtos;
         List<Long> ids = dtos.stream()
@@ -2970,11 +2999,14 @@ public class PostService {
     /**
      * C9e — 10 community posts per author per rolling hour, counted in the
      * database so it holds across dynos. Hazard reports (their own 5/hour +
-     * sentence), official / news (publisher limits) and non-community kinds
-     * are exempt.
+     * sentence), official / news (publisher limits), non-community kinds and
+     * SitPrep's own dispatcher are exempt.
      */
     void requireUnderNeighbourPostLimit(Post t) {
         if (t.getGroupId() != null || t.getKind() == null || RATE_EXEMPT_KINDS.contains(t.getKind())) return;
+        // SitPrep's alert dispatcher posts through create() as the system
+        // account; a busy weather hour must never 429 a warning.
+        if (io.sitprep.sitprepapi.constant.SystemAccounts.isSitPrep(t.getRequesterEmail())) return;
         long recent = taskRepo.countRecentNeighbourPosts(
                 t.getRequesterEmail(), RATE_EXEMPT_KINDS, Instant.now().minus(Duration.ofHours(1)));
         if (recent >= NEIGHBOUR_POSTS_PER_HOUR) {

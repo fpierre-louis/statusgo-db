@@ -101,6 +101,15 @@ public class AlertPost {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 
+    /**
+     * The alert's own area as GeoJSON (Polygon / MultiPolygon), written at
+     * dispatch (V89). Null for zone-only alerts — NWS ships no polygon for
+     * those — and for rows older than the column. Read by
+     * {@code PostService.withHazardAreas} so the card draws the real outline.
+     */
+    @Column(name = "area_geojson", columnDefinition = "text")
+    private String areaGeojson;
+
     @PrePersist
     void onCreate() {
         if (createdAt == null) createdAt = Instant.now();

@@ -73,7 +73,7 @@ public class AlertDispatchService {
     private static final String TEMPLATES_RESOURCE = "templates/alert-dispatch-templates.json";
 
     /** Reserved system author for SitPrep auto-posts. */
-    static final String SYSTEM_EMAIL = "system@sitprep.app";
+    static final String SYSTEM_EMAIL = io.sitprep.sitprepapi.constant.SystemAccounts.SITPREP_EMAIL;
 
     /**
      * Radius (km) around an alert's representative coordinate within
@@ -308,6 +308,7 @@ public class AlertDispatchService {
                 ap.setGeocellId(zipBucket);
                 ap.setPostId(dto.id());
                 ap.setExpiresAt(parseInstantOrNull(a.endsAt()));
+                ap.setAreaGeojson(areaGeojsonOf(a.geometry()));
                 alertPostRepo.save(ap);
 
                 // Life-threatening NWS warnings (Severe/Extreme) also
@@ -489,6 +490,31 @@ public class AlertDispatchService {
         // by `sourceKey` being non-null and machine-owned. A separate boolean
         // would be a third way to say the same thing.
         return t;
+    }
+
+    /** Largest area kept with a post; storm polygons are a few KB. */
+    static final int MAX_AREA_GEOJSON_CHARS = 200_000;
+    private static final com.fasterxml.jackson.databind.ObjectMapper AREA_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * The alert's area as GeoJSON text, for the card's map — Polygon or
+     * MultiPolygon only (a quake point has no area; a zone-only alert has no
+     * geometry). Oversized shapes are dropped rather than truncated: half a
+     * polygon draws a wrong boundary.
+     */
+    static String areaGeojsonOf(Object geometry) {
+        if (geometry == null) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode g = AREA_JSON.valueToTree(geometry);
+            String type = g.path("type").asText("");
+            if (!"Polygon".equals(type) && !"MultiPolygon".equals(type)) return null;
+            if (!g.path("coordinates").isArray()) return null;
+            String json = AREA_JSON.writeValueAsString(g);
+            return json.length() <= MAX_AREA_GEOJSON_CHARS ? json : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

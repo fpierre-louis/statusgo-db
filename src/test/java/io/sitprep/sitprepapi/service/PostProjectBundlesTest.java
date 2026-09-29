@@ -96,7 +96,8 @@ class PostProjectBundlesTest {
                 // Real authorizer over the same groupRepo stub the service
                 // uses, so the read rule under test is the production one.
                 new PostReadAuthorizer(groupRepo, mock(TaskAssigneeRepo.class)),
-                org.mockito.Mockito.mock(PostMentionService.class));
+                org.mockito.Mockito.mock(PostMentionService.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class));
         // Any fold that reaches withEngagement needs real (empty) reaction summaries
         // — a mock defaults them to null → NPE. Harmless when the path doesn't use them.
         when(reactionService.loadThankSummary(any(), any()))

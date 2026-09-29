@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,6 +18,9 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
      * DB level too; this method makes the application-side flow cleaner.
      */
     Optional<AlertPost> findByAlertIdAndGeocellId(String alertId, String geocellId);
+
+    /** Batched fold of alert areas onto a page of posts (V89). */
+    List<AlertPost> findByPostIdIn(Collection<Long> postIds);
 
     /**
      * Active (unresolved) AlertPosts for one alertId. Resolve tick
