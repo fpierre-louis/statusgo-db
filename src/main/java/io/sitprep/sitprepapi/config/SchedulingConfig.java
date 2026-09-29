@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -28,7 +29,16 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
  * co-located with the pool sizing (was on {@code Application}; moved to
  * keep scheduling config in one place).</p>
  */
+/*
+ * SWITCHABLE (2026-09-29). `app.scheduling.enabled=false` turns off every
+ * @Scheduled job in the app. Until launch, the owner runs the backend on a
+ * laptop against the PRODUCTION database, and a laptop running the 21 jobs
+ * (alert dispatch, sweeps, digests) is a second production scheduler: it
+ * would post duplicate alerts and send duplicate pushes. The local profile
+ * sets it false; Heroku never sets it, so production keeps the default.
+ */
 @Configuration
+@ConditionalOnProperty(name = "app.scheduling.enabled", havingValue = "true", matchIfMissing = true)
 @EnableScheduling
 public class SchedulingConfig implements SchedulingConfigurer {
 
