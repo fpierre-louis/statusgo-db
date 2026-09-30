@@ -555,14 +555,22 @@ public class MeService {
                         .or(() -> mealPlanDataRepo.findFirstByOwnerEmailIgnoreCase(email))
                         .orElse(null),
                 null);
+        // Same household-first rule for the plan's places (plan-locations audit
+        // 2026-09-30, finding B): these were read by the caller's OWN email, so
+        // a member who didn't author the plan saw no meeting places, shelters
+        // or starting points — the plan's writes stamp householdId.
+        final boolean hasBase = baseHouseholdId != null && !baseHouseholdId.isBlank();
         List<EvacuationPlan> evacPlans = safeGet("evacPlans", logCtx,
-                () -> evacuationPlanRepo.findByOwnerEmail(email),
+                () -> householdFirst(hasBase ? evacuationPlanRepo.findByHouseholdId(baseHouseholdId) : List.of(),
+                        () -> evacuationPlanRepo.findByOwnerEmail(email)),
                 List.of());
         List<MeetingPlace> meetingPlaces = safeGet("meetingPlaces", logCtx,
-                () -> meetingPlaceRepo.findByOwnerEmail(email),
+                () -> householdFirst(hasBase ? meetingPlaceRepo.findByHouseholdId(baseHouseholdId) : List.of(),
+                        () -> meetingPlaceRepo.findByOwnerEmail(email)),
                 List.of());
         List<OriginLocation> originLocations = safeGet("originLocations", logCtx,
-                () -> originLocationRepo.findByOwnerEmailIgnoreCase(email),
+                () -> householdFirst(hasBase ? originLocationRepo.findByHouseholdId(baseHouseholdId) : List.of(),
+                        () -> originLocationRepo.findByOwnerEmailIgnoreCase(email)),
                 List.of());
         List<EmergencyContactGroup> emergencyGroups = safeGet("emergencyContactGroups", logCtx,
                 () -> emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email),
@@ -576,6 +584,11 @@ public class MeService {
                 emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList(),
                 new MePlansDto.MetaDto(Instant.now(), DTO_VERSION)
         );
+    }
+
+    /** The household's rows; the caller's own (un-backfilled) rows only when it has none. */
+    private static <T> List<T> householdFirst(List<T> byHousehold, java.util.function.Supplier<List<T>> byOwner) {
+        return byHousehold != null && !byHousehold.isEmpty() ? byHousehold : byOwner.get();
     }
 
     /**
