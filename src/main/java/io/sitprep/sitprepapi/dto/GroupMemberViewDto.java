@@ -119,7 +119,14 @@ public record GroupMemberViewDto(
              * running. "Continue" pushes it back without resetting answers (V90;
              * ask-to-check-in plan K4). Appended last: positional record.
              */
-            Instant alertExpiresAt
+            Instant alertExpiresAt,
+            /**
+             * When the running check-in started — null when none is running.
+             * Answers older than this read as "no response" (the server's
+             * freshness rule), so a client counting answers needs it; before
+             * this it arrived only on the live socket frame, never on load.
+             */
+            Instant alertActivatedAt
     ) {}
 
     public record MemberSummary(

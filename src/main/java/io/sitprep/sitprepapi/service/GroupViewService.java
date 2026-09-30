@@ -258,7 +258,8 @@ public class GroupViewService {
                 g.getAdminEmails() == null ? List.of() : List.copyOf(g.getAdminEmails()),
                 g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs()),
                 g.getPlanTier(),
-                checkInEndsAt(g)
+                checkInEndsAt(g),
+                "active".equalsIgnoreCase(g.getAlert()) ? g.getAlertActivatedAt() : null
         );
     }
 
