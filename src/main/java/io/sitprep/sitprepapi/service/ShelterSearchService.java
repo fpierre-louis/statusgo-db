@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.GeoUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.client.config.RequestConfig;
@@ -533,13 +534,8 @@ public class ShelterSearchService {
     }
 
     private static double haversineMi(double la1, double lo1, double la2, double lo2) {
-        double R = 3958.8;
-        double dLat = Math.toRadians(la2 - la1);
-        double dLon = Math.toRadians(lo2 - lo1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(la1)) * Math.cos(Math.toRadians(la2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return 2 * R * Math.asin(Math.min(1.0, Math.sqrt(a)));
+        // The one formula (util/GeoUtil) — this was a private copy with its own radius.
+        return GeoUtil.haversineKm(la1, lo1, la2, lo2) / GeoUtil.MI_TO_KM;
     }
 
     private static final class CacheEntry {
