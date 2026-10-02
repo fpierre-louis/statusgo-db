@@ -8,6 +8,8 @@ import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.PostDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.service.PostService;
+import io.sitprep.sitprepapi.service.ConditionsService;
+import io.sitprep.sitprepapi.dto.ConditionsReading;
 import io.sitprep.sitprepapi.domain.TaskAssignee;
 import io.sitprep.sitprepapi.repo.TaskAssigneeRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -51,12 +53,14 @@ public class PostResource {
     private final PostService tasks;
     private final GroupService groupService;
     private final TaskAssigneeRepo assigneeRepo;
+    private final ConditionsService conditionsService;
 
     public PostResource(PostService tasks, GroupService groupService,
-                        TaskAssigneeRepo assigneeRepo) {
+                        TaskAssigneeRepo assigneeRepo, ConditionsService conditionsService) {
         this.tasks = tasks;
         this.groupService = groupService;
         this.assigneeRepo = assigneeRepo;
+        this.conditionsService = conditionsService;
     }
 
     // -----------------------------------------------------------------
@@ -150,11 +154,13 @@ public class PostResource {
     }
 
     @GetMapping("/api/community/conditions")
-    public ResponseEntity<ApiResponse<PostService.ConditionsDto>> conditions(
+    public ResponseEntity<ApiResponse<ConditionsReading>> conditions(
             @RequestParam("lat") double lat,
             @RequestParam("lng") double lng) {
         AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(tasks.getConditions(lat, lng), ApiMeta.now()));
+        // The backend reading (EXEC-3A). `data` is null when Open-Meteo cannot
+        // be read: a missing reading is reported, never guessed.
+        return ResponseEntity.ok(ApiResponse.ok(conditionsService.readingFor(lat, lng), ApiMeta.now()));
     }
 
     // Phase 5 Slice E — the verified agency (if any) whose jurisdiction

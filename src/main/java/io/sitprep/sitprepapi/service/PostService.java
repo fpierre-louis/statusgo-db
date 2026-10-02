@@ -1981,26 +1981,6 @@ public class PostService {
                 g.getDescription(), g.getCreatedAt());
     }
 
-    public record Condition(String label, Object value, String unit, String status) {}
-    public record ConditionsDto(Condition temp, Condition wind, Condition air, Condition power, boolean mocked) {}
-
-    /**
-     * Conditions bar (temp / wind / air / power). v1 returns static meters:
-     * live NWS-current + AirNow values are fetched FE-side via emergencyApis
-     * per the contract, and power has no outage source yet (always "On").
-     * The endpoint exists so the FE can switch to a server proxy later
-     * without a contract change. {@code mocked=true} signals placeholder data.
-     */
-    @Transactional(readOnly = true)
-    public ConditionsDto getConditions(double lat, double lng) {
-        return new ConditionsDto(
-                new Condition("Temp", null, "°", "muted"),
-                new Condition("Wind", null, "mph", "muted"),
-                new Condition("Air", null, "AQI", "muted"),
-                new Condition("Power", "On", null, "green"),
-                true);
-    }
-
     // ---------------------------------------------------------------------
     // Lifecycle: claim, complete, cancel, reopen, patch, delete
     // ---------------------------------------------------------------------

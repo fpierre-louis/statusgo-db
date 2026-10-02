@@ -232,3 +232,12 @@ r2:
   media:
     max-pixels:   ${R2_MEDIA_MAX_PIXELS:30000000}
     jpeg-quality: ${R2_MEDIA_JPEG_QUALITY:0.82}
+
+# --- CONDITIONS (Open-Meteo) — daily brief EXEC-3A ---
+# Set OPEN_METEO_API_KEY on Heroku once the commercial plan is bought (owner
+# approved it 2026-10-01). Blank uses the free hosts, which are for
+# non-commercial use only; ConditionsService switches to the customer- hosts
+# when a key is present.
+conditions:
+  open-meteo:
+    api-key: ${OPEN_METEO_API_KEY:}
