@@ -8,6 +8,7 @@ import io.sitprep.sitprepapi.dto.ConditionsReading;
 import io.sitprep.sitprepapi.util.Compass;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -83,6 +84,10 @@ public class ConditionsService {
 
     private record Cached(Instant fetchedAt, String forecastJson, String airJson) {}
 
+    // @Autowired is REQUIRED: with the test constructor below, Spring cannot
+    // pick one by itself and the whole context fails to start (caught by the
+    // suite before it reached Heroku, 2026-10-01).
+    @Autowired
     public ConditionsService(ObjectMapper mapper,
                              @Value("${conditions.open-meteo.api-key:}") String apiKey) {
         this(mapper, apiKey, Clock.systemUTC());
