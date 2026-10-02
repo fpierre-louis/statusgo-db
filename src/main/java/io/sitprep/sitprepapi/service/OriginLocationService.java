@@ -21,7 +21,12 @@ public class OriginLocationService {
 
     // Get all origins for a specific user (explicit ownerEmail)
     public List<OriginLocation> getByOwnerEmail(String ownerEmail) {
-        return repo.findByOwnerEmailIgnoreCase(ownerEmail);
+        // Household-first, author-email fallback (open-items plan 3.1): read by
+        // the author's email, a household member who didn't write the plan saw
+        // none of it — the writes stamp householdId.
+        String hid = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<OriginLocation> mine = hid == null ? List.of() : repo.findByHouseholdId(hid);
+        return mine.isEmpty() ? repo.findByOwnerEmailIgnoreCase(ownerEmail) : mine;
     }
 
     // Save a single origin for a specific user
@@ -82,9 +87,12 @@ public class OriginLocationService {
             });
             return repo.saveAll(origins);
         }
-        repo.deleteAll(PlanRowReconciler.reconcile(
-                repo.findByOwnerEmailIgnoreCase(ownerEmail), origins, OriginLocation::getId, OriginLocation::setId));
+        // Against the HOUSEHOLD's rows (what the reads show), else the caller's.
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<OriginLocation> current = householdId == null ? List.of() : repo.findByHouseholdId(householdId);
+        if (current.isEmpty()) current = repo.findByOwnerEmailIgnoreCase(ownerEmail);
+        repo.deleteAll(PlanRowReconciler.reconcile(
+                current, origins, OriginLocation::getId, OriginLocation::setId));
         origins.forEach(origin -> {
             origin.setOwnerEmail(ownerEmail);
             if (origin.getHouseholdId() == null) origin.setHouseholdId(householdId);

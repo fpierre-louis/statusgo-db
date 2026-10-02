@@ -144,4 +144,35 @@ class EvacuationPlanServiceTest {
         verify(repo, never()).findByOwnerEmail(any());
         verify(repo, never()).deleteAll(any());
     }
+
+    // ── Household-first (open-items plan 3.1) ──────────────────────────────
+
+    @Test
+    void aMemberReadsTheHouseholdsPlan_notJustTheirOwnRows() {
+        String member = "member@x.com";
+        when(householdResolver.baseHouseholdIdFor(member)).thenReturn("hh-1");
+        EvacuationPlan authored = planWithShelter(7L); // written by OWNER
+        when(repo.findByHouseholdId("hh-1")).thenReturn(List.of(authored));
+
+        assertThat(service().getEvacuationPlansByOwner(member)).containsExactly(authored);
+        verify(repo, never()).findByOwnerEmail(member);
+    }
+
+    @Test
+    void aMemberSavingTheHouseholdsPlanUpdatesItInPlace_noDuplicate() {
+        String member = "member@x.com";
+        when(householdResolver.writableTargetHousehold(member)).thenReturn(null);
+        when(householdResolver.baseHouseholdIdFor(member)).thenReturn("hh-1");
+        EvacuationPlan authored = planWithShelter(7L); // the household's row, written by OWNER
+        when(repo.findByHouseholdId("hh-1")).thenReturn(List.of(authored));
+        when(repo.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        EvacuationPlan edited = planWithShelter(7L);
+        edited.setShelterName("Red Cross Shelter (north door)");
+        service().saveAllEvacuationPlans(member, new ArrayList<>(List.of(edited)));
+
+        // Matched by id against the HOUSEHOLD's rows: kept (not deleted), not cleared.
+        verify(repo).deleteAll(List.of());
+        assertThat(edited.getId()).isEqualTo(7L);
+    }
 }

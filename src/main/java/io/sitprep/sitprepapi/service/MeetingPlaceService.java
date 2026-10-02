@@ -126,10 +126,14 @@ public class MeetingPlaceService {
             activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
             return saved;
         }
-        meetingPlaceRepository.deleteAll(PlanRowReconciler.reconcile(
-                meetingPlaceRepository.findByOwnerEmail(ownerEmail), places,
-                MeetingPlace::getId, MeetingPlace::setId));
+        // Reconcile against the HOUSEHOLD's rows (what the reads now show),
+        // falling back to the caller's own for an un-backfilled account — else
+        // a member saving the household's places would duplicate them.
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<MeetingPlace> current = householdId == null ? List.of() : meetingPlaceRepository.findByHouseholdId(householdId);
+        if (current.isEmpty()) current = meetingPlaceRepository.findByOwnerEmail(ownerEmail);
+        meetingPlaceRepository.deleteAll(PlanRowReconciler.reconcile(
+                current, places, MeetingPlace::getId, MeetingPlace::setId));
         places.forEach(place -> {
             place.setOwnerEmail(ownerEmail);
             if (place.getHouseholdId() == null) place.setHouseholdId(householdId);
@@ -140,7 +144,12 @@ public class MeetingPlaceService {
     }
 
     public List<MeetingPlace> getMeetingPlacesByOwnerEmail(String ownerEmail) {
-        return meetingPlaceRepository.findByOwnerEmail(ownerEmail);
+        // Household-first, author-email fallback (open-items plan 3.1): read by
+        // the author's email, a household member who didn't write the plan saw
+        // none of it — the writes stamp householdId.
+        String hid = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<MeetingPlace> mine = hid == null ? List.of() : meetingPlaceRepository.findByHouseholdId(hid);
+        return mine.isEmpty() ? meetingPlaceRepository.findByOwnerEmail(ownerEmail) : mine;
     }
 
     /**

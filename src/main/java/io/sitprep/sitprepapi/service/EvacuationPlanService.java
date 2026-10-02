@@ -46,12 +46,14 @@ public class EvacuationPlanService {
 
         // Update rows in place by id; delete only the ones the list dropped
         // (PlanRowReconciler — a live deployment keeps its shelter's id).
+        // Against the HOUSEHOLD's rows (what the reads show), else the caller's.
+        String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<EvacuationPlan> current = householdId == null ? List.of() : evacuationPlanRepo.findByHouseholdId(householdId);
+        if (current.isEmpty()) current = evacuationPlanRepo.findByOwnerEmail(ownerEmail);
         evacuationPlanRepo.deleteAll(PlanRowReconciler.reconcile(
-                evacuationPlanRepo.findByOwnerEmail(ownerEmail), evacuationPlans,
-                EvacuationPlan::getId, EvacuationPlan::setId));
+                current, evacuationPlans, EvacuationPlan::getId, EvacuationPlan::setId));
 
         // Ensure each plan is assigned to the correct owner + household
-        String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
         evacuationPlans.forEach(plan -> {
             plan.setOwnerEmail(ownerEmail);
             if (plan.getHouseholdId() == null) plan.setHouseholdId(householdId);
@@ -69,7 +71,12 @@ public class EvacuationPlanService {
     }
 
     public List<EvacuationPlan> getEvacuationPlansByOwner(String ownerEmail) {
-        return evacuationPlanRepo.findByOwnerEmail(ownerEmail);
+        // Household-first, author-email fallback (open-items plan 3.1): read by
+        // the author's email, a household member who didn't write the plan saw
+        // none of it — the writes stamp householdId.
+        String hid = householdResolver.baseHouseholdIdFor(ownerEmail);
+        List<EvacuationPlan> mine = hid == null ? List.of() : evacuationPlanRepo.findByHouseholdId(hid);
+        return mine.isEmpty() ? evacuationPlanRepo.findByOwnerEmail(ownerEmail) : mine;
     }
 
     /**
