@@ -51,7 +51,7 @@ class PostAssignAuthorizationTest {
         tasks = mock(PostService.class);
         groupService = mock(GroupService.class);
         assigneeRepo = mock(TaskAssigneeRepo.class);
-        resource = new PostResource(tasks, groupService, assigneeRepo);
+        resource = new PostResource(tasks, groupService, assigneeRepo, null); // conditions unused here
         when(tasks.findById(POST_ID)).thenReturn(Optional.of(groupTask()));
         stubGroup();
     }

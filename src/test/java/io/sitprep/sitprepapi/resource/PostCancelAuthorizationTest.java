@@ -56,7 +56,7 @@ class PostCancelAuthorizationTest {
         tasks = mock(PostService.class);
         groupService = mock(GroupService.class);
         assigneeRepo = mock(io.sitprep.sitprepapi.repo.TaskAssigneeRepo.class);
-        resource = new PostResource(tasks, groupService, assigneeRepo);
+        resource = new PostResource(tasks, groupService, assigneeRepo, null); // conditions unused here
     }
 
     @AfterEach
