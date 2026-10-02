@@ -158,8 +158,8 @@ public class PostResource {
             @RequestParam("lat") double lat,
             @RequestParam("lng") double lng) {
         AuthUtils.requireAuthenticatedEmail();
-        // The backend reading (EXEC-3A). `data` is null when Open-Meteo cannot
-        // be read: a missing reading is reported, never guessed.
+        // The backend reading (EXEC-3A). `data` is null when NWS or AirNow cannot
+        // be read (or no AirNow monitor is within 25 miles): a missing reading is reported, never guessed.
         return ResponseEntity.ok(ApiResponse.ok(conditionsService.readingFor(lat, lng), ApiMeta.now()));
     }
 

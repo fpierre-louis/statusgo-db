@@ -19,8 +19,9 @@ import io.sitprep.sitprepapi.dto.ConditionsReading;
  *   <li>Cold: feels-like 10°F caution, -15°F warning.</li>
  *   <li>Wind: NWS wind advisory, 31 mph sustained or 46 mph gusts; warning at
  *       40 mph or 58 mph gusts.</li>
- *   <li>Storm: WMO weather codes 95-99. Rain or snow: codes 51-67, 71-77,
- *       80-86, or a 60% precipitation chance.</li>
+ *   <li>Storm: thunderstorms in the NWS weather grid beyond a slight chance.
+ *       Rain or snow: precipitation the grid calls likely or certain, or a 60%
+ *       precipitation chance. (The flags are set by ConditionsService.)</li>
  * </ul>
  *
  * <p>One condition per reading, first match wins: health first (air, heat,
@@ -59,15 +60,6 @@ public final class ConditionTiers {
         return "Hazardous";
     }
 
-    public static boolean isStormCode(Integer code) {
-        return code != null && code >= 95 && code <= 99;
-    }
-
-    public static boolean isRainOrSnowCode(Integer code) {
-        if (code == null) return false;
-        return (code >= 51 && code <= 67) || (code >= 71 && code <= 77) || (code >= 80 && code <= 86);
-    }
-
     /**
      * Classify a reading. {@code slot} decides how far ahead the heat and cold
      * rules look: morning and midday include today's feels-like high, evening
@@ -103,11 +95,11 @@ public final class ConditionTiers {
             return new Assessment(Condition.WIND, warning ? Tier.WARNING : Tier.CAUTION);
         }
 
-        if ((now != null && isStormCode(now.weatherCode())) || (next != null && next.storm())) {
+        if ((now != null && now.storm()) || (next != null && next.storm())) {
             return new Assessment(Condition.STORM, Tier.CAUTION);
         }
 
-        boolean rainNow = now != null && isRainOrSnowCode(now.weatherCode());
+        boolean rainNow = now != null && now.rainOrSnow();
         boolean rainSoon = next != null && (next.rainOrSnow() || atLeast(next.precipChancePct(), PRECIP_LIKELY_PCT));
         if (rainNow || rainSoon) return new Assessment(Condition.RAIN, Tier.CALM);
 

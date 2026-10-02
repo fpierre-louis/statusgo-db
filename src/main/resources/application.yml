@@ -233,14 +233,15 @@ r2:
     max-pixels:   ${R2_MEDIA_MAX_PIXELS:30000000}
     jpeg-quality: ${R2_MEDIA_JPEG_QUALITY:0.82}
 
-# --- CONDITIONS (Open-Meteo) — daily brief EXEC-3A ---
-# Set OPEN_METEO_API_KEY on Heroku once the commercial plan is bought (owner
-# approved it 2026-10-01). Blank uses the free hosts, which are for
-# non-commercial use only; ConditionsService switches to the customer- hosts
-# when a key is present.
+# --- CONDITIONS (NOAA NWS + EPA AirNow) — daily brief EXEC-3A.1 ---
+# Weather is NWS (public domain, no key). Air quality is AirNow, which needs a
+# free key from https://docs.airnowapi.org/account/request/ set as
+# AIRNOW_API_KEY on Heroku. The blank default is the safe local value: with no
+# key every reading is null and no brief is composed, rather than a brief
+# with an invented AQI. Never commit a real key here.
 conditions:
-  open-meteo:
-    api-key: ${OPEN_METEO_API_KEY:}
+  airnow:
+    api-key: ${AIRNOW_API_KEY:}
 
 # --- DAILY BRIEFS — daily brief EXEC-3B ---
 # The scheduler is OFF until BRIEFS_ENABLED=true on Heroku. With it on,

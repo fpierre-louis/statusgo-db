@@ -55,17 +55,17 @@ class DailyBriefSchedulerTest {
         alertMode = mock(AlertModeService.class);
         when(cells.cells()).thenReturn(List.of(CELL));
         weather.set(fair());
-        when(conditions.readingFor(anyDouble(), anyDouble())).thenAnswer(i -> reading(null));
+        when(conditions.timezoneFor(anyDouble(), anyDouble())).thenReturn("America/Denver");
         when(conditions.readingFor(anyDouble(), anyDouble(), any())).thenAnswer(i -> reading(i.getArgument(2)));
         calmMode();
     }
 
     private static Now fair() {
-        return new Now(68, 68, 8, 247, "WSW", 12, 0, 32, "Good");
+        return new Now(68, 68, 8, 247, "WSW", 12, false, false, 32, "Good");
     }
 
     private static Now windy() {
-        return new Now(60, 60, 34, 270, "W", 50, 0, 30, "Good");
+        return new Now(60, 60, 34, 270, "W", 50, false, false, 30, "Good");
     }
 
     private ConditionsReading reading(BriefSlot slot) {

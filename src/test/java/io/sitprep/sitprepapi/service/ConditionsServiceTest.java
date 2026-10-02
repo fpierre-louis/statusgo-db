@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.constant.BriefSlot;
 import io.sitprep.sitprepapi.dto.ConditionsReading;
@@ -11,19 +12,29 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * EXEC-3A: the Open-Meteo client, against REAL responses captured 2026-10-01
- * for (40.4, -111.9), Lehi UT. A hand-written fixture would test the shape we
- * imagined; these test the shape the upstream actually sends (hourly starting
- * at the current local hour, a local `current.time` plus `utc_offset_seconds`).
+ * EXEC-3A.1: the NWS + AirNow client.
+ *
+ * <p>The NWS fixtures are REAL responses captured 2026-10-02 for the Salt Lake
+ * City grid (SLC 98,159; {@code /points} and the raw gridpoint forecast,
+ * trimmed to the series the reading uses). They test the shape NWS actually
+ * sends: SI units, ISO-8601 interval {@code validTime}s of uneven length, and
+ * day/night max/min periods.</p>
+ *
+ * <p><b>The AirNow fixture is SYNTHETIC</b>, built from AirNow's documented
+ * response shape, and named so: the API needs a key and none exists yet. The
+ * EXEC checklist carries replacing it with a capture once
+ * {@code AIRNOW_API_KEY} is set. Its values are not an observation.</p>
  */
 class ConditionsServiceTest {
 
+    private static final Instant AT = Instant.parse("2026-10-02T13:15:00Z");   // 07:15 MDT
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ConditionsService free = new ConditionsService(mapper, "", Clock.systemUTC());
+    private final ConditionsService svc = new ConditionsService(mapper, "test-key", Clock.fixed(AT, ZoneOffset.UTC));
 
     private static String fixture(String name) throws IOException {
         try (InputStream in = ConditionsServiceTest.class.getResourceAsStream("/fixtures/" + name)) {
@@ -31,86 +42,137 @@ class ConditionsServiceTest {
         }
     }
 
-    private ConditionsReading lehi(BriefSlot slot) throws IOException {
-        return free.parse(fixture("open-meteo-forecast-2026-10-01.json"),
-                fixture("open-meteo-air-2026-10-01.json"), 40.4, -111.9, slot);
+    private ConditionsReading slc(BriefSlot slot) throws IOException {
+        return svc.parse(fixture("nws-gridpoint-2026-10-02.json"),
+                fixture("airnow-current-SYNTHETIC-documented-shape.json"), "America/Denver", 40.8, -111.9, slot);
     }
 
     @Test
-    void parsesTheCurrentReading() throws IOException {
-        ConditionsReading r = lehi(null);
+    void pointsGiveTheGridUrlAndTheZone() throws IOException {
+        ConditionsService.Point p = svc.parsePoint(fixture("nws-points-2026-10-02.json"));
+        assertThat(p.gridDataUrl()).isEqualTo("https://api.weather.gov/gridpoints/SLC/98,159");
+        assertThat(p.timezone()).isEqualTo("America/Denver");
+    }
+
+    @Test
+    void theCurrentHourIsConvertedFromSiUnits() throws IOException {
+        ConditionsReading r = slc(null);
         assertThat(r).isNotNull();
         assertThat(r.timezone()).isEqualTo("America/Denver");
-        // 23:15 local at UTC-6.
-        assertThat(r.observedAt()).isEqualTo(Instant.parse("2026-10-02T05:15:00Z"));
+        assertThat(r.observedAt()).isEqualTo(AT);
 
         ConditionsReading.Now now = r.now();
-        assertThat(now.tempF()).isEqualTo(60);
-        assertThat(now.feelsF()).isEqualTo(56);       // 55.5 rounds up
-        assertThat(now.windMph()).isEqualTo(3);
-        assertThat(now.windDirDeg()).isEqualTo(85);
-        assertThat(now.windDir()).isEqualTo("E");
-        assertThat(now.gustMph()).isEqualTo(3);
-        assertThat(now.aqi()).isEqualTo(70);
+        assertThat(now.tempF()).isEqualTo(54);        // 12.22 °C
+        assertThat(now.feelsF()).isEqualTo(54);
+        assertThat(now.windMph()).isEqualTo(3);       // 5.556 km/h
+        assertThat(now.windDirDeg()).isEqualTo(140);
+        assertThat(now.windDir()).isEqualTo("SE");
+        assertThat(now.gustMph()).isEqualTo(8);       // 12.964 km/h
+        assertThat(now.storm()).isFalse();
+        assertThat(now.rainOrSnow()).isFalse();
+    }
+
+    @Test
+    void theAqiIsTheWorstPollutantWithItsEpaCategory() throws IOException {
+        ConditionsReading.Now now = slc(null).now();
+        assertThat(now.aqi()).isEqualTo(57);          // PM2.5 57 beats O3 38
         assertThat(now.aqiCategory()).isEqualTo("Moderate");
     }
 
     @Test
-    void summarisesTheNextSixHoursAndTheDays() throws IOException {
-        ConditionsReading r = lehi(null);
+    void theNextSixHoursAndTheDays() throws IOException {
+        ConditionsReading r = slc(null);
         ConditionsReading.Next6h n = r.next6h();
         assertThat(n.precipChancePct()).isZero();
-        assertThat(n.maxWindMph()).isEqualTo(3);
-        assertThat(n.maxAqi()).isEqualTo(70);
-        assertThat(n.maxFeelsF()).isEqualTo(56);
-        assertThat(n.minFeelsF()).isEqualTo(53);     // 52.5 rounds up
-        assertThat(n.storm()).isFalse();
-        assertThat(n.rainOrSnow()).isFalse();
+        assertThat(n.maxWindMph()).isEqualTo(7);
+        assertThat(n.maxGustMph()).isEqualTo(13);
+        assertThat(n.maxAqi()).as("no free US hourly AQI forecast; never invented").isNull();
+        assertThat(n.maxFeelsF()).isEqualTo(73);
+        assertThat(n.minFeelsF()).isEqualTo(53);
 
-        assertThat(r.today().highF()).isEqualTo(78);
-        assertThat(r.today().feelsHighF()).isEqualTo(75);
-        // Tonight's low is TOMORROW's daily minimum, not today's early-morning low.
-        assertThat(r.tonight().lowF()).isEqualTo(54);
-        assertThat(r.tonight().feelsLowF()).isEqualTo(50);
+        // NWS daytime high starting today; the overnight low ENDING this morning.
+        assertThat(r.today().highF()).isEqualTo(84);
+        assertThat(r.today().lowF()).isEqualTo(52);
+        assertThat(r.today().feelsHighF()).isEqualTo(81);
+        // Tonight is the overnight period STARTING today (20:00 MDT).
+        assertThat(r.tonight().lowF()).isEqualTo(57);
+        assertThat(r.tonight().feelsLowF()).isEqualTo(57);
     }
 
     @Test
-    void aMildEveningIsFairAndCalm() throws IOException {
-        ConditionsReading r = lehi(BriefSlot.EVENING);
+    void aMildMorningIsFairAndCalm() throws IOException {
+        ConditionsReading r = slc(BriefSlot.MORNING);
         assertThat(r.condition()).isEqualTo("FAIR");
         assertThat(r.tier()).isEqualTo("CALM");
     }
 
     @Test
-    void anUnreadableBodyIsNullNotAGuess() {
-        assertThat(free.parse("{}", "{}", 40.4, -111.9, null)).isNull();
-        assertThat(free.parse("not json", "{}", 40.4, -111.9, null)).isNull();
+    void noMonitorWithin25MilesMeansNoReading() throws IOException {
+        assertThat(svc.parse(fixture("nws-gridpoint-2026-10-02.json"), "[]", "America/Denver", 40.8, -111.9, null))
+                .isNull();
     }
 
     @Test
-    void readingsAreTakenOnTheTenthDegreeGrid() {
-        assertThat(ConditionsService.snap(40.4317)).isEqualTo(40.4);
-        assertThat(ConditionsService.snap(-111.8888)).isEqualTo(-111.9);
-        assertThat(ConditionsService.snap(40.45)).isEqualTo(40.5);
+    void airNowNoValueIsSkippedNotCountedAsZero() throws IOException {
+        JsonNode obs = mapper.readTree("[{\"ParameterName\":\"O3\",\"AQI\":-1},{\"ParameterName\":\"PM2.5\",\"AQI\":12}]");
+        assertThat(ConditionsService.airNowAqi(obs)).isEqualTo(12);
+        assertThat(ConditionsService.airNowAqi(mapper.readTree("[{\"AQI\":-1}]"))).isNull();
+        assertThat(ConditionsService.airNowAqi(mapper.readTree("{\"error\":\"bad key\"}"))).isNull();
     }
 
     @Test
-    void freeHostsWithoutAKeyAndCustomerHostsWithOne() {
-        assertThat(free.forecastUrl(40.4, -111.9)).startsWith(ConditionsService.FREE_FORECAST)
-                .contains("wind_direction_10m").doesNotContain("apikey");
-        assertThat(free.airUrl(40.4, -111.9)).startsWith(ConditionsService.FREE_AIR);
-
-        ConditionsService paid = new ConditionsService(mapper, " k123 ",
-                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
-        assertThat(paid.forecastUrl(40.4, -111.9)).startsWith(ConditionsService.PAID_FORECAST)
-                .endsWith("&apikey=k123");
-        assertThat(paid.airUrl(40.4, -111.9)).startsWith(ConditionsService.PAID_AIR)
-                .endsWith("&apikey=k123");
+    void aForecastThatHasEndedIsNoReading() throws IOException {
+        ConditionsService later = new ConditionsService(mapper, "test-key",
+                Clock.fixed(Instant.parse("2026-11-30T00:00:00Z"), ZoneOffset.UTC));
+        assertThat(later.parse(fixture("nws-gridpoint-2026-10-02.json"),
+                fixture("airnow-current-SYNTHETIC-documented-shape.json"), "America/Denver", 40.8, -111.9, null))
+                .isNull();
     }
 
     @Test
-    void coordinatesInUrlsAreSnappedAndLocaleSafe() {
-        // A comma decimal separator in the default locale must never reach the URL.
-        assertThat(free.forecastUrl(40.4, -111.9)).contains("latitude=40.4&longitude=-111.9");
+    void aChangedUnitIsNoReadingNotAWrongOne() throws IOException {
+        String fahrenheit = fixture("nws-gridpoint-2026-10-02.json").replace("wmoUnit:degC", "wmoUnit:degF");
+        assertThat(svc.parse(fahrenheit, fixture("airnow-current-SYNTHETIC-documented-shape.json"),
+                "America/Denver", 40.8, -111.9, null)).isNull();
+    }
+
+    @Test
+    void aBlankAirNowKeyReadsNothingAndCallsNoOne() {
+        ConditionsService keyless = new ConditionsService(mapper, "  ", Clock.fixed(AT, ZoneOffset.UTC));
+        assertThat(keyless.readingFor(40.76, -111.89)).isNull();
+    }
+
+    @Test
+    void thunderstormsBeyondASlightChanceAreAStorm() throws IOException {
+        assertThat(ConditionsService.storm(weather("chance", "thunderstorms"))).isTrue();
+        assertThat(ConditionsService.storm(weather("scattered", "thunderstorms"))).isTrue();
+        assertThat(ConditionsService.storm(weather("slight_chance", "thunderstorms"))).isFalse();
+        assertThat(ConditionsService.storm(weather("isolated", "thunderstorms"))).isFalse();
+        assertThat(ConditionsService.storm(weather("likely", "rain"))).isFalse();
+    }
+
+    @Test
+    void rainOrSnowOnlyWhenTheGridCallsItLikely() throws IOException {
+        assertThat(ConditionsService.rainOrSnow(weather("likely", "rain_showers"))).isTrue();
+        assertThat(ConditionsService.rainOrSnow(weather("definite", "snow"))).isTrue();
+        // 30-50%: below the 60% line ConditionTiers draws for precipitation.
+        assertThat(ConditionsService.rainOrSnow(weather("chance", "rain"))).isFalse();
+        assertThat(ConditionsService.rainOrSnow(weather("likely", "fog"))).isFalse();
+        // The captured grid's "nothing expected" entry is all nulls.
+        assertThat(ConditionsService.rainOrSnow(weather(null, null))).isFalse();
+    }
+
+    @Test
+    void intervalsReadNwsDurations() throws IOException {
+        ConditionsService.Interval i = ConditionsService.interval(
+                mapper.readTree("{\"validTime\":\"2026-10-01T12:00:00+00:00/P7DT13H\",\"value\":1}"));
+        assertThat(i.start()).isEqualTo(Instant.parse("2026-10-01T12:00:00Z"));
+        assertThat(i.end()).isEqualTo(Instant.parse("2026-10-09T01:00:00Z"));
+    }
+
+    private List<JsonNode> weather(String coverage, String type) throws IOException {
+        String c = coverage == null ? "null" : "\"" + coverage + "\"";
+        String t = type == null ? "null" : "\"" + type + "\"";
+        return List.of(mapper.readTree("{\"coverage\":" + c + ",\"weather\":" + t + ",\"intensity\":null}"));
     }
 }

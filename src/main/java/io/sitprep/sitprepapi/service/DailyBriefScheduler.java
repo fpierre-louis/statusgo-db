@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p><b>Owner rulings this encodes (2026-10-01):</b></p>
  * <ul>
  *   <li><b>Slots</b> 7:00, 12:00 and 18:00 in the cell's OWN time zone, which
- *       Open-Meteo returns with the reading. There is no reliable per-user
+ *       NWS assigns the point (ConditionsService.timezoneFor). There is no reliable per-user
  *       time zone, and the area's is the one that matters anyway.</li>
  *   <li><b>Adaptive cadence.</b> The morning brief always posts. Midday and
  *       evening post only when the condition or tier has changed since the
@@ -204,10 +204,11 @@ public class DailyBriefScheduler {
     private ZoneId zoneFor(BriefCellService.Cell cell) {
         ZoneId z = zones.get(cell.key());
         if (z != null) return z;
-        ConditionsReading r = conditions.readingFor(cell.lat(), cell.lng());
-        if (r == null || r.timezone() == null) return null;
+        // The NWS grid lookup only: no air-quality call just to place the slots.
+        String tz = conditions.timezoneFor(cell.lat(), cell.lng());
+        if (tz == null) return null;
         try {
-            z = ZoneId.of(r.timezone());
+            z = ZoneId.of(tz);
         } catch (Exception e) {
             return null;
         }

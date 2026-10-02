@@ -12,7 +12,8 @@ import java.time.Instant;
  * reason it is snapped is privacy: a brief's coordinates must never be one
  * person's home.</p>
  *
- * <p>Temperatures are °F, speeds mph, AQI is US EPA. Every number is nullable:
+ * <p>Temperatures are °F, speeds mph, AQI is US EPA. Weather is NOAA NWS,
+ * air quality is EPA AirNow. Every number is nullable:
  * a field the upstream did not send stays null rather than becoming zero.</p>
  */
 public record ConditionsReading(
@@ -27,11 +28,20 @@ public record ConditionsReading(
         String condition,
         String tier
 ) {
-    /** Conditions at {@code observedAt}. {@code windDir} is where the wind blows from. */
+    /**
+     * Conditions at {@code observedAt}. {@code windDir} is where the wind blows from.
+     * {@code storm} and {@code rainOrSnow} come from the NWS weather grid for the
+     * current hour (thunderstorms beyond a slight chance; precipitation likely or
+     * certain). There is deliberately no weather code: NWS does not publish WMO
+     * codes, and inventing one would be a translation the upstream never made.
+     */
     public record Now(Integer tempF, Integer feelsF, Integer windMph, Integer windDirDeg, String windDir,
-                      Integer gustMph, Integer weatherCode, Integer aqi, String aqiCategory) {}
+                      Integer gustMph, boolean storm, boolean rainOrSnow, Integer aqi, String aqiCategory) {}
 
-    /** The next six hours, current hour included. */
+    /**
+     * The next six hours, current hour included. {@code maxAqi} is always null
+     * today: no free US source publishes an hourly AQI forecast (EXEC-3A.1).
+     */
     public record Next6h(Integer precipChancePct, Integer maxWindMph, Integer maxGustMph, Integer maxAqi,
                          Integer maxFeelsF, Integer minFeelsF, boolean storm, boolean rainOrSnow) {}
 

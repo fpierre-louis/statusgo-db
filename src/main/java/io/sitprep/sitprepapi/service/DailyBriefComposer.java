@@ -124,11 +124,11 @@ public class DailyBriefComposer {
                 return null;
             }
             case STORM -> {
-                boolean stormNow = n != null && ConditionTiers.isStormCode(n.weatherCode());
+                boolean stormNow = n != null && n.storm();
                 return stormNow ? "Thunderstorms in the area now." : "Thunderstorms possible in the next few hours.";
             }
             case RAIN -> {
-                boolean rainNow = n != null && ConditionTiers.isRainOrSnowCode(n.weatherCode());
+                boolean rainNow = n != null && n.rainOrSnow();
                 return rainNow ? null : "Rain likely in the next few hours.";
             }
             default -> {

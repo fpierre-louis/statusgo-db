@@ -4,7 +4,7 @@ package io.sitprep.sitprepapi.util;
  * Wind direction in degrees to a 16-point compass word ("WSW").
  *
  * <p>Degrees are where the wind blows FROM, the meteorological convention
- * Open-Meteo and NWS both use, so 247° reads "WSW winds". Each point covers
+ * NWS uses, so 247° reads "WSW winds". Each point covers
  * 22.5°, centred on its bearing; a value exactly on a boundary (11.25°) rounds
  * up to the next point.</p>
  */
