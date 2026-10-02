@@ -148,4 +148,18 @@ public interface UserInfoRepo extends JpaRepository<UserInfo, String> {
     List<UserInfo> findExpiredGuestAccounts(
             @Param("expiredCutoff") Instant expiredCutoff,
             Pageable pageable);
+
+    /** Profile home coordinates, for daily-brief cells (EXEC-3B). Coordinates only. */
+    @Query("SELECT u.homeLocation.lat, u.homeLocation.lng FROM UserInfo u " +
+           "WHERE u.homeLocation.lat IS NOT NULL AND u.homeLocation.lng IS NOT NULL")
+    List<Object[]> findHomeCoordinates();
+
+    /**
+     * Device fixes newer than {@code since} (the 14-day LocationFreshness
+     * rule), for daily-brief cells (EXEC-3B). Coordinates only.
+     */
+    @Query("SELECT u.lastKnownLat, u.lastKnownLng FROM UserInfo u " +
+           "WHERE u.lastKnownLat IS NOT NULL AND u.lastKnownLng IS NOT NULL " +
+           "AND u.lastKnownLocationAt > :since")
+    List<Object[]> findFreshLocationCoordinates(@Param("since") Instant since);
 }

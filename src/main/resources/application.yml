@@ -241,3 +241,11 @@ r2:
 conditions:
   open-meteo:
     api-key: ${OPEN_METEO_API_KEY:}
+
+# --- DAILY BRIEFS — daily brief EXEC-3B ---
+# The scheduler is OFF until BRIEFS_ENABLED=true on Heroku. With it on,
+# BRIEFS_DRY_RUN (default true) logs each brief instead of writing it; writing
+# ships in 3C. Laptops never run it: app.scheduling.enabled is false there.
+briefs:
+  enabled: ${BRIEFS_ENABLED:false}
+  dry-run: ${BRIEFS_DRY_RUN:true}
