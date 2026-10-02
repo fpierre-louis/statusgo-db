@@ -98,7 +98,7 @@ public class HouseholdReadinessService {
                 emails, byEmail,
                 manualMemberService.list(household.getGroupId()),
                 accompanimentService.list(household.getGroupId()),
-                alertActive, household.getUpdatedAt());
+                alertActive, StatusRollups.anchorFor(household));
         return StatusRollups.dominantStatus(rollup);
     }
 

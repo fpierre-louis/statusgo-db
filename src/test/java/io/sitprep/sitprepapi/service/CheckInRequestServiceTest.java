@@ -68,6 +68,32 @@ class CheckInRequestServiceTest {
      * A nudge outside a crisis is still an ask, and it becomes its own window
      * rather than borrowing a situation that does not exist.
      */
+    /**
+     * Reading "who was asked" with no check-in open looks back 24 hours. It
+     * read "since now", so an ask outside a check-in was recorded and never
+     * shown (open-items plan 1.4).
+     */
+    @Test
+    void readingOutsideACheckInLooksBackADay() {
+        Group g = household("Cleared", null);
+        Instant now = Instant.parse("2026-09-10T05:00:00Z");
+        assertThat(CheckInRequestService.readWindowStartFor(g, now))
+                .isEqualTo(now.minus(java.time.Duration.ofHours(24)));
+        Group open = household("Active", ACTIVATED);
+        assertThat(CheckInRequestService.readWindowStartFor(open, now)).isEqualTo(ACTIVATED);
+    }
+
+    /** The household tally counts answers from the check-in's start (plan 1.3). */
+    @Test
+    void theRollupAnchorsOnTheCheckInStartNotTheLastEdit() {
+        Group g = household("Active", ACTIVATED);
+        g.setUpdatedAt(ACTIVATED.plus(java.time.Duration.ofHours(3)));
+        assertThat(StatusRollups.anchorFor(g)).isEqualTo(ACTIVATED);
+        Group legacy = household("Active", null);
+        legacy.setUpdatedAt(ACTIVATED);
+        assertThat(StatusRollups.anchorFor(legacy)).isEqualTo(ACTIVATED);
+    }
+
     @Test
     void withNoAlertOpenTheAskIsItsOwnWindow() {
         Group g = household("Cleared", null);

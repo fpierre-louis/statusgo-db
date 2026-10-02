@@ -144,7 +144,9 @@ public class GroupViewService {
         // person asked, and did a message go out. Both are read once for the
         // whole group rather than per member.
         Map<String, Instant> askedAt = checkInRequestService.askedAtByEmail(g);
-        Instant windowStart = CheckInRequestService.windowStartFor(g, Instant.now());
+        // The READ window (open check-in's start, else the last 24 h) — the
+        // write-side window is "now" outside a check-in, which matched nothing.
+        Instant windowStart = CheckInRequestService.readWindowStartFor(g, Instant.now());
         Map<String, GroupMemberViewDto.DispatchOutcome> dispatch =
                 dispatchByEmail(memberEmails, windowStart);
         // One query for every "At <place>" on the roster — only for members
@@ -192,9 +194,14 @@ public class GroupViewService {
                 .map(p -> toPostSummary(p, byEmail))
                 .toList();
 
+        // Anchored on when the check-in STARTED — the same line the server's
+        // freshness rule and the map use. It was `updatedAt`, so any edit to
+        // the household during a check-in moved which answers counted
+        // (open-items plan 1.3, 2026-10-02). updatedAt stays only as the
+        // fallback for check-ins opened before alertActivatedAt existed.
         StatusRollup rollup = computeRollup(
                 memberEmails, byEmail, manualMembers, accompaniments,
-                alertActive, g.getUpdatedAt());
+                alertActive, StatusRollups.anchorFor(g));
 
         return new GroupMemberViewDto(
                 toGroupInfo(g),

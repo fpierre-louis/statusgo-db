@@ -31,6 +31,17 @@ public final class StatusRollups {
 
     private StatusRollups() {}
 
+    /**
+     * The line that decides which answers count during a check-in: when it
+     * STARTED. `updatedAt` only as the fallback for check-ins opened before
+     * alertActivatedAt existed — any edit to the group moved it, and with it
+     * which answers counted (open-items plan 1.3, 2026-10-02).
+     */
+    public static java.time.Instant anchorFor(io.sitprep.sitprepapi.domain.Group g) {
+        if (g == null) return null;
+        return g.getAlertActivatedAt() != null ? g.getAlertActivatedAt() : g.getUpdatedAt();
+    }
+
     public static StatusRollup compute(List<String> memberEmails,
                                        Map<String, UserInfo> byEmail,
                                        List<HouseholdManualMemberDto> manualMembers,

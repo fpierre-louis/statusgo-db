@@ -53,6 +53,23 @@ public class CheckInRequestService {
         return (alertOpen && activated != null) ? activated : now;
     }
 
+    /** How long an ask sent with no check-in running keeps saying "asked". */
+    static final java.time.Duration OUTSIDE_CHECK_IN_WINDOW = java.time.Duration.ofHours(24);
+
+    /**
+     * Where the READ window starts: the open check-in's start, else the last
+     * 24 hours.
+     *
+     * <p>Not {@link #windowStartFor}: with no check-in open that returns
+     * {@code now}, so reading "asks since now" found none — an ask sent
+     * outside a check-in was recorded and never shown (open-items plan 1.4,
+     * 2026-10-02).</p>
+     */
+    public static Instant readWindowStartFor(Group group, Instant now) {
+        Instant start = windowStartFor(group, now);
+        return start.equals(now) ? now.minus(OUTSIDE_CHECK_IN_WINDOW) : start;
+    }
+
     /**
      * Record that each of {@code subjectEmails} was asked, for this group's
      * current window.
@@ -111,7 +128,7 @@ public class CheckInRequestService {
     public Map<String, Instant> askedAtByEmail(Group group) {
         Map<String, Instant> out = new HashMap<>();
         if (group == null || group.getGroupId() == null) return out;
-        Instant windowStart = windowStartFor(group, Instant.now());
+        Instant windowStart = readWindowStartFor(group, Instant.now());
         try {
             for (CheckInRequest r : repo.findByGroupIdAndWindowStartedAtGreaterThanEqual(
                     group.getGroupId(), windowStart)) {
