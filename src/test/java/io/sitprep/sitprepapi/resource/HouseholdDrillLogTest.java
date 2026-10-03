@@ -52,7 +52,8 @@ class HouseholdDrillLogTest {
     void setUp() {
         groupRepo = mock(GroupRepo.class);
         access = mock(HouseholdAccessService.class);
-        resource = new HouseholdChallengesResource(groupRepo, access);
+        resource = new HouseholdChallengesResource(groupRepo, access,
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
 
         household = new Group();
         household.setGroupId(HH);

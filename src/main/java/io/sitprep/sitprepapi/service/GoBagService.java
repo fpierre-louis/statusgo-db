@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.GoBag;
 import io.sitprep.sitprepapi.domain.GoBagItem;
 import io.sitprep.sitprepapi.dto.GoBagDtos.AddItemRequest;
@@ -60,11 +62,14 @@ public class GoBagService {
     private final GoBagItemRepo itemRepo;
     private final GoBagRecommendationService recommendations;
     private final WebSocketMessageSender ws;
+    private final TokenEventPublisher tokenEvents;
 
     public GoBagService(GoBagRepo bagRepo,
                         GoBagItemRepo itemRepo,
                         GoBagRecommendationService recommendations,
-                        WebSocketMessageSender ws) {
+                        WebSocketMessageSender ws,
+                        TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.bagRepo = bagRepo;
         this.itemRepo = itemRepo;
         this.recommendations = recommendations;
@@ -85,6 +90,9 @@ public class GoBagService {
         final String householdId = bag.getHouseholdId();
         final GoBagDto dto = toDto(bag, itemRepo.findByBagIdOrderByPriorityAscCreatedAtAsc(bagId));
         final Map<String, Object> frame = Map.of("type", "gobag", "bag", dto);
+        // Every bag mutation passes through here, so this is the one place a
+        // supply change can earn the household Stockpile Steward.
+        tokenEvents.household(TokenEventType.SUPPLIES_CHANGED, householdId, bagId);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { ws.sendHouseholdSupplies(householdId, frame); }

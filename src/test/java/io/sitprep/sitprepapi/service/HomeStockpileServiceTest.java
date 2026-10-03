@@ -56,7 +56,8 @@ class HomeStockpileServiceTest {
         // commerceSuppression.suppressionReason(...) returns null, so items ship
         // with no links and not-suppressed — the assertions below are unaffected.
         return new HomeStockpileService(demographicRepo, foodPlanCalculatorService,
-                stockpileItemRepo, ws, supplyCatalog, commerceSuppression);
+                stockpileItemRepo, ws, supplyCatalog, commerceSuppression,
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
     }
 
     private static Demographic demo(int adults, int teens, int kids, int infants,

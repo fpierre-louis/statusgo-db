@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.util.PlanRowReconciler;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
@@ -17,10 +19,13 @@ public class MeetingPlaceService {
     private final MeetingPlaceRepo meetingPlaceRepository;
     private final HouseholdResolver householdResolver;
     private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
+    private final TokenEventPublisher tokenEvents;
 
     public MeetingPlaceService(MeetingPlaceRepo meetingPlaceRepository,
                                HouseholdResolver householdResolver,
-                               ActivationPlanUpdateBroadcastService activationPlanUpdates) {
+                               ActivationPlanUpdateBroadcastService activationPlanUpdates,
+        TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.meetingPlaceRepository = meetingPlaceRepository;
         this.householdResolver = householdResolver;
         this.activationPlanUpdates = activationPlanUpdates;
@@ -62,6 +67,7 @@ public class MeetingPlaceService {
 
         List<MeetingPlace> saved = meetingPlaceRepository.saveAll(meetingPlaces);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+        tokenEvents.householdsOf(TokenEventType.MEETING_PLACE_CHANGED, saved, MeetingPlace::getHouseholdId);
         return saved;
     }
 
@@ -100,6 +106,7 @@ public class MeetingPlaceService {
                     MeetingPlace saved = meetingPlaceRepository.save(existingPlace);
                     activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(
                             existingPlace.getOwnerEmail(), "meetingPlaces");
+                    tokenEvents.household(TokenEventType.MEETING_PLACE_CHANGED, saved.getHouseholdId(), saved.getId());
                     return saved;
                 })
                 .orElseThrow(() -> new RuntimeException("Meeting place with id " + id + " not found"));
@@ -124,6 +131,7 @@ public class MeetingPlaceService {
             });
             List<MeetingPlace> saved = meetingPlaceRepository.saveAll(places);
             activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+            tokenEvents.householdsOf(TokenEventType.MEETING_PLACE_CHANGED, saved, MeetingPlace::getHouseholdId);
             return saved;
         }
         // Reconcile against the HOUSEHOLD's rows (what the reads now show),
@@ -140,6 +148,7 @@ public class MeetingPlaceService {
         });
         List<MeetingPlace> saved = meetingPlaceRepository.saveAll(places);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "meetingPlaces");
+        tokenEvents.householdsOf(TokenEventType.MEETING_PLACE_CHANGED, saved, MeetingPlace::getHouseholdId);
         return saved;
     }
 
@@ -169,6 +178,7 @@ public class MeetingPlaceService {
         }
         MeetingPlace saved = meetingPlaceRepository.save(place);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(place.getOwnerEmail(), "meetingPlaces");
+        tokenEvents.household(TokenEventType.MEETING_PLACE_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;
     }
 

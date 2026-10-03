@@ -35,7 +35,8 @@ class EvacuationPlanServiceTest {
     @Mock ActivationPlanUpdateBroadcastService broadcast;
 
     private EvacuationPlanService service() {
-        return new EvacuationPlanService(repo, householdResolver, broadcast);
+        return new EvacuationPlanService(repo, householdResolver, broadcast,
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
     }
 
     private static EvacuationPlan planWithShelter(long id) {

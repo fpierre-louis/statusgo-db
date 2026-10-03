@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.domain.HomeStockpileItem;
 import io.sitprep.sitprepapi.dto.FoodPlanDtos.FoodPlanItemDto;
@@ -91,13 +93,16 @@ public class HomeStockpileService {
     private final WebSocketMessageSender ws;
     private final SupplyProductCatalog supplyCatalog;
     private final CommerceSuppressionService commerceSuppression;
+    private final TokenEventPublisher tokenEvents;
 
     public HomeStockpileService(DemographicRepo demographicRepo,
                                 FoodPlanCalculatorService foodPlanCalculatorService,
                                 HomeStockpileItemRepo stockpileItemRepo,
                                 WebSocketMessageSender ws,
                                 SupplyProductCatalog supplyCatalog,
-                                CommerceSuppressionService commerceSuppression) {
+                                CommerceSuppressionService commerceSuppression,
+                                TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.demographicRepo = demographicRepo;
         this.foodPlanCalculatorService = foodPlanCalculatorService;
         this.stockpileItemRepo = stockpileItemRepo;
@@ -117,6 +122,7 @@ public class HomeStockpileService {
         if (householdId == null || householdId.isBlank()) return;
         final Map<String, Object> frame =
                 Map.of("type", "stockpile-item", "itemKey", itemKey, "satisfied", satisfied);
+        if (satisfied) tokenEvents.household(TokenEventType.SUPPLIES_CHANGED, householdId, itemKey);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { ws.sendHouseholdSupplies(householdId, frame); }

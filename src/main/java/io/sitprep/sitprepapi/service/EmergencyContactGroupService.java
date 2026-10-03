@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.EmergencyContact;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.domain.EmergencyContactType;
@@ -17,10 +19,13 @@ public class EmergencyContactGroupService {
     private final EmergencyContactGroupRepo groupRepo;
     private final HouseholdResolver householdResolver;
     private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
+    private final TokenEventPublisher tokenEvents;
 
     public EmergencyContactGroupService(EmergencyContactGroupRepo groupRepo,
                                         HouseholdResolver householdResolver,
-                                        ActivationPlanUpdateBroadcastService activationPlanUpdates) {
+                                        ActivationPlanUpdateBroadcastService activationPlanUpdates,
+        TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.groupRepo = groupRepo;
         this.householdResolver = householdResolver;
         this.activationPlanUpdates = activationPlanUpdates;
@@ -74,6 +79,7 @@ public class EmergencyContactGroupService {
         }
         EmergencyContactGroup saved = groupRepo.save(group);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(email, "emergencyContacts");
+        tokenEvents.household(TokenEventType.CONTACTS_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;
     }
 
@@ -110,6 +116,7 @@ public class EmergencyContactGroupService {
         }
         EmergencyContactGroup saved = groupRepo.save(existing);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(existing.getOwnerEmail(), "emergencyContacts");
+        tokenEvents.household(TokenEventType.CONTACTS_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;
     }
 

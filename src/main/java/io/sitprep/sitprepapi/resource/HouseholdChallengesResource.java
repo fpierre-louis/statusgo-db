@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.AdvancedReadinessCompletion;
 import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
@@ -73,9 +75,13 @@ public class HouseholdChallengesResource {
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
 
-    public HouseholdChallengesResource(GroupRepo groupRepo, HouseholdAccessService access) {
+    private final TokenEventPublisher tokenEvents;
+
+    public HouseholdChallengesResource(GroupRepo groupRepo, HouseholdAccessService access,
+                                       TokenEventPublisher tokenEvents) {
         this.groupRepo = groupRepo;
         this.access = access;
+        this.tokenEvents = tokenEvents;
     }
 
     /**
@@ -232,6 +238,7 @@ public class HouseholdChallengesResource {
 
         log.put(drillKey, new DrillCompletion(Instant.now(), caller));
         groupRepo.save(household);
+        tokenEvents.household(TokenEventType.DRILL_COMPLETED, householdId, drillKey);
         return ResponseEntity.ok(drillDto(log));
     }
 

@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.util.PlanRowReconciler;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
@@ -16,10 +18,13 @@ public class EvacuationPlanService {
     private final EvacuationPlanRepo evacuationPlanRepo;
     private final HouseholdResolver householdResolver;
     private final ActivationPlanUpdateBroadcastService activationPlanUpdates;
+    private final TokenEventPublisher tokenEvents;
 
     public EvacuationPlanService(EvacuationPlanRepo evacuationPlanRepo,
                                  HouseholdResolver householdResolver,
-                                 ActivationPlanUpdateBroadcastService activationPlanUpdates) {
+                                 ActivationPlanUpdateBroadcastService activationPlanUpdates,
+        TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.evacuationPlanRepo = evacuationPlanRepo;
         this.householdResolver = householdResolver;
         this.activationPlanUpdates = activationPlanUpdates;
@@ -41,6 +46,7 @@ public class EvacuationPlanService {
             });
             List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(evacuationPlans);
             activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+            tokenEvents.householdsOf(TokenEventType.EVACUATION_PLAN_CHANGED, saved, EvacuationPlan::getHouseholdId);
             return saved;
         }
 
@@ -62,6 +68,7 @@ public class EvacuationPlanService {
         // Save the new list of plans
         List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(evacuationPlans);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+        tokenEvents.householdsOf(TokenEventType.EVACUATION_PLAN_CHANGED, saved, EvacuationPlan::getHouseholdId);
         return saved;
     }
 
@@ -105,12 +112,14 @@ public class EvacuationPlanService {
             applyRouteNotes(p, notes);
             List<EvacuationPlan> saved = List.of(evacuationPlanRepo.save(p));
             activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+            tokenEvents.householdsOf(TokenEventType.EVACUATION_PLAN_CHANGED, saved, EvacuationPlan::getHouseholdId);
             return saved;
         }
 
         plans.forEach(p -> applyRouteNotes(p, notes));
         List<EvacuationPlan> saved = evacuationPlanRepo.saveAll(plans); // UPDATE by id — everything else preserved
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(ownerEmail, "evacuationPlans");
+        tokenEvents.householdsOf(TokenEventType.EVACUATION_PLAN_CHANGED, saved, EvacuationPlan::getHouseholdId);
         return saved;
     }
 
@@ -139,6 +148,7 @@ public class EvacuationPlanService {
         }
         EvacuationPlan saved = evacuationPlanRepo.save(plan);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(plan.getOwnerEmail(), "evacuationPlans");
+        tokenEvents.household(TokenEventType.EVACUATION_PLAN_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;
     }
 }
