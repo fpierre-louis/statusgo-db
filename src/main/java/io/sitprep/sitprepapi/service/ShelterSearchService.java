@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.NominatimThrottle;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -322,6 +323,8 @@ public class ShelterSearchService {
             URI uri = URI.create(NOMINATIM_SEARCH
                     + "?format=jsonv2&limit=1&countrycodes=us&q="
                     + URLEncoder.encode(query.trim(), StandardCharsets.UTF_8));
+            // Only this call is Nominatim; getJson also serves FEMA's ArcGIS.
+            if (!NominatimThrottle.acquire()) return null;
             JsonNode root = getJson(uri, MediaType.APPLICATION_JSON);
             if (root != null && root.isArray() && root.size() > 0) {
                 JsonNode first = root.get(0);

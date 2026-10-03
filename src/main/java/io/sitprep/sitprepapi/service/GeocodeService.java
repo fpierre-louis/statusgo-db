@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.NominatimThrottle;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -147,6 +148,10 @@ public class GeocodeService {
 
     // ── helpers ─────────────────────────────────────────────────────
     private JsonNode getJson(URI uri) throws Exception {
+        if (!NominatimThrottle.acquire()) {
+            // Over the policy's 1 req/s: a miss, not a queue (NominatimThrottle).
+            throw new IllegalStateException("Nominatim throttled");
+        }
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         headers.set(HttpHeaders.USER_AGENT, userAgent);

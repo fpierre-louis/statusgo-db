@@ -114,8 +114,6 @@ server:
 
 # --- APPLICATION SPECIFIC PROPERTIES ---
 app:
-  jwtSecret: ${APP_JWT_SECRET:GGatK92BfXN4f3KYGiQdZkiuPdMna+llVG21n1A9M64=}
-  jwtExpirationMs: ${APP_JWT_EXPIRATION_MS:86400000}
   frontend-base-url: ${APP_FRONTEND_BASE_URL:https://sitprep.app}
   admin:
     bootstrap-super-admins: ${APP_ADMIN_BOOTSTRAP_SUPER_ADMINS:francisd.plouis@gmail.com}
