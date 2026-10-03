@@ -308,11 +308,15 @@ public class ConditionsService {
             Instant dayStart = today.atStartOfDay(zone).toInstant();
             Instant dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant();
             // NWS publishes highs for the daytime period and lows for the
-            // overnight period. Today's high starts today; today's low is the
-            // overnight that ENDS this morning; tonight's low starts today.
+            // overnight period. Today's high starts today. Lows are matched by
+            // the morning they END: today's low ends this morning, tonight's
+            // ends tomorrow morning. Matching tonight by START date is wrong:
+            // NWS truncates the overnight in progress at issue time to a stub
+            // that starts this morning (e.g. 12:00Z/PT4H), which would pass
+            // for "tonight" (seen live on prod 2026-10-02: 52 instead of 58).
             Interval high = period(g.path("maxTemperature"), zone, today, true);
             Interval lowEndingToday = period(g.path("minTemperature"), zone, today, false);
-            Interval tonightLow = period(g.path("minTemperature"), zone, today, true);
+            Interval tonightLow = period(g.path("minTemperature"), zone, today.plusDays(1), false);
 
             ConditionsReading.Day dayReading = new ConditionsReading.Day(
                     high == null ? null : toF(high.value()),

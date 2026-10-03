@@ -101,6 +101,20 @@ class ConditionsServiceTest {
     }
 
     @Test
+    void tonightIsTheOvernightEndingTomorrowNotTheTruncatedStubThisMorning() throws IOException {
+        // 17:00 MDT on 2026-10-01. The capture's first low is a stub of the
+        // overnight already under way when NWS issued it (12:00Z/PT4H, 06:00
+        // local, 48°F). It STARTS today, but tonight is the 20:00 overnight
+        // that ends tomorrow morning (02:00Z/PT14H, 52°F).
+        ConditionsService evening = new ConditionsService(mapper, "test-key",
+                Clock.fixed(Instant.parse("2026-10-01T23:00:00Z"), ZoneOffset.UTC));
+        ConditionsReading r = evening.parse(fixture("nws-gridpoint-2026-10-02.json"),
+                fixture("airnow-ziplatlong-2026-10-02.json"), "America/Denver", 40.8, -111.9, BriefSlot.EVENING);
+        assertThat(r.today().lowF()).isEqualTo(48);
+        assertThat(r.tonight().lowF()).isEqualTo(52);
+    }
+
+    @Test
     void aMildMorningIsFairAndCalm() throws IOException {
         ConditionsReading r = slc(BriefSlot.MORNING);
         assertThat(r.condition()).isEqualTo("FAIR");
