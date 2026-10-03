@@ -46,12 +46,13 @@ class NotificationPresentationTest {
      * matches none of these would strand a tap — the deep-link guarantee.
      */
     static final List<Pattern> FE_ROUTES = List.of(
-            "^/hazards(\\?alert=[^&]+)?$", "^/community/posts/[^/?]+$", "^/community$",
-            "^/Linked/lg/4D-FwtX/[^/?]+(\\?postId=[^&]+)?$", "^/my-groups$",
-            "^/household/h/4D-FwtX/household/[^/?]+/(chat|family|plan|timeline|about)$",
+            "^/hazards(\\?alert=[^&]+)?$", "^/community/posts/[^/?#]+(#comments)?$", "^/community$",
+            "^/Linked/lg/4D-FwtX/[^/?]+(\\?view=post(&postId=[^&]+)?|\\?view=admin&members=1)?$", "^/my-groups$",
+            "^/Groupstatus/[^/?]+$",
+            "^/household/h/4D-FwtX/household/[^/?]+/(chat(\\?postId=[^&]+)?|family(\\?checkin=1)?|plan|timeline|about)$",
             "^/household/[^/]+/invite-requests/[^/?]+$", "^/work-orders(/[^/?]+)?$",
             "^/deployedplan\\?activationId=[^&]+$", "^/profile(/[^/?]+)?(\\?message=open)?$", "^/profile\\?tab=tokens$",
-            "^/home(\\?challenge=open)?$", "^/me/tasks$", "^/go-bag$", "^/login$", "^/notifications$"
+            "^/home$", "^/practice/this-week$", "^/me/tasks(\\?task=[^&]+)?$", "^/go-bag$", "^/login$", "^/notifications$"
     ).stream().map(Pattern::compile).toList();
 
     UserInfoRepo users;
@@ -148,7 +149,7 @@ class NotificationPresentationTest {
         // Legacy alias in an old emitter → canonical thread route.
         NotificationPresentation reply = builder.build(row("comment_on_task", null, "77",
                 "/community/tasks/77", null, "u_maya"));
-        assertThat(reply.deepLink().route()).isEqualTo("/community/posts/77");
+        assertThat(reply.deepLink().route()).isEqualTo("/community/posts/77#comments");
         assertRoutable(reply);
 
         NotificationPresentation invite = builder.build(row("pending_member", null, "req9",
@@ -169,7 +170,7 @@ class NotificationPresentationTest {
         // the household's conversation is its chat tab.
         NotificationPresentation hhReply = builder.build(row("comment_on_post", null, "9",
                 "/Linked/lg/4D-FwtX/hh1?postId=9", null, "u_maya"));
-        assertThat(hhReply.deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/chat");
+        assertThat(hhReply.deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/chat?postId=9");
         assertRoutable(hhReply);
 
         NotificationPresentation token = builder.build(row("token_unlocked", "TOKEN_UNLOCKED", null,

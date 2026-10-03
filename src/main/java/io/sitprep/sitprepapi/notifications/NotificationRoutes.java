@@ -36,7 +36,13 @@ public final class NotificationRoutes {
     public static final String PERSONAL_TASKS = "/me/tasks";
     public static final String GO_BAG = "/go-bag";
     public static final String LOGIN = "/login";
-    public static final String DRILL = "/home?challenge=open";
+    /**
+     * The drill's own page. The notification knows the week, not which drill,
+     * so the client picks this week's drill exactly as Home's sheet does and
+     * replaces this route with /practice/drill/{id} (owner report 2026-10-03:
+     * "/home?challenge=open" landed on Home, never on the drill).
+     */
+    public static final String DRILL = "/practice/this-week";
     public static final String TOKENS = "/profile?tab=tokens";
     public static final String COMMUNITY = "/community";
     public static final String MY_GROUPS = "/my-groups";
@@ -58,10 +64,42 @@ public final class NotificationRoutes {
         return household ? householdTab(groupId, "family") : GROUP_PREFIX + seg(groupId);
     }
 
+    /**
+     * The post's own thread. Org groups: {@code ?view=post&postId=} (OrgGroupPage
+     * mounts the conversation only on view=post). Households: the chat tab with
+     * {@code ?postId=} (HouseholdChatPage → HouseholdFeed.initialPostId).
+     */
     public static String groupPost(String groupId, String postId, boolean household) {
         if (blank(groupId)) return household ? HOME : MY_GROUPS;
-        if (household) return householdTab(groupId, "chat");
-        return GROUP_PREFIX + seg(groupId) + (blank(postId) ? "" : "?postId=" + enc(postId));
+        if (household) return householdTab(groupId, "chat") + (blank(postId) ? "" : "?postId=" + enc(postId));
+        return GROUP_PREFIX + seg(groupId) + "?view=post" + (blank(postId) ? "" : "&postId=" + enc(postId));
+    }
+
+    /** Org admin: the members sheet, where a pending join request is approved. */
+    public static String groupMembers(String groupId) {
+        return blank(groupId) ? MY_GROUPS : GROUP_PREFIX + seg(groupId) + "?view=admin&members=1";
+    }
+
+    /** Org organizer: the group's check-in status board. */
+    public static String groupStatusBoard(String groupId) {
+        return blank(groupId) ? MY_GROUPS : "/Groupstatus/" + seg(groupId);
+    }
+
+    /** A community thread with its replies open (CommunityPostDetailPage #comments). */
+    public static String communityThread(String postId) {
+        return blank(postId) ? COMMUNITY : communityPost(postId) + "#comments";
+    }
+
+    /** The personal task itself (MyTasksPage scrolls to + highlights ?task=). */
+    public static String personalTask(String taskId) {
+        return blank(taskId) ? PERSONAL_TASKS : PERSONAL_TASKS + "?task=" + enc(taskId);
+    }
+
+    /** {@code ?postId=} out of a group / household target URL. */
+    public static String postIdFrom(String url) {
+        if (blank(url)) return null;
+        Matcher m = Pattern.compile("[?&]postId=([^&#]+)").matcher(url);
+        return m.find() ? m.group(1) : null;
     }
 
     public static String householdTab(String householdId, String tab) {
@@ -115,11 +153,12 @@ public final class NotificationRoutes {
         Matcher t = TASK_ALIAS.matcher(url);
         if (t.matches()) return "/community/posts/" + t.group(1) + (t.group(2) == null ? "" : t.group(2));
         if (url.equals("/Fema") || url.startsWith("/Fema?")) return HAZARDS + url.substring("/Fema".length());
+        if (url.equals("/home?challenge=open")) return DRILL;
         // GroupUrlUtil + "?postId=" for a HOUSEHOLD: the bare household path
         // index-redirects to Family and drops the query, so the post's
         // conversation (chat) is the honest landing.
         Matcher h = HOUSEHOLD_POST.matcher(url);
-        if (h.matches()) return householdTab(h.group(1), "chat");
+        if (h.matches()) return householdTab(h.group(1), "chat") + "?postId=" + postIdFrom(url);
         return url;
     }
 

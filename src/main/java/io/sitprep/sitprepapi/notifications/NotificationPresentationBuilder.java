@@ -262,7 +262,9 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.status("HELP", "Need help", "HELP", route, "danger"));
             }
             case CHECK_IN_REVIEW -> {
-                route = NotificationRoutes.group(groupId, household);
+                // Organizers: an org group's check-in lives on its status board;
+                // a household's on the Family tab.
+                route = household ? NotificationRoutes.group(groupId, true) : NotificationRoutes.groupStatusBoard(groupId);
                 fallback = household ? NotificationRoutes.HOME : NotificationRoutes.MY_GROUPS;
                 if (groupId != null) {
                     actions.add(Action.mutation("KEEP_GOING", "Keep going", "continueCheckIn",
@@ -271,7 +273,7 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.navigate("REVIEW", "Review", route, actions.isEmpty() ? "primary" : "secondary"));
             }
             case CHECK_IN_ENDED -> {
-                route = NotificationRoutes.group(groupId, household);
+                route = household ? NotificationRoutes.group(groupId, true) : NotificationRoutes.groupStatusBoard(groupId);
                 fallback = household ? NotificationRoutes.HOME : NotificationRoutes.MY_GROUPS;
                 actions.add(Action.navigate("REVIEW", "Review", route, "primary"));
             }
@@ -301,7 +303,7 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.navigate("OPEN", "Open", route, "primary"));
             }
             case TASK_REMINDER -> {
-                route = NotificationRoutes.PERSONAL_TASKS;
+                route = NotificationRoutes.personalTask(ref);
                 fallback = NotificationRoutes.HOME;
                 actions.add(Action.navigate("OPEN_TASKS", "Open tasks", route, "primary"));
             }
@@ -325,7 +327,7 @@ public class NotificationPresentationBuilder {
                     actions.add(Action.mutation("APPROVE", "Approve", "approveHouseholdInvite", p, route, "primary"));
                     actions.add(Action.mutation("DECLINE", "Decline", "declineHouseholdInvite", p, route, "secondary"));
                 } else {
-                    route = NotificationRoutes.group(groupId, household);
+                    route = household ? NotificationRoutes.group(groupId, true) : NotificationRoutes.groupMembers(groupId);
                     fallback = NotificationRoutes.MY_GROUPS;
                     String email = row.getAdditionalData() == null ? null : row.getAdditionalData().trim();
                     if (groupId != null && email != null && email.contains("@") && !email.startsWith("{")) {
@@ -353,9 +355,17 @@ public class NotificationPresentationBuilder {
                 // Group comment / mention emitters write the ORG group URL for
                 // every group. For a household that opens the household inside
                 // the org-group shell; its conversation is the household chat.
-                route = household && groupId != null
-                        ? NotificationRoutes.householdTab(groupId, "chat")
-                        : (target != null ? target : NotificationRoutes.INBOX);
+                String postId = NotificationRoutes.postIdFrom(target);
+                String communityId = NotificationRoutes.trailingId(target, "/community/posts/");
+                if (household && groupId != null) {
+                    route = NotificationRoutes.groupPost(groupId, postId, true);
+                } else if (groupId != null) {
+                    route = NotificationRoutes.groupPost(groupId, postId, false);
+                } else if (communityId != null) {
+                    route = NotificationRoutes.communityThread(communityId);
+                } else {
+                    route = target != null ? target : NotificationRoutes.INBOX;
+                }
                 fallback = NotificationRoutes.COMMUNITY;
                 if (lookups.thumbnails() && ev.thumbnailAllowed()) media = mentionImage(row, target);
                 actions.add(Action.navigate("REPLY", "Reply", route, "primary"));
@@ -384,7 +394,8 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.navigate("OPEN_DRILL", "Open drill", route, "primary"));
             }
             case HOUSEHOLD_RITUAL -> {
-                route = NotificationRoutes.householdTab(groupId, "family");
+                // Opens the weekly check-in sheet itself (HouseholdFamilyPage ?checkin=1).
+                route = NotificationRoutes.householdTab(groupId, "family") + (groupId == null ? "" : "?checkin=1");
                 fallback = NotificationRoutes.HOME;
                 actions.add(Action.navigate("OPEN_HOUSEHOLD", "Open household", route, "primary"));
             }
