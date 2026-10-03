@@ -73,6 +73,15 @@ class DailyNudgeCatalogTest {
     }
 
     @Test
+    void everyTipHasAPhotoTheFrontendShips() {
+        for (Nudge n : catalog.all()) {
+            assertThat(DailyNudgeCatalog.IMAGE_KEYS).as(n.id()).contains(DailyNudgeCatalog.imageFor(n));
+        }
+        assertThat(DailyNudgeCatalog.imageFor(catalog.matrixRow(Condition.FAIR, BriefSlot.MIDDAY)))
+                .isEqualTo("onboarding-household");   // the go-bag tip gets the go-bag photo
+    }
+
+    @Test
     void theTipIsAFormulaNotAHistory() {
         LocalDate day = LocalDate.of(2026, 11, 2);
         assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, day, "40.4|-111.9").id())

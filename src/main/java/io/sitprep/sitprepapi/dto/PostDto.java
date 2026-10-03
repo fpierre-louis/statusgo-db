@@ -434,7 +434,10 @@ public record PostDto(
                                 String condition, String tier,
                                 String nudgeId, String nudgeText, String nudgeLabel,
                                 String nudgeDestination, Integer nudgeMinutes,
-                                Instant updatedAt, String timezone) {}
+                                Instant updatedAt, String timezone,
+                                // A realism photo key (DailyNudgeCatalog.imageFor);
+                                // the frontend maps it to files + alt text.
+                                String imageKey) {}
 
         public record HazardFacts(String category, String state, int radiusM) {}
         public record TaggedAgency(String id, String name, boolean verified, String note) {}

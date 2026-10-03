@@ -160,7 +160,7 @@ public class DailyBriefService {
                 now.tempF(), now.feelsF(), now.windMph(), now.windDir(), now.gustMph(),
                 now.aqi(), now.aqiCategory(), r.condition(), r.tier(),
                 n.id(), n.text(), n.label(), n.destination(), n.minutes(),
-                r.observedAt(), tz);
+                r.observedAt(), tz, DailyNudgeCatalog.imageFor(n));
     }
 
     /** The tip's tone follows the reader's local clock, not the Eastern bump. */

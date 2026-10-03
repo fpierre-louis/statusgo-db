@@ -8,6 +8,8 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.Month;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Set;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -237,6 +239,58 @@ public class DailyNudgeCatalog {
         }
         long days = date.toEpochDay() - start.toEpochDay();
         return days >= 0 && days % 7 == 0;
+    }
+
+    // ── The card's photo (owner pick 2026-10-03: real photo + dark button) ──
+    //
+    // One of the realism photos the frontend ships (public/images/realism),
+    // chosen by what the tip asks the reader to DO, so the picture matches
+    // the tip rather than decorating it. The frontend maps the key to its
+    // files and alt text; this decides which. Nine photos cover the tips; a
+    // tip with no closer match falls back by condition, then to a household
+    // readiness photo.
+    static final Set<String> IMAGE_KEYS = Set.of(
+            "home-calm-ready", "onboarding-household", "onboarding-location", "onboarding-notifications",
+            "onboarding-readiness-check", "onboarding-welcome", "practice-family-meeting-spot",
+            "welcome-family-coordination", "welcome-neighbors-preparing");
+
+    private static final Map<String, String> IMAGE_BY_DESTINATION = Map.ofEntries(
+            Map.entry(drill("meeting-spots"), "practice-family-meeting-spot"),
+            Map.entry(drill("exit-drill"), "practice-family-meeting-spot"),
+            Map.entry(drill("go-bag"), "onboarding-household"),
+            Map.entry(drill("blizzard-car-kit-mini-pack"), "onboarding-household"),
+            Map.entry(drill("water-3day"), "onboarding-readiness-check"),
+            Map.entry(drill("flashlights"), "onboarding-readiness-check"),
+            Map.entry(drill("first-aid"), "onboarding-readiness-check"),
+            Map.entry(drill("poweroutage-blackout-test"), "onboarding-readiness-check"),
+            Map.entry(drill("utility-shutoffs"), "onboarding-readiness-check"),
+            Map.entry(drill("smoke-alarms"), "onboarding-readiness-check"),
+            Map.entry("/playbooks/power-outage", "onboarding-readiness-check"),
+            Map.entry(drill("meet-a-neighbor"), "welcome-neighbors-preparing"),
+            Map.entry(drill("contact-tree"), "onboarding-notifications"),
+            Map.entry(drill("out-of-town"), "onboarding-notifications"),
+            Map.entry(drill("evac-route"), "onboarding-location"),
+            Map.entry(drill("flood-underpass-scan"), "onboarding-location"),
+            Map.entry(drill("medical-needs"), "welcome-family-coordination"),
+            Map.entry(drill("emergency-roles"), "welcome-family-coordination"),
+            Map.entry(drill("key-documents"), "welcome-family-coordination"),
+            Map.entry(drill("earthquake-drop-cover-relay"), "welcome-family-coordination"),
+            Map.entry(drill("blizzard-warm-room-sprint"), "home-calm-ready"),
+            Map.entry(drill("wildfire-smoke-go-hunt"), "home-calm-ready"),
+            Map.entry("/hazards?focus=air", "home-calm-ready"),
+            Map.entry("/hazards?focus=weather", "home-calm-ready"),
+            Map.entry("/blizzard-prep", "home-calm-ready"));
+
+    /** The photo key for a tip; never null. */
+    public static String imageFor(Nudge n) {
+        if (n == null) return "onboarding-welcome";
+        String byDest = IMAGE_BY_DESTINATION.get(n.destination());
+        if (byDest != null) return byDest;
+        return switch (n.condition()) {
+            case AIR, HEAT, COLD, STORM, RAIN -> "home-calm-ready";
+            case WIND -> "onboarding-readiness-check";
+            default -> "onboarding-welcome";
+        };
     }
 
     public Nudge matrixRow(Condition condition, BriefSlot slot) {
