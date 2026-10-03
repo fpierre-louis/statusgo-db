@@ -55,7 +55,8 @@ public record MapPlaceDto(
          * {@code home} · {@code meeting} / {@code shelter} (the plan's primary,
          * no deployment live) · {@code selected-meeting} / {@code selected-shelter}
          * (what the live deployment selected) · {@code start} (a starting point
-         * as entered in the plan). Appended last: positional record.
+         * as entered in the plan) · {@code selected-start} (one the live deployment
+         * chose, V91). Appended last: positional record.
          */
         String role
 ) {}

@@ -28,8 +28,23 @@ public final class PlanActivationDtos {
             GoverningAlertDto governingAlert,
             String messagePreview,
             LocationDto location,
-            RecipientsRequest recipients
-    ) {}
+            RecipientsRequest recipients,
+            /**
+             * The plan's starting point(s) this deployment starts from (V91,
+             * optional). Each must belong to the household — rejected otherwise.
+             */
+            List<Long> originLocationIds
+    ) {
+        /** Without starting points — the shape every caller used before V91. */
+        public CreateActivationRequest(String ownerEmail, Long meetingPlaceId, Long evacPlanId,
+                                       String meetingMode, String evacMode, String operationalMode,
+                                       String movementDirective, GoverningAlertDto governingAlert,
+                                       String messagePreview, LocationDto location,
+                                       RecipientsRequest recipients) {
+            this(ownerEmail, meetingPlaceId, evacPlanId, meetingMode, evacMode, operationalMode,
+                    movementDirective, governingAlert, messagePreview, location, recipients, null);
+        }
+    }
 
     public record RecipientsRequest(
             List<String> householdMemberIds,

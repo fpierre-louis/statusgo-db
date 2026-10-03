@@ -132,6 +132,12 @@ public class PlanActivationService {
         // stored). Reject cross-tenant references at the write boundary.
         assertMeetingPlaceOwned(req.meetingPlaceId(), ownerEmail);
         assertEvacPlanOwned(req.evacPlanId(), ownerEmail);
+        // Same IDOR guard for the chosen starting points (V91).
+        if (req.originLocationIds() != null) {
+            for (Long originId : req.originLocationIds()) assertOriginOwned(originId, ownerEmail);
+            a.getOriginLocationIds().addAll(req.originLocationIds().stream()
+                    .filter(java.util.Objects::nonNull).toList());
+        }
 
         a.setMeetingPlaceId(req.meetingPlaceId());
         a.setEvacPlanId(req.evacPlanId());
@@ -916,9 +922,12 @@ public class PlanActivationService {
                     ? originLocationRepo.findByHouseholdId(a.getHouseholdId())
                     : List.of();
             if (origins.isEmpty()) origins = originLocationRepo.findByOwnerEmailIgnoreCase(a.getOwnerEmail());
+            // The deployment's chosen starting point(s) (V91) say so.
+            java.util.Set<Long> chosen = a.getOriginLocationIds() == null ? java.util.Set.of() : a.getOriginLocationIds();
             origins.stream()
                     .filter(o -> GeoUtil.validLatLng(o.getLat(), o.getLng()))
-                    .forEach(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity", "origin",
+                    .forEach(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity",
+                            chosen.contains(o.getId()) ? "origin-selected" : "origin",
                             o.getName() != null ? o.getName() : "Starting point",
                             o.getLat(), o.getLng(), o.getAddress())));
         }
@@ -988,6 +997,16 @@ public class PlanActivationService {
             if (!householdAccess.canReadPlanDataFor(ownerEmail, mp.getOwnerEmail())) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Referenced meeting place does not belong to you");
+            }
+        });
+    }
+
+    private void assertOriginOwned(Long originId, String ownerEmail) {
+        if (originId == null) return;
+        originLocationRepo.findById(originId).ifPresent(o -> {
+            if (!householdAccess.canReadPlanDataFor(ownerEmail, o.getOwnerEmail())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Referenced starting point does not belong to you");
             }
         });
     }

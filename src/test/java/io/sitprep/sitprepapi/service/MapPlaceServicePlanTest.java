@@ -91,6 +91,25 @@ class MapPlaceServicePlanTest {
         assertThat(places).extracting(MapPlaceDto::id)
                 .containsExactly("group:hh", "meetup:3", "start:21", "start:22");
         assertThat(places.get(1).role()).isEqualTo("selected-meeting");
+        assertThat(places).extracting(MapPlaceDto::role)
+                .containsExactly("home", "selected-meeting", "start", "start");
+    }
+
+    @Test
+    void theStartingPointADeploymentChoseIsMarked() {
+        PlanActivation live = new PlanActivation();
+        live.setId("act-2");
+        live.setActivatedAt(Instant.now());
+        live.getOriginLocationIds().add(22L); // Kids' school
+        when(activations.findLiveForHousehold(any(), any())).thenReturn(List.of(live));
+
+        List<MapPlaceDto> places = service.forHousehold(hh, "owner@x.com");
+
+        assertThat(places).filteredOn(p -> p.id().startsWith("start:"))
+                .extracting(MapPlaceDto::id, MapPlaceDto::role)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("start:21", "start"),
+                        org.assertj.core.groups.Tuple.tuple("start:22", "selected-start"));
     }
 
     @Test

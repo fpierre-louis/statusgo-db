@@ -194,4 +194,15 @@ public class PlanActivation {
             joinColumns = @JoinColumn(name = "activation_id"))
     @Column(name = "contact_group_id")
     private Set<Long> contactGroupIds = new HashSet<>();
+
+    /**
+     * The starting point(s) this deployment chose — OriginLocation ids from the
+     * household's plan (V91; open-items plan 2.2). Empty = none chosen; the map
+     * then shows every starting point unmarked.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "plan_activation_origin_location_ids",
+            joinColumns = @JoinColumn(name = "activation_id"))
+    @Column(name = "origin_location_id")
+    private Set<Long> originLocationIds = new HashSet<>();
 }

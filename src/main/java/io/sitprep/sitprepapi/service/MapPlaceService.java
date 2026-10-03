@@ -161,7 +161,10 @@ public class MapPlaceService {
                     null, shelter.isDeploy(), shelterRole));
         }
 
-        // 5. Starting points — every one the plan names, household-scoped.
+        // 5. Starting points — every one the plan names, household-scoped; the
+        //    ones a live deployment chose (V91) are `selected-start`.
+        java.util.Set<Long> chosenStarts = live == null || live.getOriginLocationIds() == null
+                ? java.util.Set.of() : live.getOriginLocationIds();
         List<OriginLocation> origins = originLocationRepo.findByHouseholdId(hid);
         if (origins.isEmpty() && ownerEmail != null) origins = originLocationRepo.findByOwnerEmailIgnoreCase(ownerEmail);
         origins.stream()
@@ -171,7 +174,7 @@ public class MapPlaceService {
                 .forEach(o -> out.add(place("start:" + o.getId(), "start",
                         o.getLat(), o.getLng(),
                         nz(o.getName(), "Starting point"), o.getAddress(), "origin_location",
-                        null, null, "start")));
+                        null, null, chosenStarts.contains(o.getId()) ? "selected-start" : "start")));
 
         return out;
     }

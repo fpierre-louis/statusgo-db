@@ -63,7 +63,8 @@ public class PlanActivationResource {
                 request.governingAlert(),
                 request.messagePreview(),
                 request.location(),
-                request.recipients()
+                request.recipients(),
+                request.originLocationIds()
         );
         ActivationCreatedDto created = service.createActivation(effective);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
