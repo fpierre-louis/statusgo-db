@@ -81,6 +81,13 @@ public class ConditionsService {
     static final String AIRNOW_CURRENT = "https://www.airnowapi.org/aq/observation/current/ziplatLong";
 
     static final Duration TTL = Duration.ofMinutes(20);
+    /**
+     * AirNow observations are hourly, so an hour's cache loses nothing and
+     * triples the headroom under AirNow's 500 calls/hour per key — which now
+     * matters, because the daily brief reads conditions as feeds load
+     * (EXEC-3C, 2026-10-03). NWS stays at {@link #TTL}.
+     */
+    static final Duration AIR_TTL = Duration.ofMinutes(60);
     static final Duration POINTS_TTL = Duration.ofDays(7);
     private static final int CACHE_MAX = 5_000;
     private static final Duration HORIZON = Duration.ofHours(6);
@@ -115,6 +122,7 @@ public class ConditionsService {
 
     private final Map<String, Point> points = lru();
     private final Map<String, Cached> cache = lru();
+    private final Map<String, Cached> airCache = lru();
 
     /** The grid cell NWS assigns a point. */
     record Point(Instant fetchedAt, String gridDataUrl, String timezone) {}
@@ -187,15 +195,22 @@ public class ConditionsService {
         Point p = point(sLat, sLng);
         if (p == null) return null;
 
-        Cached c = cache.get(key);
-        if (c == null || c.fetchedAt().plus(TTL).isBefore(clock.instant())) {
+        Instant nowTs = clock.instant();
+        Cached g = cache.get(key);
+        if (g == null || g.fetchedAt().plus(TTL).isBefore(nowTs)) {
             String grid = get(p.gridDataUrl(), true, "NWS gridpoint");
-            String air = grid == null ? null : get(airUrl(sLat, sLng), false, "AirNow");
-            if (grid == null || air == null) return null;
-            c = new Cached(clock.instant(), grid, air);
-            cache.put(key, c);
+            if (grid == null) return null;
+            g = new Cached(nowTs, grid, null);
+            cache.put(key, g);
         }
-        return parse(c.gridJson(), c.airJson(), p.timezone(), sLat, sLng, slot);
+        Cached a = airCache.get(key);
+        if (a == null || a.fetchedAt().plus(AIR_TTL).isBefore(nowTs)) {
+            String air = get(airUrl(sLat, sLng), false, "AirNow");
+            if (air == null) return null;
+            a = new Cached(nowTs, null, air);
+            airCache.put(key, a);
+        }
+        return parse(g.gridJson(), a.airJson(), p.timezone(), sLat, sLng, slot);
     }
 
     private Point point(double sLat, double sLng) {

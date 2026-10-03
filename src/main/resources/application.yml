@@ -241,10 +241,11 @@ conditions:
   airnow:
     api-key: ${AIRNOW_API_KEY:}
 
-# --- DAILY BRIEFS — daily brief EXEC-3B ---
-# The scheduler is OFF until BRIEFS_ENABLED=true on Heroku. With it on,
-# BRIEFS_DRY_RUN (default true) logs each brief instead of writing it; writing
-# ships in 3C. Laptops never run it: app.scheduling.enabled is false there.
+# --- DAILY BRIEF — EXEC-3C (one SitPrep post, region-specific on read) ---
+# BRIEFS_ENABLED=true creates the one brief post at startup. BRIEFS_DRY_RUN
+# (default true) keeps it out of feeds; GET /api/admin/briefs/preview?lat&lng
+# shows what a point would see. Go live with BRIEFS_DRY_RUN=false only after
+# the 3D card ships. No scheduler: surfacing is computed from the clock.
 briefs:
   enabled: ${BRIEFS_ENABLED:false}
   dry-run: ${BRIEFS_DRY_RUN:true}

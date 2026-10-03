@@ -1,5 +1,8 @@
 package io.sitprep.sitprepapi.service;
 
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
+import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostComment;
@@ -115,6 +118,12 @@ public class PostCommentService {
             dto.setAuthor("anonymous@sitprep");
         }
         UserGeneratedContentFilter.requireAcceptable("comment", dto.getContent());
+        // The daily brief takes no replies (EXEC-3C): it is SitPrep's
+        // per-viewer card, and nobody moderates a thread on it.
+        if (taskRepo.findById(dto.getPostId())
+                .map(p -> PostKind.DAILY_BRIEF.wire().equals(p.getKind())).orElse(false)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "The daily brief takes no replies");
+        }
 
         PostComment c = new PostComment();
         c.setPostId(dto.getPostId());

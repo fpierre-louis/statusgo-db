@@ -57,7 +57,10 @@ public class DailyBriefComposer {
         if (n.tempF() == null || n.windMph() == null || n.aqi() == null) return null;
 
         StringBuilder sb = new StringBuilder();
-        sb.append(slotLabel(slot)).append(" update: ").append(n.tempF()).append("°F");
+        // A null slot is the daily-brief card (EXEC-3C): its header already
+        // says "Conditions near {place} · Updated {time}", so no slot prefix.
+        if (slot != null) sb.append(slotLabel(slot)).append(" update: ");
+        sb.append(n.tempF()).append("°F");
         if (n.feelsF() != null && Math.abs(n.feelsF() - n.tempF()) >= FEELS_DIFF_F) {
             sb.append(" (feels like ").append(n.feelsF()).append("°F)");
         }

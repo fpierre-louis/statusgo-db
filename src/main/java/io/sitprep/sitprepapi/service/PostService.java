@@ -14,6 +14,7 @@ import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.domain.AlertPost;
 import io.sitprep.sitprepapi.repo.AlertPostRepo;
 import io.sitprep.sitprepapi.constant.PostKind;
+import io.sitprep.sitprepapi.constant.SystemAccounts;
 import io.sitprep.sitprepapi.domain.AskBookmark;
 import io.sitprep.sitprepapi.domain.Follow;
 import io.sitprep.sitprepapi.domain.PostConfirm;
@@ -38,6 +39,7 @@ import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +89,18 @@ public class PostService {
 
     private final PostRepo taskRepo;
     private final TokenEventPublisher tokenEvents;
+
+    /**
+     * The daily brief (EXEC-3C). Setter-injected and optional so the many
+     * hand-built PostService tests need no new constructor argument; when it
+     * is absent the feed simply carries no brief.
+     */
+    private DailyBriefService briefs;
+
+    @Autowired(required = false)
+    public void setDailyBriefService(DailyBriefService briefs) {
+        this.briefs = briefs;
+    }
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
     private final AlertPostRepo alertPostRepo;
@@ -878,6 +892,12 @@ public class PostService {
             if (!AUTHORIZED_KINDS.contains(k)) {
                 throw new IllegalArgumentException(
                         "kind must be one of " + AUTHORIZED_KINDS + ", got " + kind);
+            }
+            // The daily brief is SitPrep's one post (EXEC-3C); nobody else
+            // writes one.
+            if (PostKind.DAILY_BRIEF.wire().equals(k)
+                    && !SystemAccounts.SITPREP_EMAIL.equalsIgnoreCase(requesterEmail.trim())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "daily-brief posts are SitPrep's");
             }
             t.setKind(k);
         }
@@ -1882,8 +1902,13 @@ public class PostService {
         // without an update) don't qualify — we trust the post author
         // to repost or update if the situation is still active.
         Instant pinCutoff = Instant.now().minusSeconds(24L * 60 * 60);
+        // System-authored only (EXEC-3C, 2026-10-03): any signed-in user can
+        // write an alert-update follow-up, and the newest one used to take the
+        // pin above all organic content. A neighbour's follow-up now ranks
+        // like any other post; the dispatcher's own alerts keep the pin.
         Optional<PostDto> pinned = merged.stream()
                 .filter(d -> "alert-update".equals(d.kind()))
+                .filter(d -> SystemAccounts.SITPREP_EMAIL.equalsIgnoreCase(d.requesterEmail()))
                 .filter(d -> d.createdAt() != null && d.createdAt().isAfter(pinCutoff))
                 .max(Comparator.comparing(PostDto::createdAt));
         if (pinned.isPresent()) {
@@ -1922,6 +1947,7 @@ public class PostService {
             log.debug("PostService: mode lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
             cellMode = AlertModeService.CALM;
         }
+        placeDailyBrief(merged, lat, lng, cellMode);
         List<PostDto> filtered = applySponsoredSuppression(merged, cellMode);
 
         // Kind balance (locked 2026-05-10) — no single post kind takes
@@ -1940,6 +1966,40 @@ public class PostService {
                 ? List.of()
                 : balanced.subList(from, Math.min(balanced.size(), from + size));
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(capped))), viewerEmail);
+    }
+
+    /**
+     * The daily brief, as this viewer sees it (EXEC-3C). The one brief post is
+     * geo-less, so it arrived in {@code merged} for everyone; it is taken out,
+     * and put back only when it can tell the truth for this viewer: briefs
+     * live (not dry run), the area not in alert or crisis mode (the warning
+     * stays on top), and a reading for the viewer's coordinates. It goes
+     * below official content and the alert pin, with only posts newer than
+     * the last Eastern bump above it.
+     */
+    private void placeDailyBrief(List<PostDto> merged, double lat, double lng, String cellMode) {
+        PostDto brief = null;
+        for (java.util.Iterator<PostDto> it = merged.iterator(); it.hasNext(); ) {
+            PostDto d = it.next();
+            if (DailyBriefService.isBrief(d)) {
+                if (brief == null) brief = d;
+                it.remove();
+            }
+        }
+        if (brief == null || briefs == null || !briefs.live() || brief.community() == null) return;
+        if (AlertModeService.ALERT.equals(cellMode) || AlertModeService.CRISIS.equals(cellMode)) return;
+        PostDto.CommunityExtras.BriefView view;
+        try {
+            view = briefs.viewFor(lat, lng);
+        } catch (Exception e) {
+            log.debug("DailyBrief: view failed for ({}, {}): {}", lat, lng, e.toString());
+            return;
+        }
+        if (view == null) return;
+        PostDto shown = brief.withCommunity(brief.community().withBrief(view));
+        int at = DailyBriefService.insertIndex(merged, briefs.surfacedAtNow(), this::communityTier,
+                d -> d.community() != null && d.community().pinned(), PostDto::createdAt);
+        merged.add(at, shown);
     }
 
     /** Feed-ranking tier: 0 emergency → 6 sponsored. Lower ranks higher. */

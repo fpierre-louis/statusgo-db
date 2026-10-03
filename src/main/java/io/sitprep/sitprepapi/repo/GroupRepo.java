@@ -189,9 +189,4 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     List<Group> findGhostOutreachEligible(@Param("cap") int cap,
                                           @Param("cutoff") java.time.Instant cutoff);
 
-    /** Household address coordinates, for daily-brief cells (EXEC-3B). Coordinates only. */
-    @Query("SELECT g.homeLocation.lat, g.homeLocation.lng FROM Group g " +
-           "WHERE LOWER(COALESCE(g.groupType, '')) = 'household' " +
-           "AND g.homeLocation.lat IS NOT NULL AND g.homeLocation.lng IS NOT NULL")
-    List<Object[]> findHouseholdCoordinates();
 }

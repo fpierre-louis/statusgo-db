@@ -10,7 +10,6 @@ import java.time.Month;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Every nudge a daily brief can carry (EXEC-3B; gameplan §3.6 and §5).
@@ -147,7 +146,12 @@ public class DailyNudgeCatalog {
                     drill("exit-drill"), "Run a two-minute exit drill", 15, false),
             new Nudge("R-EVAC-ROUTE", Condition.FAIR, null,
                     "If you're driving somewhere this week, take the long way past your evacuation route, and a second one that avoids the same bridge or canyon.",
-                    drill("evac-route"), "Drive your evacuation route", 55, false)
+                    drill("evac-route"), "Drive your evacuation route", 55, false),
+            // Added 2026-10-03 (EXEC-3C) so each slot's pool is 14 deep: its own
+            // fair row plus these thirteen, under the 14-day no-repeat rule.
+            new Nudge("R-BLACKOUT", Condition.FAIR, null,
+                    "Switch off the main lights for ten minutes this evening or weekend and see what you reach for first. It's the quickest way to find what's missing before a real outage.",
+                    drill("poweroutage-blackout-test"), "Run a ten-minute blackout test", 10, false)
     );
 
     // ── Event days (mirrors FE drillCalendar.js) ──────────────────────────
@@ -186,40 +190,53 @@ public class DailyNudgeCatalog {
         return null;
     }
 
-    /** True when an event nudge for this slot is active and not used in the last 14 days. */
-    public boolean eventDue(LocalDate date, BriefSlot slot, Set<String> usedRecently) {
-        Nudge ev = activeEvent(date, slot);
-        return ev != null && !usedRecently.contains(ev.id());
-    }
-
     /**
-     * Pick the nudge for a brief.
+     * The tip a viewer sees (EXEC-3C, 2026-10-03). A formula, not a history:
+     * the brief is ONE post read by everyone, so there is no per-cell record
+     * of what ran. Deterministic for (condition, local slot, local date, cell).
      *
      * <ol>
-     *   <li>Fair weather on an event slot: the event, unless used in 14 days.</li>
-     *   <li>The matrix row for this condition and slot, then (fair weather only)
-     *       the rotation, skipping anything used in the last 14 days and any
-     *       neighbour-themed offer once one has run today.</li>
-     *   <li>Nothing left: the matrix row again. A repeated nudge is better than
-     *       an invented one ("no nudge is better than a manufactured one").</li>
+     *   <li>Fair weather on an event slot: the event, on its first day and
+     *       every 7 days after — ShakeOut on its day, Fire Prevention Week on
+     *       its Sunday, Preparedness Month on Sept 1, 8, 15, 22, 29. A daily
+     *       repeat of one sentence for a month is noise, not a reminder.</li>
+     *   <li>Weather that matters: the matrix row for (condition, slot) — the
+     *       conditions themselves change, so the tip does.</li>
+     *   <li>Fair weather: the slot's pool — its own fair row (slot-specific
+     *       wording) plus the generic rotation, 14 deep — indexed by
+     *       {@code (epochDay + slotOffset + cellHash) mod 14}. A slot never
+     *       repeats within 14 days, the three slots differ on the same day,
+     *       and neighbouring cells don't all show the same drill.</li>
      * </ol>
      */
-    public Nudge pick(Condition condition, BriefSlot slot, LocalDate date,
-                      Set<String> usedRecently, boolean neighborUsedToday) {
+    public Nudge forView(Condition condition, BriefSlot slot, LocalDate date, String cellKey) {
         if (condition == Condition.FAIR) {
             Nudge ev = activeEvent(date, slot);
-            if (ev != null && !usedRecently.contains(ev.id())) return ev;
+            if (ev != null && eventDay(ev, date)) return ev;
         }
         Nudge row = matrixRow(condition, slot);
-        List<Nudge> candidates = new ArrayList<>();
-        if (row != null) candidates.add(row);
-        if (condition == Condition.FAIR) candidates.addAll(FAIR_ROTATION);
-        for (Nudge n : candidates) {
-            if (usedRecently.contains(n.id())) continue;
-            if (n.neighbor() && neighborUsedToday) continue;
-            return n;
+        if (condition != Condition.FAIR || row == null) return row;
+        List<Nudge> pool = new ArrayList<>(FAIR_ROTATION.size() + 1);
+        pool.add(row);
+        pool.addAll(FAIR_ROTATION);
+        long day = date.toEpochDay();
+        int slotOffset = slot.ordinal() * 5;   // 0, 5, 10: distinct mod 14
+        int cellHash = cellKey == null ? 0 : Math.floorMod(cellKey.hashCode(), pool.size());
+        return pool.get((int) Math.floorMod(day + slotOffset + cellHash, (long) pool.size()));
+    }
+
+    /** First day of the event's window, then every 7 days. */
+    static boolean eventDay(Nudge ev, LocalDate date) {
+        LocalDate start;
+        if (ev == FIRE_WEEK) {
+            start = date.withDayOfMonth(9).with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY));
+        } else if (ev == PREP_MONTH) {
+            start = date.withDayOfMonth(1);
+        } else {
+            return true;   // ShakeOut is a single day
         }
-        return row;
+        long days = date.toEpochDay() - start.toEpochDay();
+        return days >= 0 && days % 7 == 0;
     }
 
     public Nudge matrixRow(Condition condition, BriefSlot slot) {

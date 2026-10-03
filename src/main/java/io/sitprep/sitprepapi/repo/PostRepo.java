@@ -16,6 +16,9 @@ import java.util.Set;
 
 public interface PostRepo extends JpaRepository<Post, Long> {
 
+    /** The one daily-brief post (EXEC-3C): there is only ever one, the oldest wins. */
+    java.util.Optional<Post> findFirstByKindOrderByIdAsc(String kind);
+
     /**
      * Community map (Phase 1): mutual-aid Posts — community-scope
      * ({@code groupId IS NULL}) offers/marketplace listings that are still

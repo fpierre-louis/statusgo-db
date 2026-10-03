@@ -73,42 +73,48 @@ class DailyNudgeCatalogTest {
     }
 
     @Test
-    void fairWeatherOnAnEventSlotTakesTheEventOnce() {
-        LocalDate shakeout = LocalDate.of(2026, 10, 15);
-        assertThat(catalog.pick(Condition.FAIR, BriefSlot.MORNING, shakeout, Set.of(), false).id())
-                .isEqualTo("EV-SHAKEOUT");
-        assertThat(catalog.pick(Condition.FAIR, BriefSlot.MORNING, shakeout, Set.of("EV-SHAKEOUT"), false).id())
-                .isEqualTo("M-FAIR");
-        // Bad weather beats the event: the conditions nudge is what matters that day.
-        assertThat(catalog.pick(Condition.WIND, BriefSlot.MORNING, shakeout, Set.of(), false).id())
-                .isEqualTo("M-WIND");
+    void theTipIsAFormulaNotAHistory() {
+        LocalDate day = LocalDate.of(2026, 11, 2);
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, day, "40.4|-111.9").id())
+                .isEqualTo(catalog.forView(Condition.FAIR, BriefSlot.MORNING, day, "40.4|-111.9").id());
     }
 
     @Test
-    void fairMorningsRotateUnderTheFourteenDayRule() {
-        LocalDate day = LocalDate.of(2026, 11, 2);
-        Set<String> used = new HashSet<>();
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < 13; i++) {
-            Nudge n = catalog.pick(Condition.FAIR, BriefSlot.MORNING, day.plusDays(i), used, false);
-            assertThat(seen.add(n.id())).as("repeat of %s on day %d", n.id(), i).isTrue();
-            used.add(n.id());
+    void aSlotNeverRepeatsWithinFourteenDays() {
+        for (BriefSlot slot : BriefSlot.values()) {
+            Set<String> seen = new HashSet<>();
+            for (int i = 0; i < 14; i++) {
+                String id = catalog.forView(Condition.FAIR, slot, LocalDate.of(2026, 11, 2).plusDays(i), "40.4|-111.9").id();
+                assertThat(seen.add(id)).as("%s repeated %s within 14 days", slot, id).isTrue();
+            }
         }
     }
 
     @Test
-    void oneNeighbourOfferPerDay() {
+    void theThreeSlotsDifferOnTheSameDay() {
         LocalDate day = LocalDate.of(2026, 11, 2);
-        assertThat(catalog.pick(Condition.FAIR, BriefSlot.EVENING, day, Set.of(), false).neighbor()).isTrue();
-        Nudge capped = catalog.pick(Condition.FAIR, BriefSlot.EVENING, day, Set.of(), true);
-        assertThat(capped.neighbor()).isFalse();
+        Set<String> ids = new HashSet<>();
+        for (BriefSlot slot : BriefSlot.values()) ids.add(catalog.forView(Condition.FAIR, slot, day, "40.4|-111.9").id());
+        assertThat(ids).hasSize(3);
     }
 
     @Test
-    void nothingLeftFallsBackToTheMatrixRowNotAnInventedOne() {
-        Set<String> everything = new HashSet<>();
-        catalog.all().forEach(n -> everything.add(n.id()));
-        assertThat(catalog.pick(Condition.FAIR, BriefSlot.MORNING, LocalDate.of(2026, 11, 2), everything, false).id())
-                .isEqualTo("M-FAIR");
+    void weatherThatMattersGetsItsMatrixRow() {
+        assertThat(catalog.forView(Condition.WIND, BriefSlot.MIDDAY, LocalDate.of(2026, 10, 15), "x").id()).isEqualTo("D-WIND");
+    }
+
+    @Test
+    void eventsShowOnTheirFirstDayAndWeeklyNotDaily() {
+        // ShakeOut 2026: Thursday Oct 15, mornings.
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, LocalDate.of(2026, 10, 15), "x").id()).isEqualTo("EV-SHAKEOUT");
+        // Fire Prevention Week 2026 starts Sunday Oct 4: that evening, not Monday's.
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.EVENING, LocalDate.of(2026, 10, 4), "x").id()).isEqualTo("EV-FIREWEEK");
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.EVENING, LocalDate.of(2026, 10, 5), "x").id()).isNotEqualTo("EV-FIREWEEK");
+        // Preparedness Month: Sept 1 and 8, not Sept 2.
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, LocalDate.of(2026, 9, 1), "x").id()).isEqualTo("EV-PREPMONTH");
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, LocalDate.of(2026, 9, 8), "x").id()).isEqualTo("EV-PREPMONTH");
+        assertThat(catalog.forView(Condition.FAIR, BriefSlot.MORNING, LocalDate.of(2026, 9, 2), "x").id()).isNotEqualTo("EV-PREPMONTH");
+        // Bad weather beats the event.
+        assertThat(catalog.forView(Condition.WIND, BriefSlot.MORNING, LocalDate.of(2026, 10, 15), "x").id()).isEqualTo("M-WIND");
     }
 }

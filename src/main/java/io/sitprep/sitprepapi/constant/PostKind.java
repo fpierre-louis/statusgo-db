@@ -115,7 +115,16 @@ public enum PostKind {
      * {@code POST /api/hazards}, which enforces the reporting guards.
      * docs/epics/hazard-reports (frontend repo).
      */
-    HAZARD("hazard");
+    HAZARD("hazard"),
+
+    /**
+     * SitPrep's daily brief (EXEC-3C, 2026-10-03): ONE post for everyone, with
+     * no coordinates, so the feed carries it to every viewer. What it shows is
+     * region-specific and folded on read ({@code DailyBriefService}): the
+     * conditions near the viewer and a readiness tip. System-authored only; no
+     * comments or reactions. Its body is a placeholder, never displayed.
+     */
+    DAILY_BRIEF("daily-brief");
 
     private final String wire;
 
@@ -206,6 +215,7 @@ public enum PostKind {
             case POST:
             case TIP:
             case CIVIC_REPORT:
+            case DAILY_BRIEF:
                 // Body + category, no separate headline.
                 return false;
             case TASK:

@@ -415,8 +415,27 @@ public record PostDto(
             // its centroid. Folded with `area` in PostService.withAlertAreas;
             // NON_NULL: every other post omits it. (Map entry points, 2026-10-03.)
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            String alertId
+            String alertId,
+            // The daily brief as THIS viewer sees it (EXEC-3C): conditions near
+            // them and a tip, folded on read by DailyBriefService. Only on the
+            // `daily-brief` post; NON_NULL everywhere else.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            BriefView brief
     ) {
+        /**
+         * Region-specific content of the daily brief. Numbers are the
+         * ConditionsReading's own (°F, mph, US AQI); `condition`/`tier` are
+         * ConditionTiers' classification, so the card highlights the one value
+         * that crossed a band without re-deriving thresholds.
+         */
+        public record BriefView(String place, String weather,
+                                Integer tempF, Integer feelsF, Integer windMph, String windDir,
+                                Integer gustMph, Integer aqi, String aqiCategory,
+                                String condition, String tier,
+                                String nudgeId, String nudgeText, String nudgeLabel,
+                                String nudgeDestination, Integer nudgeMinutes,
+                                Instant updatedAt, String timezone) {}
+
         public record HazardFacts(String category, String state, int radiusM) {}
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
         public record NewsSource(String name, String url) {}
@@ -455,7 +474,7 @@ public record PostDto(
                     trim(t.getSourceKey()),
                     null /* area — folded from AlertPost by withHazardAreas */,
                     null /* hazard — folded from HazardReport by withHazardAreas */,
-                    t.isAuthorHidden(), null);
+                    t.isAuthorHidden(), null, null);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -471,13 +490,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -486,20 +505,20 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         /**
@@ -513,35 +532,42 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
                     taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus,
-                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
         public CommunityExtras withCanonicalStatus(String status) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief);
         }
 
         /** Fold a hazard report's map facts (V87). */
         public CommunityExtras withHazard(HazardFacts facts) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts, authorHidden, alertId, brief);
         }
 
         /** Fold a dispatched alert's area (V89). */
         public CommunityExtras withArea(String geojson) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard, authorHidden, alertId);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard, authorHidden, alertId, brief);
+        }
+
+        /** Fold the viewer's daily brief (EXEC-3C). */
+        public CommunityExtras withBrief(BriefView view) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, view);
         }
 
         /** Fold a dispatched alert's feed id (map entry points, 2026-10-03). */
         public CommunityExtras withAlertId(String id) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, id);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, id, brief);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }

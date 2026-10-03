@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.PostKind;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.PostReaction;
 import io.sitprep.sitprepapi.dto.EmojiReactionDto;
@@ -61,6 +62,10 @@ public class PostReactionService {
         String normalizedEmoji = sanitizeEmoji(emoji);
         String normalizedEmail = normalizeEmail(userEmail);
         Post task = loadPostOr404(postId);
+        // No Thank on the daily brief (EXEC-3C): the tip's button is its only action.
+        if (PostKind.DAILY_BRIEF.wire().equals(task.getKind())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "The daily brief takes no reactions");
+        }
 
         Optional<PostReaction> existing = reactionRepo
                 .findByPostIdAndUserEmailIgnoreCaseAndEmoji(postId, normalizedEmail, normalizedEmoji);
