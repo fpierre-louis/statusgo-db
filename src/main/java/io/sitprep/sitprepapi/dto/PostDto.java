@@ -403,7 +403,12 @@ public record PostDto(
             // HazardService.stateOf, the one place it is decided. NON_NULL:
             // every other kind omits it.
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            HazardFacts hazard
+            HazardFacts hazard,
+            // HR6 (V93): the author is not shown — the card reads "Reported by
+            // a neighbor". True even on the author's own copy, which carries
+            // their identity back (PostService.withOwnHiddenAuthors) so the
+            // card can say only they see it.
+            boolean authorHidden
     ) {
         public record HazardFacts(String category, String state, int radiusM) {}
         public record TaggedAgency(String id, String name, boolean verified, String note) {}
@@ -442,7 +447,8 @@ public record PostDto(
                             ? null : Set.copyOf(t.getHazardTags()),
                     trim(t.getSourceKey()),
                     null /* area — folded from AlertPost by withHazardAreas */,
-                    null /* hazard — folded from HazardReport by withHazardAreas */);
+                    null /* hazard — folded from HazardReport by withHazardAreas */,
+                    t.isAuthorHidden());
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -458,13 +464,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -473,20 +479,20 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         /**
@@ -500,28 +506,28 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
                     taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus,
-                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
         public CommunityExtras withCanonicalStatus(String status) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden);
         }
 
         /** Fold a hazard report's map facts (V87). */
         public CommunityExtras withHazard(HazardFacts facts) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts, authorHidden);
         }
 
         /** Fold a dispatched alert's area (V89). */
         public CommunityExtras withArea(String geojson) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard, authorHidden);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }
@@ -579,12 +585,13 @@ public record PostDto(
             List<String> urls = (t.getImageKeys() == null ? List.<String>of() : t.getImageKeys()).stream()
                     .map(PublicCdn::toPublicUrl)
                     .collect(Collectors.toList());
+            boolean hidden = t.isAuthorHidden(); // HR6: a quote names no one either
             return new ParentPostPreview(
                     t.getId(),
-                    t.getRequesterEmail(),
-                    author == null ? null : author.getUserFirstName(),
-                    author == null ? null : author.getUserLastName(),
-                    author == null ? null : DtoImages.avatar(author.getProfileImageUrl()),
+                    hidden ? null : t.getRequesterEmail(),
+                    hidden || author == null ? null : author.getUserFirstName(),
+                    hidden || author == null ? null : author.getUserLastName(),
+                    hidden || author == null ? null : DtoImages.avatar(author.getProfileImageUrl()),
                     t.getTitle(),
                     plainDescription,
                     t.getKind(),
@@ -612,7 +619,9 @@ public record PostDto(
         return new PostDto(
                 t.getId(),
                 t.getGroupId(),
-                t.getRequesterEmail(),
+                // HR6: a hidden author ships no identity — withAuthors then has
+                // nothing to resolve, and every copy below inherits the null.
+                t.isAuthorHidden() ? null : t.getRequesterEmail(),
                 /* requesterFirstName */ null,
                 /* requesterLastName */ null,
                 /* requesterProfileImageUrl */ null,
@@ -712,6 +721,36 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children, resolved == null ? List.of() : resolved);
+    }
+
+    /**
+     * The author's own copy of a hidden-author post (HR6): their identity
+     * back, for them alone. Called only on a viewer-aware read where the
+     * viewer IS the stored requester.
+     */
+    public PostDto withOwnAuthor(UserInfo me) {
+        if (me == null || me.getUserEmail() == null) return this;
+        return new PostDto(
+                id, groupId, me.getUserEmail(),
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis,
+                latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail,
+                parentPost,
+                community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees, projectRollup, children, mentions).withAuthor(me);
     }
 
     /**

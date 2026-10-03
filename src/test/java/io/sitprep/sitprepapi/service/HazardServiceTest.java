@@ -119,7 +119,7 @@ class HazardServiceTest {
     }
 
     private HazardService.ReportRequest req(String cat, List<String> images, double reporterLat) {
-        return new HazardService.ReportRequest(cat, LAT, LNG, "Water over Center St", images, reporterLat, LNG);
+        return new HazardService.ReportRequest(cat, LAT, LNG, "Water over Center St", images, reporterLat, LNG, null);
     }
 
     private void createReturns(long id) {
@@ -158,7 +158,7 @@ class HazardServiceTest {
     void tooFarNoFixUnknownCategoryAndGuestsAreRefused() {
         createReturns(44L);
         assertStatus(() -> service.report(req("fire", null, LAT + 0.05), "a@x.com"), HttpStatus.UNPROCESSABLE_ENTITY); // ~5.6 km
-        assertStatus(() -> service.report(new HazardService.ReportRequest("fire", LAT, LNG, null, null, null, null), "a@x.com"),
+        assertStatus(() -> service.report(new HazardService.ReportRequest("fire", LAT, LNG, null, null, null, null, null), "a@x.com"),
                 HttpStatus.UNPROCESSABLE_ENTITY);
         assertStatus(() -> service.report(req("volcano", null, LAT), "a@x.com"), HttpStatus.BAD_REQUEST);
         UserInfo guest = new UserInfo();

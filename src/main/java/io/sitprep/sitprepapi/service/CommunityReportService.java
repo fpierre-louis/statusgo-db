@@ -54,12 +54,14 @@ public class CommunityReportService {
         report.setReason(parseReason(req.reason()));
         report.setDetails(trim(req.details(), 1000));
 
+        boolean authorHidden = false;
         if (targetType == CommunityReport.TargetType.POST) {
             Post post = postRepo.findById(targetId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
             report.setPostId(post.getId());
             report.setTargetAuthorEmail(normalize(post.getRequesterEmail()));
             report.setContentPreview(trim(message(post.getTitle(), post.getDescription()), 1000));
+            authorHidden = post.isAuthorHidden();
         } else {
             PostComment comment = commentRepo.findById(targetId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
@@ -68,7 +70,10 @@ public class CommunityReportService {
             report.setContentPreview(trim(stripReplyQuote(comment.getContent()), 1000));
         }
 
-        return CommunityReportDto.from(reportRepo.save(report));
+        CommunityReportDto saved = CommunityReportDto.from(reportRepo.save(report));
+        // HR6: moderation keeps the author; the person who filed the report
+        // must not learn who an anonymous hazard reporter is from the receipt.
+        return authorHidden ? saved.withoutTargetAuthor() : saved;
     }
 
     @Transactional(readOnly = true)

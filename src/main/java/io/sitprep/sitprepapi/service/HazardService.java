@@ -55,8 +55,14 @@ public class HazardService {
     /** A still-confirmed report lives at most this many lifetimes past its report. */
     static final int MAX_LIFETIMES = 3;
 
+    /**
+     * {@code showName}: the reporter opted in to being named (HR6). Absent or
+     * false — the default, owner 2026-10-03 — the post reads "Reported by a
+     * neighbor" to everyone but them.
+     */
     public record ReportRequest(String category, Double lat, Double lng, String note,
-                                List<String> imageKeys, Double reporterLat, Double reporterLng) {}
+                                List<String> imageKeys, Double reporterLat, Double reporterLng,
+                                Boolean showName) {}
 
     private final HazardReportRepo hazards;
     private final HazardVoteRepo votes;
@@ -132,6 +138,7 @@ public class HazardService {
         incoming.setDescription(req.note() == null || req.note().isBlank() ? null : req.note().trim());
         incoming.setLatitude(req.lat());
         incoming.setLongitude(req.lng());
+        incoming.setAuthorHidden(!Boolean.TRUE.equals(req.showName()));
         List<String> keys = req.imageKeys() == null ? List.of() : req.imageKeys();
         if (!keys.isEmpty()) incoming.setImageKeys(new ArrayList<>(keys));
         Long postId = createPost(incoming, me);

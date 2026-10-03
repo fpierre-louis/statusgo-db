@@ -87,9 +87,12 @@ public class PostMentionService {
      */
     public void notifyPostMentioned(Post post, String actorEmail, List<String> userIds) {
         if (post == null || userIds == null || userIds.isEmpty()) return;
-        UserInfo actor = actorEmail == null ? null : userInfoRepo.findByUserEmailIgnoreCase(actorEmail).orElse(null);
+        // HR6: an anonymous hazard report's mention names no one — not in the
+        // text, the avatar, or the tap-through to a profile.
+        UserInfo actor = actorEmail == null || post.isAuthorHidden() ? null
+                : userInfoRepo.findByUserEmailIgnoreCase(actorEmail).orElse(null);
         String actorName = actor != null && actor.getUserFirstName() != null && !actor.getUserFirstName().isBlank()
-                ? actor.getUserFirstName() : "Someone";
+                ? actor.getUserFirstName() : post.isAuthorHidden() ? "A neighbor" : "Someone";
         String actorImage = actor != null ? actor.getProfileImageUrl() : null;
         String actorUserId = actor != null ? actor.getId() : null;
         // Resolved before truncation: a push body must never carry a raw

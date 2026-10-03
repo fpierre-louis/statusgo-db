@@ -20,6 +20,12 @@ public record CommunityReportDto(
         Instant reviewedAt,
         Instant createdAt
 ) {
+    /** The filer's receipt for a hidden-author post (HR6): no author. */
+    public CommunityReportDto withoutTargetAuthor() {
+        return new CommunityReportDto(id, targetType, targetId, postId, reporterEmail, null, reason,
+                details, contentPreview, status, reviewerEmail, reviewerNotes, reviewedAt, createdAt);
+    }
+
     public static CommunityReportDto from(CommunityReport row) {
         return new CommunityReportDto(
                 row.getId(),

@@ -275,7 +275,9 @@ public class PostService {
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .distinct()
                 .collect(Collectors.toList());
-        if (emails.isEmpty()) return dtos;
+        // No author to resolve (e.g. a page of anonymous hazard reports, HR6)
+        // must still get the folds that ride this path.
+        if (emails.isEmpty()) return withHazardAreas(withMentionNames(dtos));
         Map<String, UserInfo> byEmail = userInfoRepo.findByUserEmailIn(emails).stream()
                 .filter(u -> u.getUserEmail() != null)
                 .collect(Collectors.toMap(
@@ -550,8 +552,35 @@ public class PostService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * HR6: a hidden-author post ships no identity (PostDto.fromEntity), so its
+     * author would see their own report as a stranger's — no Delete, no "You".
+     * On a viewer-aware read, give the viewer's OWN hidden rows their identity
+     * back. One query, only when the page holds a hidden row; nobody else's.
+     */
+    private List<PostDto> withOwnHiddenAuthors(List<PostDto> dtos, String viewerEmail) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return dtos;
+        List<Long> hidden = dtos.stream()
+                .filter(d -> d.id() != null && d.community() != null && d.community().authorHidden())
+                .map(PostDto::id)
+                .toList();
+        if (hidden.isEmpty()) return dtos;
+        String me = viewerEmail.trim();
+        Set<Long> mine = taskRepo.findAllById(hidden).stream()
+                .filter(t -> t.getRequesterEmail() != null && t.getRequesterEmail().equalsIgnoreCase(me))
+                .map(Post::getId)
+                .collect(Collectors.toSet());
+        if (mine.isEmpty()) return dtos;
+        UserInfo self = userInfoRepo.findByUserEmailIgnoreCase(me).orElse(null);
+        if (self == null) return dtos;
+        return dtos.stream()
+                .map(d -> mine.contains(d.id()) ? d.withOwnAuthor(self) : d)
+                .collect(Collectors.toList());
+    }
+
     private List<PostDto> withEngagement(List<PostDto> dtos, String viewerEmail) {
         if (dtos == null || dtos.isEmpty()) return dtos;
+        dtos = withOwnHiddenAuthors(dtos, viewerEmail);
         List<Long> ids = dtos.stream()
                 .map(PostDto::id)
                 .filter(Objects::nonNull)
@@ -709,6 +738,9 @@ public class PostService {
 
         Post t = new Post();
         t.setRequesterEmail(requesterEmail.trim().toLowerCase());
+        // HR6: only HazardService sets it — the field is @JsonIgnore, so a
+        // request body can never carry it here.
+        t.setAuthorHidden(incoming.isAuthorHidden());
         // Scope. Null = community/personal. When set, the requester must
         // actually belong to the target group: the value arrives straight off
         // the request body, so without this any signed-in user could write a
@@ -1514,11 +1546,22 @@ public class PostService {
         if (authorEmail == null || authorEmail.isBlank()) return List.of();
         List<PostDto> dtos = taskRepo.findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(authorEmail).stream()
                 .filter(t -> readAuthorizer.canRead(t, viewerEmail))
+                .filter(t -> !authorHiddenFrom(t, viewerEmail))
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         // Engagement is resolved for the VIEWER, so viewerThanked / saved
         // state reflect the person reading. On the self path the two emails
         // are the same, which is the pre-existing behavior.
         return withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail);
+    }
+
+    /**
+     * HR6: a hidden-author row on a list keyed BY its author would name them
+     * just by being there. Only the author sees their own.
+     */
+    static boolean authorHiddenFrom(Post t, String viewerEmail) {
+        return t.isAuthorHidden()
+                && (viewerEmail == null || t.getRequesterEmail() == null
+                    || !t.getRequesterEmail().equalsIgnoreCase(viewerEmail.trim()));
     }
 
     /**
@@ -1539,6 +1582,7 @@ public class PostService {
                 // (every row is already groupless), so the owner still sees
                 // their own tasks on their own profile.
                 .filter(t -> readAuthorizer.canRead(t, viewerEmail))
+                .filter(t -> !authorHiddenFrom(t, viewerEmail))
                 .limit(cap)
                 .map(PostDto::fromEntity)
                 .collect(Collectors.toList());
@@ -1737,7 +1781,8 @@ public class PostService {
                 continue;
             }
             // Out-of-radius — only include if author is followed.
-            if (authorNormalized != null && followedEmails.contains(authorNormalized)) {
+            // HR6: not for a hidden author — "Following" would name them.
+            if (authorNormalized != null && !t.isAuthorHidden() && followedEmails.contains(authorNormalized)) {
                 followTail.add(PostDto.fromEntity(t, roundKm(d)).asFollowSource());
             }
         }
@@ -3223,7 +3268,7 @@ public class PostService {
                 if (g != null && g.getGroupName() != null && !g.getGroupName().isBlank()) {
                     author = g.getGroupName().trim();
                 }
-            } else if (t.getRequesterEmail() != null) {
+            } else if (t.getRequesterEmail() != null && !t.isAuthorHidden()) { // HR6: stays "a neighbor"
                 UserInfo u = userInfoRepo.findByUserEmailIgnoreCase(t.getRequesterEmail()).orElse(null);
                 if (u != null) {
                     String full = (String.valueOf(u.getUserFirstName() == null ? "" : u.getUserFirstName())

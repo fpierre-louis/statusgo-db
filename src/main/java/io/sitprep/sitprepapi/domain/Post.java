@@ -364,6 +364,18 @@ public class Post {
             columnDefinition = "boolean NOT NULL DEFAULT false")
     private boolean crisisRelevant = false;
 
+    /**
+     * The author is not shown to anyone but themselves (V93, hazard-reports
+     * HR6). Hazard reports default to it — "Reported by a neighbor" — unless the
+     * reporter chose Show my name. {@code PostDto.fromEntity} drops the requester
+     * identity for these rows, so every read, broadcast and quote inherits it.
+     * Only {@code HazardService.report} sets it: never bound from a request body.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "author_hidden", nullable = false,
+            columnDefinition = "boolean NOT NULL DEFAULT false")
+    private boolean authorHidden = false;
+
     /** When the sponsored placement expires. Null when not sponsored. */
     @Column(name = "sponsored_until")
     private Instant sponsoredUntil;

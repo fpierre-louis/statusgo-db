@@ -43,7 +43,7 @@ class AlertAreaTest {
     void aHazardPostCarriesItsMapFacts() throws Exception {
         when(geocode.reverse(anyDouble(), anyDouble())).thenReturn(null);
         var dto = hazardService.report(new HazardService.ReportRequest(
-                "flood", 40.39, -111.85, "Water over the road", List.of(), 40.3901, -111.8501),
+                "flood", 40.39, -111.85, "Water over the road", List.of(), 40.3901, -111.8501, null),
                 "hazard-reporter-" + System.nanoTime() + "@example.com");
         PostDto read = postService.findDtoById(dto.id(), "viewer@example.com").orElseThrow();
         JsonNode h = objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("hazard");
