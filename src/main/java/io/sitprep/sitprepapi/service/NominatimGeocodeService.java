@@ -1,20 +1,10 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.util.NominatimThrottle;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import java.net.URI;
 import java.time.Duration;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Reverse-geocoding via OpenStreetMap Nominatim. Free, no API key needed —
@@ -35,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class NominatimGeocodeService {
 
-    private static final Logger log = LoggerFactory.getLogger(NominatimGeocodeService.class);
 
     /**
      * Reverse-geocode result. All fields nullable when Nominatim doesn't supply them.
@@ -63,22 +52,17 @@ public class NominatimGeocodeService {
         }
     }
 
-    private static final String BASE = "https://nominatim.openstreetmap.org/reverse";
     private static final long TTL_OK_MS = Duration.ofHours(6).toMillis();
     private static final long TTL_FAIL_MS = Duration.ofMinutes(5).toMillis();
 
     /** ~0.01° ≈ 1.1 km → coarse enough to coalesce neighborhood-level requests. */
     private static final double Q = 0.01;
 
-    private final ObjectMapper objectMapper;
-    private final RestTemplate rest = new RestTemplate();
-    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    /** The one outbound geocoding client: UA, timeouts, the 1 req/s gate, the cache. */
+    private final GeocodeClient client;
 
-    @Value("${nominatim.user-agent:SitPrep/1.0 (contact@sitprep.app)}")
-    private String userAgent;
-
-    public NominatimGeocodeService(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+    public NominatimGeocodeService(GeocodeClient client) {
+        this.client = client;
     }
 
     /**
@@ -89,76 +73,42 @@ public class NominatimGeocodeService {
     public Place reverse(Double lat, Double lng) {
         if (lat == null || lng == null) return null;
         if (!Double.isFinite(lat) || !Double.isFinite(lng)) return null;
+        // zoom=18 (building level) returns the full address breakdown
+        // including suburb / neighbourhood / quarter so the Place can carry a
+        // useful "neighborhood" field for feed-card subtitles. The 6h cache +
+        // ~1km bucket key keeps the request volume low even at higher zoom.
+        return client.cached(GeocodeClient.bucket("place", lat, lng, Q), TTL_OK_MS, TTL_FAIL_MS, () -> {
+            JsonNode root = client.nominatim("reverse", String.format(Locale.US,
+                    "format=jsonv2&lat=%.6f&lon=%.6f&zoom=18&addressdetails=1", lat, lng));
+            return root == null ? null : toPlace(root.path("address"));
+        });
+    }
 
-        String key = bucketKey(lat, lng);
-        CacheEntry cached = cache.get(key);
-        if (cached != null && !cached.isExpired()) return cached.place;
-
-        Place place = null;
-        long ttl = TTL_FAIL_MS;
-
-        try {
-            // zoom=18 (building level) returns the full address breakdown
-            // including suburb / neighbourhood / quarter so the Place can
-            // carry a useful "neighborhood" field for feed-card subtitles.
-            // The 6h cache + ~1km bucket key keeps the request volume low
-            // even at higher zoom.
-            URI uri = URI.create(BASE
-                    + "?format=jsonv2"
-                    + "&lat=" + String.format(Locale.US, "%.6f", lat)
-                    + "&lon=" + String.format(Locale.US, "%.6f", lng)
-                    + "&zoom=18"
-                    + "&addressdetails=1"
-            );
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
-            headers.set(HttpHeaders.USER_AGENT, userAgent);
-
-            HttpEntity<Void> req = new HttpEntity<>(headers);
-            if (!NominatimThrottle.acquire()) {
-                // Over the policy's 1 req/s: a miss, not a queue (NominatimThrottle).
-                throw new IllegalStateException("Nominatim throttled");
-            }
-            ResponseEntity<String> res = rest.exchange(uri, HttpMethod.GET, req, String.class);
-
-            if (res.getStatusCode().is2xxSuccessful() && res.getBody() != null && !res.getBody().isBlank()) {
-                JsonNode root = objectMapper.readTree(res.getBody());
-                JsonNode addr = root.path("address");
-
-                // Neighborhood prefers the most-local OSM key Nominatim
-                // tends to fill in for residential addresses. Falling back
-                // through suburb/quarter/residential covers most cities;
-                // null is fine — the consumer falls back to city.
-                String neighborhood = pickFirst(addr,
-                        "neighbourhood", "suburb", "quarter", "city_district", "residential");
-                String city = pickFirst(addr, "city", "town", "village", "hamlet", "municipality", "county");
-                String region = pickFirst(addr, "state_district", "region", "province");
-                String state = pickFirst(addr, "state");
-                String country = pickFirst(addr, "country");
-                String postcode = trimOrNull(text(addr, "postcode"));
-                String zipBucket = postcode == null ? null
-                        : postcode.length() >= 3 ? postcode.substring(0, 3) : postcode;
-
-                if (neighborhood != null || city != null || region != null || state != null) {
-                    place = new Place(
-                            trimOrNull(neighborhood),
-                            trimOrNull(city),
-                            trimOrNull(region),
-                            trimOrNull(state),
-                            trimOrNull(country),
-                            zipBucket,
-                            postcode
-                    );
-                    ttl = TTL_OK_MS;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Nominatim reverse-geocode failed at lat={} lng={}: {}", lat, lng, e.getMessage());
-        }
-
-        cache.put(key, new CacheEntry(place, System.currentTimeMillis() + ttl));
-        return place;
+    /** Nominatim's address breakdown → a coarse Place, or null when it names nowhere. */
+    static Place toPlace(JsonNode addr) {
+        // Neighborhood prefers the most-local OSM key Nominatim tends to fill
+        // in for residential addresses. Falling back through suburb/quarter/
+        // residential covers most cities; null is fine — the consumer falls
+        // back to city.
+        String neighborhood = pickFirst(addr,
+                "neighbourhood", "suburb", "quarter", "city_district", "residential");
+        String city = pickFirst(addr, "city", "town", "village", "hamlet", "municipality", "county");
+        String region = pickFirst(addr, "state_district", "region", "province");
+        String state = pickFirst(addr, "state");
+        String country = pickFirst(addr, "country");
+        String postcode = trimOrNull(text(addr, "postcode"));
+        String zipBucket = postcode == null ? null
+                : postcode.length() >= 3 ? postcode.substring(0, 3) : postcode;
+        if (neighborhood == null && city == null && region == null && state == null) return null;
+        return new Place(
+                trimOrNull(neighborhood),
+                trimOrNull(city),
+                trimOrNull(region),
+                trimOrNull(state),
+                trimOrNull(country),
+                zipBucket,
+                postcode
+        );
     }
 
     private static String pickFirst(JsonNode addr, String... fields) {
@@ -186,23 +136,4 @@ public class NominatimGeocodeService {
         return s.isEmpty() ? null : s;
     }
 
-    private static String bucketKey(double lat, double lng) {
-        double qLat = Math.round(lat / Q) * Q;
-        double qLng = Math.round(lng / Q) * Q;
-        return String.format(Locale.US, "%.2f|%.2f", qLat, qLng);
-    }
-
-    private static final class CacheEntry {
-        final Place place;
-        final long expiresAtMs;
-
-        CacheEntry(Place place, long expiresAtMs) {
-            this.place = place;
-            this.expiresAtMs = expiresAtMs;
-        }
-
-        boolean isExpired() {
-            return System.currentTimeMillis() > expiresAtMs;
-        }
-    }
 }

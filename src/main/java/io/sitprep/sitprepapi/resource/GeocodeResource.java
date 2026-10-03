@@ -36,9 +36,12 @@ public class GeocodeResource {
     @GetMapping("/search")
     public ResponseEntity<List<Suggestion>> search(
             @RequestParam("q") String q,
-            @RequestParam(value = "limit", required = false) Integer limit
+            @RequestParam(value = "limit", required = false) Integer limit,
+            // Optional: where the person is, so nearby matches rank first.
+            @RequestParam(value = "lat", required = false) Double lat,
+            @RequestParam(value = "lng", required = false) Double lng
     ) {
-        return ResponseEntity.ok(geocode.forwardSearch(q, limit));
+        return ResponseEntity.ok(geocode.forwardSearch(q, limit, lat, lng));
     }
 
     @GetMapping("/reverse")

@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.util.NominatimThrottle;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -85,7 +84,6 @@ public class ShelterSearchService {
             double distanceMi
     ) {}
 
-    private static final String NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search";
     private static final String OVERPASS_URL = "https://overpass-api.de/api/interpreter";
     /** FEMA ESF#6 National Shelter System — currently-OPEN disaster shelters
      *  (ArcGIS MapServer; synced daily from the American Red Cross shelter DB,
@@ -125,8 +123,12 @@ public class ShelterSearchService {
     @Value("${nominatim.user-agent:SitPrep/1.0 (contact@sitprep.app)}")
     private String userAgent;
 
-    public ShelterSearchService(ObjectMapper objectMapper) {
+    /** Nominatim lookups go through the one client (UA, 1 req/s gate, cache). */
+    private final GeocodeClient geocodeClient;
+
+    public ShelterSearchService(ObjectMapper objectMapper, GeocodeClient geocodeClient) {
         this.objectMapper = objectMapper;
+        this.geocodeClient = geocodeClient;
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5_000);
         factory.setReadTimeout(25_000); // Overpass can be slow under load
@@ -316,26 +318,14 @@ public class ShelterSearchService {
                 || c.equals("N") || c.equals("NO") || c.equals("0"));
     }
 
-    // ── Forward geocode (Nominatim /search) ─────────────────────────
+    // ── Forward geocode (Nominatim /search, via the one GeocodeClient) ──
+    // Cached now (it was the one uncached Nominatim call): a city or zip typed
+    // twice is one lookup.
     private double[] forwardGeocode(String query) {
         if (query == null || query.isBlank()) return null;
-        try {
-            URI uri = URI.create(NOMINATIM_SEARCH
-                    + "?format=jsonv2&limit=1&countrycodes=us&q="
-                    + URLEncoder.encode(query.trim(), StandardCharsets.UTF_8));
-            // Only this call is Nominatim; getJson also serves FEMA's ArcGIS.
-            if (!NominatimThrottle.acquire()) return null;
-            JsonNode root = getJson(uri, MediaType.APPLICATION_JSON);
-            if (root != null && root.isArray() && root.size() > 0) {
-                JsonNode first = root.get(0);
-                double la = first.path("lat").asDouble(Double.NaN);
-                double lo = first.path("lon").asDouble(Double.NaN);
-                if (Double.isFinite(la) && Double.isFinite(lo)) return new double[]{la, lo};
-            }
-        } catch (Exception e) {
-            log.debug("Nominatim forward-geocode failed for '{}': {}", query, e.getMessage());
-        }
-        return null;
+        String q = query.trim().toLowerCase(Locale.US);
+        return geocodeClient.cached("shelterq|" + q, 6 * 3_600_000L, 5 * 60_000L,
+                () -> geocodeClient.nominatimFirst(q));
     }
 
     // ── Overpass shelter query ──────────────────────────────────────

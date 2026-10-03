@@ -8,11 +8,10 @@ import java.util.function.LongSupplier;
  * (docs/epics/infrastructure_license_audit.md §1 #6).
  *
  * <p>Nominatim's usage policy sets an <b>absolute maximum of one request per
- * second</b> for the whole application, not per caller. Three services call it
- * ({@code GeocodeService}, {@code NominatimGeocodeService},
- * {@code ShelterSearchService}), each with its own cache and none aware of the
- * others, so a cold cache after a dyno restart could fire a burst that gets the
- * app's User-Agent blocked. This is the one place that counts.</p>
+ * second</b> for the whole application, not per caller. Every Nominatim call
+ * now goes through {@code GeocodeClient} (open-items 3.4), which takes a slot
+ * here first; a cold cache after a dyno restart cannot burst past it. This is
+ * the one place that counts.</p>
  *
  * <p>Calls take the next free slot, spaced {@link #MIN_INTERVAL_MS} apart.
  * A caller waits for its slot when it is close; when the queue is longer than
