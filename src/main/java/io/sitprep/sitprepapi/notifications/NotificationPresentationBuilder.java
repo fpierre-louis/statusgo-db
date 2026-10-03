@@ -350,7 +350,12 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.navigate("OPEN", "Open", route, "primary"));
             }
             case MENTION, COMMENT_REPLY -> {
-                route = target != null ? target : NotificationRoutes.INBOX;
+                // Group comment / mention emitters write the ORG group URL for
+                // every group. For a household that opens the household inside
+                // the org-group shell; its conversation is the household chat.
+                route = household && groupId != null
+                        ? NotificationRoutes.householdTab(groupId, "chat")
+                        : (target != null ? target : NotificationRoutes.INBOX);
                 fallback = NotificationRoutes.COMMUNITY;
                 if (lookups.thumbnails() && ev.thumbnailAllowed()) media = mentionImage(row, target);
                 actions.add(Action.navigate("REPLY", "Reply", route, "primary"));
@@ -367,9 +372,11 @@ public class NotificationPresentationBuilder {
                 actions.add(Action.navigate("VIEW_PROFILE", "View profile", route, "primary"));
             }
             case DIRECT_MESSAGE -> {
-                route = target != null ? target : NotificationRoutes.profile(row.getActorUserId());
+                String peer = row.getActorUserId() != null ? row.getActorUserId()
+                        : NotificationRoutes.trailingId(target, "/profile/");
+                route = NotificationRoutes.directMessage(peer);
                 fallback = NotificationRoutes.INBOX;
-                actions.add(Action.navigate("OPEN", "Open", route, "primary"));
+                actions.add(Action.navigate("REPLY", "Reply", route, "primary"));
             }
             case WEEKLY_DRILL -> {
                 route = NotificationRoutes.DRILL;
@@ -428,6 +435,8 @@ public class NotificationPresentationBuilder {
             // TaskAssignmentService sends the task's groupId as additionalData.
             case TASK_ASSIGNED -> data.isEmpty() ? blankToNull(row.getAdditionalData()) : str(data, "groupId");
             case PLAN_ACTIVATION, PLAN_ACTIVATION_ENDED -> str(data, "householdId");
+            // Only to learn whether the thread lives in a HOUSEHOLD (→ chat).
+            case MENTION, COMMENT_REPLY -> NotificationRoutes.linkedGroupIdFrom(row.getTargetUrl());
             default -> null;
         };
     }

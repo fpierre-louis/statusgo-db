@@ -50,7 +50,7 @@ class NotificationPresentationTest {
             "^/Linked/lg/4D-FwtX/[^/?]+(\\?postId=[^&]+)?$", "^/my-groups$",
             "^/household/h/4D-FwtX/household/[^/?]+/(chat|family|plan|timeline|about)$",
             "^/household/[^/]+/invite-requests/[^/?]+$", "^/work-orders(/[^/?]+)?$",
-            "^/deployedplan\\?activationId=[^&]+$", "^/profile(/[^/?]+)?$", "^/profile\\?tab=tokens$",
+            "^/deployedplan\\?activationId=[^&]+$", "^/profile(/[^/?]+)?(\\?message=open)?$", "^/profile\\?tab=tokens$",
             "^/home(\\?challenge=open)?$", "^/me/tasks$", "^/go-bag$", "^/login$", "^/notifications$"
     ).stream().map(Pattern::compile).toList();
 
@@ -159,6 +159,19 @@ class NotificationPresentationTest {
         assertThat(invite.actions().get(0).params()).containsEntry("requestId", "req9");
         assertRoutable(invite);
 
+        // A DM opens the conversation, not just the profile.
+        NotificationPresentation dm = builder.build(row("dm_message", "DIRECT_MESSAGE", "55",
+                "/profile/u_maya", null, "u_maya"));
+        assertThat(dm.deepLink().route()).isEqualTo("/profile/u_maya?message=open");
+        assertRoutable(dm);
+
+        // A reply on a HOUSEHOLD post: the emitter writes the org-group URL;
+        // the household's conversation is its chat tab.
+        NotificationPresentation hhReply = builder.build(row("comment_on_post", null, "9",
+                "/Linked/lg/4D-FwtX/hh1?postId=9", null, "u_maya"));
+        assertThat(hhReply.deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/chat");
+        assertRoutable(hhReply);
+
         NotificationPresentation token = builder.build(row("token_unlocked", "TOKEN_UNLOCKED", null,
                 "/profile?tab=tokens", "{\"tokenKey\":\"meeting_place\"}", null));
         assertThat(token.source().entityType()).isEqualTo("TOKEN");
@@ -224,6 +237,11 @@ class NotificationPresentationTest {
                 .anyMatch(rx -> rx.matcher(p.deepLink().route()).matches());
         for (Action a : p.actions()) {
             assertThat(FE_ROUTES).as(a.id() + " " + a.route()).anyMatch(rx -> rx.matcher(a.route()).matches());
+            // Owner rule (2026-10-03): tapping the row and tapping its button
+            // go to the same place. Every NAVIGATE action targets the deep link.
+            if ("NAVIGATE".equals(a.kind())) {
+                assertThat(a.route()).as(a.id() + " matches the row tap").isEqualTo(p.deepLink().route());
+            }
         }
     }
 }

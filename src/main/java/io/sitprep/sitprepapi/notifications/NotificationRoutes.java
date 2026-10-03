@@ -82,6 +82,16 @@ public final class NotificationRoutes {
         return blank(activationId) ? HOME : "/deployedplan?activationId=" + enc(activationId);
     }
 
+    /**
+     * A direct message opens the CONVERSATION, not just the sender's profile:
+     * there is no standalone messages route, and PublicProfilePage opens its
+     * DMSheet on {@code ?message=open}. Before this a DM notification left the
+     * reader on a profile, hunting for the Message button.
+     */
+    public static String directMessage(String identifier) {
+        return blank(identifier) ? INBOX : profile(identifier) + "?message=open";
+    }
+
     public static String profile(String identifier) {
         return blank(identifier) ? "/profile" : "/profile/" + seg(identifier);
     }
@@ -124,6 +134,15 @@ public final class NotificationRoutes {
     public static String inviteRequestIdFrom(String url) {
         if (blank(url)) return null;
         Matcher m = Pattern.compile("^/household/[^/]+/invite-requests/([^/?#]+)").matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static final Pattern LINKED_GROUP = Pattern.compile("^/Linked/lg/4D-FwtX/([^/?#]+)");
+
+    /** {@code /Linked/lg/4D-FwtX/{groupId}...} → groupId (group post / comment targets). */
+    public static String linkedGroupIdFrom(String url) {
+        if (blank(url)) return null;
+        Matcher m = LINKED_GROUP.matcher(url);
         return m.find() ? m.group(1) : null;
     }
 
