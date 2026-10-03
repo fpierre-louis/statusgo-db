@@ -194,6 +194,23 @@ class DailyBriefSchedulerTest {
     }
 
     @Test
+    void theDryRunIsReviewableNotJustLogged() {
+        // Heroku keeps 1,500 log lines; a day of briefs must survive in the
+        // review buffer, newest first, with why a slot did not post.
+        DailyBriefScheduler s = scheduler(true);
+        at(2026, 11, 2, 7, 5);
+        s.consider(CELL);
+        at(2026, 11, 2, 12, 5);
+        s.consider(CELL);
+        var review = s.recentReview();
+        assertThat(review).hasSize(2);
+        assertThat(review.get(0).outcome()).isEqualTo("UNCHANGED");
+        assertThat(review.get(0).slot()).isEqualTo("MIDDAY");
+        assertThat(review.get(1).outcome()).isEqualTo("BRIEFED");
+        assertThat(review.get(1).body()).startsWith("Morning update: 68°F");
+    }
+
+    @Test
     void disabledDoesNothing() {
         DailyBriefScheduler s = scheduler(false);
         at(2026, 11, 2, 7, 5);

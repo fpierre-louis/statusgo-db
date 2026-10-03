@@ -16,7 +16,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Map;
@@ -76,6 +78,39 @@ public class DailyBriefScheduler {
     record Last(LocalDate date, String condition, String tier) {}
 
     record Used(LocalDate date, String nudgeId) {}
+
+    /**
+     * One reviewable line of the dry run (2026-10-03). Heroku keeps 1,500 log
+     * lines, so a slot's briefs scrolled out within hours and "review a day of
+     * dry-run logs" (EXEC-3B) was not possible from logs alone. The scheduler
+     * keeps its last {@link #REVIEW_MAX} entries in memory for
+     * {@code GET /api/admin/briefs/dry-run}: briefs it would have posted, and
+     * why a due slot did not post. In-memory on purpose: a dry run writes no
+     * rows, and a restart losing the review buffer costs nothing.
+     */
+    public record ReviewEntry(Instant at, String cell, LocalDate date, String slot, String outcome,
+                              String condition, String tier, String nudgeId, String destination, String body) {}
+
+    static final int REVIEW_MAX = 200;
+    private final Deque<ReviewEntry> review = new ArrayDeque<>();
+
+    private void remember(ReviewEntry e) {
+        synchronized (review) {
+            review.addFirst(e);
+            while (review.size() > REVIEW_MAX) review.removeLast();
+        }
+    }
+
+    private ReviewEntry skip(BriefCellService.Cell cell, LocalDate date, BriefSlot slot, Outcome o, String why) {
+        return new ReviewEntry(clock.instant(), cell.key(), date, slot.name(), o.name(), null, null, null, null, why);
+    }
+
+    /** Newest first. */
+    public List<ReviewEntry> recentReview() {
+        synchronized (review) {
+            return List.copyOf(review);
+        }
+    }
 
     private final Map<String, ZoneId> zones = new ConcurrentHashMap<>();
     private final Map<String, LocalDate> fired = new ConcurrentHashMap<>();
@@ -157,11 +192,17 @@ public class DailyBriefScheduler {
         if (AlertModeService.ALERT.equals(state) || AlertModeService.CRISIS.equals(state)) {
             fired.put(firedKey, date);
             log.info("DailyBrief: cell {} {} suppressed ({} mode)", cell.key(), slot, state);
+            remember(skip(cell, date, slot, Outcome.SUPPRESSED, state + " mode"));
             return Outcome.SUPPRESSED;
         }
 
         ConditionsReading r = conditions.readingFor(cell.lat(), cell.lng(), slot);
-        if (r == null) return Outcome.NO_READING;   // retry on the next tick in the window
+        if (r == null) {
+            // Retry on the next tick in the window; recorded so a slot that
+            // never got a reading is visible in review, not just absent.
+            remember(skip(cell, date, slot, Outcome.NO_READING, "no NWS/AirNow reading"));
+            return Outcome.NO_READING;
+        }
 
         Set<String> used = usedRecently(cell.key(), date);
         if (slot != BriefSlot.MORNING) {
@@ -170,6 +211,8 @@ public class DailyBriefScheduler {
             boolean changed = !sameDay || !last.condition().equals(r.condition()) || !last.tier().equals(r.tier());
             if (!changed && !catalog.eventDue(date, slot, used)) {
                 fired.put(firedKey, date);
+                remember(new ReviewEntry(clock.instant(), cell.key(), date, slot.name(), Outcome.UNCHANGED.name(),
+                        r.condition(), r.tier(), null, null, "same condition and tier as today's last brief"));
                 return Outcome.UNCHANGED;
             }
         }
@@ -180,6 +223,7 @@ public class DailyBriefScheduler {
         DailyBriefComposer.Brief brief = composer.compose(r, slot, nudge);
         if (brief == null) {
             // A required reading was missing. Retry next tick rather than post a partial brief.
+            remember(skip(cell, date, slot, Outcome.NO_BRIEF, "a required reading was missing"));
             return Outcome.NO_BRIEF;
         }
 
@@ -189,6 +233,8 @@ public class DailyBriefScheduler {
         if (nudge.neighbor()) neighborDay.put(cell.key(), date);
 
         if (dryRun) {
+            remember(new ReviewEntry(clock.instant(), cell.key(), date, slot.name(), Outcome.BRIEFED.name(),
+                    r.condition(), r.tier(), nudge.id(), nudge.destination(), brief.body()));
             log.info("DailyBrief[dry-run] cell={} {} {} {}/{} nudge={} -> {} | {}",
                     cell.key(), date, slot, r.condition(), r.tier(), nudge.id(), nudge.destination(),
                     brief.body().replace("\n\n", " // "));
