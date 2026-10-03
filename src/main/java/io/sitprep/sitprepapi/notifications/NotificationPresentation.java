@@ -54,7 +54,9 @@ public record NotificationPresentation(
             String entityId,
             String name,
             String avatarUrl,
-            String fallbackKind  // what to draw when avatarUrl is null
+            String fallbackKind, // what to draw when avatarUrl is null
+            String groupType     // HOUSEHOLD / GROUP sources: Group.groupType, so the
+                                 // client draws the same type art My Groups does
     ) {}
 
     /** The person who triggered it. Absent for system and official rows. */
@@ -126,7 +128,7 @@ public record NotificationPresentation(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Visual(
-            String avatarKind,  // OFFICIAL_SEAL | HOUSEHOLD | GROUP | USER_PHOTO | SITPREP_SEAL | TOKEN_MEDALLION | HAZARD_MARK
+            String avatarKind,  // OFFICIAL_SEAL | HOUSEHOLD | GROUP | USER_PHOTO | SITPREP_SEAL | TOKEN_MEDALLION | HAZARD_MARK | PRACTICE
             String badgeKind,   // NotificationEventType badge
             String priority,    // emergency | attention | routine
             boolean thumbnailPreferred

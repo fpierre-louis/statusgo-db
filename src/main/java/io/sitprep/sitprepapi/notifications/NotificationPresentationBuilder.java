@@ -112,28 +112,70 @@ public class NotificationPresentationBuilder {
     public Map<Long, NotificationPresentation> forRows(List<NotificationLog> rows) {
         Map<Long, NotificationPresentation> out = new HashMap<>();
         if (rows == null || rows.isEmpty()) return out;
+        Map<Long, NotificationPresentation> stored = new HashMap<>();
         List<NotificationLog> legacy = new ArrayList<>();
-        for (NotificationLog r : rows) {
-            NotificationPresentation stored = fromMap(r.getPresentationJson());
-            if (stored != null) out.put(r.getId(), stored);
-            else legacy.add(r);
-        }
-        if (legacy.isEmpty()) return out;
-
         Set<String> actorIds = new HashSet<>();
         Set<String> groupIds = new HashSet<>();
-        for (NotificationLog r : legacy) {
+        for (NotificationLog r : rows) {
             if (r.getActorUserId() != null) actorIds.add(r.getActorUserId());
-            String gid = groupIdFor(NotificationEventType.resolve(r.getType(), r.getCategory(), r.getReferenceId()), r, parse(r.getAdditionalData()));
-            if (gid != null) groupIds.add(gid);
+            NotificationPresentation sp = fromMap(r.getPresentationJson());
+            if (sp != null) {
+                stored.put(r.getId(), sp);
+                if (sp.actor() != null && sp.actor().userId() != null) actorIds.add(sp.actor().userId());
+                if (sp.source() != null && isPersonOrGroup(sp.source()) && sp.source().entityId() != null) {
+                    (isGroupSource(sp.source()) ? groupIds : actorIds).add(sp.source().entityId());
+                }
+            } else {
+                legacy.add(r);
+                String gid = groupIdFor(NotificationEventType.resolve(r.getType(), r.getCategory(), r.getReferenceId()),
+                        r, parse(r.getAdditionalData()));
+                if (gid != null) groupIds.add(gid);
+            }
         }
+        // Two queries for the whole page, shared by both kinds of row.
         Map<String, UserInfo> users = batch(actorIds, ids -> userInfoRepo.findAllById(ids), UserInfo::getId);
         Map<String, Group> groups = batch(groupIds, ids -> groupRepo.findAllById(ids), Group::getGroupId);
         Lookups lookups = new Lookups(users::get, groups::get, false);
-        for (NotificationLog r : legacy) {
-            out.put(r.getId(), build(r, lookups));
-        }
+        for (NotificationLog r : legacy) out.put(r.getId(), build(r, lookups));
+        stored.forEach((id, p) -> out.put(id, withCurrentIdentity(p, users, groups)));
         return out;
+    }
+
+    /**
+     * A stored presentation is a snapshot from send time; the person's photo
+     * and the group's name/logo are not. The owner asked for the CURRENT
+     * profile image (2026-10-03), so identity is re-read on every page —
+     * everything else (route, actions, badge) stays as sent.
+     */
+    static NotificationPresentation withCurrentIdentity(NotificationPresentation p,
+                                                       Map<String, UserInfo> users,
+                                                       Map<String, Group> groups) {
+        if (p == null) return null;
+        Actor actor = p.actor();
+        if (actor != null && actor.userId() != null && users.containsKey(actor.userId())) {
+            actor = actorOf(users.get(actor.userId()));
+        }
+        Source source = p.source();
+        if (source != null && source.entityId() != null) {
+            if (isGroupSource(source) && groups.containsKey(source.entityId())) {
+                source = groupSource(NotificationSourceType.valueOf(source.entityType()), groups.get(source.entityId()));
+            } else if ("USER".equals(source.entityType()) && users.containsKey(source.entityId())) {
+                Actor current = actorOf(users.get(source.entityId()));
+                source = new Source(source.entityType(), current.userId(), current.displayName(),
+                        current.avatarUrl(), source.fallbackKind(), null);
+            }
+        }
+        if (actor == p.actor() && source == p.source()) return p;
+        return new NotificationPresentation(p.version(), p.eventKey(), source, actor, p.media(),
+                p.deepLink(), p.actions(), p.visual());
+    }
+
+    private static boolean isGroupSource(Source s) {
+        return "HOUSEHOLD".equals(s.entityType()) || "GROUP".equals(s.entityType());
+    }
+
+    private static boolean isPersonOrGroup(Source s) {
+        return isGroupSource(s) || "USER".equals(s.entityType());
     }
 
     /** Single-row read (STOMP {@code created} frames carry the stored value). */
@@ -160,7 +202,7 @@ public class NotificationPresentationBuilder {
             NotificationEventType ev = NotificationEventType.resolve(row.getType(), row.getCategory(), row.getReferenceId());
             String route = Objects.requireNonNullElse(NotificationRoutes.canonicalize(row.getTargetUrl()), NotificationRoutes.INBOX);
             return new NotificationPresentation(NotificationPresentation.VERSION, ev.name(),
-                    new Source(ev.sourceType().name(), null, null, null, ev.sourceType().avatarKind()),
+                    new Source(ev.sourceType().name(), null, null, null, ev.sourceType().avatarKind(), null),
                     null, null,
                     new DeepLink(route, NotificationRoutes.INBOX, ev.recordType(), row.getReferenceId()),
                     List.of(),
@@ -358,7 +400,7 @@ public class NotificationPresentationBuilder {
                 media,
                 new DeepLink(route, fallback, ev.recordType(), recordIdFor(ev, ref, route)),
                 List.copyOf(actions),
-                new Visual(sourceType.avatarKind(), badge, priority.wire(),
+                new Visual(avatarKindFor(ev, sourceType), badge, priority.wire(),
                         media != null && media.thumbnailUrl() != null));
     }
 
@@ -405,22 +447,36 @@ public class NotificationPresentationBuilder {
         return switch (type) {
             case OFFICIAL_ALERT -> {
                 if (ev == NotificationEventType.AGENCY_ALERT) {
-                    yield new Source(type.name(), row.getReferenceId(), null, null, fallbackKind);
+                    yield new Source(type.name(), row.getReferenceId(), null, null, fallbackKind, null);
                 }
                 String src = officialSourceCode(str(data, "source"), row.getReferenceId());
                 yield new Source(type.name(), row.getReferenceId(),
-                        src == null ? null : OFFICIAL_SOURCE_NAMES.get(src), null, fallbackKind);
+                        src == null ? null : OFFICIAL_SOURCE_NAMES.get(src), null, fallbackKind, null);
             }
             case HOUSEHOLD, GROUP -> group == null
-                    ? new Source(type.name(), null, null, null, fallbackKind)
-                    : new Source(type.name(), group.getGroupId(), blankToNull(group.getGroupName()),
-                            DtoImages.avatar(group.getLogoImageUrl()), fallbackKind);
+                    ? new Source(type.name(), null, null, null, fallbackKind, null)
+                    : groupSource(type, group);
             case USER -> actor == null
-                    ? new Source(type.name(), null, null, null, fallbackKind)
-                    : new Source(type.name(), actor.userId(), actor.displayName(), actor.avatarUrl(), fallbackKind);
-            case TOKEN -> new Source(type.name(), str(data, "tokenKey"), null, null, fallbackKind);
-            default -> new Source(type.name(), null, "SitPrep", null, fallbackKind);
+                    ? new Source(type.name(), null, null, null, fallbackKind, null)
+                    : new Source(type.name(), actor.userId(), actor.displayName(), actor.avatarUrl(), fallbackKind, null);
+            case TOKEN -> new Source(type.name(), str(data, "tokenKey"), null, null, fallbackKind, null);
+            default -> new Source(type.name(), null, "SitPrep", null, fallbackKind, null);
         };
+    }
+
+    /**
+     * A weekly drill is attributed to the household but DRAWN as practice: the
+     * owner asked for the drill's own imagery (2026-10-03). The row carries the
+     * week, not which drill, so the art is the practice illustration — never a
+     * hazard picture that would be a guess.
+     */
+    private static String avatarKindFor(NotificationEventType ev, NotificationSourceType sourceType) {
+        return ev == NotificationEventType.WEEKLY_DRILL ? "PRACTICE" : sourceType.avatarKind();
+    }
+
+    private static Source groupSource(NotificationSourceType type, Group group) {
+        return new Source(type.name(), group.getGroupId(), blankToNull(group.getGroupName()),
+                DtoImages.avatar(group.getLogoImageUrl()), type.avatarKind(), blankToNull(group.getGroupType()));
     }
 
     private static String recordIdFor(NotificationEventType ev, String ref, String route) {

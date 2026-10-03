@@ -57,6 +57,7 @@ class NotificationPresentationTest {
     UserInfoRepo users;
     GroupRepo groups;
     NotificationPresentationBuilder builder;
+    UserInfo maya;
 
     @BeforeEach
     void setUp() {
@@ -64,7 +65,7 @@ class NotificationPresentationTest {
         groups = mock(GroupRepo.class);
         builder = new NotificationPresentationBuilder(users, groups, mock(GroupPostRepo.class), mock(PostRepo.class));
 
-        UserInfo maya = new UserInfo();
+        maya = new UserInfo();
         maya.setId("u_maya");
         maya.setUserFirstName("Maya");
         maya.setUserLastName("Chen");
@@ -188,6 +189,23 @@ class NotificationPresentationTest {
         assertThat(page.get(1L).source().name()).isEqualTo("Chen Household");
         assertThat(page.get(2L).source().name()).isEqualTo("Chen Household");
         assertThat(page.get(2L).deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/family");
+    }
+
+    @Test
+    void identityIsCurrent_groupsCarryTheirType_andDrillsDrawAsPractice() {
+        NotificationLog row = row("alert", "GROUP_ALERT_HOUSEHOLD", "hh1", "/status-now", null, "u_maya");
+        row.setId(3L);
+        row.setPresentationJson(builder.buildJson(row)); // snapshot taken at send time
+        maya.setProfileImageUrl("https://cdn.example.com/maya-new.jpg"); // she changes her photo later
+
+        NotificationPresentation read = builder.forRows(List.of(row)).get(3L);
+        assertThat(read.actor().avatarUrl()).isEqualTo("https://cdn.example.com/maya-new.jpg");
+        assertThat(read.source().groupType()).isEqualTo("Household");
+
+        NotificationPresentation drill = builder.build(row("weekly_drill_nudge", "WEEKLY_DRILL_REMINDER", "hh1",
+                "/home?challenge=open", null, null));
+        assertThat(drill.visual().avatarKind()).isEqualTo("PRACTICE");
+        assertThat(drill.source().name()).isEqualTo("Chen Household");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
