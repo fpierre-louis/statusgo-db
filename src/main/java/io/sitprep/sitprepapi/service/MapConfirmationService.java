@@ -1,5 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEvent;
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
+
 import io.sitprep.sitprepapi.domain.MapConfirmation;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.ResourceListing;
@@ -43,10 +47,13 @@ public class MapConfirmationService {
     private static final Pattern OSM_ID = Pattern.compile("^(node|way|relation)/[1-9]\\d{0,18}$");
 
     private final MapConfirmationRepo repo;
+    private final TokenEventPublisher tokenEvents;
     private final ResourceListingRepo resources;
     private final PostRepo posts;
 
-    public MapConfirmationService(MapConfirmationRepo repo, ResourceListingRepo resources, PostRepo posts) {
+    public MapConfirmationService(MapConfirmationRepo repo, ResourceListingRepo resources, PostRepo posts,
+                                  TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.repo = repo;
         this.resources = resources;
         this.posts = posts;
@@ -86,6 +93,7 @@ public class MapConfirmationService {
         c.setConfirmedAt(now);
         repo.save(c);
         repo.flush();
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.MAP_CONFIRMED, email, type + ":" + targetId));
 
         ConfirmationSummary s = summaryOf(type, targetId, now);
         return new Outcome(true, s == null ? 1 : s.count(), s == null ? now : s.lastAt(), 0);

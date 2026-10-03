@@ -74,7 +74,8 @@ class PostLiabilityGateTest {
                 org.mockito.Mockito.mock(PostMentionService.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
         // refetchAndBroadcast registers an afterCommit synchronization on the
         // successful transition path — same pattern as GroupPostSecurityTest.
         TransactionSynchronizationManager.initSynchronization();

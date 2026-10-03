@@ -1,5 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEvent;
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
+
 import io.sitprep.sitprepapi.constant.FeedRadius;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.exception.LiabilityNotAcceptedException;
@@ -82,6 +86,7 @@ public class PostService {
     private static final Set<String> AUTHORIZED_KINDS = PostKind.ALLOWED_WIRE_VALUES;
 
     private final PostRepo taskRepo;
+    private final TokenEventPublisher tokenEvents;
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
     private final AlertPostRepo alertPostRepo;
@@ -147,7 +152,9 @@ public class PostService {
                        PostMentionService mentions,
                        AlertPostRepo alertPostRepo,
                        io.sitprep.sitprepapi.repo.HazardReportRepo hazardReportRepo,
-                       io.sitprep.sitprepapi.repo.HazardVoteRepo hazardVoteRepo) {
+                       io.sitprep.sitprepapi.repo.HazardVoteRepo hazardVoteRepo,
+                       TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.taskRepo = taskRepo;
         this.hazardReportRepo = hazardReportRepo;
         this.hazardVoteRepo = hazardVoteRepo;
@@ -997,6 +1004,9 @@ public class PostService {
         dto = withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(dto))))).get(0);
         publisherPublishAuditService.recordCommunityPost(saved, requesterEmail);
         broadcastAfterCommit(dto);
+        // The evaluator decides whether this post counts (community scope, not a
+        // hazard / sponsored / posted-as-a-group) by re-reading it.
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.COMMUNITY_POST_CREATED, requesterEmail, saved.getId()));
         return dto;
     }
 
@@ -1244,6 +1254,7 @@ public class PostService {
                 // saveAndFlush so a concurrent-insert unique violation surfaces
                 // HERE (caught below) rather than poisoning the commit with a 500.
                 postConfirmRepo.saveAndFlush(c);
+                tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.POST_CONFIRMED, e, postId));
             } catch (org.springframework.dao.DataIntegrityViolationException dup) {
                 // A racing confirm for the same (post,user) already landed — idempotent success.
             }

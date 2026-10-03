@@ -1,5 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEvent;
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
+
 import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.*;
@@ -48,6 +52,7 @@ public class AskService {
     public static final String HAZARD_TYPE_HEADER = "X-Active-Hazards";
 
     private final AskQuestionRepo questionRepo;
+    private final TokenEventPublisher tokenEvents;
     private final AskAnswerRepo answerRepo;
     private final AskTipRepo tipRepo;
     private final AskVoteRepo voteRepo;
@@ -65,7 +70,9 @@ public class AskService {
                       UserInfoRepo userInfoRepo,
                       NominatimGeocodeService geocode,
                       PostService postService,
-                      MentionService mentionService) {
+                      MentionService mentionService,
+                      TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.postService = postService;
         this.mentionService = mentionService;
         this.questionRepo = questionRepo;
@@ -98,7 +105,9 @@ public class AskService {
 
         enrichGeo(in.getLatitude(), in.getLongitude(), q::setZipBucket, q::setPlaceLabel);
 
-        return toDto(questionRepo.save(q), authorEmail, activeHazardsFor(authorEmail));
+        AskQuestion saved = questionRepo.save(q);
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_QUESTION_CREATED, authorEmail, saved.getId()));
+        return toDto(saved, authorEmail, activeHazardsFor(authorEmail));
     }
 
     public List<AskQuestionDto> listQuestions(String viewerEmail,
@@ -207,6 +216,7 @@ public class AskService {
         a.setBody(body.trim());
         AskAnswer saved = answerRepo.save(a);
         questionRepo.bumpAnswerCount(q.getId(), +1);
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_ANSWER_CREATED, authorEmail, saved.getId()));
         return toAnswerDto(saved, authorEmail, q.getAcceptedAnswerId());
     }
 
@@ -268,6 +278,9 @@ public class AskService {
             q.setAcceptedAnswerId(answerId);
         }
         syncAcceptedExcerpt(q);
+        if (q.getAcceptedAnswerId() != null) {
+            tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_ANSWER_ACCEPTED, actorEmail, answerId));
+        }
         return toDto(q, actorEmail, activeHazardsFor(actorEmail));
     }
 
@@ -293,7 +306,9 @@ public class AskService {
 
         enrichGeo(in.getLatitude(), in.getLongitude(), t::setZipBucket, t::setPlaceLabel);
 
-        return toDto(tipRepo.save(t), authorEmail, activeHazardsFor(authorEmail));
+        AskTip saved = tipRepo.save(t);
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_TIP_CREATED, authorEmail, saved.getId()));
+        return toDto(saved, authorEmail, activeHazardsFor(authorEmail));
     }
 
     public List<AskTipDto> listTips(String viewerEmail, String zipBucket, Long beforeId, int limit, Set<String> activeHazards) {
@@ -387,6 +402,9 @@ public class AskService {
             delta = value;
         }
 
+        if (value == 1 && ("answer".equals(tt) || "tip".equals(tt))) {
+            tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_VOTE_CAST, voter, tt + ":" + targetId));
+        }
         return bumpScore(tt, targetId, delta);
     }
 

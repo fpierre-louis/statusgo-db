@@ -53,7 +53,8 @@ class HazardServiceTest {
         groups = mock(GroupRepo.class);
         agencyAuth = mock(AgencyAuthorizationService.class);
         service = new HazardService(hazards, votes, posts, postService, users, groups, agencyAuth,
-                Clock.fixed(NOW, ZoneOffset.UTC)) {
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class)) {
             @Override
             Long createPost(Post incoming, String me) {
                 createdPosts.add(incoming);

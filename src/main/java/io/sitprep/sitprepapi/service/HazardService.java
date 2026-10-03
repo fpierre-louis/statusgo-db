@@ -1,5 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.gamification.TokenEvent;
+import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
+import io.sitprep.sitprepapi.gamification.TokenEventType;
+
 import io.sitprep.sitprepapi.constant.HazardCategory;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HazardReport;
@@ -65,6 +69,7 @@ public class HazardService {
                                 Boolean showName) {}
 
     private final HazardReportRepo hazards;
+    private final TokenEventPublisher tokenEvents;
     private final HazardVoteRepo votes;
     private final PostRepo posts;
     private final PostService postService;
@@ -75,12 +80,15 @@ public class HazardService {
 
     @Autowired
     public HazardService(HazardReportRepo hazards, HazardVoteRepo votes, PostRepo posts, PostService postService,
-                         UserInfoRepo users, GroupRepo groups, AgencyAuthorizationService agencyAuth) {
-        this(hazards, votes, posts, postService, users, groups, agencyAuth, Clock.systemUTC());
+                         UserInfoRepo users, GroupRepo groups, AgencyAuthorizationService agencyAuth,
+                         TokenEventPublisher tokenEvents) {
+        this(hazards, votes, posts, postService, users, groups, agencyAuth, Clock.systemUTC(), tokenEvents);
     }
 
     HazardService(HazardReportRepo hazards, HazardVoteRepo votes, PostRepo posts, PostService postService,
-                  UserInfoRepo users, GroupRepo groups, AgencyAuthorizationService agencyAuth, Clock clock) {
+                  UserInfoRepo users, GroupRepo groups, AgencyAuthorizationService agencyAuth, Clock clock,
+                  TokenEventPublisher tokenEvents) {
+        this.tokenEvents = tokenEvents;
         this.hazards = hazards;
         this.votes = votes;
         this.posts = posts;
@@ -159,6 +167,8 @@ public class HazardService {
         v.setVote(HazardVote.STILL);
         v.setVotedAt(now);
         votes.save(v);
+        // A new report only — the duplicate path above returns as a vote.
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.HAZARD_REPORTED, me, h.getTaskId()));
 
         Post post = posts.findById(h.getTaskId()).orElse(null);
         return toDto(h, post, List.of(v), me, now);
@@ -191,6 +201,7 @@ public class HazardService {
         row.setVote(v);
         row.setVotedAt(now);
         votes.save(row);
+        tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.HAZARD_VOTED, me, id));
         all.removeIf(x -> me.equalsIgnoreCase(x.getUserEmail()));
         all.add(row);
 

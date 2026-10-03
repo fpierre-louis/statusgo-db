@@ -99,7 +99,8 @@ class PostProjectBundlesTest {
                 org.mockito.Mockito.mock(PostMentionService.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
         // Any fold that reaches withEngagement needs real (empty) reaction summaries
         // — a mock defaults them to null → NPE. Harmless when the path doesn't use them.
         when(reactionService.loadThankSummary(any(), any()))

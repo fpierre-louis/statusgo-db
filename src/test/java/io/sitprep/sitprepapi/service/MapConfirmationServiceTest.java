@@ -53,7 +53,8 @@ class MapConfirmationServiceTest {
         repo = mock(MapConfirmationRepo.class);
         resources = mock(ResourceListingRepo.class);
         posts = mock(PostRepo.class);
-        service = new MapConfirmationService(repo, resources, posts);
+        service = new MapConfirmationService(repo, resources, posts,
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
         when(repo.save(any())).thenAnswer(i -> i.getArgument(0));
         when(resources.findByIdAndStatus(42L, ResourceListing.Status.APPROVED))
                 .thenReturn(Optional.of(new ResourceListing()));

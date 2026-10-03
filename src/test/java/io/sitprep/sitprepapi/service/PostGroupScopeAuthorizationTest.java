@@ -92,7 +92,8 @@ class PostGroupScopeAuthorizationTest {
                 org.mockito.Mockito.mock(PostMentionService.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.AlertPostRepo.class),
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardReportRepo.class),
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.repo.HazardVoteRepo.class),
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
     }
 
     private Group group(String id) {
