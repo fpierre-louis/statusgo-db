@@ -440,6 +440,11 @@ public class AlertIngestService {
      * </ul>
      */
     static boolean isActiveRecovery(JsonNode r) {
+        return isActiveRecovery(r, Instant.now());
+    }
+
+    /** As {@link #isActiveRecovery(JsonNode)}, judged at {@code now}; tests pin it to the fixture's day. */
+    static boolean isActiveRecovery(JsonNode r, Instant now) {
         if (r == null) return false;
 
         boolean offersHelp = r.path("ihProgramDeclared").asBoolean(false)
@@ -450,10 +455,10 @@ public class AlertIngestService {
 
         Instant declared = parseFemaDate(textOrNull(r, "declarationDate"));
         if (declared == null) return false;
-        if (declared.isBefore(Instant.now().minus(FEMA_RECENT_WINDOW))) return false;
+        if (declared.isBefore(now.minus(FEMA_RECENT_WINDOW))) return false;
 
         Instant lastFiling = parseFemaDate(textOrNull(r, "lastIAFilingDate"));
-        if (lastFiling != null && lastFiling.isBefore(Instant.now())) return false;
+        if (lastFiling != null && lastFiling.isBefore(now)) return false;
 
         return true;
     }

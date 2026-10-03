@@ -42,6 +42,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class FemaActiveRecoveryTest {
 
+    /**
+     * The day the fixture was captured. The filter judges recency and filing
+     * deadlines against a clock; on the wall clock this suite went red on
+     * 2026-10-03, the day DR-4932-WV's filing window closed.
+     */
+    private static final java.time.Instant CAPTURED = java.time.Instant.parse("2026-08-22T12:00:00Z");
+
+    private static boolean active(JsonNode r) {
+        return AlertIngestService.isActiveRecovery(r, CAPTURED);
+    }
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static JsonNode rows;
 
@@ -92,14 +103,14 @@ class FemaActiveRecoveryTest {
     void aRecentDeclarationWithAnOpenFilingWindowIsActive() {
         // DR-4932-WV — West Virginia flooding, declared 2026-08-03, IA filing
         // open until 2026-10-03.
-        assertThat(AlertIngestService.isActiveRecovery(row("DR-4932-WV"))).isTrue();
+        assertThat(active(row("DR-4932-WV"))).isTrue();
     }
 
     @Test
     void everyDeclarationTheFilterKeepsOffersIndividualAssistance() {
         Set<String> kept = new LinkedHashSet<>();
         for (JsonNode r : rows) {
-            if (!AlertIngestService.isActiveRecovery(r)) continue;
+            if (!active(r)) continue;
             kept.add(r.path("femaDeclarationString").asText());
             assertThat(r.path("iaProgramDeclared").asBoolean(false)
                     || r.path("ihProgramDeclared").asBoolean(false))
@@ -112,7 +123,7 @@ class FemaActiveRecoveryTest {
 
     @Test
     void aClosedOutDeclarationIsNotActive() {
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(
                 MAPPER.createObjectNode()
                         .put("iaProgramDeclared", true)
                         .put("declarationDate", "2026-08-01T00:00:00.000Z")
@@ -122,7 +133,7 @@ class FemaActiveRecoveryTest {
 
     @Test
     void anExpiredFilingWindowIsNotActive() {
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(
                 MAPPER.createObjectNode()
                         .put("iaProgramDeclared", true)
                         .put("declarationDate", "2026-08-01T00:00:00.000Z")
@@ -133,7 +144,7 @@ class FemaActiveRecoveryTest {
     @Test
     void theKentuckyFireComplexFrom2000IsNotActive() {
         // The oldest row the old query served to every user in the country.
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(
                 MAPPER.createObjectNode()
                         .put("femaDeclarationString", "FM-2350-KY")
                         .put("iaProgramDeclared", false)
@@ -146,7 +157,7 @@ class FemaActiveRecoveryTest {
     void aFireManagementGrantIsNotActive_evenWhenRecent() {
         // 296 of the 299 old "active" declarations were these. They reimburse a
         // state for firefighting costs; a household can do nothing with one.
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(
                 MAPPER.createObjectNode()
                         .put("femaDeclarationString", "FM-5673-AR")
                         .put("incidentType", "Fire")
@@ -158,12 +169,12 @@ class FemaActiveRecoveryTest {
 
     @Test
     void degenerateRowsAreNotActiveRatherThanThrowing() {
-        assertThat(AlertIngestService.isActiveRecovery(null)).isFalse();
-        assertThat(AlertIngestService.isActiveRecovery(MAPPER.createObjectNode())).isFalse();
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(null)).isFalse();
+        assertThat(active(MAPPER.createObjectNode())).isFalse();
+        assertThat(active(
                 MAPPER.createObjectNode().put("iaProgramDeclared", true))) // no date
                 .isFalse();
-        assertThat(AlertIngestService.isActiveRecovery(
+        assertThat(active(
                 MAPPER.createObjectNode()
                         .put("iaProgramDeclared", true)
                         .put("declarationDate", "not a date")))
@@ -173,7 +184,7 @@ class FemaActiveRecoveryTest {
     @Test
     void theFilterIsSelective_mostFixtureRowsDoNotSurvive() {
         long active = 0;
-        for (JsonNode r : rows) if (AlertIngestService.isActiveRecovery(r)) active++;
+        for (JsonNode r : rows) if (active(r)) active++;
         assertThat(active).isLessThan(rows.size());
         assertThat(active).as("but it does not reject everything").isGreaterThan(0);
     }
