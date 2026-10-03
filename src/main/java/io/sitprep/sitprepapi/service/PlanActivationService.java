@@ -323,9 +323,9 @@ public class PlanActivationService {
         if (household == null || household.getMemberEmails() == null || household.getMemberEmails().isEmpty()) {
             return;
         }
-        String enderName = endedBy == null ? null : userInfoRepo.findByUserEmailIgnoreCase(endedBy)
-                .map(u -> joinName(u.getUserFirstName(), u.getUserLastName()))
-                .filter(str -> str != null && !str.isBlank())
+        UserInfo ender = endedBy == null ? null : userInfoRepo.findByUserEmailIgnoreCase(endedBy).orElse(null);
+        String enderName = ender == null ? null : Optional.ofNullable(joinName(ender.getUserFirstName(), ender.getUserLastName()))
+                .filter(str -> !str.isBlank())
                 .orElse(null);
 
         String title = "All clear";
@@ -341,11 +341,22 @@ public class PlanActivationService {
             notificationService.deliverPresenceAware(
                     m.getUserEmail(), title, body, enderName == null ? "Your household" : enderName,
                     "/images/plan-icon.png", "plan_activation_ended", a.getId(),
-                    targetUrl, null, m.getFcmtoken(),
-                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED
+                    targetUrl, householdData(household), m.getFcmtoken(),
+                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED,
+                    ender == null ? null : ender.getId()
             );
         }
         log.info("Activation {} end pushed to {} household member(s)", a.getId(), members.size());
+    }
+
+    /**
+     * {@code {"householdId": …}} — lets the inbox attribute an activation to the
+     * household (name + avatar) instead of an anonymous system row. The native
+     * PLAN_ACTIVATION action handler reads referenceId, not this field.
+     */
+    private static String householdData(Group household) {
+        String id = household == null ? null : household.getGroupId();
+        return id == null ? null : "{\"householdId\":\"" + id.replace("\"", "") + "\"}";
     }
 
     private void notifyHouseholdOfActivation(String ownerEmail, String activationId) {
@@ -354,7 +365,8 @@ public class PlanActivationService {
             return;
         }
 
-        String ownerName = userInfoRepo.findByUserEmailIgnoreCase(ownerEmail)
+        UserInfo owner = userInfoRepo.findByUserEmailIgnoreCase(ownerEmail).orElse(null);
+        String ownerName = Optional.ofNullable(owner)
                 .map(u -> joinName(u.getUserFirstName(), u.getUserLastName()))
                 .filter(s -> s != null && !s.isBlank())
                 .orElse("Your household");
@@ -370,8 +382,9 @@ public class PlanActivationService {
             notificationService.deliverPresenceAware(
                     m.getUserEmail(), title, body, ownerName,
                     "/images/plan-icon.png", "plan_activation", activationId,
-                    targetUrl, null, m.getFcmtoken(),
-                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED
+                    targetUrl, householdData(household), m.getFcmtoken(),
+                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED,
+                    owner == null ? null : owner.getId()
             );
         }
         log.info("Plan activation {} pushed to {} household member(s)", activationId, members.size());

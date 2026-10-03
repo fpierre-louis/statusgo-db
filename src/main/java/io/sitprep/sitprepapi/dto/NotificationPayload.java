@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.Map;
 
 @Data
 @NoArgsConstructor
@@ -41,4 +42,18 @@ public class NotificationPayload {
      * (hazard alerts, FEMA declarations) and on legacy frames.
      */
     private String actorUserId;
+    /**
+     * The same presentation object the inbox row carries, so the foreground
+     * banner renders the source avatar, event badge and primary action from
+     * the server's contract instead of re-deriving them. Null on frames from
+     * paths that predate it; the FE then derives a presentation itself.
+     */
+    private Map<String, Object> presentation;
+
+    /** Pre-presentation constructor, kept for existing call sites. */
+    public NotificationPayload(String recipientEmail, String title, String body, String imageURL,
+                               String type, String link, String postId, Instant timestamp,
+                               String lane, String actorUserId) {
+        this(recipientEmail, title, body, imageURL, type, link, postId, timestamp, lane, actorUserId, null);
+    }
 }

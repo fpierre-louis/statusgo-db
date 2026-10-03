@@ -3,8 +3,11 @@ package io.sitprep.sitprepapi.domain;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * One row per notifiable event for a user — push fan-outs, silent
@@ -117,6 +120,21 @@ public class NotificationLog {
      */
     @Column(name = "actor_user_id", length = 64, nullable = true)
     private String actorUserId;
+
+    /**
+     * The presentation contract (source, actor, media, deep link, actions,
+     * visual) — see {@code notifications.NotificationPresentation}. Written by
+     * {@code NotificationService.saveLogRow} through
+     * {@code NotificationPresentationBuilder}; null on rows written before V95,
+     * which the same builder normalizes on read.
+     *
+     * <p>A Map rather than the typed record on purpose: the stored shape may
+     * evolve, and an old row must never fail to LOAD because of it. Typed
+     * conversion happens at the DTO edge, leniently.</p>
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "presentation_json", columnDefinition = "jsonb")
+    private Map<String, Object> presentationJson;
 
     public NotificationLog() {}
 

@@ -1,0 +1,14 @@
+-- V95 — Notification presentation contract (docs/epics/notification_ecosystem,
+-- EXEC-N1). One structured JSON object per inbox row: who/what it is from
+-- (source + actor), what to show (media + visual), where a tap goes (deepLink)
+-- and what the row can do (actions).
+--
+-- Nullable on purpose: every row written before this migration stays valid and
+-- is normalized on READ by the same NotificationPresentationBuilder that fills
+-- the column on write, so the inbox never sees two shapes.
+--
+-- IF NOT EXISTS so the column can be added ahead of the deploy (the local
+-- backend runs against prod RDS with Flyway off) and this file is still a
+-- clean no-op when Heroku's Flyway reaches it. No index: nothing filters on
+-- presentation fields yet (gameplan: do not index JSONB prematurely).
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS presentation_json jsonb;

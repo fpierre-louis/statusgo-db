@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.dto;
 
 import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.notifications.NotificationPresentation;
+import io.sitprep.sitprepapi.notifications.NotificationPresentationBuilder;
 
 import java.time.Instant;
 
@@ -22,9 +24,15 @@ public record NotificationInboxRowDto(
         String lane,
         String category,
         Instant archivedAt,
-        String actorUserId
+        String actorUserId,
+        /** Always present on the wire: stored, or built for a legacy row. */
+        NotificationPresentation presentation
 ) {
     public static NotificationInboxRowDto from(NotificationLog row) {
+        return from(row, row == null ? null : NotificationPresentationBuilder.fromMap(row.getPresentationJson()));
+    }
+
+    public static NotificationInboxRowDto from(NotificationLog row, NotificationPresentation presentation) {
         if (row == null) return null;
         return new NotificationInboxRowDto(
                 row.getId(),
@@ -44,7 +52,8 @@ public record NotificationInboxRowDto(
                 row.getLane(),
                 row.getCategory(),
                 row.getArchivedAt(),
-                row.getActorUserId()
+                row.getActorUserId(),
+                presentation
         );
     }
 }

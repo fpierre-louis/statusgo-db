@@ -3,6 +3,9 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.NotificationInboxRowDto;
+import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.notifications.NotificationPresentation;
+import io.sitprep.sitprepapi.notifications.NotificationPresentationBuilder;
 import io.sitprep.sitprepapi.service.NotificationInboxService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -28,9 +31,12 @@ import java.util.Map;
 public class NotificationsInboxResource {
 
     private final NotificationInboxService inbox;
+    private final NotificationPresentationBuilder presentations;
 
-    public NotificationsInboxResource(NotificationInboxService inbox) {
+    public NotificationsInboxResource(NotificationInboxService inbox,
+                                      NotificationPresentationBuilder presentations) {
         this.inbox = inbox;
+        this.presentations = presentations;
     }
 
     /**
@@ -52,9 +58,12 @@ public class NotificationsInboxResource {
         String email = AuthUtils.requireAuthenticatedEmail();
         Instant since = parseInstantOrNull(sinceStr);
         Instant before = parseInstantOrNull(beforeStr);
-        List<NotificationInboxRowDto> rows = inbox.page(email, since, before, limit)
-                .stream()
-                .map(NotificationInboxRowDto::from)
+        List<NotificationLog> page = inbox.page(email, since, before, limit);
+        // Every row ships a presentation: stored for rows written since V95,
+        // built here (two batched lookups per page) for the ones before it.
+        Map<Long, NotificationPresentation> byId = presentations.forRows(page);
+        List<NotificationInboxRowDto> rows = page.stream()
+                .map(r -> NotificationInboxRowDto.from(r, byId.get(r.getId())))
                 .toList();
         return ResponseEntity.ok(ApiResponse.ok(rows, ApiMeta.now()));
     }

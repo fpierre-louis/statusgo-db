@@ -228,7 +228,8 @@ class PlanActivationHouseholdEndTest {
         verify(notifications, times(2)).deliverPresenceAware(
                 anyString(), anyString(), anyString(), any(), any(),
                 anyString(), any(), any(), any(), any(),
-                any(PushPolicyService.Category.class));
+                any(PushPolicyService.Category.class),
+                any()); // actorUserId — the person who ended it, when known
     }
 
     // ── the quiet cases ─────────────────────────────────────────────────────

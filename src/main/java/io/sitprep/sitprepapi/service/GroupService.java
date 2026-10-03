@@ -823,7 +823,9 @@ public class GroupService {
                         // rejectPendingMember(groupId, email) directly. See
                         // src/shared/notifications/NotificationActionDispatcher.jsx.
                         pending.getUserEmail(),
-                        token
+                        token,
+                        /* actorUserId — the requester, so the admin's row shows who is asking */
+                        pending.getId()
                 );
             }
         }
@@ -888,7 +890,9 @@ public class GroupService {
                         group.getGroupId(),
                         targetUrl,
                         null,
-                        admin.getUserEmail()
+                        admin.getUserEmail(),
+                        /* actorUserId — the person who joined */
+                        newUser.getId()
                 );
             }
         }

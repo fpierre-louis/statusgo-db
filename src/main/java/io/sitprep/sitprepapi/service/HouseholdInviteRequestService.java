@@ -231,7 +231,10 @@ public class HouseholdInviteRequestService {
                         referenceId,
                         targetUrl,
                         null,
-                        admin.getFcmtoken()
+                        admin.getFcmtoken(),
+                        // Requester as actor: the admin's inbox row shows who
+                        // is asking, not an initial parsed from the title.
+                        requester != null ? requester.getId() : null
                 );
             } catch (Exception ex) {
                 log.warn("InviteRequest: push to admin {} failed: {}", adminEmail, ex.getMessage());

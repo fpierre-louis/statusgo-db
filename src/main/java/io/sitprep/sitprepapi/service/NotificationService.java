@@ -16,6 +16,8 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.NotificationPayload;
+import io.sitprep.sitprepapi.notifications.NotificationEventType;
+import io.sitprep.sitprepapi.notifications.NotificationPresentationBuilder;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
@@ -30,6 +32,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -50,6 +53,14 @@ public class NotificationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @org.springframework.context.annotation.Lazy
     private ConcealmentSafetyService concealmentSafetyService;
+
+    /**
+     * Builds the inbox presentation contract (docs/epics/notification_ecosystem).
+     * Field-injected and optional so hand-built test instances keep working;
+     * when absent, rows are written without one and normalized on read.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationPresentationBuilder presentationBuilder;
     private final NotificationLogRepo notificationLogRepo;
     private final WebSocketPresenceService presenceService;
     private final PushPolicyService pushPolicyService;
@@ -103,25 +114,10 @@ public class NotificationService {
      */
     static Category mapTypeToCategory(String notificationType) {
         if (notificationType == null) return null;
-        return switch (notificationType.toLowerCase(Locale.ROOT)) {
-            // Group / household alert flips. The fan-out doesn't
-            // distinguish household vs org by group type — defaulting
-            // to ORG; household-specific flips can pass Category directly
-            // via the overload to opt into critical-bypass quiet hours.
-            case "alert", "group_status" -> Category.GROUP_ALERT_ORG;
-            case "post_notification", TYPE_POST_MENTION -> Category.MENTION;
-            case "comment_on_post", "comment_on_task" -> Category.COMMENT_REPLY;
-            case "new_member" -> Category.NEW_MEMBER;
-            case "pending_member" -> Category.PENDING_MEMBER_REQUEST;
-            case "task_assigned" -> Category.TASK_ASSIGNED;
-            case "plan_activation" -> Category.PLAN_ACTIVATION_RECEIVED;
-            case "activation_ack" -> Category.ACTIVATION_ACK;
-            case "check_in_request" -> Category.CHECK_IN_REQUEST;
-            case "checkin_reminder", "checkin_auto_ended" -> Category.CHECK_IN_REVIEW;
-            case "weekly_drill_kickoff", "weekly_drill_nudge" -> Category.WEEKLY_DRILL_REMINDER;
-            case TYPE_TOKEN_UNLOCKED -> Category.TOKEN_UNLOCKED;
-            default -> null;
-        };
+        // One vocabulary: the taxonomy registry owns type → policy category.
+        // A null here is either an unregistered type (a test fails the build)
+        // or a recorded no-policy type (hazard_alert, the reminder family).
+        return NotificationEventType.forType(notificationType).policy();
     }
 
     /**
@@ -191,6 +187,30 @@ public class NotificationService {
                             Lane lane,
                             Category category,
                             String actorUserId) {
+        saveLogRow(recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
+                additionalData, success, errorMessage, lane, category, actorUserId,
+                /* presentation — built from the row below */ null);
+    }
+
+    /**
+     * Presentation-aware variant: callers that already built the presentation
+     * for the banner / push (one build per send, not two) pass it in; null
+     * means build it here from the row.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            String additionalData,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId,
+                            Map<String, Object> presentation) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -207,6 +227,7 @@ public class NotificationService {
         if (lane != null) row.setLane(lane.name());
         if (category != null) row.setCategory(category.name());
         if (actorUserId != null) row.setActorUserId(actorUserId);
+        row.setPresentationJson(presentation != null ? presentation : presentationOf(row));
         NotificationLog saved = notificationLogRepo.save(row);
 
         // Live-update fan-out: prepend the new row in any open inbox
@@ -306,6 +327,9 @@ public class NotificationService {
         // The FE inbox card uses this to wire the actor avatar tap to
         // /profile/:identifier via useProfileNav.
         m.put("actorUserId", n.getActorUserId());
+        // Same contract GET /api/notifications returns, so a live row renders
+        // identically to a fetched one.
+        m.put("presentation", n.getPresentationJson());
         return m;
     }
 
@@ -527,6 +551,12 @@ public class NotificationService {
             return;
         }
 
+        // One presentation per send: the banner frame, the push payload's
+        // deepLinkRoute and the inbox row all carry the same contract.
+        Map<String, Object> presentation = presentationFor(notificationType, catEnum, title, body,
+                referenceId, targetUrl, additionalData, actorUserId);
+        String deepLinkRoute = deepLinkRouteOf(presentation, targetUrl);
+
         // Foregrounded client → push a STOMP in-app banner frame so the
         // user sees a toast immediately without waiting on FCM.
         //
@@ -559,7 +589,8 @@ public class NotificationService {
                         // Actor id rides the banner frame so the FE
                         // NotificationBanner avatar tap deep-links to
                         // /profile/:actorUserId via useProfileNav.
-                        actorUserId
+                        actorUserId,
+                        presentation
                 ));
                 logger.info("🟢 Socket banner sent to online user {}", recipientEmail);
             } catch (Exception e) {
@@ -577,7 +608,7 @@ public class NotificationService {
                     title, body, referenceId, targetUrl, additionalData,
                     /* success */ false,
                     /* error */ "Lane B (silent inbox)",
-                    lane, catEnum, actorUserId);
+                    lane, catEnum, actorUserId, presentation);
             return;
         }
 
@@ -587,7 +618,7 @@ public class NotificationService {
             logger.info("No FCM token for user {}, logging only.", recipientEmail);
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl, additionalData,
-                    false, "No token", lane, catEnum, actorUserId);
+                    false, "No token", lane, catEnum, actorUserId, presentation);
             return;
         }
 
@@ -646,6 +677,9 @@ public class NotificationService {
             apsBuilder.putCustomData("body", safe(body));
             apsBuilder.putCustomData("channelId", safe(channelId));
             apsBuilder.putCustomData("category", safe(category));
+            // Canonical route for the native tap handler (targetUrl stays for
+            // app builds that predate the resolver).
+            apsBuilder.putCustomData("deepLinkRoute", safe(deepLinkRoute));
             // iOS 15+ lock-screen affordances: interruption-level
             // (Focus-mode break-through), relevance-score (stack
             // ranking), thread-id (group related items).
@@ -676,6 +710,7 @@ public class NotificationService {
                     .putData("icon", safe(iconUrl))
                     .putData("channelId", safe(channelId))
                     .putData("category", safe(category))
+                    .putData("deepLinkRoute", safe(deepLinkRoute))
                     .setAndroidConfig(androidConfig)
                     .setApnsConfig(apnsBuilder.build()) // <-- iOS APNs
                     .build();
@@ -693,7 +728,7 @@ public class NotificationService {
         } finally {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
                     title, body, referenceId, targetUrl, additionalData,
-                    success, errorMessage, lane, catEnum, actorUserId);
+                    success, errorMessage, lane, catEnum, actorUserId, presentation);
         }
     }
 
@@ -1123,6 +1158,10 @@ public class NotificationService {
         }
 
         final String type = "hazard_alert";
+        // Identical for every recipient (no actor, no group), so built once.
+        Map<String, Object> presentation = presentationFor(type, null, title, body,
+                referenceId, targetUrl, additionalData, null);
+        String deepLinkRoute = deepLinkRouteOf(presentation, targetUrl);
         List<String> batchTokens = new ArrayList<>();
         List<UserInfo> batchUsers = new ArrayList<>();
         int attempted = 0;
@@ -1146,7 +1185,7 @@ public class NotificationService {
                     // not actor-originated — actorUserId is null.
                     webSocketMessageSender.sendInAppNotification(new NotificationPayload(
                             email, title, body, null, type, targetUrl, referenceId,
-                            Instant.now(), null, /* actorUserId */ null));
+                            Instant.now(), null, /* actorUserId */ null, presentation));
                 } catch (Exception e) {
                     logger.warn("Hazard-alert socket frame failed for {}: {}", email, e.getMessage());
                 }
@@ -1155,7 +1194,7 @@ public class NotificationService {
             String token = u.getFcmtoken();
             if (token == null || token.isEmpty()) {
                 saveLogRow(email, type, null, title, body, referenceId, targetUrl,
-                        additionalData, false, "No token", null, null, null);
+                        additionalData, false, "No token", null, null, null, presentation);
                 failed++;
                 lastError = "No token";
                 continue;
@@ -1180,11 +1219,12 @@ public class NotificationService {
                     .putData("additionalData", safe(additionalData))
                     .putData("channelId", channelForType(type))
                     .putData("category", categoryForType(type))
+                    .putData("deepLinkRoute", safe(deepLinkRoute))
                     .setAndroidConfig(AndroidConfig.builder()
                             .setPriority(AndroidConfig.Priority.HIGH)
                             .setNotification(AndroidNotification.builder().setSound("default").build())
                             .build())
-                    .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData))
+                    .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData, deepLinkRoute))
                     .build();
 
             try {
@@ -1197,14 +1237,14 @@ public class NotificationService {
                     if (response != null && response.isSuccessful()) {
                         delivered++;
                         saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                additionalData, true, null, null, null, null);
+                                additionalData, true, null, null, null, null, presentation);
                     } else {
                         failed++;
                         FirebaseMessagingException ex = response == null ? null : response.getException();
                         String err = ex != null ? ex.getMessage() : "Unknown FCM error";
                         lastError = err;
                         saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                additionalData, false, err, null, null, null);
+                                additionalData, false, err, null, null, null, presentation);
                         handleFcmDeliveryError(ex, u.getUserEmail(), token);
                     }
                 }
@@ -1218,7 +1258,7 @@ public class NotificationService {
                 for (int i = 0; i < users.size(); i++) {
                     saveLogRow(users.get(i).getUserEmail(), type, tokens.get(i),
                             title, body, referenceId, targetUrl, additionalData,
-                            false, e.getMessage(), null, null, null);
+                            false, e.getMessage(), null, null, null, presentation);
                 }
             }
         }
@@ -1246,7 +1286,8 @@ public class NotificationService {
                                        String title,
                                        String body,
                                        String targetUrl,
-                                       String additionalData) {
+                                       String additionalData,
+                                       String deepLinkRoute) {
         ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
                 .putHeader("apns-priority", "10");
         Aps.Builder apsBuilder = Aps.builder()
@@ -1264,12 +1305,45 @@ public class NotificationService {
         apsBuilder.putCustomData("additionalData", safe(additionalData));
         apsBuilder.putCustomData("channelId", safe(channelForType(type)));
         apsBuilder.putCustomData("category", safe(categoryForType(type)));
+        apsBuilder.putCustomData("deepLinkRoute", safe(deepLinkRoute));
         applyIosLockScreenAffordances(apsBuilder, type, referenceId);
         apnsBuilder.setAps(apsBuilder.build());
         return apnsBuilder.build();
     }
 
     // ---------------------- helpers ----------------------
+
+    /** Presentation for a row that has not been persisted yet (send-time). */
+    private Map<String, Object> presentationFor(String type, Category category, String title, String body,
+                                                String referenceId, String targetUrl,
+                                                String additionalData, String actorUserId) {
+        if (presentationBuilder == null) return null;
+        NotificationLog facts = new NotificationLog(null, type, null, title, body, referenceId,
+                targetUrl, additionalData, null, false, null);
+        if (category != null) facts.setCategory(category.name());
+        facts.setActorUserId(actorUserId);
+        return presentationOf(facts);
+    }
+
+    private Map<String, Object> presentationOf(NotificationLog row) {
+        if (presentationBuilder == null) return null;
+        try {
+            return presentationBuilder.buildJson(row);
+        } catch (Exception e) {
+            // A presentation must never cost a delivery or an inbox row.
+            logger.warn("Presentation build failed for type={}: {}", row.getType(), e.getMessage());
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static String deepLinkRouteOf(Map<String, Object> presentation, String targetUrl) {
+        if (presentation != null && presentation.get("deepLink") instanceof Map<?, ?> link
+                && link.get("route") instanceof String route && !route.isBlank()) {
+            return route;
+        }
+        return targetUrl;
+    }
 
     /**
      * Should this recipient's device stay quiet?
@@ -1336,27 +1410,12 @@ public class NotificationService {
     }
 
     /**
-     * Map notification types into Android channel IDs.
-     * Keep this in sync with your native channel creation if you add a wrapper.
+     * Map notification types into Android channel IDs — read from the
+     * {@link NotificationEventType} taxonomy. Keep the registry in sync with
+     * native channel creation if a wrapper ever adds one.
      */
     private String channelForType(String type) {
-        if (type == null) return "general";
-        switch (type) {
-            case "alert":
-            case "group_status":
-            case "hazard_alert":
-            case "PLAN_ACTIVATION":
-                return "alerts";
-            case "comment_on_post":
-            case "comment_on_task":
-            case "comment_thread_reply":
-                return "conversations";
-            case "new_member":
-            case "pending_member":
-                return "membership";
-            default:
-                return "general";
-        }
+        return NotificationEventType.forType(type).androidChannel();
     }
 
     /**
@@ -1385,39 +1444,10 @@ public class NotificationService {
      * the category is also registered native-side. Adding more:
      * (1) declare the category + actions in AppDelegate.swift,
      * (2) add the dispatch case in NotificationActionDispatcher.jsx,
-     * (3) return the matching id here.</p>
+     * (3) set the matching id on the event in {@link NotificationEventType}.</p>
      */
     private String categoryForType(String type) {
-        if (type == null) return "SYSTEM";
-        switch (type) {
-            // Group / household alert flip. Actions: SAFE / HELP / INJURED.
-            // Registered in AppDelegate.swift.
-            case "alert":
-            case "group_status":
-                return "GROUP_ALERT";
-            // Plan activation received. Actions registration TODO —
-            // returns canonical id now so the payload carries it for
-            // future native registration.
-            case "PLAN_ACTIVATION":
-            case "plan_activation":
-                return "PLAN_ACTIVATION";
-            case "activation_ack":
-                return "ACTIVATION_ACK";
-            case "task_assigned":
-                return "TASK_ASSIGNED";
-            case "pending_member":
-                return "PENDING_MEMBER";
-            case "new_member":
-                return "NEW_MEMBER";
-            case "comment_on_post":
-            case "comment_on_task":
-            case "comment_thread_reply":
-                return "COMMENT_REPLY";
-            case TYPE_POST_MENTION:
-                return "MENTION";
-            default:
-                return "SYSTEM";
-        }
+        return NotificationEventType.forType(type).iosCategory();
     }
 
     /**
