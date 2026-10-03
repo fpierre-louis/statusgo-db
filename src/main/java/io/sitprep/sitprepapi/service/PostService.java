@@ -540,6 +540,23 @@ public class PostService {
         }).collect(Collectors.toList());
     }
 
+    /**
+     * AlertPost keys an alert as {@code source + "-" + id} (AlertDispatchService,
+     * so two sources can't collide), but the alert feed — what the map selects
+     * by — uses the bare {@code id}. Verified live 2026-10-03: the post said
+     * {@code NWS-urn:oid:…}, the feed said {@code urn:oid:…}. Strip the known
+     * source prefix so the id on the post is the one the map can find.
+     */
+    static String feedAlertIdOf(String alertPostId) {
+        if (alertPostId == null || alertPostId.isBlank()) return null;
+        for (String source : List.of("NWS-", "USGS-", "FEMA-")) {
+            if (alertPostId.regionMatches(true, 0, source, 0, source.length())) {
+                return alertPostId.substring(source.length());
+            }
+        }
+        return alertPostId;
+    }
+
     private List<PostDto> withAlertAreas(List<PostDto> dtos) {
         if (dtos == null || dtos.isEmpty() || alertPostRepo == null) return dtos;
         List<Long> ids = dtos.stream()
@@ -554,7 +571,8 @@ public class PostService {
         Map<Long, String> alertIds = new HashMap<>();
         for (AlertPost ap : alertPostRepo.findByPostIdIn(ids)) {
             if (ap.getAreaGeojson() != null) areas.putIfAbsent(ap.getPostId(), ap.getAreaGeojson());
-            if (ap.getAlertId() != null) alertIds.putIfAbsent(ap.getPostId(), ap.getAlertId());
+            String feedId = feedAlertIdOf(ap.getAlertId());
+            if (feedId != null) alertIds.putIfAbsent(ap.getPostId(), feedId);
         }
         if (areas.isEmpty() && alertIds.isEmpty()) return dtos;
         return dtos.stream()

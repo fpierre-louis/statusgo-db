@@ -93,7 +93,7 @@ class AlertAreaTest {
         PostDto created = postService.create(alert, "system@sitprep.app");
 
         AlertPost ap = new AlertPost();
-        ap.setAlertId("test-alert-" + created.id());
+        ap.setAlertId("NWS-test-alert-" + created.id());
         ap.setGeocellId("841");
         ap.setPostId(created.id());
         ap.setAreaGeojson(AlertDispatchService.areaGeojsonOf(POLYGON));
@@ -106,7 +106,7 @@ class AlertAreaTest {
         // The feed id rides with the area, so the card's "Open map" can open
         // this exact alert on the map (map entry points, 2026-10-03).
         assertThat(objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("alertId").asText())
-                .isEqualTo("test-alert-" + created.id());
+                .isEqualTo("test-alert-" + created.id()); // the feed's id: source prefix stripped
 
         Post plain = new Post();
         plain.setKind("post");
