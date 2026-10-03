@@ -46,8 +46,9 @@ public record MapPlaceDto(
          */
         String tier,
         /**
-         * The row's own {@code deploy} flag — meeting places and evacuation
-         * plans carry one. Null for sources that do not (home, saved places).
+         * The row's own {@code deploy} flag — the PLAN'S PRIMARY PICK, not
+         * "deployed" (that is {@code role = selected-*}). Meeting places and
+         * evacuation plans carry one; null for sources that do not.
          */
         Boolean deploy,
         /**

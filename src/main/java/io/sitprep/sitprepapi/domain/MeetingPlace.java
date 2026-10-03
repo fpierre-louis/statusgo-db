@@ -42,6 +42,14 @@ public class MeetingPlace {
     @Column(nullable = true)
     private Double lng;
 
+    /**
+     * THE PLAN'S PRIMARY PICK — "use this one", set in the plan editor. NOT
+     * "deployed": what a live deployment selected is
+     * {@code PlanActivation.meetingPlaceId / evacPlanId}, and only that drives
+     * deployed surfaces. The calm map shows this pick (owner ruling Q-1).
+     * Named {@code deploy} for history; a rename waits until every reader is
+     * free to change (open-items plan 2.3, 2026-10-02).
+     */
     private boolean deploy;
 
 
