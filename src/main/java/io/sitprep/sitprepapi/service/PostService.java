@@ -541,14 +541,22 @@ public class PostService {
                 .toList();
         if (ids.isEmpty()) return dtos;
         Map<Long, String> areas = new HashMap<>();
+        // The alert's feed id rides along (map entry points, 2026-10-03): it is
+        // what lets "Open map" on an alert post open that alert, framed, on the
+        // map — and it is known even for a zone-only alert with no area.
+        Map<Long, String> alertIds = new HashMap<>();
         for (AlertPost ap : alertPostRepo.findByPostIdIn(ids)) {
             if (ap.getAreaGeojson() != null) areas.putIfAbsent(ap.getPostId(), ap.getAreaGeojson());
+            if (ap.getAlertId() != null) alertIds.putIfAbsent(ap.getPostId(), ap.getAlertId());
         }
-        if (areas.isEmpty()) return dtos;
+        if (areas.isEmpty() && alertIds.isEmpty()) return dtos;
         return dtos.stream()
-                .map(d -> areas.containsKey(d.id())
-                        ? d.withCommunity(d.community().withArea(areas.get(d.id())))
-                        : d)
+                .map(d -> {
+                    PostDto.CommunityExtras c = d.community();
+                    if (areas.containsKey(d.id())) c = c.withArea(areas.get(d.id()));
+                    if (alertIds.containsKey(d.id())) c = c.withAlertId(alertIds.get(d.id()));
+                    return c == d.community() ? d : d.withCommunity(c);
+                })
                 .collect(Collectors.toList());
     }
 

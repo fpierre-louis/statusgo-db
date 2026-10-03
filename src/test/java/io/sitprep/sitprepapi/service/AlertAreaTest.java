@@ -103,6 +103,10 @@ class AlertAreaTest {
         JsonNode area = objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("area");
         assertThat(area.path("type").asText()).isEqualTo("Polygon");
         assertThat(area.path("coordinates").get(0).size()).isEqualTo(4);
+        // The feed id rides with the area, so the card's "Open map" can open
+        // this exact alert on the map (map entry points, 2026-10-03).
+        assertThat(objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("alertId").asText())
+                .isEqualTo("test-alert-" + created.id());
 
         Post plain = new Post();
         plain.setKind("post");
@@ -110,5 +114,6 @@ class AlertAreaTest {
         PostDto other = postService.create(plain, "someone@example.com");
         JsonNode none = objectMapper.readTree(objectMapper.writeValueAsString(other)).path("community");
         assertThat(none.has("area")).isFalse();
+        assertThat(none.has("alertId")).isFalse();
     }
 }
