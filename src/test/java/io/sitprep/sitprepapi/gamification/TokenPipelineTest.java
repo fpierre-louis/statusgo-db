@@ -186,8 +186,8 @@ class TokenPipelineTest {
 
         when(policy.evaluate(ME, Category.TOKEN_UNLOCKED, null)).thenReturn(Lane.B);
         n.userAwarded(award);
-        verify(notifications).logInboxOnly(eq(ME), eq("token_unlocked"), eq("Helpful Question earned"),
-                eq("You asked your first preparedness question."), eq("user:12"), eq("/profile?tab=tokens"),
+        verify(notifications).logInboxOnly(eq(ME), eq("token_unlocked"), eq("New token: First Question"),
+                eq("You asked your first preparedness or local safety question."), eq("user:12"), eq("/profile?tab=tokens"),
                 any(), eq(Category.TOKEN_UNLOCKED));
     }
 

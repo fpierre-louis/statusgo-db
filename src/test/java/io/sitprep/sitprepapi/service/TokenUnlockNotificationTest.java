@@ -53,8 +53,8 @@ class TokenUnlockNotificationTest {
         NotificationService service = new NotificationService(ws, users, logRepo, presence, policy,
                 mock(GroupMuteService.class));
 
-        service.logInboxOnly("ana@x.com", NotificationService.TYPE_TOKEN_UNLOCKED, "Drill Crew earned",
-                "Your household completed its first practice drill.", "household:3", "/profile?tab=tokens",
+        service.logInboxOnly("ana@x.com", NotificationService.TYPE_TOKEN_UNLOCKED, "New token: First Practice",
+                "Your household completed its first practice.", "household:3", "/profile?tab=tokens",
                 "{\"awardId\":\"household:3\"}", Category.TOKEN_UNLOCKED);
 
         ArgumentCaptor<NotificationLog> row = ArgumentCaptor.forClass(NotificationLog.class);

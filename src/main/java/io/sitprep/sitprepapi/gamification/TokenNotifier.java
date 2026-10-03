@@ -118,7 +118,7 @@ public class TokenNotifier {
             // both mean no row.
             if (pushPolicy.evaluate(email, Category.TOKEN_UNLOCKED, null) != Lane.B) return;
             notifications.logInboxOnly(email, NotificationService.TYPE_TOKEN_UNLOCKED,
-                    def.name() + " earned", def.description(), awardId, TARGET_URL,
+                    "New token: " + def.name(), def.description(), awardId, TARGET_URL,
                     payload(def, awardId), Category.TOKEN_UNLOCKED);
         } catch (Exception e) {
             log.warn("token notify failed (to={}, token={}): {}", email, def.key(), e.toString());

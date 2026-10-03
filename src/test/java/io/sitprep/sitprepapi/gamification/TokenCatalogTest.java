@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +33,33 @@ class TokenCatalogTest {
             assertThat(orders.add(d.order())).as("order reused: %s", d.order()).isTrue();
             if (d.nextStepRoute() != null) assertThat(d.nextStepRoute()).startsWith("/");
         }
+    }
+
+    @Test
+    void approvedEverydayNamesAreTheCatalogDisplayNames() {
+        Map<TokenKey, String> names = Map.ofEntries(
+                Map.entry(TokenKey.PLAN_ARCHITECT, "Plan in Place"),
+                Map.entry(TokenKey.MEETING_POINT, "Meeting Spot"),
+                Map.entry(TokenKey.CONTACT_CIRCLE, "People to Call"),
+                Map.entry(TokenKey.DRILL_CREW, "First Practice"),
+                Map.entry(TokenKey.PRACTICE_CADENCE, "Practiced Together"),
+                Map.entry(TokenKey.STOCKPILE_STEWARD, "Supplies Taking Shape"),
+                Map.entry(TokenKey.HOUSEHOLD_READY, "Ready Together"),
+                Map.entry(TokenKey.FIRST_NEIGHBOR_SIGNAL, "Neighbor Hello"),
+                Map.entry(TokenKey.LOCAL_HAZARD_REPORTER, "Local Heads-Up"),
+                Map.entry(TokenKey.GROUND_TRUTH, "Nearby Check"),
+                Map.entry(TokenKey.HELPFUL_QUESTION, "First Question"),
+                Map.entry(TokenKey.PREP_TIP_SHARER, "Shared a Tip"),
+                Map.entry(TokenKey.ANSWERED_THE_CALL, "Neighbor Answer"),
+                Map.entry(TokenKey.TRUSTED_ANSWER, "Trusted Answer"),
+                Map.entry(TokenKey.HELPING_HAND, "Helping Hand")
+        );
+
+        assertThat(TokenCatalog.all())
+                .extracting(TokenDefinition::key, TokenDefinition::name)
+                .containsExactlyInAnyOrderElementsOf(names.entrySet().stream()
+                        .map(entry -> org.assertj.core.groups.Tuple.tuple(entry.getKey(), entry.getValue()))
+                        .toList());
     }
 
     @Test
