@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.constant.PostKind;
+
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -71,6 +73,16 @@ public class PostResource {
     @Idempotent
     public ResponseEntity<ApiResponse<PostDto>> create(@RequestBody Post incoming) {
         String requester = AuthUtils.requireAuthenticatedEmail();
+        // A hazard is made ONLY through POST /api/hazards (HazardService), which
+        // runs the reporting guards (signed-in non-guest, within 3.2 km of your
+        // fix, 5/hour, same-spot dedupe) and writes the hazard_report row the map,
+        // the votes and the route warning read. Through here it skipped all of
+        // them and became a "hazard" no map could ever show.
+        if (incoming != null && incoming.getKind() != null
+                && PostKind.HAZARD.wire().equals(incoming.getKind().trim().toLowerCase())) {
+            throw new IllegalArgumentException(
+                    "Hazards are reported through Report a hazard, so they get checked, mapped and confirmed.");
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok(tasks.create(incoming, requester), ApiMeta.now()));
     }
