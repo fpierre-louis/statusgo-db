@@ -113,6 +113,18 @@ class MapPlaceServicePlanTest {
     }
 
     @Test
+    void aHomeStartingPointIsTheHouseholdsHome_neverAStaleSecondHome() {
+        // Seeded once at an old address, then the household moved (V92, plan 2.1).
+        OriginLocation staleHome = origin(30L, "Home", 41.00, -112.00);
+        staleHome.setKind("home");
+        when(origins.findByHouseholdId("hh")).thenReturn(List.of(staleHome, origin(21L, "Work", 40.40, -111.80)));
+
+        List<MapPlaceDto> places = service.forHousehold(hh, "owner@x.com");
+
+        assertThat(places).extracting(MapPlaceDto::id).doesNotContain("start:30").contains("group:hh", "start:21");
+    }
+
+    @Test
     void aGroupThatIsNotAHouseholdGetsNoPlanPlaces() {
         Group hoa = new Group();
         hoa.setGroupId("hoa");

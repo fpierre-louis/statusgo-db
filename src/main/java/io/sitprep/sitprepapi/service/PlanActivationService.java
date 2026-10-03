@@ -924,12 +924,21 @@ public class PlanActivationService {
             if (origins.isEmpty()) origins = originLocationRepo.findByOwnerEmailIgnoreCase(a.getOwnerEmail());
             // The deployment's chosen starting point(s) (V91) say so.
             java.util.Set<Long> chosen = a.getOriginLocationIds() == null ? java.util.Set.of() : a.getOriginLocationIds();
-            origins.stream()
-                    .filter(o -> GeoUtil.validLatLng(o.getLat(), o.getLng()))
-                    .forEach(o -> pois.add(planPoi("activation:origin:" + o.getId(), "amenity",
-                            chosen.contains(o.getId()) ? "origin-selected" : "origin",
-                            o.getName() != null ? o.getName() : "Starting point",
-                            o.getLat(), o.getLng(), o.getAddress())));
+            // A `home` starting point is the household's home (V92): its
+            // location comes from the household, never a stale copy.
+            Group home = a.getHouseholdId() == null ? null
+                    : groupRepo.findByGroupId(a.getHouseholdId()).orElse(null);
+            for (OriginLocation o : origins) {
+                boolean fromHousehold = o.isHome() && home != null
+                        && GeoUtil.validLatLng(home.getLatitude(), home.getLongitude());
+                Double lat = fromHousehold ? home.getLatitude() : o.getLat();
+                Double lng = fromHousehold ? home.getLongitude() : o.getLng();
+                if (!GeoUtil.validLatLng(lat, lng)) continue;
+                pois.add(planPoi("activation:origin:" + o.getId(), "amenity",
+                        chosen.contains(o.getId()) ? "origin-selected" : "origin",
+                        o.getName() != null ? o.getName() : "Starting point",
+                        lat, lng, fromHousehold ? home.getAddress() : o.getAddress()));
+            }
         }
 
         return pois;

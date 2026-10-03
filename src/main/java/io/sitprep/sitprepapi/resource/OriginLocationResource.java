@@ -52,6 +52,7 @@ public class OriginLocationResource {
             OriginLocation origin = new OriginLocation();
             // The row's id, so the save updates it in place (PlanRowReconciler).
             origin.setId(RequestFields.longOrNull(data.get("id")));
+            origin.setKind(OriginLocation.normalizeKind(data.get("kind")));
             origin.setOwnerEmail(ownerEmail);
             origin.setName((String) data.get("name"));
             origin.setAddress((String) data.get("address"));

@@ -21,7 +21,29 @@ public class OriginLocation {
     // during the ownerEmail->household migration; backfilled on boot.
     private String householdId;
 
+    /**
+     * home | work | school | other, or null (typed freehand) — V92. A {@code home}
+     * starting point takes its location from the household on read; see
+     * {@link #normalizeKind}.
+     */
+    private String kind;
+
     public OriginLocation() {}
+
+    /** The four kinds a starting point can be; anything else is null. */
+    public static String normalizeKind(Object raw) {
+        if (raw == null) return null;
+        String k = raw.toString().trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (k) {
+            case "home", "work", "school", "other" -> k;
+            default -> null;
+        };
+    }
+
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = normalizeKind(kind); }
+
+    public boolean isHome() { return "home".equals(kind); }
 
     public OriginLocation(String name, String address, Double lat, Double lng, String ownerEmail) {
         this.name = name;

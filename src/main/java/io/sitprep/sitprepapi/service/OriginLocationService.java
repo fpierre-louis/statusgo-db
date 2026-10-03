@@ -50,6 +50,8 @@ public class OriginLocationService {
         }
 
         GeoUtil.requireValidLatLng(origin.getLat(), origin.getLng());
+        // A PUT that doesn't say what the starting point is keeps what it was.
+        if (origin.getKind() == null) origin.setKind(existing.getKind());
         origin.setId(id);
         origin.setOwnerEmail(ownerEmail);
         // Incoming payload has no householdId; preserve the existing row's

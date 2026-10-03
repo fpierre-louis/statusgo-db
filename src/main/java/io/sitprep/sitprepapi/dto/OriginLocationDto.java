@@ -12,7 +12,9 @@ public record OriginLocationDto(
         String name,
         String address,
         Double lat,
-        Double lng
+        Double lng,
+        /** home | work | school | other, or null (V92). */
+        String kind
 ) {
     public static OriginLocationDto from(OriginLocation o) {
         return new OriginLocationDto(
@@ -20,6 +22,7 @@ public record OriginLocationDto(
                 o.getName(),
                 o.getAddress(),
                 o.getLat(),
-                o.getLng());
+                o.getLng(),
+                o.getKind());
     }
 }

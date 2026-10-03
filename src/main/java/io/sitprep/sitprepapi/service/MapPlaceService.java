@@ -190,6 +190,9 @@ public class MapPlaceService {
 
     /** A starting point at the household's own home is the home — drawn once. */
     private static boolean isTheHome(OriginLocation o, Group household) {
+        // Kind `home` IS the household's home (V92) — its location is the
+        // household's, so the household pin already draws it.
+        if (o.isHome()) return true;
         if (GeoUtil.validLatLng(o.getLat(), o.getLng())
                 && GeoUtil.validLatLng(household.getLatitude(), household.getLongitude())) {
             return GeoUtil.haversineKm(o.getLat(), o.getLng(),
