@@ -84,6 +84,13 @@ public class NotificationService {
     public static final String TYPE_POST_MENTION = "post_mention";
 
     /**
+     * A Readiness Token unlock. Mapped to {@link Category#TOKEN_UNLOCKED} so even
+     * a caller that forgot the category can't fall through to the null-lane
+     * send path.
+     */
+    public static final String TYPE_TOKEN_UNLOCKED = "token_unlocked";
+
+    /**
      * Decide push lane for an outgoing notification by mapping the
      * legacy free-form {@code notificationType} string onto a structured
      * {@link Category}. Returns null when the type isn't mapped — caller
@@ -112,6 +119,7 @@ public class NotificationService {
             case "check_in_request" -> Category.CHECK_IN_REQUEST;
             case "checkin_reminder", "checkin_auto_ended" -> Category.CHECK_IN_REVIEW;
             case "weekly_drill_kickoff", "weekly_drill_nudge" -> Category.WEEKLY_DRILL_REMINDER;
+            case TYPE_TOKEN_UNLOCKED -> Category.TOKEN_UNLOCKED;
             default -> null;
         };
     }
@@ -1042,6 +1050,33 @@ public class NotificationService {
                 /* success */ true,
                 /* error */ null,
                 lane, category, actorUserId);
+    }
+
+    /**
+     * Writes an inbox row and nothing else: no STOMP banner, no FCM, no APNs.
+     * The token passed to the row is null by construction and nothing on this
+     * path references {@code FirebaseMessaging}, so the row cannot become a
+     * push whatever lane it is given. The inbox's own STOMP {@code created}
+     * event still fires so an open inbox shows the row live.
+     *
+     * <p>Policy is the caller's job — {@code TokenNotifier} checks
+     * {@link PushPolicyService#evaluate} first so a user who switched the
+     * inbox off gets no row.</p>
+     */
+    public void logInboxOnly(String recipientEmail,
+                             String type,
+                             String title,
+                             String body,
+                             String referenceId,
+                             String targetUrl,
+                             String additionalData,
+                             Category category) {
+        saveLogRow(recipientEmail, type,
+                /* token */ null,
+                title, body, referenceId, targetUrl, additionalData,
+                /* success */ true,
+                /* error */ null,
+                Lane.B, category, /* actorUserId */ null);
     }
 
     /**

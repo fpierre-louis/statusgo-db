@@ -223,7 +223,7 @@ public class PushPolicyService {
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
                  NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
                  HOUSEHOLD_RITUAL_REMINDER, WEEKLY_DRILL_REMINDER,
-                 FOLLOW, FOLLOW_INVITE, FOLLOW_ACCEPTED -> Lane.B;
+                 FOLLOW, FOLLOW_INVITE, FOLLOW_ACCEPTED, TOKEN_UNLOCKED -> Lane.B;
             // Lane C — ephemeral
             case SELF_STATUS_SYNC, CONNECTION_STATE,
                  OPTIMISTIC_ROLLBACK, TOAST_CONFIRMATION -> Lane.C;
@@ -408,6 +408,14 @@ public class PushPolicyService {
          * without disabling the check-in cadence.
          */
         WEEKLY_DRILL_REMINDER,
+        /**
+         * A Readiness Token was earned (docs/epics/readiness_tokens). Lane B
+         * and only Lane B: recognition is never an interruption, so it lands
+         * in the inbox and the app's own quiet toast — never an OS push. The
+         * writer ({@code NotificationService.logInboxOnly}) carries no FCM
+         * token either, so a future lane edit alone could not make it push.
+         */
+        TOKEN_UNLOCKED,
 
         // Lane C — ephemeral (in-app banner only)
         SELF_STATUS_SYNC,
