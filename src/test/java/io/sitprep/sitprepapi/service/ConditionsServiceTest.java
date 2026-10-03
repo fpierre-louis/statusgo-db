@@ -25,10 +25,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * sends: SI units, ISO-8601 interval {@code validTime}s of uneven length, and
  * day/night max/min periods.</p>
  *
- * <p><b>The AirNow fixture is SYNTHETIC</b>, built from AirNow's documented
- * response shape, and named so: the API needs a key and none exists yet. The
- * EXEC checklist carries replacing it with a capture once
- * {@code AIRNOW_API_KEY} is set. Its values are not an observation.</p>
+ * <p>The AirNow fixture is a REAL response from the 2026
+ * {@code observation/current/ziplatLong} service, captured 2026-10-02 17:00 MDT
+ * for (40.4, -111.9): one row per pollutant, {@code nowcastAQI}, and AirNow's
+ * own 50-mile lookup boundary. (The 2020-era service it replaced was retired
+ * 2026-10-01 and answers 410.)</p>
  */
 class ConditionsServiceTest {
 
@@ -44,7 +45,7 @@ class ConditionsServiceTest {
 
     private ConditionsReading slc(BriefSlot slot) throws IOException {
         return svc.parse(fixture("nws-gridpoint-2026-10-02.json"),
-                fixture("airnow-current-SYNTHETIC-documented-shape.json"), "America/Denver", 40.8, -111.9, slot);
+                fixture("airnow-ziplatlong-2026-10-02.json"), "America/Denver", 40.8, -111.9, slot);
     }
 
     @Test
@@ -75,8 +76,8 @@ class ConditionsServiceTest {
     @Test
     void theAqiIsTheWorstPollutantWithItsEpaCategory() throws IOException {
         ConditionsReading.Now now = slc(null).now();
-        assertThat(now.aqi()).isEqualTo(57);          // PM2.5 57 beats O3 38
-        assertThat(now.aqiCategory()).isEqualTo("Moderate");
+        assertThat(now.aqi()).isEqualTo(43);          // OZONE 43 beats PM2.5 28 and PM10 16
+        assertThat(now.aqiCategory()).isEqualTo("Good");
     }
 
     @Test
@@ -107,17 +108,17 @@ class ConditionsServiceTest {
     }
 
     @Test
-    void noMonitorWithin25MilesMeansNoReading() throws IOException {
+    void noMonitorInRangeMeansNoReading() throws IOException {
         assertThat(svc.parse(fixture("nws-gridpoint-2026-10-02.json"), "[]", "America/Denver", 40.8, -111.9, null))
                 .isNull();
     }
 
     @Test
     void airNowNoValueIsSkippedNotCountedAsZero() throws IOException {
-        JsonNode obs = mapper.readTree("[{\"ParameterName\":\"O3\",\"AQI\":-1},{\"ParameterName\":\"PM2.5\",\"AQI\":12}]");
+        JsonNode obs = mapper.readTree("[{\"parameterName\":\"OZONE\",\"nowcastAQI\":-1},{\"parameterName\":\"PM2.5\",\"nowcastAQI\":12}]");
         assertThat(ConditionsService.airNowAqi(obs)).isEqualTo(12);
-        assertThat(ConditionsService.airNowAqi(mapper.readTree("[{\"AQI\":-1}]"))).isNull();
-        assertThat(ConditionsService.airNowAqi(mapper.readTree("{\"error\":\"bad key\"}"))).isNull();
+        assertThat(ConditionsService.airNowAqi(mapper.readTree("[{\"nowcastAQI\":-1}]"))).isNull();
+        assertThat(ConditionsService.airNowAqi(mapper.readTree("{\"WebServiceError\":[{\"Message\":\"retired\"}]}"))).isNull();
     }
 
     @Test
@@ -125,14 +126,14 @@ class ConditionsServiceTest {
         ConditionsService later = new ConditionsService(mapper, "test-key",
                 Clock.fixed(Instant.parse("2026-11-30T00:00:00Z"), ZoneOffset.UTC));
         assertThat(later.parse(fixture("nws-gridpoint-2026-10-02.json"),
-                fixture("airnow-current-SYNTHETIC-documented-shape.json"), "America/Denver", 40.8, -111.9, null))
+                fixture("airnow-ziplatlong-2026-10-02.json"), "America/Denver", 40.8, -111.9, null))
                 .isNull();
     }
 
     @Test
     void aChangedUnitIsNoReadingNotAWrongOne() throws IOException {
         String fahrenheit = fixture("nws-gridpoint-2026-10-02.json").replace("wmoUnit:degC", "wmoUnit:degF");
-        assertThat(svc.parse(fahrenheit, fixture("airnow-current-SYNTHETIC-documented-shape.json"),
+        assertThat(svc.parse(fahrenheit, fixture("airnow-ziplatlong-2026-10-02.json"),
                 "America/Denver", 40.8, -111.9, null)).isNull();
     }
 

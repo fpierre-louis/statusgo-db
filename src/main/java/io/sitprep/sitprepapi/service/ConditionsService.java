@@ -46,9 +46,13 @@ import java.util.regex.Pattern;
  *       feels-like, wind, gusts, precipitation chance and the weather grid as
  *       time series. Public domain, no key; NWS asks for an identifying
  *       User-Agent, the same one {@link NwsZoneService} sends.</li>
- *   <li><b>Air quality: EPA AirNow.</b> Current observations within 25 miles;
- *       the reading's AQI is the highest across the pollutants reported, which
- *       is how EPA states an overall AQI. Free, keyed
+ *   <li><b>Air quality: EPA AirNow.</b> The 2026 {@code observation/current/ziplatLong}
+ *       service: the closest monitor reading per pollutant within AirNow's own
+ *       50-mile lookup boundary (there is no distance parameter). The reading's
+ *       AQI is the highest NowCast AQI across the pollutants reported, which is
+ *       how EPA states an overall AQI. The 2020-era
+ *       {@code aq/observation/latLong/current} service was retired on
+ *       2026-10-01 and answers 410. Free, keyed
  *       ({@code conditions.airnow.api-key}, env {@code AIRNOW_API_KEY}).</li>
  *   <li><b>Snapped to 0.1°.</b> Every reading is taken at the point rounded to
  *       a 0.1° grid (about 11 km): the daily-brief cell anchor, an effective
@@ -59,7 +63,7 @@ import java.util.regex.Pattern;
  *       call. Series values are picked against the clock on every read, so a
  *       cached forecast still answers "now".</li>
  *   <li><b>Soft fail, never guessed.</b> NWS or AirNow unreachable, a blank
- *       AirNow key, no monitor within 25 miles, or a forecast without a
+ *       AirNow key, no monitor within AirNow's 50-mile boundary, or a forecast without a
  *       current temperature or wind: the reading is null and the brief is
  *       skipped. A missing value is reported as missing, never faked.</li>
  * </ul>
@@ -74,8 +78,7 @@ public class ConditionsService {
     private static final Logger log = LoggerFactory.getLogger(ConditionsService.class);
 
     static final String NWS_POINTS = "https://api.weather.gov/points/%.4f,%.4f";
-    static final String AIRNOW_CURRENT = "https://www.airnowapi.org/aq/observation/latLong/current/";
-    static final int AIRNOW_DISTANCE_MI = 25;
+    static final String AIRNOW_CURRENT = "https://www.airnowapi.org/aq/observation/current/ziplatLong";
 
     static final Duration TTL = Duration.ofMinutes(20);
     static final Duration POINTS_TTL = Duration.ofDays(7);
@@ -223,8 +226,7 @@ public class ConditionsService {
     String airUrl(double lat, double lng) {
         return AIRNOW_CURRENT + "?format=application/json"
                 + String.format(Locale.ROOT, "&latitude=%.1f&longitude=%.1f", lat, lng)
-                + "&distance=" + AIRNOW_DISTANCE_MI
-                + "&API_KEY=" + URLEncoder.encode(airNowKey, StandardCharsets.UTF_8);
+                + "&api_key=" + URLEncoder.encode(airNowKey, StandardCharsets.UTF_8);
     }
 
     private String get(String url, boolean nws, String what) {
@@ -340,7 +342,7 @@ public class ConditionsService {
         if (observations == null || !observations.isArray()) return null;
         Integer best = null;
         for (JsonNode o : observations) {
-            JsonNode v = o.path("AQI");
+            JsonNode v = o.path("nowcastAQI");
             // AirNow uses -1 for "no value" on some feeds.
             if (!v.isNumber() || v.asInt() < 0) continue;
             if (best == null || v.asInt() > best) best = v.asInt();

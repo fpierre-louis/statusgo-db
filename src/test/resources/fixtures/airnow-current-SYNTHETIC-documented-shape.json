@@ -1,4 +1,0 @@
-[
-  {"DateObserved":"2026-10-02 ","HourObserved":7,"LocalTimeZone":"MST","ReportingArea":"Salt Lake City","StateCode":"UT","Latitude":40.777,"Longitude":-111.931,"ParameterName":"O3","AQI":38,"Category":{"Number":1,"Name":"Good"}},
-  {"DateObserved":"2026-10-02 ","HourObserved":7,"LocalTimeZone":"MST","ReportingArea":"Salt Lake City","StateCode":"UT","Latitude":40.777,"Longitude":-111.931,"ParameterName":"PM2.5","AQI":57,"Category":{"Number":2,"Name":"Moderate"}}
-]
