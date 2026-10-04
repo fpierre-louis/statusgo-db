@@ -55,7 +55,7 @@ public class NotificationService {
     private ConcealmentSafetyService concealmentSafetyService;
 
     /**
-     * Builds the inbox presentation contract (docs/epics/notification_ecosystem).
+     * Builds the inbox presentation contract (docs/epics/notification-ecosystem-completed).
      * Field-injected and optional so hand-built test instances keep working;
      * when absent, rows are written without one and normalized on read.
      */

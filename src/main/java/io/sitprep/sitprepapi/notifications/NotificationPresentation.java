@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The inbox presentation contract (docs/epics/notification_ecosystem_gameplan.md,
+ * The inbox presentation contract (docs/archive/notification-ecosystem-2026-10-03/notification_ecosystem_gameplan.md,
  * "Proposed Notification Contract"). Every notification answers four questions,
  * and each block owns one of them:
  *
