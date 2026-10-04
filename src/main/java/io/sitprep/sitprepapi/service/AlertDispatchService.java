@@ -858,7 +858,8 @@ public class AlertDispatchService {
                 body,
                 referenceId,
                 "/hazards",
-                hazardNotificationData(a, decision));
+                hazardNotificationData(a, decision),
+                tpl != null && tpl.sitprep != null && tpl.sitprep.concealmentSensitive);
         log.info("AlertDispatch: severe-alert push for {} dispatched to {} nearby user(s)",
                 referenceId, nearby.size());
     }

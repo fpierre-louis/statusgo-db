@@ -27,6 +27,31 @@ class NotificationSoundTest {
     }
 
     @Test
+    @DisplayName("a person who may be hiding gets no sound key, low priority, and a quiet Android notification")
+    void silentDelivery() {
+        NotificationService.Delivery d = NotificationService.deliveryFor(true, "new_member");
+        assertThat(d.iosSound()).isNull();
+        assertThat(d.apnsPriority()).isEqualTo("5");
+        assertThat(d.android()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("an audible delivery wakes the device and uses the type's sound")
+    void audibleDelivery() {
+        NotificationService.Delivery d = NotificationService.deliveryFor(false, "check_in_request");
+        assertThat(d.iosSound()).isEqualTo("sitprep-checkin.caf");
+        assertThat(d.apnsPriority()).isEqualTo("10");
+        assertThat(NotificationService.deliveryFor(false, "new_member").iosSound()).isEqualTo("default");
+    }
+
+    @Test
+    @DisplayName("a lockdown warning multicast keeps the short system sound, never the longer alert tone")
+    void lockdownHazardKeepsDefault() {
+        assertThat(NotificationService.hazardSoundFor("hazard_alert", true)).isEqualTo("default");
+        assertThat(NotificationService.hazardSoundFor("hazard_alert", false)).isEqualTo("sitprep-alert.caf");
+    }
+
+    @Test
     @DisplayName("everything else keeps the system default")
     void routine() {
         assertThat(NotificationService.iosSoundFor("new_member")).isEqualTo("default");

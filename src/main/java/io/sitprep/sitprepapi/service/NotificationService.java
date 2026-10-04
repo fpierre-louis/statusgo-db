@@ -642,30 +642,17 @@ public class NotificationService {
         boolean silent = shouldSendSilently(recipientEmail);
 
         try {
-            // ANDROID/Web data – keep your existing keys
-            AndroidConfig androidConfig = AndroidConfig.builder()
-                    .setPriority(silent ? AndroidConfig.Priority.NORMAL : AndroidConfig.Priority.HIGH)
-                    .setNotification(silent
-                            ? AndroidNotification.builder()
-                                    .setDefaultSound(false)
-                                    .setDefaultVibrateTimings(false)
-                                    .build()
-                            : AndroidNotification.builder()
-                                    .setSound("default")
-                                    .build())
-                    .build();
+            Delivery delivery = deliveryFor(silent, notificationType);
+            AndroidConfig androidConfig = delivery.android();
 
             // iOS APNs block (correct API: use ApnsConfig + Aps; put custom keys via Aps or ApnsConfig.putCustomData)
             ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
-                    // 10 = alert (wakes the device), 5 = considerate delivery.
-                    .putHeader("apns-priority", silent ? "5" : "10");
+                    .putHeader("apns-priority", delivery.apnsPriority());
 
             Aps.Builder apsBuilder = Aps.builder()
                     .setMutableContent(true);      // enables notification service extension (if you have one)
-            // Omitting the sound key entirely is what makes APNs deliver
-            // silently. Setting it to "" is not the same thing.
-            if (!silent) {
-                apsBuilder.setSound(iosSoundFor(notificationType));
+            if (delivery.iosSound() != null) {
+                apsBuilder.setSound(delivery.iosSound());
             }
 
             // Custom metadata inside "aps"
@@ -803,25 +790,26 @@ public class NotificationService {
         // App-icon badge for the recipient — identical for every device
         // token, so resolve it once outside the per-token loop.
         Integer badge = unreadBadgeFor(recipientEmail);
+        // P0-B applies here too: this path sends "new member" pushes, and a
+        // phone in a lockdown must not chime for those either. Same check as
+        // deliverPresenceAware, decided once for all of the person's devices.
+        Delivery delivery = deliveryFor(shouldSendSilently(recipientEmail), notificationType);
 
         for (String token : tokens) {
             boolean success = false;
             String errorMessage = null;
 
             try {
-                AndroidConfig androidConfig = AndroidConfig.builder()
-                        .setPriority(AndroidConfig.Priority.HIGH)
-                        .setNotification(AndroidNotification.builder()
-                                .setSound("default")
-                                .build())
-                        .build();
+                AndroidConfig androidConfig = delivery.android();
 
                 ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
-                        .putHeader("apns-priority", "10");
+                        .putHeader("apns-priority", delivery.apnsPriority());
 
                 Aps.Builder apsBuilder = Aps.builder()
-                        .setMutableContent(true)
-                        .setSound("default");
+                        .setMutableContent(true);
+                if (delivery.iosSound() != null) {
+                    apsBuilder.setSound(delivery.iosSound());
+                }
 
                 apsBuilder.putCustomData("notificationType", safe(notificationType));
                 apsBuilder.putCustomData("referenceId", safe(referenceId));
@@ -1153,6 +1141,23 @@ public class NotificationService {
                                                   String referenceId,
                                                   String targetUrl,
                                                   String additionalData) {
+        return sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl,
+                additionalData, /* concealmentSensitive */ false);
+    }
+
+    /**
+     * @param concealmentSensitive the alert's reviewed template marks it a
+     *        lockdown / violent-threat hazard. Such an alert keeps the plain
+     *        system sound rather than SitPrep's longer alert tone (see
+     *        {@link #hazardSoundFor}).
+     */
+    public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
+                                                  String title,
+                                                  String body,
+                                                  String referenceId,
+                                                  String targetUrl,
+                                                  String additionalData,
+                                                  boolean concealmentSensitive) {
         if (recipients == null || recipients.isEmpty()) {
             return new HazardBatchResult(0, 0, 0, null);
         }
@@ -1224,7 +1229,8 @@ public class NotificationService {
                             .setPriority(AndroidConfig.Priority.HIGH)
                             .setNotification(AndroidNotification.builder().setSound("default").build())
                             .build())
-                    .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData, deepLinkRoute))
+                    .setApnsConfig(buildHazardApns(type, referenceId, title, body, targetUrl, additionalData, deepLinkRoute,
+                            concealmentSensitive))
                     .build();
 
             try {
@@ -1287,12 +1293,13 @@ public class NotificationService {
                                        String body,
                                        String targetUrl,
                                        String additionalData,
-                                       String deepLinkRoute) {
+                                       String deepLinkRoute,
+                                       boolean concealmentSensitive) {
         ApnsConfig.Builder apnsBuilder = ApnsConfig.builder()
                 .putHeader("apns-priority", "10");
         Aps.Builder apsBuilder = Aps.builder()
                 .setMutableContent(true)
-                .setSound(iosSoundFor(type));
+                .setSound(hazardSoundFor(type, concealmentSensitive));
         // No aps.badge here: a hazard alert ships as one MulticastMessage
         // with a single shared payload, so a per-recipient unread count
         // can't be expressed. The badge corrects on the recipient's next
@@ -1466,6 +1473,47 @@ public class NotificationService {
      * deploying this ahead of the app is harmless. The concealment path never
      * reaches here: silent means no sound key at all.
      */
+    /**
+     * How one person's push is delivered: audible, or silent because they may
+     * be hiding (P0-B, {@link #shouldSendSilently}). Every per-person send
+     * path builds its Android priority, APNs priority and iOS sound from
+     * here, so a path cannot be audible where another is silent.
+     *
+     * <p>Silent = Android NORMAL with no sound or vibration, APNs priority 5
+     * (considerate delivery; 10 wakes the device), and NO {@code aps.sound}
+     * key at all ({@code iosSound} null). Omitting the key is what makes APNs
+     * deliver silently; an empty string is not the same thing.
+     */
+    static Delivery deliveryFor(boolean silent, String notificationType) {
+        AndroidConfig android = AndroidConfig.builder()
+                .setPriority(silent ? AndroidConfig.Priority.NORMAL : AndroidConfig.Priority.HIGH)
+                .setNotification(silent
+                        ? AndroidNotification.builder()
+                                .setDefaultSound(false)
+                                .setDefaultVibrateTimings(false)
+                                .build()
+                        : AndroidNotification.builder()
+                                .setSound("default")
+                                .build())
+                .build();
+        return new Delivery(android, silent ? "5" : "10", silent ? null : iosSoundFor(notificationType));
+    }
+
+    record Delivery(AndroidConfig android, String apnsPriority, String iosSound) {}
+
+    /**
+     * The sound for a hazard multicast. A lockdown / violent-threat warning
+     * (template {@code concealmentSensitive}) keeps the short system sound, not
+     * SitPrep's three-tone alert: the multicast is one payload for everyone,
+     * so it cannot be silenced per person, and the longer tone must not make
+     * the one alert where noise is dangerous any louder than it was. Whether
+     * that warning should be silent outright is an open owner question
+     * (docs/epics/haptics_and_sound/EXEC-SOUND.md).
+     */
+    static String hazardSoundFor(String type, boolean concealmentSensitive) {
+        return concealmentSensitive ? "default" : iosSoundFor(type);
+    }
+
     static String iosSoundFor(String notificationType) {
         if ("check_in_request".equals(notificationType)) return "sitprep-checkin.caf";
         if (isTimeSensitiveTypeStatic(notificationType)) return "sitprep-alert.caf";
