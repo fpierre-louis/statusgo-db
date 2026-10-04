@@ -1990,7 +1990,7 @@ public class PostService {
         if (AlertModeService.ALERT.equals(cellMode) || AlertModeService.CRISIS.equals(cellMode)) return;
         PostDto.CommunityExtras.BriefView view;
         try {
-            view = briefs.viewFor(lat, lng);
+            view = briefs.cachedViewFor(lat, lng);   // never waits on an upstream
         } catch (Exception e) {
             log.debug("DailyBrief: view failed for ({}, {}): {}", lat, lng, e.toString());
             return;

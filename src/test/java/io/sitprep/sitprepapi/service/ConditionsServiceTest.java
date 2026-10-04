@@ -190,4 +190,13 @@ class ConditionsServiceTest {
         String t = type == null ? "null" : "\"" + type + "\"";
         return List.of(mapper.readTree("{\"coverage\":" + c + ",\"weather\":" + t + ",\"intensity\":null}"));
     }
+
+    /** The feed's read never calls upstream: a cold cache is an instant null. */
+    @Test
+    void cachedReadsNeverFetch() {
+        long t0 = System.nanoTime();
+        assertThat(svc.cachedTimezoneFor(40.39, -111.85)).isNull();
+        assertThat(svc.cachedReadingFor(40.39, -111.85, BriefSlot.EVENING)).isNull();
+        assertThat(System.nanoTime() - t0).isLessThan(200_000_000L);
+    }
 }

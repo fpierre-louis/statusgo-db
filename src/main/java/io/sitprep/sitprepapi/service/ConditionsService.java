@@ -89,6 +89,12 @@ public class ConditionsService {
      */
     static final Duration AIR_TTL = Duration.ofMinutes(60);
     static final Duration POINTS_TTL = Duration.ofDays(7);
+    /**
+     * After an upstream fails for a cell, don't ask it again for this long.
+     * Without it every request for that cell waited out the timeout again —
+     * AirNow timing out for Utah cost each feed load 10 s (2026-10-03).
+     */
+    static final Duration FAIL_BACKOFF = Duration.ofMinutes(10);
     private static final int CACHE_MAX = 5_000;
     private static final Duration HORIZON = Duration.ofHours(6);
 
@@ -123,6 +129,8 @@ public class ConditionsService {
     private final Map<String, Point> points = lru();
     private final Map<String, Cached> cache = lru();
     private final Map<String, Cached> airCache = lru();
+    /** "{upstream}|{cell}" → when it last failed. */
+    private final Map<String, Instant> failedAt = lru();
 
     /** The grid cell NWS assigns a point. */
     record Point(Instant fetchedAt, String gridDataUrl, String timezone) {}
@@ -172,7 +180,13 @@ public class ConditionsService {
      * call, so the scheduler can place a cell's slots without a reading.
      */
     public String timezoneFor(double lat, double lng) {
-        Point p = point(snap(lat), snap(lng));
+        Point p = point(snap(lat), snap(lng), true);
+        return p == null ? null : p.timezone();
+    }
+
+    /** {@link #timezoneFor} from cache only: never calls upstream. */
+    public String cachedTimezoneFor(double lat, double lng) {
+        Point p = point(snap(lat), snap(lng), false);
         return p == null ? null : p.timezone();
     }
 
@@ -187,25 +201,39 @@ public class ConditionsService {
      * Returns null when either upstream cannot be read.
      */
     public ConditionsReading readingFor(double lat, double lng, BriefSlot slot) {
+        return reading(lat, lng, slot, true);
+    }
+
+    /**
+     * {@link #readingFor} from cache only: null unless every piece is cached
+     * and fresh. For the feed, which must never wait on NWS or AirNow.
+     */
+    public ConditionsReading cachedReadingFor(double lat, double lng, BriefSlot slot) {
+        return reading(lat, lng, slot, false);
+    }
+
+    private ConditionsReading reading(double lat, double lng, BriefSlot slot, boolean fetch) {
         if (airNowKey.isEmpty()) return null;
         double sLat = snap(lat);
         double sLng = snap(lng);
         String key = key(sLat, sLng);
 
-        Point p = point(sLat, sLng);
+        Point p = point(sLat, sLng, fetch);
         if (p == null) return null;
 
         Instant nowTs = clock.instant();
         Cached g = cache.get(key);
         if (g == null || g.fetchedAt().plus(TTL).isBefore(nowTs)) {
-            String grid = get(p.gridDataUrl(), true, "NWS gridpoint");
+            if (!fetch) return null;
+            String grid = fetch("NWS gridpoint", key, p.gridDataUrl(), true);
             if (grid == null) return null;
             g = new Cached(nowTs, grid, null);
             cache.put(key, g);
         }
         Cached a = airCache.get(key);
         if (a == null || a.fetchedAt().plus(AIR_TTL).isBefore(nowTs)) {
-            String air = get(airUrl(sLat, sLng), false, "AirNow");
+            if (!fetch) return null;
+            String air = fetch("AirNow", key, airUrl(sLat, sLng), false);
             if (air == null) return null;
             a = new Cached(nowTs, null, air);
             airCache.put(key, a);
@@ -213,11 +241,12 @@ public class ConditionsService {
         return parse(g.gridJson(), a.airJson(), p.timezone(), sLat, sLng, slot);
     }
 
-    private Point point(double sLat, double sLng) {
+    private Point point(double sLat, double sLng, boolean fetch) {
         String key = key(sLat, sLng);
         Point p = points.get(key);
         if (p != null && !p.fetchedAt().plus(POINTS_TTL).isBefore(clock.instant())) return p;
-        String body = get(String.format(Locale.ROOT, NWS_POINTS, sLat, sLng), true, "NWS points");
+        if (!fetch) return null;
+        String body = fetch("NWS points", key, String.format(Locale.ROOT, NWS_POINTS, sLat, sLng), true);
         if (body == null) return null;
         p = parsePoint(body);
         if (p != null) points.put(key, p);
@@ -242,6 +271,17 @@ public class ConditionsService {
         return AIRNOW_CURRENT + "?format=application/json"
                 + String.format(Locale.ROOT, "&latitude=%.1f&longitude=%.1f", lat, lng)
                 + "&api_key=" + URLEncoder.encode(airNowKey, StandardCharsets.UTF_8);
+    }
+
+    /** {@link #get}, skipped while this upstream is backing off for this cell. */
+    private String fetch(String what, String cell, String url, boolean nws) {
+        String k = what + "|" + cell;
+        Instant failed = failedAt.get(k);
+        if (failed != null && failed.plus(FAIL_BACKOFF).isAfter(clock.instant())) return null;
+        String body = get(url, nws, what);
+        if (body == null) failedAt.put(k, clock.instant());
+        else failedAt.remove(k);
+        return body;
     }
 
     private String get(String url, boolean nws, String what) {

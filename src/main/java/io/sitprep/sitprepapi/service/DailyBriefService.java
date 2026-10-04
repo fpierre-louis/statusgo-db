@@ -26,7 +26,11 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
@@ -75,6 +79,19 @@ public class DailyBriefService {
     private volatile Long postId;
     /** City per 0.1° cell. A cell's name doesn't change; Nominatim is throttled. */
     private final Map<String, String> placeByCell = new ConcurrentHashMap<>();
+
+    /**
+     * Fills a cell's caches off the request thread, so a feed load never
+     * waits on NWS, AirNow or Nominatim. Small and bounded: past the queue a
+     * warm is dropped, and the next feed load for that cell asks again.
+     */
+    private final ThreadPoolExecutor warmer = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(200), r -> {
+                Thread t = new Thread(r, "brief-warm");
+                t.setDaemon(true);
+                return t;
+            }, new ThreadPoolExecutor.DiscardPolicy());
+    private final Set<String> warming = ConcurrentHashMap.newKeySet();
 
     @Autowired
     public DailyBriefService(PostRepo postRepo, ConditionsService conditions, DailyNudgeCatalog catalog,
@@ -135,13 +152,51 @@ public class DailyBriefService {
     /**
      * The card as a viewer at (lat, lng) sees it now, or null when it must be
      * hidden (no time zone, no reading, or a reading missing a required value).
+     * Calls upstream as needed: for the admin preview, never the feed.
      */
     public PostDto.CommunityExtras.BriefView viewFor(double lat, double lng) {
-        String tz = conditions.timezoneFor(lat, lng);
+        return view(lat, lng, true);
+    }
+
+    /**
+     * The feed's read: from cache only, so it never waits on an upstream.
+     * A cell with nothing cached yet is filled in the background and shows
+     * the card from the next load on; until then it shows no card, the same
+     * as having no reading.
+     */
+    public PostDto.CommunityExtras.BriefView cachedViewFor(double lat, double lng) {
+        PostDto.CommunityExtras.BriefView v = view(lat, lng, false);
+        if (v == null) warm(lat, lng);
+        return v;
+    }
+
+    private void warm(double lat, double lng) {
+        String cell = cellKey(lat, lng);
+        if (!warming.add(cell)) return;
+        try {
+            warmer.execute(() -> {
+                try {
+                    // A failing upstream backs off inside ConditionsService,
+                    // so a cell that keeps failing costs nothing here.
+                    if (conditions.readingFor(lat, lng) != null) placeFor(cell, lat, lng);
+                } catch (Exception e) {
+                    log.debug("DailyBrief: warm failed for {}: {}", cell, e.toString());
+                } finally {
+                    warming.remove(cell);
+                }
+            });
+        } catch (Exception e) {
+            warming.remove(cell);
+        }
+    }
+
+    private PostDto.CommunityExtras.BriefView view(double lat, double lng, boolean fetch) {
+        String tz = fetch ? conditions.timezoneFor(lat, lng) : conditions.cachedTimezoneFor(lat, lng);
         if (tz == null) return null;
         ZonedDateTime local = clock.instant().atZone(ZoneId.of(tz));
         BriefSlot slot = slotFor(local.toLocalTime());
-        ConditionsReading r = conditions.readingFor(lat, lng, slot);
+        ConditionsReading r = fetch ? conditions.readingFor(lat, lng, slot)
+                : conditions.cachedReadingFor(lat, lng, slot);
         if (r == null || r.now() == null) return null;
         String sentence = composer.weatherSentence(r, null);
         if (sentence == null) return null;
@@ -156,7 +211,7 @@ public class DailyBriefService {
         if (n == null) return null;
         ConditionsReading.Now now = r.now();
         return new PostDto.CommunityExtras.BriefView(
-                placeFor(cellKey, lat, lng), sentence,
+                fetch ? placeFor(cellKey, lat, lng) : placeByCell.getOrDefault(cellKey, "you"), sentence,
                 now.tempF(), now.feelsF(), now.windMph(), now.windDir(), now.gustMph(),
                 now.aqi(), now.aqiCategory(), r.condition(), r.tier(),
                 n.id(), n.text(), n.label(), n.destination(), n.minutes(),
