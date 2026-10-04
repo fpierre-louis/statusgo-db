@@ -99,7 +99,7 @@ public class ConditionsService {
     private static final Duration HORIZON = Duration.ofHours(6);
 
     /** Same identification NWS asks for as {@code NwsZoneService} and {@code AlertIngestService}. */
-    private static final String USER_AGENT = "(SitPrep/sitprep.app, contactus@sitprep.app)";
+    private static final String USER_AGENT = "(SitPrep/sitprep.app, sitprepcontact@gmail.com)";
 
     private static final double KMH_TO_MPH = 0.621371;
 

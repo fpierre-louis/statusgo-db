@@ -88,7 +88,7 @@ public class NwsZoneService {
     private static final String ZONE_URL = "https://api.weather.gov/zones/%s/%s";
 
     /** Same identification NWS asks for as {@code AlertIngestService}. */
-    private static final String USER_AGENT = "(SitPrep/sitprep.app, contactus@sitprep.app)";
+    private static final String USER_AGENT = "(SitPrep/sitprep.app, sitprepcontact@gmail.com)";
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(10);
 

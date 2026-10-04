@@ -61,7 +61,7 @@ public class GeocodeClient {
     private final Object photonLock = new Object();
     private long photonNextSlotMs = 0;
 
-    @Value("${nominatim.user-agent:SitPrep/1.0 (contact@sitprep.app)}")
+    @Value("${nominatim.user-agent:SitPrep/1.0 (sitprepcontact@gmail.com)}")
     private String userAgent;
 
     @Value("${geocode.photon-url:https://photon.komoot.io/api/}")

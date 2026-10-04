@@ -120,7 +120,7 @@ public class ShelterSearchService {
     private final RestTemplate rest;
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
-    @Value("${nominatim.user-agent:SitPrep/1.0 (contact@sitprep.app)}")
+    @Value("${nominatim.user-agent:SitPrep/1.0 (sitprepcontact@gmail.com)}")
     private String userAgent;
 
     /** Nominatim lookups go through the one client (UA, 1 req/s gate, cache). */

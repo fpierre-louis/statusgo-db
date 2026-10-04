@@ -131,7 +131,7 @@ public class AlertIngestService {
 
     /** NWS asks for a User-Agent identifying the consumer. */
     private static final String USER_AGENT =
-            "(SitPrep/sitprep.app, contactus@sitprep.app)";
+            "(SitPrep/sitprep.app, sitprepcontact@gmail.com)";
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
 
