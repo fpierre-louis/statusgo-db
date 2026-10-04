@@ -102,6 +102,10 @@ class NotificationPresentationTest {
         // The household flip is type "alert" + the household category.
         assertThat(NotificationEventType.resolve("alert", "GROUP_ALERT_HOUSEHOLD", "hh1"))
                 .isEqualTo(NotificationEventType.GROUP_ALERT_HOUSEHOLD);
+        // Safe / Help buttons (iOS category GROUP_ALERT, mirrored to the watch)
+        // on every push that asks for a status.
+        assertThat(NotificationEventType.forType("check_in_request").iosCategory()).isEqualTo("GROUP_ALERT");
+        assertThat(NotificationEventType.forType("alert").iosCategory()).isEqualTo("GROUP_ALERT");
         assertThat(NotificationEventType.resolve("hazard_alert", null, "agency-alert:42"))
                 .isEqualTo(NotificationEventType.AGENCY_ALERT);
     }

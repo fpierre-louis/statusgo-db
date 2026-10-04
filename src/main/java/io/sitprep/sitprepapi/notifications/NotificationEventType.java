@@ -50,8 +50,11 @@ public enum NotificationEventType {
     GROUP_ALERT_HOUSEHOLD(Set.of(), Set.of(Category.GROUP_ALERT_HOUSEHOLD),
             Category.GROUP_ALERT_HOUSEHOLD, "alerts", "GROUP_ALERT",
             NotificationSourceType.HOUSEHOLD, "SHIELD_ALERT", Priority.EMERGENCY, "HOUSEHOLD", false),
+    /** iOS category GROUP_ALERT (2026-10-03, watch Tier 1): a "please check
+     *  in" push carries the Safe / Need help / I'm hurt buttons, which iOS
+     *  mirrors to a paired Apple Watch. It was SYSTEM — no buttons. */
     CHECK_IN_REQUEST(Set.of("check_in_request"), Set.of(Category.CHECK_IN_REQUEST),
-            Category.CHECK_IN_REQUEST, "general", "SYSTEM",
+            Category.CHECK_IN_REQUEST, "general", "GROUP_ALERT",
             NotificationSourceType.GROUP, "CHECK_IN", Priority.ATTENTION, "GROUP", false),
     CHECK_IN_REVIEW(Set.of("checkin_reminder"), Set.of(Category.CHECK_IN_REVIEW),
             Category.CHECK_IN_REVIEW, "general", "SYSTEM",
