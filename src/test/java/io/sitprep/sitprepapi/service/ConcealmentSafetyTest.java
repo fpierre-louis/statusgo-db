@@ -2,6 +2,8 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.sitprep.sitprepapi.domain.GeoPoint;
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +17,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -86,6 +89,26 @@ class ConcealmentSafetyTest {
     }
 
     private static Instant soon() { return Instant.now().plus(2, ChronoUnit.HOURS); }
+
+    @Test
+    @DisplayName("a person with no live fix is judged at home — the push path and the app's sound policy share this")
+    void personFallsBackToHome() {
+        feedReturns(card("Law Enforcement Warning", "active", soon()));
+        templateFor("Law Enforcement Warning", true);
+        UserInfo u = new UserInfo();
+        u.setHomeLocation(GeoPoint.of(40.5, -111.9));
+
+        assertThat(service.isConcealmentSensitiveFor(u)).isTrue();
+        verify(feed).feedFor(eq(40.5), eq(-111.9));
+    }
+
+    @Test
+    @DisplayName("a person with no location at all fails toward noise")
+    void personWithNoLocationFailsOpen() {
+        assertThat(service.isConcealmentSensitiveFor(new UserInfo())).isFalse();
+        assertThat(service.isConcealmentSensitiveFor(null)).isFalse();
+        verifyNoInteractions(feed);
+    }
 
     @Test
     @DisplayName("a live concealment-sensitive hazard silences the device")

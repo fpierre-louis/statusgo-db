@@ -665,7 +665,7 @@ public class NotificationService {
             // Omitting the sound key entirely is what makes APNs deliver
             // silently. Setting it to "" is not the same thing.
             if (!silent) {
-                apsBuilder.setSound("default");
+                apsBuilder.setSound(iosSoundFor(notificationType));
             }
 
             // Custom metadata inside "aps"
@@ -1292,7 +1292,7 @@ public class NotificationService {
                 .putHeader("apns-priority", "10");
         Aps.Builder apsBuilder = Aps.builder()
                 .setMutableContent(true)
-                .setSound("default");
+                .setSound(iosSoundFor(type));
         // No aps.badge here: a hazard alert ships as one MulticastMessage
         // with a single shared payload, so a per-recipient unread count
         // can't be expressed. The badge corrects on the recipient's next
@@ -1362,18 +1362,7 @@ public class NotificationService {
         }
         try {
             return userInfoRepo.findByUserEmailIgnoreCase(recipientEmail)
-                    .map(u -> {
-                        Double lat = u.getLastKnownLat();
-                        Double lng = u.getLastKnownLng();
-                        if (lat == null || lng == null) {
-                            // Fall back to the home location — a household
-                            // member sheltering at home is the common case.
-                            if (u.getHomeLocation() == null) return false;
-                            lat = u.getHomeLocation().getLat();
-                            lng = u.getHomeLocation().getLng();
-                        }
-                        return concealmentSafetyService.isConcealmentSensitiveAt(lat, lng);
-                    })
+                    .map(concealmentSafetyService::isConcealmentSensitiveFor)
                     .orElse(false);
         } catch (RuntimeException ex) {
             return false;
@@ -1466,7 +1455,28 @@ public class NotificationService {
      * critical alerts (DND bypass) require a separate Apple entitlement
      * we deliberately don't request for v1.</p>
      */
+    /**
+     * Which bundled sound an audible iOS push plays.
+     *
+     * <p>Safety pushes get SitPrep's own sounds so a user can tell "this is a
+     * safety alert" from across the room without looking: the alert tone for
+     * the time-sensitive types, the check-in tone for a check-in request.
+     * Everything else stays the system default. The files ship in the iOS App
+     * bundle (ios/App/App/sounds); a build without them plays the default, so
+     * deploying this ahead of the app is harmless. The concealment path never
+     * reaches here: silent means no sound key at all.
+     */
+    static String iosSoundFor(String notificationType) {
+        if ("check_in_request".equals(notificationType)) return "sitprep-checkin.caf";
+        if (isTimeSensitiveTypeStatic(notificationType)) return "sitprep-alert.caf";
+        return "default";
+    }
+
     private boolean isTimeSensitiveType(String type) {
+        return isTimeSensitiveTypeStatic(type);
+    }
+
+    private static boolean isTimeSensitiveTypeStatic(String type) {
         if (type == null) return false;
         switch (type) {
             case "alert":

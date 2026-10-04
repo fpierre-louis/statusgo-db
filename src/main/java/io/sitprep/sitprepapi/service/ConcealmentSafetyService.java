@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import org.springframework.stereotype.Service;
@@ -77,6 +78,27 @@ public class ConcealmentSafetyService {
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    /**
+     * Should this person's phone stay quiet right now?
+     *
+     * <p>Their last known position, falling back to home (a member sheltering
+     * at home is the common case). One answer for both the push path
+     * ({@code NotificationService.shouldSendSilently}) and the app's own UI
+     * sounds ({@code GET /api/me/sound-policy}), so the app is never louder
+     * than its pushes. Fails toward noise, like {@link #isConcealmentSensitiveAt}.
+     */
+    public boolean isConcealmentSensitiveFor(UserInfo u) {
+        if (u == null) return false;
+        Double lat = u.getLastKnownLat();
+        Double lng = u.getLastKnownLng();
+        if (lat == null || lng == null) {
+            if (u.getHomeLocation() == null) return false;
+            lat = u.getHomeLocation().getLat();
+            lng = u.getHomeLocation().getLng();
+        }
+        return isConcealmentSensitiveAt(lat, lng);
     }
 
     /** Does this card's reviewed template declare the hazard concealment-sensitive? */

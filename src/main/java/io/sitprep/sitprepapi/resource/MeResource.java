@@ -4,6 +4,8 @@ import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.dto.MePlansDto;
+import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.ConcealmentSafetyService;
 import io.sitprep.sitprepapi.service.MeService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.slf4j.Logger;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -24,9 +27,36 @@ public class MeResource {
     private static final Logger log = LoggerFactory.getLogger(MeResource.class);
 
     private final MeService meService;
+    private final ConcealmentSafetyService concealmentSafetyService;
+    private final UserInfoRepo userInfoRepo;
 
-    public MeResource(MeService meService) {
+    public MeResource(MeService meService,
+                      ConcealmentSafetyService concealmentSafetyService,
+                      UserInfoRepo userInfoRepo) {
         this.meService = meService;
+        this.concealmentSafetyService = concealmentSafetyService;
+        this.userInfoRepo = userInfoRepo;
+    }
+
+    /**
+     * Should the app's own UI sounds stay off for the caller right now?
+     *
+     * <p>{@code suppressed: true} while a live concealment-sensitive alert (a
+     * lockdown or violent threat) covers the caller's last known position or
+     * home. It is the same judgment that sends their pushes silently (P0-B),
+     * so the app is never louder than its pushes. It is its own endpoint
+     * rather than a field on {@code /me/{uid}} because a lockdown can start
+     * while the app is open: the client re-asks on resume and on every alert
+     * arrival, which would be a full {@code /me} rebuild each time.
+     * Cheap: the alert feed is an in-memory snapshot.
+     */
+    @GetMapping("/sound-policy")
+    public Map<String, Boolean> soundPolicy() {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        boolean suppressed = userInfoRepo.findByUserEmailIgnoreCase(email)
+                .map(concealmentSafetyService::isConcealmentSensitiveFor)
+                .orElse(false);
+        return Map.of("suppressed", suppressed);
     }
 
     @GetMapping("/{uid}")
