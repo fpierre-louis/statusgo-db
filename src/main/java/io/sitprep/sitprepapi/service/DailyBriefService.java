@@ -210,7 +210,8 @@ public class DailyBriefService {
         }
         String cellKey = cellKey(lat, lng);
         DailyNudgeCatalog.Nudge n = catalog.forView(condition, slot, local.toLocalDate(), cellKey);
-        if (n == null) return null;
+        // The card always carries its button; a tip without one is never shown.
+        if (n == null || n.destination() == null || n.label() == null) return null;
         return new PostDto.CommunityExtras.BriefView(
                 fetch ? placeFor(cellKey, lat, lng) : placeByCell.getOrDefault(cellKey, "you"),
                 high, low, r.now().aqi(), r.now().aqiCategory(), r.condition(),

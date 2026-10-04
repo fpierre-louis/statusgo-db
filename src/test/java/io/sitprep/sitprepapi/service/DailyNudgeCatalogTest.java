@@ -30,9 +30,11 @@ class DailyNudgeCatalogTest {
     private static final Set<String> KNOWN_ROUTES = Set.of(
             "/hazards?focus=weather", "/hazards?focus=air", "/playbooks/power-outage", "/blizzard-prep");
 
+    /** The brief always carries its button (owner, 2026-10-03: "Have the CTA always"). */
     @Test
     void everyDestinationIsReal() {
         for (Nudge n : catalog.all()) {
+            assertThat(n.label()).as("%s has a button label", n.id()).isNotBlank();
             String d = n.destination();
             boolean ok = d.startsWith("/practice/drill/")
                     ? KNOWN_DRILLS.contains(d.substring("/practice/drill/".length()))
