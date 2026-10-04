@@ -423,15 +423,15 @@ public record PostDto(
             BriefView brief
     ) {
         /**
-         * Region-specific content of the daily brief. Numbers are the
-         * ConditionsReading's own (°F, mph, US AQI); `condition`/`tier` are
-         * ConditionTiers' classification, so the card highlights the one value
-         * that crossed a band without re-deriving thresholds.
+         * Region-specific content of the daily brief (owner, 2026-10-03:
+         * "the high and low, the current air quality, and what to prepare
+         * for"). Real-time warnings are the alert system's job, not this
+         * card's. °F and US AQI as ConditionsReading reports them;
+         * `condition` is ConditionTiers' classification, which chose the tip.
          */
-        public record BriefView(String place, String weather,
-                                Integer tempF, Integer feelsF, Integer windMph, String windDir,
-                                Integer gustMph, Integer aqi, String aqiCategory,
-                                String condition, String tier,
+        public record BriefView(String place,
+                                Integer highF, Integer lowF, Integer aqi, String aqiCategory,
+                                String condition,
                                 String nudgeId, String nudgeText, String nudgeLabel,
                                 String nudgeDestination, Integer nudgeMinutes,
                                 Instant updatedAt, String timezone,

@@ -44,7 +44,7 @@ import java.util.function.ToIntFunction;
  *       viewer. Created once at startup when briefs are enabled.</li>
  *   <li><b>What it shows is the viewer's.</b> {@link #viewFor} builds the card
  *       from the viewer's coordinates: "Conditions near {city}", the reading
- *       (°F, wind, AQI — the strict order), and a tip chosen for those
+ *       (today's high and low, the current AQI), and a tip chosen for those
  *       conditions at the viewer's LOCAL time of day.</li>
  *   <li><b>Surfacing is a clock, not a job.</b> {@link #surfacedAt} is the
  *       latest 7:00 / 12:00 / 18:00 America/New_York that has passed;
@@ -70,7 +70,6 @@ public class DailyBriefService {
     private final PostRepo postRepo;
     private final ConditionsService conditions;
     private final DailyNudgeCatalog catalog;
-    private final DailyBriefComposer composer;
     private final NominatimGeocodeService geocode;
     private final Clock clock;
     private final boolean enabled;
@@ -95,19 +94,18 @@ public class DailyBriefService {
 
     @Autowired
     public DailyBriefService(PostRepo postRepo, ConditionsService conditions, DailyNudgeCatalog catalog,
-                             DailyBriefComposer composer, NominatimGeocodeService geocode,
+                             NominatimGeocodeService geocode,
                              @Value("${briefs.enabled:false}") boolean enabled,
                              @Value("${briefs.dry-run:true}") boolean dryRun) {
-        this(postRepo, conditions, catalog, composer, geocode, Clock.systemUTC(), enabled, dryRun);
+        this(postRepo, conditions, catalog, geocode, Clock.systemUTC(), enabled, dryRun);
     }
 
     DailyBriefService(PostRepo postRepo, ConditionsService conditions, DailyNudgeCatalog catalog,
-                      DailyBriefComposer composer, NominatimGeocodeService geocode, Clock clock,
+                      NominatimGeocodeService geocode, Clock clock,
                       boolean enabled, boolean dryRun) {
         this.postRepo = postRepo;
         this.conditions = conditions;
         this.catalog = catalog;
-        this.composer = composer;
         this.geocode = geocode;
         this.clock = clock;
         this.enabled = enabled;
@@ -197,9 +195,13 @@ public class DailyBriefService {
         BriefSlot slot = slotFor(local.toLocalTime());
         ConditionsReading r = fetch ? conditions.readingFor(lat, lng, slot)
                 : conditions.cachedReadingFor(lat, lng, slot);
-        if (r == null || r.now() == null) return null;
-        String sentence = composer.weatherSentence(r, null);
-        if (sentence == null) return null;
+        if (r == null || r.now() == null || r.now().aqi() == null) return null;
+        // Today's high and the coming low (tonight's), as a forecast reads
+        // "H 84° L 59°". Missing either hides the card; it is never guessed.
+        Integer high = r.today() == null ? null : r.today().highF();
+        Integer low = r.tonight() != null && r.tonight().lowF() != null ? r.tonight().lowF()
+                : r.today() == null ? null : r.today().lowF();
+        if (high == null || low == null) return null;
         ConditionTiers.Condition condition;
         try {
             condition = ConditionTiers.Condition.valueOf(r.condition());
@@ -209,11 +211,9 @@ public class DailyBriefService {
         String cellKey = cellKey(lat, lng);
         DailyNudgeCatalog.Nudge n = catalog.forView(condition, slot, local.toLocalDate(), cellKey);
         if (n == null) return null;
-        ConditionsReading.Now now = r.now();
         return new PostDto.CommunityExtras.BriefView(
-                fetch ? placeFor(cellKey, lat, lng) : placeByCell.getOrDefault(cellKey, "you"), sentence,
-                now.tempF(), now.feelsF(), now.windMph(), now.windDir(), now.gustMph(),
-                now.aqi(), now.aqiCategory(), r.condition(), r.tier(),
+                fetch ? placeFor(cellKey, lat, lng) : placeByCell.getOrDefault(cellKey, "you"),
+                high, low, r.now().aqi(), r.now().aqiCategory(), r.condition(),
                 n.id(), n.text(), n.label(), n.destination(), n.minutes(),
                 r.observedAt(), tz, DailyNudgeCatalog.imageFor(n));
     }
