@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Which bundled sound an audible iOS push plays (haptics & sound epic, D3).
+ * Which bundled sound an audible iOS push plays (sonic identity v1, 2026-10-04).
  * The file names must match ios/App/App/sounds/ in the FE repo; a mismatch
  * plays the system default, so this pins the names.
  */
@@ -19,11 +19,17 @@ class NotificationSoundTest {
     }
 
     @Test
-    @DisplayName("every time-sensitive safety type plays the alert tone")
-    void safetyTypes() {
-        for (String t : new String[]{"alert", "group_status", "hazard_alert", "PLAN_ACTIVATION", "plan_activation"}) {
-            assertThat(NotificationService.iosSoundFor(t)).as(t).isEqualTo("sitprep-alert.caf");
+    @DisplayName("my family's alerts play the household tone")
+    void householdTypes() {
+        for (String t : new String[]{"alert", "group_status", "PLAN_ACTIVATION", "plan_activation"}) {
+            assertThat(NotificationService.iosSoundFor(t)).as(t).isEqualTo("sitprep-household.caf");
         }
+    }
+
+    @Test
+    @DisplayName("a hazard plays the hazard tone, distinct from the household one")
+    void hazardType() {
+        assertThat(NotificationService.iosSoundFor("hazard_alert")).isEqualTo("sitprep-hazard.caf");
     }
 
     @Test
@@ -41,21 +47,21 @@ class NotificationSoundTest {
         NotificationService.Delivery d = NotificationService.deliveryFor(false, "check_in_request");
         assertThat(d.iosSound()).isEqualTo("sitprep-checkin.caf");
         assertThat(d.apnsPriority()).isEqualTo("10");
-        assertThat(NotificationService.deliveryFor(false, "new_member").iosSound()).isEqualTo("default");
+        assertThat(NotificationService.deliveryFor(false, "new_member").iosSound()).isEqualTo("sitprep-note.caf");
     }
 
     @Test
-    @DisplayName("a lockdown warning multicast keeps the short system sound, never the longer alert tone")
-    void lockdownHazardKeepsDefault() {
-        assertThat(NotificationService.hazardSoundFor("hazard_alert", true)).isEqualTo("default");
-        assertThat(NotificationService.hazardSoundFor("hazard_alert", false)).isEqualTo("sitprep-alert.caf");
+    @DisplayName("a lockdown warning is silent but haptic: the silent sound, never a tone")
+    void lockdownHazardIsSilentButHaptic() {
+        assertThat(NotificationService.hazardSoundFor("hazard_alert", true)).isEqualTo("sitprep-silent.caf");
+        assertThat(NotificationService.hazardSoundFor("hazard_alert", false)).isEqualTo("sitprep-hazard.caf");
     }
 
     @Test
-    @DisplayName("everything else keeps the system default")
+    @DisplayName("everything routine plays the quiet SitPrep note")
     void routine() {
-        assertThat(NotificationService.iosSoundFor("new_member")).isEqualTo("default");
-        assertThat(NotificationService.iosSoundFor("post_comment")).isEqualTo("default");
-        assertThat(NotificationService.iosSoundFor(null)).isEqualTo("default");
+        assertThat(NotificationService.iosSoundFor("new_member")).isEqualTo("sitprep-note.caf");
+        assertThat(NotificationService.iosSoundFor("post_comment")).isEqualTo("sitprep-note.caf");
+        assertThat(NotificationService.iosSoundFor(null)).isEqualTo("sitprep-note.caf");
     }
 }

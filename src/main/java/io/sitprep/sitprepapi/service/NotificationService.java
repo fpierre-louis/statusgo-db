@@ -1503,21 +1503,33 @@ public class NotificationService {
 
     /**
      * The sound for a hazard multicast. A lockdown / violent-threat warning
-     * (template {@code concealmentSensitive}) keeps the short system sound, not
-     * SitPrep's three-tone alert: the multicast is one payload for everyone,
-     * so it cannot be silenced per person, and the longer tone must not make
-     * the one alert where noise is dangerous any louder than it was. Whether
-     * that warning should be silent outright is an open owner question
-     * (docs/epics/haptics_and_sound/EXEC-SOUND.md).
+     * (template {@code concealmentSensitive}) is SILENT BUT HAPTIC (owner
+     * ruling 2026-10-04): it plays {@code sitprep-silent.caf}, half a second
+     * of digital silence. APNs has no vibrate-only flag and a push with no
+     * sound key does not vibrate, so a silent sound is what lets iOS fire
+     * the notification haptic while nothing is heard. The multicast is one
+     * payload for everyone, so this applies to every recipient.
      */
     static String hazardSoundFor(String type, boolean concealmentSensitive) {
-        return concealmentSensitive ? "default" : iosSoundFor(type);
+        return concealmentSensitive ? SOUND_SILENT : iosSoundFor(type);
     }
 
+    // SitPrep sonic identity v1 (FE docs/epics/haptics_and_sound/SOUND_CREATION_BRIEF.md).
+    // File names must match ios/App/App/*.caf in the FE repo; a missing file
+    // plays the system default.
+    static final String SOUND_NOTE = "sitprep-note.caf";
+    static final String SOUND_CHECKIN = "sitprep-checkin.caf";
+    static final String SOUND_HOUSEHOLD = "sitprep-household.caf";
+    static final String SOUND_HAZARD = "sitprep-hazard.caf";
+    static final String SOUND_SILENT = "sitprep-silent.caf";
+
     static String iosSoundFor(String notificationType) {
-        if ("check_in_request".equals(notificationType)) return "sitprep-checkin.caf";
-        if (isTimeSensitiveTypeStatic(notificationType)) return "sitprep-alert.caf";
-        return "default";
+        if ("check_in_request".equals(notificationType)) return SOUND_CHECKIN;
+        // The sky, not my family: brighter and faster than the household tone.
+        if ("hazard_alert".equals(notificationType)) return SOUND_HAZARD;
+        if (isTimeSensitiveTypeStatic(notificationType)) return SOUND_HOUSEHOLD;
+        // Everything routine: recognizably SitPrep, quiet, easy to ignore.
+        return SOUND_NOTE;
     }
 
     private boolean isTimeSensitiveType(String type) {
