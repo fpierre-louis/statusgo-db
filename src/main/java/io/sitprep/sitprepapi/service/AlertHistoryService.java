@@ -257,11 +257,9 @@ public class AlertHistoryService {
      */
     static Set<String> tokensFor(NormalizedAlert a) {
         Set<String> out = new LinkedHashSet<>();
-        List<String> ugc = a == null ? null : a.ugc();
-        if (ugc == null) return out;
-        for (String code : ugc) {
-            if (code == null || code.isBlank()) continue;
-            String upper = code.trim().toUpperCase(Locale.ROOT);
+        // targetCodes, not ugc(): the matcher reads SAME counties too, and a
+        // prefilter that only saw UGC would drop a SAME-only alert it accepts.
+        for (String upper : AlertIngestService.targetCodes(a)) {
             if (upper.length() > 16) continue;   // not a UGC code; the column is varchar(16)
             out.add(upper);
             if (upper.length() >= 2) out.add(upper.substring(0, 2));
@@ -373,7 +371,16 @@ public class AlertHistoryService {
      * gain, since the real matcher rejects them all a moment later.</p>
      */
     static Collection<String> candidateTokens(Set<String> userZones, Set<String> userStates) {
-        if (userZones != null && !userZones.isEmpty()) return userZones;
+        if (userZones != null && !userZones.isEmpty()) {
+            // Plus the state-wide SAME token ("UT*"), which the zone tier also
+            // accepts. Not the bare state prefix — that would be every alert in
+            // the state, which is what the paragraph above rules out.
+            Set<String> out = new LinkedHashSet<>(userZones);
+            if (userStates != null) {
+                for (String st : userStates) out.add(st + SameCodes.STATEWIDE_SUFFIX);
+            }
+            return out;
+        }
         if (userStates != null && !userStates.isEmpty()) return userStates;
         // Neither known: only geometry and broadcast rows can match anyway, but
         // the IN clause still needs a non-empty list to be legal SQL.

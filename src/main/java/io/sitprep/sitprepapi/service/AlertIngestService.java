@@ -304,6 +304,10 @@ public class AlertIngestService {
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(features.size());
+        // `/alerts/active` can list one message several times — 2026-10-04 it
+        // returned a California AMBER Alert as four identical features, and
+        // Home showed four cards. First copy wins.
+        Set<String> seenIds = new HashSet<>();
         int nonActual = 0;
         Iterator<JsonNode> it = features.elements();
         while (it.hasNext()) {
@@ -323,6 +327,7 @@ public class AlertIngestService {
                     nonActual++;
                     continue;
                 }
+                if (a.id() != null && !seenIds.add(a.id())) continue;
                 normalized.add(a);
             } catch (Exception ex) {
                 // Skip individual feature parse errors — don't drop the
@@ -907,7 +912,11 @@ public class AlertIngestService {
      *       in your state" for free, with no network call.</li>
      * </ol>
      *
-     * <p>An alert with no geometry and no UGC is still <b>included</b>. That is
+     * <p>"UGC" here means {@link #targetCodes}: the UGC list plus any SAME
+     * county codes converted to county UGC, so a SAME-only alert (AMBER) is
+     * matched by county like any other.</p>
+     *
+     * <p>An alert with no geometry, no UGC and no SAME is still <b>included</b>. That is
      * the FEMA case — those rows carry county and state <i>names</i>, never
      * codes. But an alert with UGC that cannot be matched to the point is not
      * promoted to broadcast; it had targeting metadata, and we failed to prove
@@ -945,15 +954,23 @@ public class AlertIngestService {
                     ? MatchType.POLYGON : null;
         }
 
-        List<String> ugc = a.ugc();
-        if (ugc == null || ugc.isEmpty()) {
-            return MatchType.BROADCAST;   // nothing to match on — see Javadoc
+        List<String> ugc = targetCodes(a);
+        if (ugc.isEmpty()) {
+            // Nothing to match on — see Javadoc. SAME codes that convert to
+            // nothing (marine areas) are still targeting metadata, so they are
+            // not promoted to broadcast, same as unmatched UGC.
+            return (a.same() == null || a.same().isEmpty()) ? MatchType.BROADCAST : null;
         }
 
         // Tier 2 — exact zone containment.
         if (!userZones.isEmpty()) {
             for (String code : ugc) {
-                if (userZones.contains(code.toUpperCase(Locale.ROOT))) return MatchType.ZONE;
+                if (code.endsWith(SameCodes.STATEWIDE_SUFFIX)) {
+                    // A state-wide SAME target: the whole state contains you.
+                    if (userStates.contains(code.substring(0, 2))) return MatchType.STATE_PREFIX;
+                } else if (userZones.contains(code)) {
+                    return MatchType.ZONE;
+                }
             }
             // The user's zones ARE known and this alert does not target any of
             // them. That is a definite no, not an unknown.
@@ -972,6 +989,29 @@ public class AlertIngestService {
         }
 
         return null;
+    }
+
+    /**
+     * The zone codes an alert targets: its UGC plus its SAME counties in UGC
+     * form ({@code 006037} -> {@code CAC037}, see {@link SameCodes}), upper-cased
+     * and de-duplicated. Before SAME was read here, an alert carrying SAME and
+     * nothing else — a California AMBER Alert, 2026-10-04 — fell through to
+     * BROADCAST and reached the whole country.
+     */
+    static List<String> targetCodes(NormalizedAlert a) {
+        if (a == null) return List.of();
+        List<String> out = new ArrayList<>();
+        if (a.ugc() != null) {
+            for (String code : a.ugc()) {
+                if (code == null || code.isBlank()) continue;
+                String upper = code.trim().toUpperCase(Locale.ROOT);
+                if (!out.contains(upper)) out.add(upper);
+            }
+        }
+        for (String code : SameCodes.toUgc(a.same())) {
+            if (!out.contains(code)) out.add(code);
+        }
+        return out;
     }
 
     /** How an alert came to be considered relevant to a coordinate. */

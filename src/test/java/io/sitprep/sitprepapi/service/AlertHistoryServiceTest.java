@@ -219,8 +219,10 @@ class AlertHistoryServiceTest {
         // are unknown; with zones in hand an alert targeting none of them is a
         // definite no. Passing state tokens anyway would drag every alert in
         // the state into the candidate set for nothing.
+        // The one state token it does carry is the state-WIDE SAME target
+        // ("AZ*"), which the zone tier accepts — not the bare prefix.
         assertThat(AlertHistoryService.candidateTokens(Set.of("AZZ560"), Set.of("AZ")))
-                .containsExactly("AZZ560");
+                .containsExactly("AZZ560", "AZ*");
         assertThat(AlertHistoryService.candidateTokens(Set.of(), Set.of("AZ")))
                 .containsExactly("AZ");
         assertThat(AlertHistoryService.candidateTokens(Set.of(), Set.of()))
@@ -232,8 +234,9 @@ class AlertHistoryServiceTest {
     void tokensCarryBothTheZoneCodeAndItsStatePrefix() {
         NormalizedAlert a = TestAlerts.nws("Flood Warning")
                 .ugc(List.of("azz560", "ORZ691")).build();
+        // The fixture's SAME 004007 arrives as its county UGC, AZC007.
         assertThat(AlertHistoryService.tokensFor(a))
-                .containsExactlyInAnyOrder("AZZ560", "AZ", "ORZ691", "OR");
+                .containsExactlyInAnyOrder("AZZ560", "AZ", "ORZ691", "OR", "AZC007");
     }
 
     @Test

@@ -252,6 +252,67 @@ class AlertIngestZoneMatchingTest {
         });
     }
 
+    // ------------------------------------------------------------------
+    // SAME-only messages (EXEC-A1, 2026-10-04): a California AMBER Alert with
+    // four SAME counties, no UGC and no polygon reached Lehi, UT, four times.
+    // ------------------------------------------------------------------
+
+    /** The shape NWS shipped, verbatim where it matters. */
+    private static NormalizedAlert amberAlert() {
+        return TestAlerts.nws("Child Abduction Emergency")
+                .id("2778020817429389")
+                .severity("Extreme")
+                .ugc(List.of())
+                .same(List.of("006037", "006059", "006065", "006071"))
+                .build();
+    }
+
+    private static final Set<String> LEHI_UT = Set.of("UTZ106", "UTC049", "UTZ478");
+    private static final Set<String> LOS_ANGELES_CA = Set.of("CAZ368", "CAC037", "CAZ288");
+
+    @Test
+    void sameOnlyAlert_reachesItsCounties_notTheCountry() {
+        NormalizedAlert amber = amberAlert();
+        double km = 50 * 1.609344;
+
+        assertThat(AlertIngestService.matchTypeFor(amber, 40.39, -111.85, km,
+                LEHI_UT, AlertIngestService.statePrefixesOf(LEHI_UT)))
+                .as("Lehi is not in Los Angeles, Orange, Riverside or San Bernardino County")
+                .isNull();
+        assertThat(AlertIngestService.matchTypeFor(amber, 34.05, -118.24, km,
+                LOS_ANGELES_CA, AlertIngestService.statePrefixesOf(LOS_ANGELES_CA)))
+                .isEqualTo(AlertIngestService.MatchType.ZONE);
+        // Point lookup down: the state still decides.
+        assertThat(AlertIngestService.matchTypeFor(amber, 40.39, -111.85, km, Set.of(), Set.of("UT"))).isNull();
+        assertThat(AlertIngestService.matchTypeFor(amber, 34.05, -118.24, km, Set.of(), Set.of("CA")))
+                .isEqualTo(AlertIngestService.MatchType.STATE_PREFIX);
+
+        NormalizedAlert statewide = TestAlerts.nws("Child Abduction Emergency")
+                .ugc(List.of()).same(List.of("049000")).build();
+        assertThat(AlertIngestService.matchTypeFor(statewide, 40.39, -111.85, km,
+                LEHI_UT, AlertIngestService.statePrefixesOf(LEHI_UT)))
+                .isEqualTo(AlertIngestService.MatchType.STATE_PREFIX);
+
+        NormalizedAlert nothing = TestAlerts.nws("Administrative Message")
+                .ugc(List.of()).same(List.of()).build();
+        assertThat(AlertIngestService.matchTypeFor(nothing, 40.39, -111.85, km,
+                LEHI_UT, AlertIngestService.statePrefixesOf(LEHI_UT)))
+                .as("no location data at all is still the only broadcast")
+                .isEqualTo(AlertIngestService.MatchType.BROADCAST);
+    }
+
+    @Test
+    void aRepeatedFeatureIdIsOneAlert() throws Exception {
+        String feature = """
+                {"id":"x","type":"Feature","geometry":null,"properties":{
+                  "id":"2778020817429389","event":"Child Abduction Emergency",
+                  "severity":"Extreme","status":"Actual","messageType":"Alert",
+                  "geocode":{"SAME":["006037"]}}}""";
+        JsonNode root = MAPPER.readTree("{\"features\":[" + feature + "," + feature + "," + feature + "]}");
+        List<NormalizedAlert> parsed = new AlertIngestService(new NwsZoneService()).parseNwsFeed(root);
+        assertThat(parsed).hasSize(1);
+    }
+
     private static NormalizedAlert extremeHeatWarning() {
         return liveFeed.stream()
                 .filter(a -> a.ugc().contains("AZZ560"))
