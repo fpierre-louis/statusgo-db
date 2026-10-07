@@ -93,17 +93,18 @@ public class AlertPresetService {
                             + "Quiet hours are off, so they can reach you at any hour.",
                     floor(T, T, T, T, F, null, null), false),
             new Preset("HAZARD_AWARE", "Hazard aware",
-                    "Every hazard warning near you, household alerts, and drill reminders. "
-                            + "Your settings for acknowledgments, tasks, and join requests stay as they are.",
-                    "Weather, earthquake, and wildfire warnings, plan activations, and household alerts stay on. "
-                            + "Quiet hours are off, so warnings can reach you at any hour.",
-                    floor(null, null, null, T, F, null, null), false),
+                    "Official warnings and household alerts first, with fewer coordination pings. "
+                            + "Acknowledgment, task, and join-request notifications are off; drill reminders stay on.",
+                    "Weather, earthquake, and wildfire warnings, plan activations, and household alerts stay on, "
+                            + "and quiet hours are off so they can reach you at any hour. Acknowledgment, task, and "
+                            + "join-request notifications are not sent at all, not even to your inbox.",
+                    floor(F, F, F, T, F, null, null), false),
             new Preset("HOUSEHOLD_FOCUS", "Household focus",
-                    "Built around the people you plan with: household alerts, check-in requests, plan activations, "
-                            + "acknowledgments, tasks, and join requests, with every warning still on.",
+                    "Every household and plan update, including acknowledgments, tasks, and join requests, "
+                            + "without weekly practice reminders.",
                     "Household alerts and plan activations stay on alongside weather, earthquake, and wildfire "
                             + "warnings. Quiet hours are off, so they can reach you at any hour.",
-                    floor(T, T, T, T, F, null, null), false),
+                    floor(T, T, T, F, F, null, null), false),
             new Preset("QUIET_HOURS", "Quiet hours",
                     "Quiet from 9 PM to 7 AM in your time zone. Acknowledgment updates and drill reminders are turned off.",
                     "Severe weather warnings, major earthquakes, plan activations, and household alerts still come "
@@ -165,6 +166,16 @@ public class AlertPresetService {
             if (want != null && !Objects.equals(want, f.fromPref().apply(pref))) return false;
         }
         return true;
+    }
+
+    /** The fields a preset specifies (non-null patch values), by name. Timezone excluded. */
+    static java.util.Map<String, Object> specifiedFields(Preset p) {
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        for (Field f : COMPARED) {
+            Object v = f.fromPatch().apply(p.patch());
+            if (v != null) out.put(f.name(), v);
+        }
+        return out;
     }
 
     static Preset find(String key) {

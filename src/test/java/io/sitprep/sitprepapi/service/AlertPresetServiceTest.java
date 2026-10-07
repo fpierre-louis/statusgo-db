@@ -200,20 +200,62 @@ class AlertPresetServiceTest {
     // ==================================================================
 
     @Test
-    void activeTracksTheFieldsEachPresetSpecifies() {
-        Map<String, Boolean> fresh = activeByKey(presets.list(ME));
-        // Entity defaults: everything on, quiet hours off.
-        assertThat(fresh).containsEntry("BALANCED", true).containsEntry("HAZARD_AWARE", true)
-                .containsEntry("HOUSEHOLD_FOCUS", true).containsEntry("QUIET_HOURS", false);
+    void presetsArePairwiseDistinct() {
+        List<Preset> all = AlertPresetService.PRESETS;
+        for (int i = 0; i < all.size(); i++) {
+            for (int j = i + 1; j < all.size(); j++) {
+                assertThat(AlertPresetService.specifiedFields(all.get(i)))
+                        .as(all.get(i).key() + " vs " + all.get(j).key())
+                        .isNotEqualTo(AlertPresetService.specifiedFields(all.get(j)));
+            }
+        }
+    }
 
-        // HAZARD_AWARE does not specify coordination fields, so muting tasks keeps it active.
+    @Test
+    void theDefaultRowMatchesOnlyBalanced() {
+        // Entity defaults: everything on, quiet hours off.
+        assertThat(presets.list(ME).presets()).filteredOn(AlertPresetDto::active)
+                .extracting(AlertPresetDto::key).containsExactly("BALANCED");
+    }
+
+    @Test
+    void afterApplyingEachPresetOnlyThatPresetIsActive() {
+        for (String key : KEYS) {
+            use(new UserAlertPreference());
+            assertThat(presets.apply(ME, key, "UTC").presets()).filteredOn(AlertPresetDto::active)
+                    .extracting(AlertPresetDto::key).as(key).containsExactly(key);
+        }
+    }
+
+    @Test
+    void hazardAwareDropsCoordinationPingsAndHouseholdFocusDropsDrills() {
+        presets.apply(ME, "HAZARD_AWARE", null);
+        assertThat(policy.evaluate(ME, Category.ACTIVATION_ACK, null))
+                .as("the note says these are not sent at all, not even to the inbox").isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate(ME, Category.TASK_ASSIGNED, null)).isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate(ME, Category.PENDING_MEMBER_REQUEST, null)).isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate(ME, Category.WEEKLY_DRILL_REMINDER, null)).isEqualTo(Lane.B);
+
+        presets.apply(ME, "HOUSEHOLD_FOCUS", null);
+        assertThat(policy.evaluate(ME, Category.TASK_ASSIGNED, null)).isEqualTo(Lane.A);
+        assertThat(policy.evaluate(ME, Category.WEEKLY_DRILL_REMINDER, null)).isEqualTo(Lane.DROP);
+    }
+
+    @Test
+    void activeTracksTheFieldsEachPresetSpecifies() {
         row.setTaskAssignments(false);
-        Map<String, Boolean> tasksOff = activeByKey(presets.list(ME));
-        assertThat(tasksOff).containsEntry("HAZARD_AWARE", true).containsEntry("BALANCED", false);
+        assertThat(presets.list(ME).presets()).as("a hand-tuned row need not match any preset")
+                .noneMatch(AlertPresetDto::active);
+        row.setTaskAssignments(true);
 
         Map<String, Boolean> quiet = activeByKey(presets.apply(ME, "quiet_hours", "Europe/Paris"));
         assertThat(quiet).containsEntry("QUIET_HOURS", true).containsEntry("BALANCED", false)
                 .containsEntry("HAZARD_AWARE", false).containsEntry("HOUSEHOLD_FOCUS", false);
+
+        // QUIET_HOURS does not specify tasks or join requests, so changing them keeps it active.
+        row.setTaskAssignments(false);
+        row.setPendingMembers(false);
+        assertThat(activeByKey(presets.list(ME))).containsEntry("QUIET_HOURS", true);
 
         row.setTimezone("Asia/Tokyo");
         assertThat(activeByKey(presets.list(ME))).as("timezone is ignored for QUIET_HOURS")
