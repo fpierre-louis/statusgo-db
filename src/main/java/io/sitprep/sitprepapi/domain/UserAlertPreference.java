@@ -33,10 +33,14 @@ import java.time.LocalTime;
  *
  * <p><b>Field group C — quiet hours.</b> When {@code quietHoursEnabled},
  * Lane A pushes between {@code quietStart} and {@code quietEnd} (in
- * the user's {@code timezone}) defer to 7am local UNLESS the category
- * is on the critical-bypass list (NWS Extreme, M6.0+, plan activation
- * received, household group alert flip). The bypass list is hard-coded
- * in {@code PushPolicyService} per the spec — not user-configurable.</p>
+ * the user's {@code timezone}) become inbox rows UNLESS the category
+ * is on the critical-bypass list (NWS Severe/Extreme, M6.0+, plan
+ * activation received, household group alert flip, an agency alert
+ * sent at the "emergency" tier). The bypass list is hard-coded in
+ * {@code PushPolicyService} per the spec — not user-configurable.
+ * Nothing is re-pushed one by one: when the window ends,
+ * {@code QuietHoursCatchUpService} sends ONE summary push if any of
+ * those rows is still unread (EXEC-N).</p>
  */
 @Entity
 @Getter

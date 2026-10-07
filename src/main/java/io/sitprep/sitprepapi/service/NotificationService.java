@@ -1385,6 +1385,118 @@ public class NotificationService {
         return written;
     }
 
+    /** Type of the once-per-night quiet-hours summary push. */
+    public static final String TYPE_QUIET_HOURS_CATCH_UP = "quiet_hours_catch_up";
+
+    /**
+     * The "N updates while your notifications were quiet" push
+     * ({@code QuietHoursCatchUpService}). One FCM message, and nothing else
+     * that a user sees:
+     * <ul>
+     *   <li><b>No inbox row of its own.</b> The push points AT the inbox; a
+     *       row saying "3 updates" above those three rows would be a fourth
+     *       unread item announcing the other three. Its audit row is written
+     *       already read AND archived, so the inbox list, the unread badge and
+     *       the inbox STOMP stream never see it. That row is also the
+     *       once-per-night stamp the scheduler checks.</li>
+     *   <li><b>Badge = the unread count</b>, not count + 1: this push adds
+     *       nothing to the inbox.</li>
+     *   <li><b>Policy still decides.</b> {@link Category#QUIET_HOURS_CATCH_UP}
+     *       is Lane A and non-critical, so the rate cap and the master switches
+     *       apply. Anything but Lane A sends nothing and writes nothing (the
+     *       rows it would announce are already in the inbox), and the caller
+     *       may try again on its next tick.</li>
+     *   <li>Routine sound, or silent when the recipient may be hiding
+     *       ({@link #shouldSendSilently}), like every per-person push.</li>
+     * </ul>
+     *
+     * @return true when FCM accepted the message
+     */
+    public boolean sendQuietHoursCatchUp(String recipientEmail,
+                                         String fcmToken,
+                                         String title,
+                                         String body,
+                                         int count) {
+        if (recipientEmail == null || recipientEmail.isBlank()) return false;
+        if (fcmToken == null || fcmToken.isBlank()) return false;
+        Lane lane = pushPolicyService.evaluate(recipientEmail, Category.QUIET_HOURS_CATCH_UP, null);
+        if (lane != Lane.A) return false;
+
+        final String type = TYPE_QUIET_HOURS_CATCH_UP;
+        final String targetUrl = io.sitprep.sitprepapi.notifications.NotificationRoutes.INBOX;
+        final String additionalData = "{\"count\":" + Math.max(0, count) + "}";
+        Map<String, Object> presentation = presentationFor(type, Category.QUIET_HOURS_CATCH_UP,
+                title, body, null, targetUrl, additionalData, null);
+        String deepLinkRoute = deepLinkRouteOf(presentation, targetUrl);
+
+        boolean success = false;
+        String errorMessage = null;
+        try {
+            Delivery delivery = deliveryFor(shouldSendSilently(recipientEmail), type);
+            Aps.Builder aps = Aps.builder().setMutableContent(true);
+            if (delivery.iosSound() != null) aps.setSound(delivery.iosSound());
+            aps.putCustomData("notificationType", type);
+            aps.putCustomData("targetUrl", targetUrl);
+            aps.putCustomData("additionalData", additionalData);
+            aps.putCustomData("title", safe(title));
+            aps.putCustomData("body", safe(body));
+            aps.putCustomData("category", safe(categoryForType(type)));
+            aps.putCustomData("deepLinkRoute", safe(deepLinkRoute));
+            applyIosLockScreenAffordances(aps, type, null);
+            try {
+                aps.setBadge((int) Math.min(notificationLogRepo.countUnreadForUser(recipientEmail),
+                        Integer.MAX_VALUE));
+            } catch (Exception e) {
+                logger.warn("Catch-up badge lookup failed for {}: {}", recipientEmail, e.getMessage());
+            }
+            Message msg = Message.builder()
+                    .setToken(fcmToken)
+                    .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                    .putData("notificationType", type)
+                    .putData("referenceId", "")
+                    .putData("sender", "SitPrep")
+                    .putData("targetUrl", targetUrl)
+                    .putData("additionalData", additionalData)
+                    .putData("title", safe(title))
+                    .putData("body", safe(body))
+                    .putData("channelId", safe(channelForType(type)))
+                    .putData("category", safe(categoryForType(type)))
+                    .putData("deepLinkRoute", safe(deepLinkRoute))
+                    .setAndroidConfig(delivery.android())
+                    .setApnsConfig(ApnsConfig.builder()
+                            .putHeader("apns-priority", delivery.apnsPriority())
+                            .setAps(aps.build())
+                            .build())
+                    .build();
+            FirebaseMessaging.getInstance().send(msg);
+            success = true;
+        } catch (FirebaseMessagingException e) {
+            errorMessage = e.getMessage();
+            logger.warn("Catch-up push failed for {}: {}", recipientEmail, errorMessage);
+            handleFcmDeliveryError(e, recipientEmail, fcmToken);
+        } catch (Exception e) {
+            errorMessage = e.getMessage();
+            logger.warn("Catch-up push failed for {}: {}", recipientEmail, errorMessage);
+        }
+
+        // Audit + stamp row: written read and archived, and saved directly
+        // rather than through saveLogRow so no inbox "created" frame fires.
+        try {
+            Instant now = Instant.now();
+            NotificationLog row = new NotificationLog(recipientEmail, type, fcmToken, title, body,
+                    null, targetUrl, additionalData, now, success, errorMessage);
+            row.setLane(Lane.A.name());
+            row.setCategory(Category.QUIET_HOURS_CATCH_UP.name());
+            row.setReadAt(now);
+            row.setArchivedAt(now);
+            row.setPresentationJson(presentation);
+            notificationLogRepo.save(row);
+        } catch (Exception e) {
+            logger.warn("Catch-up audit row failed for {}: {}", recipientEmail, e.getMessage());
+        }
+        return success;
+    }
+
     /** The hazard presentation — one builder for the push and the inbox-only row. */
     private Map<String, Object> hazardPresentation(String title, String body, String referenceId,
                                                    String targetUrl, String additionalData) {

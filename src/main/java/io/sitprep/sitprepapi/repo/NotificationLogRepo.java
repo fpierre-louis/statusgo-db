@@ -162,4 +162,52 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     int archiveByIdForUser(@Param("id") Long id,
                            @Param("email") String email,
                            @Param("at") Instant at);
+
+    // ── Quiet-hours catch-up (QuietHoursCatchUpService, V100) ─────────────
+
+    /**
+     * Recipients (lower-cased) with at least one unread, unarchived row that
+     * quiet hours deferred since {@code since}. Keyset-paged by email.
+     * {@code idx_notif_deferred_recipient_ts} (partial, deferred_reason IS NOT
+     * NULL) keeps this to the handful of marked rows.
+     */
+    @Query("""
+           SELECT DISTINCT LOWER(n.recipientEmail) FROM NotificationLog n
+            WHERE n.deferredReason = :reason
+              AND n.timestamp >= :since
+              AND n.readAt IS NULL
+              AND n.archivedAt IS NULL
+              AND LOWER(n.recipientEmail) > :after
+            ORDER BY LOWER(n.recipientEmail)
+           """)
+    List<String> findDeferredUnreadRecipients(@Param("reason") String reason,
+                                              @Param("since") Instant since,
+                                              @Param("after") String after,
+                                              Pageable page);
+
+    /** Unread, unarchived rows deferred for {@code reason} in [from, to). */
+    @Query("""
+           SELECT COUNT(n) FROM NotificationLog n
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.deferredReason = :reason
+              AND n.timestamp >= :from
+              AND n.timestamp < :to
+              AND n.readAt IS NULL
+              AND n.archivedAt IS NULL
+           """)
+    long countDeferredUnread(@Param("email") String email,
+                             @Param("reason") String reason,
+                             @Param("from") Instant from,
+                             @Param("to") Instant to);
+
+    /** Has a row of {@code type} been written for this recipient at or after {@code since}? */
+    @Query("""
+           SELECT COUNT(n) > 0 FROM NotificationLog n
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.type = :type
+              AND n.timestamp >= :since
+           """)
+    boolean existsTypeSince(@Param("email") String email,
+                            @Param("type") String type,
+                            @Param("since") Instant since);
 }

@@ -164,6 +164,15 @@ public enum NotificationEventType {
             Category.TOKEN_UNLOCKED, "general", "SYSTEM",
             NotificationSourceType.TOKEN, "TOKEN", Priority.ROUTINE, "TOKEN", false),
 
+    // ── Delivery summaries ───────────────────────────────────────────────
+    /** "N updates while your notifications were quiet" — one push when a
+     *  user's quiet window ends (QuietHoursCatchUpService, EXEC-N). Opens the
+     *  inbox. Its own log row is written read + archived (an audit and
+     *  once-per-night stamp), so it never appears in the inbox it points at. */
+    QUIET_HOURS_CATCH_UP(Set.of("quiet_hours_catch_up"), Set.of(Category.QUIET_HOURS_CATCH_UP),
+            Category.QUIET_HOURS_CATCH_UP, "general", "SYSTEM",
+            NotificationSourceType.SYSTEM, "SYSTEM", Priority.ROUTINE, null, false),
+
     /** Anything not registered. Rendered as a SitPrep system row; a test keeps
      *  every emitted type OFF this path. */
     UNKNOWN(Set.of(), Set.of(),

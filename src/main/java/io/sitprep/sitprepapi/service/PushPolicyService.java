@@ -237,7 +237,7 @@ public class PushPolicyService {
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
                  CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE, READINESS_REMINDER,
-                 AGENCY_ALERT, ACCOUNT_REMINDER -> Lane.A;
+                 AGENCY_ALERT, ACCOUNT_REMINDER, QUIET_HOURS_CATCH_UP -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -445,6 +445,12 @@ public class PushPolicyService {
          * reminder ({@code guest_expiry_reminder}). Lane A, not critical.
          */
         ACCOUNT_REMINDER,
+        /**
+         * The single "while your notifications were quiet" summary sent when
+         * a user's quiet window ends ({@code QuietHoursCatchUpService}). Lane A
+         * and non-critical; it is only ever sent outside the quiet window.
+         */
+        QUIET_HOURS_CATCH_UP,
 
         // Lane B — silent inbox
         NWS_MINOR,

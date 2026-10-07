@@ -322,6 +322,12 @@ public class NotificationPresentationBuilder {
                 fallback = NotificationRoutes.HOME;
                 actions.add(Action.navigate("SIGN_IN", "Sign in", route, "primary"));
             }
+            case QUIET_HOURS_CATCH_UP -> {
+                // A pointer to the inbox itself; the rows it counts carry
+                // their own actions.
+                route = NotificationRoutes.INBOX;
+                fallback = NotificationRoutes.HOME;
+            }
             case PENDING_MEMBER -> {
                 String requestId = NotificationRoutes.inviteRequestIdFrom(target);
                 if (requestId != null) {

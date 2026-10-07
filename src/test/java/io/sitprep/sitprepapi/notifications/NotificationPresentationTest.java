@@ -39,7 +39,8 @@ class NotificationPresentationTest {
             "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member",
             "post_notification", "post_mention", "comment_on_post", "comment_on_task",
             "reply_on_followed", "follow", "follow_accepted", "dm_message", "weekly_drill_kickoff",
-            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder");
+            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder",
+            "quiet_hours_catch_up");
 
     /**
      * Route patterns mounted in Status Now/src/App.js. A canonical route that
@@ -240,6 +241,15 @@ class NotificationPresentationTest {
                 "/home?challenge=open", null, null));
         assertThat(drill.visual().avatarKind()).isEqualTo("PRACTICE");
         assertThat(drill.source().name()).isEqualTo("Chen Household");
+    }
+
+    @Test
+    void quietHoursCatchUp_opensTheInbox() {
+        NotificationPresentation p = builder.build(row("quiet_hours_catch_up", "QUIET_HOURS_CATCH_UP", null,
+                "/notifications", "{\"count\":3}", null));
+        assertThat(p.eventKey()).isEqualTo("QUIET_HOURS_CATCH_UP");
+        assertThat(p.deepLink().route()).isEqualTo("/notifications");
+        assertRoutable(p);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
