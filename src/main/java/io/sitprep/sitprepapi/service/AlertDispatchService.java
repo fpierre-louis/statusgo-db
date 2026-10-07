@@ -317,13 +317,14 @@ public class AlertDispatchService {
                 ap.setAreaGeojson(areaGeojsonOf(a.geometry()));
                 alertPostRepo.save(ap);
 
-                // Life-threatening NWS warnings (Severe/Extreme) also
-                // earn an FCM push to nearby located users — the feed
-                // post alone only reaches users with the app open.
+                // Life-threatening NWS warnings (Severe/Extreme) and M6+
+                // quakes (isMajorQuakePush) also earn an FCM push to nearby
+                // located users — the feed post alone only reaches users
+                // with the app open.
                 // Fires exactly once per alert, all-time: the
                 // (alertId, geocellId) dedup above means this branch is
                 // reached only when a NEW AlertPost is created.
-                if (decision.criticalPush()) {
+                if (pushEligible(a, tpl, decision)) {
                     if (pushCandidates == null) {
                         pushCandidates = userInfoRepo.findPushablesWithLocation(
                                 LocationFreshness.cutoff(Instant.now()));
@@ -765,6 +766,56 @@ public class AlertDispatchService {
         if ("Possible".equalsIgnoreCase(a.certainty())) return false;
         if ("Future".equalsIgnoreCase(a.urgency())) return false;
         return true;
+    }
+
+    /**
+     * Does this alert earn the nearby-user push? Everything the safety policy
+     * calls {@code CRITICAL_PUSH}, plus one named rule: {@link #isMajorQuakePush}.
+     */
+    static boolean pushEligible(NormalizedAlert a, DispatchTemplate tpl, AlertSafetyPolicy.Decision decision) {
+        if (decision == null) return false;
+        return decision.criticalPush() || isMajorQuakePush(a, tpl, decision);
+    }
+
+    /**
+     * M6.0+ earthquakes push to people near the epicenter (EXEC-N, 2026-10-07;
+     * OWNER REVIEW: this is a dispatch-tier change, not a copy change).
+     *
+     * <p><b>What was wrong.</b> The USGS template declares
+     * {@code sitprep.dispatchMode: attention}, and only {@code CRITICAL_PUSH}
+     * reaches {@link #pushSevereAlert}. So no earthquake ever pushed: an M7
+     * under a city got a community-feed post and nothing else, and the
+     * {@code USGS_QUAKE_MAJOR} quiet-hours bypass in PushPolicyService — which
+     * already said "M6+ may wake you" — could never run.</p>
+     *
+     * <p><b>The rule, and why it is this narrow.</b></p>
+     * <ul>
+     *   <li><b>M6.0+ only</b> — the USGS severity word {@code Severe}, which
+     *       {@code AlertIngestService.normalizeUsgs} derives from magnitude. It is
+     *       the same line PushPolicyService already draws for the bypass, so the
+     *       two can't disagree. M5.5–5.9 stays feed-only: the template's own
+     *       {@code attention} decision is left exactly as reviewed.</li>
+     *   <li><b>Near the epicenter only</b> — the existing
+     *       {@link #SEVERE_PUSH_RADIUS_KM} (80 km), applied per recipient in
+     *       {@link #pushSevereAlert}. USGS lets ShakeAlert app providers alert
+     *       anyone expected to feel weak shaking (MMI III) from M4.5 up; an M6
+     *       is felt well beyond 80 km, so this radius is stricter than USGS's own
+     *       alerting floor rather than looser.</li>
+     *   <li><b>Escalates ATTENTION only.</b> A suppressed, feed or prepare
+     *       decision is never overridden, and the template must still be
+     *       safety-approved.</li>
+     *   <li><b>No copy change.</b> The push uses the template's approved
+     *       headline and body exactly as the policy decision would have.</li>
+     * </ul>
+     * <p>Dedupe is unchanged: the push runs only when a new
+     * (alertId, geocellId) AlertPost is created, so an M6 pushes once.</p>
+     */
+    static boolean isMajorQuakePush(NormalizedAlert a, DispatchTemplate tpl, AlertSafetyPolicy.Decision decision) {
+        if (a == null || !"USGS".equalsIgnoreCase(a.source())) return false;
+        if (tpl == null || !tpl.isSafetyApproved()) return false;
+        if (decision == null || decision.dispatchMode() != AlertSafetyPolicy.DispatchMode.ATTENTION) return false;
+        String severity = a.severity() == null ? "" : a.severity().trim();
+        return "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
     }
 
     static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl) {
