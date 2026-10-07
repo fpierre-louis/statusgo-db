@@ -71,6 +71,40 @@ public class GroupService {
         this.notificationService = notificationService;
     }
 
+    // Setter-injected (household roster EXEC-B) so the existing constructor —
+    // and every test that builds this service by hand — stays unchanged. Null
+    // in those tests: the hooks below are no-ops without them.
+    private HouseholdCompositionService householdComposition;
+    private HouseholdProvisioningService householdProvisioning;
+    private io.sitprep.sitprepapi.repo.HouseholdMemberBandRepo householdMemberBandRepo;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdComposition(HouseholdCompositionService householdComposition) {
+        this.householdComposition = householdComposition;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdProvisioning(HouseholdProvisioningService householdProvisioning) {
+        this.householdProvisioning = householdProvisioning;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdMemberBandRepo(io.sitprep.sitprepapi.repo.HouseholdMemberBandRepo repo) {
+        this.householdMemberBandRepo = repo;
+    }
+
+    /**
+     * An account joined a household: fill an ADULT placeholder if one is open,
+     * else raise adults — i.e. raise the demographic to its named totals. Never
+     * creates a demographic row (joining is not answering "who are you planning
+     * for?"). No-op for non-households and when the plan has no row yet.
+     */
+    private void syncHouseholdCountsAfterJoin(Group g) {
+        if (householdComposition == null || g == null) return;
+        if (!HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) return;
+        householdComposition.raiseToNamed(g.getGroupId(), false, null);
+    }
+
     /*** Existing broadcast methods preserved below ***/
 
     /**
@@ -527,6 +561,8 @@ public class GroupService {
         String previousAlert = group.getAlert();
         updateGroupFields(group, groupDetails);
         Group saved = groupRepo.save(group);
+        // A whole-group PUT can add accounts to a household roster.
+        syncHouseholdCountsAfterJoin(saved);
         broadcastAlertIfChanged(previousAlert, saved);
         return saved;
     }
@@ -974,6 +1010,7 @@ public class GroupService {
         });
 
         Group saved = groupRepo.save(g);
+        syncHouseholdCountsAfterJoin(saved);
         broadcastMembershipAfterCommit(saved, "ADD", email, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
         return saved;
     }
@@ -1009,10 +1046,49 @@ public class GroupService {
         ensureUserHouseholdLink(email, householdId);
 
         Group saved = groupRepo.save(g);
+        syncHouseholdCountsAfterJoin(saved);
         notifyNewMembers(saved, oldMembers);
         notifyAdminsOfNewMembers(saved, oldMembers);
         broadcastMembershipAfterCommit(saved, "ADD", email, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
         return saved;
+    }
+
+    /**
+     * Household join through a CLAIM link (household roster EXEC-B). Same
+     * trusted add as {@link #joinHouseholdByInvite} — the admin-issued token is
+     * the approval — but deliberately WITHOUT the count sync, the base-household
+     * write and the join notifications: the claim moves an already-counted slot
+     * from a manual row to this account (counts unchanged), decides the base
+     * household by its own rule, and sends its own "claimed their spot" notice.
+     * Idempotent. Returns true when the caller was newly added.
+     */
+    @Transactional
+    public boolean joinHouseholdByClaim(String householdId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        Group g = getGroupByPublicId(householdId);
+        if (!HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a household");
+        }
+        syncJoinedGroup(normalized, householdId);
+        if (containsCaseInsensitive(g.getMemberEmails(), normalized)) return false;
+
+        List<String> members = safeList(g.getMemberEmails());
+        members.add(normalized);
+        g.setMemberEmails(members);
+        g.setMemberCount(members.size());
+        // Pending request from the same person is answered by the claim.
+        List<String> pending = safeList(g.getPendingMemberEmails());
+        if (pending.removeIf(e -> e != null && e.trim().equalsIgnoreCase(normalized))) {
+            g.setPendingMemberEmails(pending);
+        }
+        g.setUpdatedAt(Instant.now());
+        Group saved = groupRepo.save(g);
+        broadcastMembershipAfterCommit(saved, "ADD", normalized,
+                GroupRole.fromGroup(saved, normalized).wire(), saved.getUpdatedAt());
+        return true;
     }
 
     private void ensureUserHouseholdLink(String email, String householdId) {
@@ -1097,6 +1173,7 @@ public class GroupService {
 
         Group saved = groupRepo.save(g);
         if (!alreadyMember) {
+            syncHouseholdCountsAfterJoin(saved);
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",
@@ -1217,36 +1294,61 @@ public class GroupService {
         return value == null ? "" : value;
     }
 
+    /**
+     * Remove an account from a group.
+     *
+     * <p>For a household (EXEC-B, 2026-10-07): the removed person's band row is
+     * dropped — their slot stays counted and becomes an unnamed placeholder
+     * until an admin lowers the count — and when this was their BASE
+     * household, the base is cleared and re-provisioned exactly like the leave
+     * path: another household they belong to, else a new personal one (the
+     * "every user has a base household" guarantee {@link HouseholdProvisioningService}
+     * owns). Left pointing at the old id, {@code /api/me} would keep anchoring
+     * them to a household they are no longer in.</p>
+     */
     @Transactional
     public Group removeMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
         requireAdminOrOwner(g); // no-op
+        final String normalized = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
 
         List<String> members = safeList(g.getMemberEmails());
         List<String> admins = safeList(g.getAdminEmails());
-        boolean wasMember = containsCaseInsensitive(members, email);
-        String previousRole = GroupRole.fromGroup(g, email).wire();
+        boolean wasMember = containsCaseInsensitive(members, normalized);
+        String previousRole = GroupRole.fromGroup(g, normalized).wire();
 
         // null-safe removals
-        members.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
-        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+        members.removeIf(e -> e != null && e.trim().equalsIgnoreCase(normalized));
+        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(normalized));
 
         g.setMemberEmails(members);
         g.setAdminEmails(admins);
         g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
-        userInfoRepo.findByUserEmail(email).ifPresent(u -> {
-            Set<String> j = removeFromSet(u.getJoinedGroupIDs(), groupId);
-            Set<String> m = removeFromSet(u.getManagedGroupIDs(), groupId);
-            u.setJoinedGroupIDs(j);
-            u.setManagedGroupIDs(m);
-            userInfoRepo.save(u);
-        });
+        Group saved = groupRepo.saveAndFlush(g);
+        boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(saved.getGroupType());
+        if (isHousehold && householdMemberBandRepo != null && normalized != null) {
+            householdMemberBandRepo.deleteMembership(groupId, normalized);
+        }
 
-        Group saved = groupRepo.save(g);
+        if (normalized != null) {
+            userInfoRepo.findByUserEmailIgnoreCase(normalized).ifPresent(u -> {
+                Set<String> j = removeFromSet(u.getJoinedGroupIDs(), groupId);
+                Set<String> m = removeFromSet(u.getManagedGroupIDs(), groupId);
+                u.setJoinedGroupIDs(j);
+                u.setManagedGroupIDs(m);
+                boolean reanchor = groupId.equals(u.getBaseHouseholdId());
+                if (reanchor) u.setBaseHouseholdId(null);
+                userInfoRepo.save(u);
+                if (reanchor && householdProvisioning != null) {
+                    householdProvisioning.ensureBaseHousehold(u);
+                }
+            });
+        }
+
         if (wasMember) {
-            broadcastMembershipAfterCommit(saved, "REMOVE", email, previousRole, saved.getUpdatedAt());
+            broadcastMembershipAfterCommit(saved, "REMOVE", normalized, previousRole, saved.getUpdatedAt());
         }
         return saved;
     }
@@ -1287,6 +1389,7 @@ public class GroupService {
 
         Group saved = groupRepo.save(g);
         if (!alreadyMember) {
+            syncHouseholdCountsAfterJoin(saved);
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",
@@ -1411,6 +1514,7 @@ public class GroupService {
 
         Group saved = groupRepo.save(g);
         if (!alreadyMember) {
+            syncHouseholdCountsAfterJoin(saved);
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",

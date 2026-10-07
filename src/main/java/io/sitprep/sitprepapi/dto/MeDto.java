@@ -289,7 +289,18 @@ public record MeDto(
              * what a practice surface reads to show a date beside a drill and
              * to decide whether one has passed its published interval.</p>
              */
-            java.util.Map<String, DrillCompletionDto> drillLog
+            java.util.Map<String, DrillCompletionDto> drillLog,
+            /**
+             * Who the plan counts, summarized by the ONE derivation
+             * ({@code HouseholdCompositionService}, household roster EXEC-B):
+             * {@code people} is what Home's "Household Demographics · N
+             * household members" prints and equals the household page's row
+             * count. {@code memberCount} above stays accounts-only (roster
+             * size). Built from the same demographic row as {@code demographic}
+             * and the readiness "demographics" step, so they cannot disagree.
+             * Null only when the derivation failed (degraded, logged).
+             */
+            io.sitprep.sitprepapi.dto.HouseholdCompositionDto.Summary composition
     ) {}
 
     public record DrillCompletionDto(

@@ -968,8 +968,29 @@ public class MeService {
                 householdLastActiveFor(g, memberLastActiveMap),
                 householdState.challengeLastShownWeek(),
                 householdState.challengeProgress(),
-                householdState.drillLog()
+                householdState.drillLog(),
+                compositionSummaryFor(g, d)
         );
+    }
+
+    /**
+     * Home's "N household members" — the composition summary of the base
+     * household, from the SAME demographic row the readiness flag tested.
+     * Degrades to null (logged) rather than failing /me.
+     */
+    private io.sitprep.sitprepapi.dto.HouseholdCompositionDto.Summary compositionSummaryFor(Group g, Demographic d) {
+        if (householdComposition == null || g == null || g.getGroupId() == null) return null;
+        return safeGet("household.composition", "household=" + g.getGroupId(),
+                () -> householdComposition.compose(g, d, null).summary(), null);
+    }
+
+    // Setter-injected (household roster EXEC-B) so the long constructor — and
+    // the tests that call it — stay unchanged. Null → composition is null.
+    private HouseholdCompositionService householdComposition;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdComposition(HouseholdCompositionService householdComposition) {
+        this.householdComposition = householdComposition;
     }
 
     private record HouseholdState(

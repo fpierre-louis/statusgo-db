@@ -55,6 +55,22 @@ public class HouseholdManualMember {
     @Column(name = "is_adult", nullable = false, columnDefinition = "boolean default false not null")
     private Boolean isAdult = Boolean.FALSE;
 
+    /**
+     * The band this person is counted in on the plan — ADULT | TEEN | KID |
+     * INFANT (V100). Stored because the band a person was NAMED into ("Teen ·
+     * Add a name") outranks one re-derived from an age nobody typed. Nullable:
+     * a row written before V100 (or by an old dyno mid-deploy) reads through
+     * {@link #effectiveBand()}, which derives it the same way the backfill did.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "band", length = 8)
+    private io.sitprep.sitprepapi.constant.HouseholdBand band;
+
+    /** Stored band, else {@link io.sitprep.sitprepapi.constant.HouseholdBand#derive}. Never null. */
+    public io.sitprep.sitprepapi.constant.HouseholdBand effectiveBand() {
+        return band != null ? band : io.sitprep.sitprepapi.constant.HouseholdBand.derive(isAdult, age);
+    }
+
     /** R2 object key or full URL — same convention as profile photos. */
     @Column(name = "photo_url", length = 1024)
     private String photoUrl;

@@ -16,6 +16,11 @@ public record HouseholdManualMemberDto(
          * non-household groups.
          */
         Boolean isAdult,
+        /**
+         * The band this person is counted in on the plan (V100): ADULT | TEEN
+         * | KID | INFANT. Never null — rows predating the column derive it.
+         */
+        String band,
         String photoUrl,
         Instant createdAt,
         Instant updatedAt

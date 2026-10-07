@@ -48,8 +48,9 @@ public class HouseholdManualMemberResource {
     public ResponseEntity<HouseholdManualMemberDto> add(
             @PathVariable String householdId,
             @RequestBody UpsertRequest body) {
-        access.requireCanReadHousehold(AuthUtils.requireAuthenticatedEmail(), householdId);
-        return ResponseEntity.ok(service.add(householdId, body));
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(service.add(householdId, body, caller));
     }
 
     @PatchMapping("/{id}")

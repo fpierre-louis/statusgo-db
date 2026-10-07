@@ -24,65 +24,82 @@ public class DemographicService {
     private final DemographicRepo demographicRepository;
     private final HouseholdResolver householdResolver;
     private final WebSocketMessageSender ws;
+    private final HouseholdAccessService access;
+    private final HouseholdCompositionService composition;
 
     public DemographicService(DemographicRepo demographicRepository,
                               HouseholdResolver householdResolver,
-                              WebSocketMessageSender ws) {
+                              WebSocketMessageSender ws,
+                              HouseholdAccessService access,
+                              HouseholdCompositionService composition) {
         this.demographicRepository = demographicRepository;
         this.householdResolver = householdResolver;
         this.ws = ws;
+        this.access = access;
+        this.composition = composition;
     }
 
+    /**
+     * Save the caller's household head count.
+     *
+     * <p><b>Tightened 2026-10-07 (household roster EXEC-B).</b> The row is
+     * resolved on the server, always: the household being edited (the
+     * {@code X-Household-Id} header, admin-gated) or else the caller's base
+     * household while they belong to it — and then that household's ONE row,
+     * the same row every reader picks ({@code findFirstByHouseholdIdOrderByIdDesc}).
+     * A client-sent {@code id} is ignored: it used to fall through to a bare
+     * {@code save()} of the request body, i.e. a merge onto whatever row that
+     * id named. And the counts may not go below what the household has NAMED
+     * in any band: 409 with the band and its floor
+     * ({@link HouseholdCompositionService#requireAtLeastNamed}).</p>
+     *
+     * <p>Only a caller with no household at all still writes an owner-keyed
+     * row (the pre-household legacy shape).</p>
+     */
     public Demographic saveDemographic(Demographic demographic) {
         String currentUserEmail = AuthUtils.getCurrentUserEmail();
         demographic.setOwnerEmail(currentUserEmail);
 
-        // Cross-household edit: when an admin edits a NON-base household's plan
-        // the FE sends X-Household-Id. Upsert THAT household's single
-        // demographic (gated by canWriteHousehold). No header → null → the
-        // unchanged base path below runs.
         String targetHh = householdResolver.writableTargetHousehold(currentUserEmail);
+        if (targetHh == null) {
+            String base = householdResolver.baseHouseholdIdFor(currentUserEmail);
+            if (base != null && access.canReadHousehold(currentUserEmail, base)) targetHh = base;
+        }
+
         if (targetHh != null) {
+            composition.requireAtLeastNamed(targetHh, HouseholdCompositionService.countsOf(demographic));
+            final String hh = targetHh;
             Demographic row = demographicRepository
-                    .findFirstByHouseholdIdOrderByIdDesc(targetHh)
+                    .findFirstByHouseholdIdOrderByIdDesc(hh)
+                    // Adopt the caller's pre-household row rather than orphan it.
+                    .or(() -> demographicRepository.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(currentUserEmail)
+                            .filter(d -> d.getHouseholdId() == null))
                     .orElseGet(Demographic::new);
-            row.setInfants(demographic.getInfants());
-            row.setAdults(demographic.getAdults());
-            row.setTeens(demographic.getTeens());
-            row.setKids(demographic.getKids());
-            row.setDogs(demographic.getDogs());
-            row.setCats(demographic.getCats());
-            row.setPets(demographic.getPets());
-            // Preserve admin-emails on a cross-household edit too (the base path
-            // already does); an admin editing counts shouldn't silently wipe them.
+            copyCounts(demographic, row);
+            // Preserve admin-emails unless the caller sent a list; an edit to the
+            // counts shouldn't silently wipe them.
             if (demographic.getAdminEmails() != null) row.setAdminEmails(demographic.getAdminEmails());
-            row.setHouseholdId(targetHh);
+            row.setHouseholdId(hh);
             if (row.getOwnerEmail() == null) row.setOwnerEmail(currentUserEmail);
-            return saveIdempotent(row, currentUserEmail, targetHh);
+            return saveIdempotent(row, currentUserEmail, hh);
         }
 
-        Optional<Demographic> existing = demographicRepository.findByOwnerEmailIgnoreCase(currentUserEmail);
+        Demographic row = demographicRepository.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(currentUserEmail)
+                .orElseGet(Demographic::new);
+        copyCounts(demographic, row);
+        if (demographic.getAdminEmails() != null) row.setAdminEmails(demographic.getAdminEmails());
+        row.setOwnerEmail(currentUserEmail);
+        return saveIdempotent(row, currentUserEmail, row.getHouseholdId());
+    }
 
-        if (existing.isPresent() && demographic.getId() == null) {
-            Demographic updated = existing.get();
-            updated.setInfants(demographic.getInfants());
-            updated.setAdults(demographic.getAdults());
-            updated.setTeens(demographic.getTeens());
-            updated.setKids(demographic.getKids());
-            updated.setDogs(demographic.getDogs());
-            updated.setCats(demographic.getCats());
-            updated.setPets(demographic.getPets());
-            updated.setAdminEmails(demographic.getAdminEmails());
-            if (updated.getHouseholdId() == null) {
-                updated.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
-            }
-            return saveIdempotent(updated, currentUserEmail, updated.getHouseholdId());
-        }
-
-        if (demographic.getHouseholdId() == null) {
-            demographic.setHouseholdId(householdResolver.baseHouseholdIdFor(currentUserEmail));
-        }
-        return saveIdempotent(demographic, currentUserEmail, demographic.getHouseholdId());
+    private static void copyCounts(Demographic from, Demographic to) {
+        to.setInfants(from.getInfants());
+        to.setAdults(from.getAdults());
+        to.setTeens(from.getTeens());
+        to.setKids(from.getKids());
+        to.setDogs(from.getDogs());
+        to.setCats(from.getCats());
+        to.setPets(from.getPets());
     }
 
     /**

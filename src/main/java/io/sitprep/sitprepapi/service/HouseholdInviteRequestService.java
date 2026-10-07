@@ -50,6 +50,14 @@ public class HouseholdInviteRequestService {
         this.notificationService = notificationService;
     }
 
+    /** Setter-injected: raises the plan's adult count when an approval adds an account (EXEC-B). */
+    private HouseholdCompositionService householdComposition;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdComposition(HouseholdCompositionService householdComposition) {
+        this.householdComposition = householdComposition;
+    }
+
     /**
      * Member files a request to add {@code candidateEmail} to the
      * household. Pushes Lane A to every admin (idempotent: a second
@@ -129,6 +137,8 @@ public class HouseholdInviteRequestService {
             household.setMemberCount(emails.size());
             household.setUpdatedAt(Instant.now());
             groupRepo.save(household);
+            // An account joined: fill an ADULT placeholder or raise adults.
+            if (householdComposition != null) householdComposition.raiseToNamed(householdId, false, null);
         }
 
         row.setStatus(Status.APPROVED);

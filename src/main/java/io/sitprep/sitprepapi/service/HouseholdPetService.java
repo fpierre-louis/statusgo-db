@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.PetSpecies;
 import io.sitprep.sitprepapi.domain.HouseholdPet;
 import io.sitprep.sitprepapi.dto.HouseholdPetDto;
 import io.sitprep.sitprepapi.repo.HouseholdPetRepo;
@@ -11,16 +12,24 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Named pets. Like manual members, the plan's pet counts move here (V100): a
+ * named pet fills a placeholder of its species or raises the count, a delete
+ * lowers it, a species change moves it — via {@link HouseholdCompositionService}.
+ */
 @Service
 public class HouseholdPetService {
 
     private final HouseholdPetRepo repo;
     private final HouseholdAccessService access;
+    private final HouseholdCompositionService composition;
 
     public HouseholdPetService(HouseholdPetRepo repo,
-                               HouseholdAccessService access) {
+                               HouseholdAccessService access,
+                               HouseholdCompositionService composition) {
         this.repo = repo;
         this.access = access;
+        this.composition = composition;
     }
 
     public List<HouseholdPetDto> list(String caller, String householdId) {
@@ -44,24 +53,37 @@ public class HouseholdPetService {
         pet.setSpecies(clean(body.species()));
         pet.setNotes(clean(body.notes()));
         pet.setPhotoUrl(clean(body.photoUrl()));
-        return toDto(repo.save(pet));
+        HouseholdPet saved = repo.save(pet);
+        composition.raiseToNamed(householdId, true, caller);
+        return toDto(saved);
     }
 
     @Transactional
     public HouseholdPetDto update(String caller, String householdId, String id, UpsertRequest body) {
         access.requireCanAdminHousehold(caller, householdId);
         HouseholdPet pet = loadOr404(householdId, id);
+        PetSpecies before = PetSpecies.of(pet.getSpecies());
         if (body.name() != null && !body.name().isBlank()) pet.setName(body.name().trim());
         if (body.species() != null) pet.setSpecies(clean(body.species()));
         if (body.notes() != null) pet.setNotes(clean(body.notes()));
         if (body.photoUrl() != null) pet.setPhotoUrl(clean(body.photoUrl()));
-        return toDto(repo.save(pet));
+        HouseholdPet saved = repo.save(pet);
+        if (PetSpecies.of(saved.getSpecies()) != before) {
+            repo.flush();
+            composition.lowerSpecies(householdId, before);
+            composition.raiseToNamed(householdId, true, caller);
+        }
+        return toDto(saved);
     }
 
     @Transactional
     public void remove(String caller, String householdId, String id) {
         access.requireCanAdminHousehold(caller, householdId);
-        repo.delete(loadOr404(householdId, id));
+        HouseholdPet pet = loadOr404(householdId, id);
+        PetSpecies species = PetSpecies.of(pet.getSpecies());
+        repo.delete(pet);
+        repo.flush();
+        composition.lowerSpecies(householdId, species);
     }
 
     private HouseholdPet loadOr404(String householdId, String id) {
