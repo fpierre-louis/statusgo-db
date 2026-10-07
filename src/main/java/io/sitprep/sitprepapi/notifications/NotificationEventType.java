@@ -88,6 +88,16 @@ public enum NotificationEventType {
     GO_BAG_EXPIRY(Set.of("gobag_expiry"), Set.of(),
             null, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "GO_BAG", Priority.ROUTINE, "GO_BAG", false),
+    /**
+     * A Ready for More step the member asked to be reminded about
+     * ("Remind me later") is due (ReadinessReminderService, EXEC-A1). Unlike
+     * the no-policy reminder family above it has a policy category: the
+     * member asked for a push, so it is Lane A, but not critical-bypass —
+     * quiet hours and rate caps defer it to the inbox.
+     */
+    READINESS_REMINDER(Set.of("readiness_reminder"), Set.of(Category.READINESS_REMINDER),
+            Category.READINESS_REMINDER, "general", "SYSTEM",
+            NotificationSourceType.SYSTEM, "TASK", Priority.ROUTINE, "READINESS_STEP", false),
     GUEST_EXPIRY(Set.of("guest_expiry_reminder"), Set.of(),
             null, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "ACCOUNT", Priority.ATTENTION, "ACCOUNT", false),

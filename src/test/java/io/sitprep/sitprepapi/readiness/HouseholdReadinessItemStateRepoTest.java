@@ -6,6 +6,8 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 
+import org.springframework.data.domain.PageRequest;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -94,5 +96,57 @@ class HouseholdReadinessItemStateRepoTest {
         assertThat(repo.findFirstByHouseholdIdAndItemKeyAndScopeAndUserEmail(
                 "hh-1", "documents.first_folder", "USER", "c@example.com")).isEmpty();
         assertThat(repo.findFirstByHouseholdIdAndItemKeyAndScope("hh-1", "outage.charge_plan", "HOUSEHOLD")).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ V99 reminder sweep
+
+    private HouseholdReadinessItemState remind(String hh, String email, String remindAt) {
+        HouseholdReadinessItemState r = row(hh, "outage.charge_plan", "USER", email, ItemStateKind.REMIND_LATER);
+        r.setRemindAt(Instant.parse(remindAt));
+        return repo.save(r);
+    }
+
+    @Test
+    void dueRemindersAreOnlyUnhandledRemindLaterRowsAtOrBeforeNow_keysetById() {
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        HouseholdReadinessItemState dueA = remind("hh-1", "a@example.com", "2026-10-14T12:00:00Z");
+        HouseholdReadinessItemState dueExactlyNow = remind("hh-1", "b@example.com", "2026-10-20T12:00:00Z");
+        remind("hh-1", "c@example.com", "2026-10-21T12:00:00Z");                     // not due yet
+        HouseholdReadinessItemState handled = remind("hh-2", "a@example.com", "2026-10-01T12:00:00Z");
+        handled.setRemindedAt(Instant.parse("2026-10-01T12:05:00Z"));
+        repo.save(handled);                                                            // already reminded
+        row("hh-3", "outage.charge_plan", "USER", "a@example.com", ItemStateKind.SKIPPED); // not a reminder
+        em.flush();
+        em.clear();
+
+        List<HouseholdReadinessItemState> due = repo.findDueReminders(ItemStateKind.REMIND_LATER, now, 0, PageRequest.of(0, 10));
+        assertThat(due).extracting(HouseholdReadinessItemState::getId)
+                .containsExactly(dueA.getId(), dueExactlyNow.getId());
+
+        // Keyset: a page of one, then everything after the last id seen.
+        assertThat(repo.findDueReminders(ItemStateKind.REMIND_LATER, now, 0, PageRequest.of(0, 1)))
+                .extracting(HouseholdReadinessItemState::getId).containsExactly(dueA.getId());
+        assertThat(repo.findDueReminders(ItemStateKind.REMIND_LATER, now, dueA.getId(), PageRequest.of(0, 1)))
+                .extracting(HouseholdReadinessItemState::getId).containsExactly(dueExactlyNow.getId());
+        assertThat(repo.findDueReminders(ItemStateKind.REMIND_LATER, now, dueExactlyNow.getId(), PageRequest.of(0, 1)))
+                .isEmpty();
+    }
+
+    @Test
+    void claimStampsOnceAndRefusesAChangedSnooze() {
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        HouseholdReadinessItemState r = remind("hh-1", "a@example.com", "2026-10-14T12:00:00Z");
+        em.flush();
+        em.clear();
+
+        // A stale remindAt (the member re-snoozed after the sweep read the row) is refused.
+        assertThat(repo.claimReminder(r.getId(), ItemStateKind.REMIND_LATER, Instant.parse("2026-10-13T12:00:00Z"), now))
+                .isZero();
+        assertThat(repo.claimReminder(r.getId(), ItemStateKind.REMIND_LATER, r.getRemindAt(), now)).isEqualTo(1);
+        // Second claim (another instance, or the next sweep) loses.
+        assertThat(repo.claimReminder(r.getId(), ItemStateKind.REMIND_LATER, r.getRemindAt(), now)).isZero();
+        em.clear();
+        assertThat(repo.findById(r.getId()).orElseThrow().getRemindedAt()).isEqualTo(now);
+        assertThat(repo.findDueReminders(ItemStateKind.REMIND_LATER, now, 0, PageRequest.of(0, 10))).isEmpty();
     }
 }

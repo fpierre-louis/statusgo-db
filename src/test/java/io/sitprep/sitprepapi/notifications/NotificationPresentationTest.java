@@ -39,7 +39,7 @@ class NotificationPresentationTest {
             "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member",
             "post_notification", "post_mention", "comment_on_post", "comment_on_task",
             "reply_on_followed", "follow", "follow_accepted", "dm_message", "weekly_drill_kickoff",
-            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked");
+            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder");
 
     /**
      * Route patterns mounted in Status Now/src/App.js. A canonical route that
@@ -52,7 +52,7 @@ class NotificationPresentationTest {
             "^/household/h/4D-FwtX/household/[^/?]+/(chat(\\?postId=[^&]+)?|family(\\?checkin=1)?|plan|timeline|about)$",
             "^/household/[^/]+/invite-requests/[^/?]+$", "^/work-orders(/[^/?]+)?$",
             "^/deployedplan\\?activationId=[^&]+$", "^/profile(/[^/?]+)?(\\?message=open)?$", "^/profile\\?tab=tokens$",
-            "^/home$", "^/practice/this-week$", "^/me/tasks(\\?task=[^&]+)?$", "^/go-bag$", "^/login$", "^/notifications$"
+            "^/home$", "^/practice/this-week$", "^/me/tasks(\\?task=[^&]+)?$", "^/go-bag$", "^/ready-for-more$", "^/login$", "^/notifications$"
     ).stream().map(Pattern::compile).toList();
 
     UserInfoRepo users;
@@ -181,6 +181,21 @@ class NotificationPresentationTest {
                 "/profile?tab=tokens", "{\"tokenKey\":\"meeting_place\"}", null));
         assertThat(token.source().entityType()).isEqualTo("TOKEN");
         assertRoutable(token);
+    }
+
+    @Test
+    void readinessReminder_isAPolicyCategoryRowThatOpensReadyForMore() {
+        assertThat(NotificationEventType.forType("readiness_reminder"))
+                .isEqualTo(NotificationEventType.READINESS_REMINDER);
+        assertThat(NotificationEventType.READINESS_REMINDER.policy())
+                .isEqualTo(io.sitprep.sitprepapi.service.PushPolicyService.Category.READINESS_REMINDER);
+        NotificationPresentation p = builder.build(row("readiness_reminder", "READINESS_REMINDER",
+                "outage.charge_plan", "/ready-for-more", "{\"householdId\":\"hh1\",\"itemKey\":\"outage.charge_plan\"}", null));
+        assertThat(p.eventKey()).isEqualTo("READINESS_REMINDER");
+        assertThat(p.source().name()).isEqualTo("SitPrep");
+        assertThat(p.deepLink().route()).isEqualTo("/ready-for-more");
+        assertThat(p.actions()).extracting(Action::label).containsExactly("Open step");
+        assertRoutable(p);
     }
 
     @Test

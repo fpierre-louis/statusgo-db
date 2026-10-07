@@ -217,7 +217,7 @@ public class PushPolicyService {
                  GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG,
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
-                 CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE -> Lane.A;
+                 CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE, READINESS_REMINDER -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -371,6 +371,8 @@ public class PushPolicyService {
          * gets the banner + STOMP frame instead of a push.
          */
         DIRECT_MESSAGE,
+        /** A "Remind me later" readiness step coming due (EXEC-A1). The member asked for it, so Lane A, but not critical: quiet hours and caps defer it to the inbox. */
+        READINESS_REMINDER,
 
         // Lane B — silent inbox
         NWS_MINOR,

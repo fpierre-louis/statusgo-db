@@ -32,6 +32,7 @@ import java.time.Instant;
 @Setter
 @Table(name = "household_readiness_item_state",
         indexes = @Index(name = "idx_hris_household", columnList = "household_id"))
+// idx_hris_remind_due (V99) is partial, so it is not declared here (T-2).
 public class HouseholdReadinessItemState {
 
     public static final String SCOPE_HOUSEHOLD = "HOUSEHOLD";
@@ -64,6 +65,15 @@ public class HouseholdReadinessItemState {
 
     @Column(name = "remind_at")
     private Instant remindAt;
+
+    /**
+     * When this REMIND_LATER row's reminder was handled — sent, or closed
+     * because the step no longer needed it (V99). Null until then; a new
+     * snooze clears it. Written by {@link ReadinessReminderService} through a
+     * conditional update so it is set once.
+     */
+    @Column(name = "reminded_at")
+    private Instant remindedAt;
 
     @Column(name = "reason_code", length = 64)
     private String reasonCode;

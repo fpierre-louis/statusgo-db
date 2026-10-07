@@ -159,6 +159,24 @@ public class ReadinessJourneyService {
         return build(household, email, risk, clock.instant());
     }
 
+    /**
+     * The journey exactly as {@code requesterEmail} would see it at {@code now},
+     * for {@link ReadinessReminderService}. Empty when the household is gone,
+     * isn't a household, or the user is no longer a member of it: a reminder
+     * about a household you left is never sent. No exception path — the sweep
+     * decides from the result.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ReadinessJourneyDto> journeyForReminder(String householdId, String requesterEmail, Instant now) {
+        String email = normalizeEmail(requesterEmail);
+        if (householdId == null || householdId.isBlank() || email.isEmpty()) return Optional.empty();
+        Optional<Group> household = groupRepo.findByGroupId(householdId)
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()));
+        if (household.isEmpty() || !access.canReadHousehold(email, householdId)) return Optional.empty();
+        RiskProfileDto risk = riskProfileService.resolveFor(household.get());
+        return Optional.of(build(household.get(), email, risk, now));
+    }
+
     // ------------------------------------------------------------------
     // Mutations
     // ------------------------------------------------------------------
@@ -262,6 +280,8 @@ public class ReadinessJourneyService {
         row.setState(state);
         row.setSuppressedUntil(suppressedUntil);
         row.setRemindAt(remindAt);
+        // A new snooze (or a skip) is a new reminder decision: never "already reminded".
+        row.setRemindedAt(null);
         row.setReasonCode(reasonCode);
         row.setUpdatedAt(now);
         stateRepo.save(row);

@@ -35,6 +35,8 @@ public final class NotificationRoutes {
     public static final String HAZARDS = "/hazards";
     public static final String PERSONAL_TASKS = "/me/tasks";
     public static final String GO_BAG = "/go-bag";
+    /** The Ready for More journey (a "Remind me later" step coming due). */
+    public static final String READY_FOR_MORE = "/ready-for-more";
     public static final String LOGIN = "/login";
     /**
      * The drill's own page. The notification knows the week, not which drill,

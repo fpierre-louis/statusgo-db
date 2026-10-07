@@ -307,6 +307,11 @@ public class NotificationPresentationBuilder {
                 fallback = NotificationRoutes.HOME;
                 actions.add(Action.navigate("OPEN_TASKS", "Open tasks", route, "primary"));
             }
+            case READINESS_REMINDER -> {
+                route = NotificationRoutes.READY_FOR_MORE;
+                fallback = NotificationRoutes.HOME;
+                actions.add(Action.navigate("OPEN_STEP", "Open step", route, "primary"));
+            }
             case GO_BAG_EXPIRY -> {
                 route = NotificationRoutes.GO_BAG;
                 fallback = NotificationRoutes.HOME;

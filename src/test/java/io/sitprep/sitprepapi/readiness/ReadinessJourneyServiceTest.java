@@ -807,6 +807,38 @@ class ReadinessJourneyServiceTest {
         assertThat(rows).hasSize(1);
     }
 
+    // ------------------------------------------------------------------ reminders (EXEC-A1 task 1)
+
+    @Test
+    void remindLaterReportsItsDateAndANewSnoozeClearsRemindedAt() {
+        ReadinessJourneyDto j = service.setState(HH, "outage.charge_plan",
+                new SetItemStateRequest("REMIND_LATER", 7, null), ME);
+        assertThat(item(j, "outage.charge_plan").userState().state()).isEqualTo(ItemStateKind.REMIND_LATER);
+        assertThat(item(j, "outage.charge_plan").userState().until()).isEqualTo(NOW.plus(Duration.ofDays(7)));
+
+        // The sweep handled an earlier reminder on this row...
+        rows.get(0).setRemindedAt(NOW);
+        // ...and the member snoozes again: that is a new reminder, not an old one.
+        service.setState(HH, "outage.charge_plan", new SetItemStateRequest("REMIND_LATER", 30, null), ME);
+        assertThat(rows).singleElement().satisfies(r -> {
+            assertThat(r.getRemindAt()).isEqualTo(NOW.plus(Duration.ofDays(30)));
+            assertThat(r.getRemindedAt()).isNull();
+        });
+        // A skip never carries a reminder stamp either (V99 ck_hris_reminded_state).
+        rows.get(0).setRemindedAt(NOW);
+        service.setState(HH, "outage.charge_plan", new SetItemStateRequest("SKIPPED", null, null), ME);
+        assertThat(rows).singleElement().satisfies(r -> assertThat(r.getRemindedAt()).isNull());
+    }
+
+    @Test
+    void journeyForReminderIsMembersOnlyAndNeverThrows() {
+        when(access.canReadHousehold(ME, HH)).thenReturn(true);
+        assertThat(service.journeyForReminder(HH, "Member@Example.com", NOW)).isPresent();
+        assertThat(service.journeyForReminder(HH, "left@example.com", NOW)).isEmpty();
+        assertThat(service.journeyForReminder("hh-gone", ME, NOW)).isEmpty();
+        assertThat(service.journeyForReminder(HH, null, NOW)).isEmpty();
+    }
+
     private static void assertStatus(Runnable call, HttpStatus status) {
         assertThatThrownBy(call::run)
                 .isInstanceOf(ResponseStatusException.class)
