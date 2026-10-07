@@ -39,7 +39,8 @@ class NotificationPresentationTest {
             "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member",
             "post_notification", "post_mention", "comment_on_post", "comment_on_task",
             "reply_on_followed", "follow", "follow_accepted", "dm_message", "weekly_drill_kickoff",
-            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder");
+            "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder",
+            "quiet_hours_catch_up");
 
     /**
      * Route patterns mounted in Status Now/src/App.js. A canonical route that
@@ -89,16 +90,17 @@ class NotificationPresentationTest {
         for (String type : EMITTED_TYPES) {
             assertThat(NotificationEventType.forType(type)).as(type).isNotEqualTo(NotificationEventType.UNKNOWN);
         }
-        // policy == null is a DECISION (EXEC-N1 out-of-scope). Growing this set
-        // means a new type rides the no-policy push path — make that a choice.
+        // policy == null is a DECISION. Growing this set means a new type rides
+        // the no-policy push path — make that a choice. The reminder family
+        // (task / go-bag / guest expiry) left it in EXEC-N (2026-10-07); the two
+        // left are the ones whose CALLER evaluates policy per recipient.
         Set<NotificationEventType> noPolicy = EnumSet.noneOf(NotificationEventType.class);
         for (NotificationEventType e : NotificationEventType.values()) {
             if (e.policy() == null) noPolicy.add(e);
         }
         assertThat(noPolicy).containsExactlyInAnyOrder(
                 NotificationEventType.HAZARD_ALERT, NotificationEventType.AGENCY_ALERT,
-                NotificationEventType.TASK_REMINDER, NotificationEventType.GO_BAG_EXPIRY,
-                NotificationEventType.GUEST_EXPIRY, NotificationEventType.UNKNOWN);
+                NotificationEventType.UNKNOWN);
         // The household flip is type "alert" + the household category.
         assertThat(NotificationEventType.resolve("alert", "GROUP_ALERT_HOUSEHOLD", "hh1"))
                 .isEqualTo(NotificationEventType.GROUP_ALERT_HOUSEHOLD);
@@ -239,6 +241,15 @@ class NotificationPresentationTest {
                 "/home?challenge=open", null, null));
         assertThat(drill.visual().avatarKind()).isEqualTo("PRACTICE");
         assertThat(drill.source().name()).isEqualTo("Chen Household");
+    }
+
+    @Test
+    void quietHoursCatchUp_opensTheInbox() {
+        NotificationPresentation p = builder.build(row("quiet_hours_catch_up", "QUIET_HOURS_CATCH_UP", null,
+                "/notifications", "{\"count\":3}", null));
+        assertThat(p.eventKey()).isEqualTo("QUIET_HOURS_CATCH_UP");
+        assertThat(p.deepLink().route()).isEqualTo("/notifications");
+        assertRoutable(p);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

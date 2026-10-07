@@ -76,8 +76,12 @@ public class PushPolicyService {
             Category.NWS_SEVERE_EXTREME,        // limited to Severe/Extreme below
             Category.USGS_QUAKE_MAJOR,          // limited to M6.0+ ("Severe") below
             Category.PLAN_ACTIVATION_RECEIVED,
-            Category.GROUP_ALERT_HOUSEHOLD
+            Category.GROUP_ALERT_HOUSEHOLD,
+            Category.AGENCY_ALERT               // limited to the "emergency" tier below
     );
+
+    /** {@code AgencyAlert.officialTier} value that carries the critical bypass. */
+    public static final String AGENCY_EMERGENCY_TIER = "emergency";
 
     private final UserAlertPreferenceRepo repo;
     private final RateLimiterService rateLimiter;
@@ -95,13 +99,27 @@ public class PushPolicyService {
      *                  {@code NOTIFICATIONS_INBOX.md}'s vocabulary
      * @param severity  source-specific severity used for critical-bypass
      *                  judgments (NWS "Severe"/"Extreme"; USGS "Severe" for
-     *                  M6+, or a magnitude as a decimal string). May be null when the category
+     *                  M6+, or a magnitude as a decimal string; an agency
+     *                  alert's tier). May be null when the category
      *                  doesn't carry a severity.
      * @return the decided lane; never null
      */
     @Transactional
     public Lane evaluate(String userEmail, Category category, String severity) {
-        if (userEmail == null || userEmail.isBlank() || category == null) return Lane.DROP;
+        return decide(userEmail, category, severity).lane();
+    }
+
+    /**
+     * {@link #evaluate} plus WHY a Lane A push became Lane B, for the one reason
+     * a later job acts on: the user's own quiet hours. The morning catch-up
+     * ({@code QuietHoursCatchUpService}) counts the inbox rows that quiet hours
+     * held, so the senders stamp those rows ({@code NotificationLog.deferredReason})
+     * from this. A rate-capped or push-off row is Lane B too, but not "held
+     * overnight", and is not marked.
+     */
+    @Transactional
+    public Decision decide(String userEmail, Category category, String severity) {
+        if (userEmail == null || userEmail.isBlank() || category == null) return Decision.of(Lane.DROP);
         UserAlertPreference pref = getOrCreate(userEmail);
 
         // -- per-category opt-out applied first, before master switches,
@@ -110,29 +128,24 @@ public class PushPolicyService {
         //    when push is suppressed by quiet hours / rate caps" — opt-
         //    out is a stronger user signal than quiet hours, so honor it.
         if (!isCategoryEnabled(pref, category)) {
-            return Lane.DROP;
+            return Decision.of(Lane.DROP);
         }
 
         Lane base = defaultLaneFor(category);
 
         // -- master switches:
         //    push off → Lane A demotes to Lane B (inboxed but silent).
-        //    inbox off → strip to Lane C (ephemeral banner only). If
-        //    BOTH off, DROP.
+        //    inbox off → strip to Lane C (ephemeral banner only). Lane C
+        //    still fires the in-app banner, which the user opted into by
+        //    having the app open.
         if (base == Lane.A && !pref.isPushEnabled()) base = Lane.B;
         if (base == Lane.B && !pref.isInboxEnabled()) base = Lane.C;
-        if (base == Lane.C && !pref.isPushEnabled() && !pref.isInboxEnabled()) {
-            // User has aggressively muted both — Lane C still fires the
-            // in-app banner, which the user explicitly opted into by
-            // having the app open. Keep C; only DROP when the app's
-            // off-screen + push is off (not knowable here, FE handles).
-        }
 
         // -- quiet hours apply only to Lane A (push). Lane B / C aren't
         //    interruptive so the quiet window doesn't gate them.
         if (base == Lane.A && pref.isQuietHoursEnabled() && isWithinQuietHours(pref)) {
             if (!isCriticalBypass(category, severity)) {
-                base = Lane.B;
+                return new Decision(Lane.B, DeferReason.QUIET_HOURS);
             }
         }
 
@@ -147,7 +160,7 @@ public class PushPolicyService {
             }
         }
 
-        return base;
+        return Decision.of(base);
     }
 
     /**
@@ -223,7 +236,8 @@ public class PushPolicyService {
                  GROUP_ALERT_HOUSEHOLD, GROUP_ALERT_ORG,
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
-                 CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE, READINESS_REMINDER -> Lane.A;
+                 CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE, READINESS_REMINDER,
+                 AGENCY_ALERT, ACCOUNT_REMINDER, QUIET_HOURS_CATCH_UP -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -316,6 +330,21 @@ public class PushPolicyService {
             }
             // Plan activation + household group alert always bypass.
             case PLAN_ACTIVATION_RECEIVED, GROUP_ALERT_HOUSEHOLD -> true;
+            // A verified agency's alert (EXEC-N, 2026-10-07). This used to
+            // bypass everything by ACCIDENT: AgencyAlertDispatchService handed
+            // every recipient straight to the hazard batch and never asked
+            // policy, so a "notice" from a city woke people at 3am and the
+            // master push switch did nothing. The decision is now made here,
+            // on the tier the agency itself chose when it sent:
+            //   emergency          → bypasses quiet hours and rate caps, like
+            //                        an NWS Severe/Extreme warning: the
+            //                        issuing authority said it cannot wait.
+            //   advisory, notice   → wait for morning (inbox row overnight),
+            //                        like an NWS Minor product.
+            // Every tier still honours the master push switch (inbox row) and
+            // has no per-category opt-out (an official alert is not mutable).
+            case AGENCY_ALERT -> AGENCY_EMERGENCY_TIER.equalsIgnoreCase(
+                    severity == null ? "" : severity.trim());
             default -> false;
         };
     }
@@ -333,6 +362,22 @@ public class PushPolicyService {
         C,
         /** Suppressed entirely — no inbox, no banner, no push. */
         DROP
+    }
+
+    /** Why a Lane A push was demoted, when a later job needs to know. */
+    public enum DeferReason {
+        /** The recipient's own quiet window (not a per-group quiet window). */
+        QUIET_HOURS
+    }
+
+    /**
+     * The lane, plus the deferral reason when quiet hours made it Lane B.
+     * {@code deferredBy} is null for every other outcome.
+     */
+    public record Decision(Lane lane, DeferReason deferredBy) {
+        static Decision of(Lane lane) { return new Decision(lane, null); }
+
+        public boolean deferredByQuietHours() { return deferredBy == DeferReason.QUIET_HOURS; }
     }
 
     /**
@@ -377,8 +422,35 @@ public class PushPolicyService {
          * gets the banner + STOMP frame instead of a push.
          */
         DIRECT_MESSAGE,
-        /** A "Remind me later" readiness step coming due (EXEC-A1). The member asked for it, so Lane A, but not critical: quiet hours and caps defer it to the inbox. */
+        /**
+         * A preparedness item the member set up has come due: a "Remind me
+         * later" readiness step (EXEC-A1), a personal prep task's refresh date
+         * ({@code task_reminder}), a go-bag item's expiry ({@code gobag_expiry}).
+         * The member asked for these, so Lane A, but not critical: quiet hours
+         * and rate caps defer them to the inbox. No per-category opt-out — the
+         * member turns one off by changing the task, item or snooze itself.
+         * (The two older types joined this category in EXEC-N; before that
+         * they had no category and skipped policy entirely.)
+         */
         READINESS_REMINDER,
+        /**
+         * A verified agency's jurisdiction alert (AgencyAlertDispatchService).
+         * Lane A; {@code severity} is the agency's own tier, and only
+         * {@value #AGENCY_EMERGENCY_TIER} carries the critical bypass. Not
+         * user-mutable. See {@code isCriticalBypass}.
+         */
+        AGENCY_ALERT,
+        /**
+         * An account notice with a deadline — today the guest-data expiry
+         * reminder ({@code guest_expiry_reminder}). Lane A, not critical.
+         */
+        ACCOUNT_REMINDER,
+        /**
+         * The single "while your notifications were quiet" summary sent when
+         * a user's quiet window ends ({@code QuietHoursCatchUpService}). Lane A
+         * and non-critical; it is only ever sent outside the quiet window.
+         */
+        QUIET_HOURS_CATCH_UP,
 
         // Lane B — silent inbox
         NWS_MINOR,

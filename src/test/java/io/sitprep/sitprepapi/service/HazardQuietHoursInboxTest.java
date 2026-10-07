@@ -136,11 +136,16 @@ class HazardQuietHoursInboxTest {
         return c.getValue();
     }
 
+    /** Emails the last {@link #inboxed} call marked as held by quiet hours (EXEC-N). */
+    private java.util.Set<String> quietMarked = java.util.Set.of();
+
     @SuppressWarnings("unchecked")
     private List<UserInfo> inboxed(Category expectedCategory) {
         ArgumentCaptor<List<UserInfo>> c = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<java.util.Set<String>> quiet = ArgumentCaptor.forClass(java.util.Set.class);
         verify(notifications).logHazardAlertInboxOnly(c.capture(), anyString(), anyString(), anyString(),
-                anyString(), any(), eq(expectedCategory));
+                anyString(), any(), eq(expectedCategory), quiet.capture());
+        quietMarked = quiet.getValue();
         return c.getValue();
     }
 
@@ -159,6 +164,7 @@ class HazardQuietHoursInboxTest {
         dispatch(fire, List.of(user("night@x.com", HazardQuietHoursInboxTest::quietNow)));
 
         assertThat(emails(inboxed(Category.WILDFIRE_NEAR))).containsExactly("night@x.com");
+        assertThat(quietMarked).as("marked for the morning catch-up").containsExactly("night@x.com");
         verify(notifications, never()).sendHazardAlertBatch(anyList(), any(), any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -178,9 +184,9 @@ class HazardQuietHoursInboxTest {
 
     @Test
     void aQuietHoursSubM6QuakeLandsInTheInboxWithoutAPush() {
-        // Production note: the USGS template is `attention`, so dispatchOnce
-        // never calls pushSevereAlert for a quake today. If that changes, a
-        // sub-M6 quake at night must take the same Lane B route.
+        // Production note: dispatchOnce reaches pushSevereAlert for M6.0+
+        // quakes only (AlertDispatchService.isMajorQuakePush, EXEC-N). If a
+        // sub-M6 quake ever reaches it, at night it must take the Lane B route.
         NormalizedAlert m55 = TestAlerts.usgs("M5.6 — 10 km N of Somewhere").severity("Moderate").build();
 
         dispatch(m55, List.of(user("night@x.com", HazardQuietHoursInboxTest::quietNow)));
@@ -203,6 +209,7 @@ class HazardQuietHoursInboxTest {
 
         assertThat(emails(pushed())).containsExactly("fresh@x.com");
         assertThat(emails(inboxed(Category.WILDFIRE_NEAR))).containsExactly("capped@x.com");
+        assertThat(quietMarked).as("a rate cap is not a night held by quiet hours").isEmpty();
     }
 
     // ── one route per recipient; push and row carry the same content ─────
@@ -241,7 +248,8 @@ class HazardQuietHoursInboxTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserInfo>> iTo = ArgumentCaptor.forClass(List.class);
         verify(notifications, times(1)).logHazardAlertInboxOnly(iTo.capture(), iTitle.capture(),
-                iBody.capture(), iRef.capture(), iUrl.capture(), iData.capture(), eq(Category.WILDFIRE_NEAR));
+                iBody.capture(), iRef.capture(), iUrl.capture(), iData.capture(), eq(Category.WILDFIRE_NEAR),
+                any());
 
         assertThat(emails(pTo.getValue())).as("Lane A: push (+ its own row), once").containsExactly("day@x.com");
         assertThat(emails(iTo.getValue())).as("Lane B: inbox only").containsExactly("night@x.com");
@@ -272,7 +280,7 @@ class HazardQuietHoursInboxTest {
 
         assertThat(emails(pushed())).containsExactly("night@x.com");
         verify(notifications, never()).logHazardAlertInboxOnly(anyList(), any(), any(), any(), any(), any(),
-                any());
+                any(), any());
     }
 
     // ── the row itself: same shape as the pushed row, no FCM ─────────────
@@ -330,5 +338,26 @@ class HazardQuietHoursInboxTest {
         verify(ws).sendInboxEvent(eq("b@x.com"), any(Map.class));
         verify(ws, never()).sendInAppNotification(any());
         verifyNoInteractions(policy);
+    }
+
+    @Test
+    void onlyTheQuietHoursRecipientsRowIsMarkedForTheCatchUp() {
+        NotificationLogRepo logRepo = mock(NotificationLogRepo.class);
+        when(logRepo.save(any(NotificationLog.class))).thenAnswer(inv -> inv.getArgument(0));
+        NotificationService real = new NotificationService(mock(WebSocketMessageSender.class),
+                mock(UserInfoRepo.class), logRepo, mock(WebSocketPresenceService.class),
+                mock(PushPolicyService.class), mock(GroupMuteService.class));
+        UserInfo asleep = new UserInfo();
+        asleep.setUserEmail("Night@X.com");
+        UserInfo capped = new UserInfo();
+        capped.setUserEmail("capped@x.com");
+
+        real.logHazardAlertInboxOnly(List.of(asleep, capped), "Fire Warning", "Leave now.", "NWS-1",
+                "/hazards", null, Category.WILDFIRE_NEAR, java.util.Set.of("night@x.com"));
+
+        ArgumentCaptor<NotificationLog> rows = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(logRepo, times(2)).save(rows.capture());
+        assertThat(rows.getAllValues().get(0).getDeferredReason()).isEqualTo("QUIET_HOURS");
+        assertThat(rows.getAllValues().get(1).getDeferredReason()).isNull();
     }
 }

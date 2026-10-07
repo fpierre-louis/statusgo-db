@@ -97,6 +97,17 @@ public class NotificationLog {
     private String category;
 
     /**
+     * Why a would-be push became this inbox row, when a later job acts on it.
+     * Only value today: {@code "QUIET_HOURS"} — the recipient's own quiet
+     * window held a Lane A push (PushPolicyService.DeferReason). Null for
+     * every other row, including Lane B rows caused by the rate cap, push
+     * switched off, a per-group quiet window or a muted group. Read by
+     * {@code QuietHoursCatchUpService} (V101, EXEC-N).
+     */
+    @Column(name = "deferred_reason", length = 16)
+    private String deferredReason;
+
+    /**
      * Set when the user soft-archives a row from the inbox. Hard
      * deletion is handled by {@code RetentionSweepService} at the
      * 30d retention cutoff regardless of archive state.

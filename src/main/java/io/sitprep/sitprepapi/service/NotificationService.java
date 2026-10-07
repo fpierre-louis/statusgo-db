@@ -217,6 +217,31 @@ public class NotificationService {
                             Category category,
                             String actorUserId,
                             Map<String, Object> presentation) {
+        saveLogRow(recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
+                additionalData, success, errorMessage, lane, category, actorUserId, presentation,
+                /* deferredReason */ null);
+    }
+
+    /**
+     * The one writer. {@code deferredReason} marks a Lane B row that the
+     * recipient's own quiet hours held (PushPolicyService.Decision) so the
+     * morning catch-up can count it; null everywhere else.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            String additionalData,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId,
+                            Map<String, Object> presentation,
+                            PushPolicyService.DeferReason deferredReason) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -233,6 +258,7 @@ public class NotificationService {
         if (lane != null) row.setLane(lane.name());
         if (category != null) row.setCategory(category.name());
         if (actorUserId != null) row.setActorUserId(actorUserId);
+        if (deferredReason != null) row.setDeferredReason(deferredReason.name());
         row.setPresentationJson(presentation != null ? presentation : presentationOf(row));
         NotificationLog saved = notificationLogRepo.save(row);
 
@@ -548,9 +574,10 @@ public class NotificationService {
         Category catEnum = categoryOverride != null
                 ? categoryOverride
                 : mapTypeToCategory(notificationType);
-        Lane lane = (catEnum != null)
-                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+        PushPolicyService.Decision decision = (catEnum != null)
+                ? pushPolicyService.decide(recipientEmail, catEnum, /* severity */ null)
                 : null;
+        Lane lane = decision != null ? decision.lane() : null;
         if (lane == Lane.DROP) {
             // User opted out of this category entirely (or master-switched
             // off). No log, no push, no socket. Suppressed per policy.
@@ -614,7 +641,7 @@ public class NotificationService {
                     title, body, referenceId, targetUrl, additionalData,
                     /* success */ false,
                     /* error */ LANE_B_SILENT_INBOX,
-                    lane, catEnum, actorUserId, presentation);
+                    lane, catEnum, actorUserId, presentation, decision.deferredBy());
             return;
         }
 
@@ -766,16 +793,17 @@ public class NotificationService {
         // policy still applies: a user who muted earthquakes shouldn't
         // get an FCM through the legacy path either.
         Category catEnum = mapTypeToCategory(notificationType);
-        Lane lane = (catEnum != null && recipientEmail != null)
-                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+        PushPolicyService.Decision decision = (catEnum != null && recipientEmail != null)
+                ? pushPolicyService.decide(recipientEmail, catEnum, /* severity */ null)
                 : null;
+        Lane lane = decision != null ? decision.lane() : null;
         if (lane == Lane.DROP) return;
         // Lane B = silent inbox: skip FCM, write log row.
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl, additionalData,
                     false, LANE_B_SILENT_INBOX,
-                    lane, catEnum, actorUserId);
+                    lane, catEnum, actorUserId, /* presentation */ null, decision.deferredBy());
             return;
         }
         // Lane C = ephemeral: this path is offline-FCM only, so Lane C
@@ -1314,6 +1342,23 @@ public class NotificationService {
                                        String targetUrl,
                                        String additionalData,
                                        Category category) {
+        return logHazardAlertInboxOnly(recipients, title, body, referenceId, targetUrl,
+                additionalData, category, Set.of());
+    }
+
+    /**
+     * @param quietHoursDeferred lower-cased emails whose Lane B came from their
+     *        own quiet hours ({@link PushPolicyService.Decision#deferredByQuietHours});
+     *        their rows are marked for the morning catch-up.
+     */
+    public int logHazardAlertInboxOnly(List<UserInfo> recipients,
+                                       String title,
+                                       String body,
+                                       String referenceId,
+                                       String targetUrl,
+                                       String additionalData,
+                                       Category category,
+                                       Set<String> quietHoursDeferred) {
         if (recipients == null || recipients.isEmpty()) return 0;
         Map<String, Object> presentation = hazardPresentation(title, body,
                 referenceId, targetUrl, additionalData);
@@ -1322,11 +1367,14 @@ public class NotificationService {
             String email = u != null ? u.getUserEmail() : null;
             if (email == null || email.isBlank()) continue;
             try {
+                boolean quiet = quietHoursDeferred != null
+                        && quietHoursDeferred.contains(email.trim().toLowerCase(java.util.Locale.ROOT));
                 saveLogRow(email, TYPE_HAZARD_ALERT, /* token */ null,
                         title, body, referenceId, targetUrl, additionalData,
                         /* success */ false,
                         /* error */ LANE_B_SILENT_INBOX,
-                        Lane.B, category, /* actorUserId */ null, presentation);
+                        Lane.B, category, /* actorUserId */ null, presentation,
+                        quiet ? PushPolicyService.DeferReason.QUIET_HOURS : null);
                 written++;
             } catch (Exception e) {
                 // One recipient's failed write must not cost the others theirs.
@@ -1335,6 +1383,118 @@ public class NotificationService {
             }
         }
         return written;
+    }
+
+    /** Type of the once-per-night quiet-hours summary push. */
+    public static final String TYPE_QUIET_HOURS_CATCH_UP = "quiet_hours_catch_up";
+
+    /**
+     * The "N updates while your notifications were quiet" push
+     * ({@code QuietHoursCatchUpService}). One FCM message, and nothing else
+     * that a user sees:
+     * <ul>
+     *   <li><b>No inbox row of its own.</b> The push points AT the inbox; a
+     *       row saying "3 updates" above those three rows would be a fourth
+     *       unread item announcing the other three. Its audit row is written
+     *       already read AND archived, so the inbox list, the unread badge and
+     *       the inbox STOMP stream never see it. That row is also the
+     *       once-per-night stamp the scheduler checks.</li>
+     *   <li><b>Badge = the unread count</b>, not count + 1: this push adds
+     *       nothing to the inbox.</li>
+     *   <li><b>Policy still decides.</b> {@link Category#QUIET_HOURS_CATCH_UP}
+     *       is Lane A and non-critical, so the rate cap and the master switches
+     *       apply. Anything but Lane A sends nothing and writes nothing (the
+     *       rows it would announce are already in the inbox), and the caller
+     *       may try again on its next tick.</li>
+     *   <li>Routine sound, or silent when the recipient may be hiding
+     *       ({@link #shouldSendSilently}), like every per-person push.</li>
+     * </ul>
+     *
+     * @return true when FCM accepted the message
+     */
+    public boolean sendQuietHoursCatchUp(String recipientEmail,
+                                         String fcmToken,
+                                         String title,
+                                         String body,
+                                         int count) {
+        if (recipientEmail == null || recipientEmail.isBlank()) return false;
+        if (fcmToken == null || fcmToken.isBlank()) return false;
+        Lane lane = pushPolicyService.evaluate(recipientEmail, Category.QUIET_HOURS_CATCH_UP, null);
+        if (lane != Lane.A) return false;
+
+        final String type = TYPE_QUIET_HOURS_CATCH_UP;
+        final String targetUrl = io.sitprep.sitprepapi.notifications.NotificationRoutes.INBOX;
+        final String additionalData = "{\"count\":" + Math.max(0, count) + "}";
+        Map<String, Object> presentation = presentationFor(type, Category.QUIET_HOURS_CATCH_UP,
+                title, body, null, targetUrl, additionalData, null);
+        String deepLinkRoute = deepLinkRouteOf(presentation, targetUrl);
+
+        boolean success = false;
+        String errorMessage = null;
+        try {
+            Delivery delivery = deliveryFor(shouldSendSilently(recipientEmail), type);
+            Aps.Builder aps = Aps.builder().setMutableContent(true);
+            if (delivery.iosSound() != null) aps.setSound(delivery.iosSound());
+            aps.putCustomData("notificationType", type);
+            aps.putCustomData("targetUrl", targetUrl);
+            aps.putCustomData("additionalData", additionalData);
+            aps.putCustomData("title", safe(title));
+            aps.putCustomData("body", safe(body));
+            aps.putCustomData("category", safe(categoryForType(type)));
+            aps.putCustomData("deepLinkRoute", safe(deepLinkRoute));
+            applyIosLockScreenAffordances(aps, type, null);
+            try {
+                aps.setBadge((int) Math.min(notificationLogRepo.countUnreadForUser(recipientEmail),
+                        Integer.MAX_VALUE));
+            } catch (Exception e) {
+                logger.warn("Catch-up badge lookup failed for {}: {}", recipientEmail, e.getMessage());
+            }
+            Message msg = Message.builder()
+                    .setToken(fcmToken)
+                    .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                    .putData("notificationType", type)
+                    .putData("referenceId", "")
+                    .putData("sender", "SitPrep")
+                    .putData("targetUrl", targetUrl)
+                    .putData("additionalData", additionalData)
+                    .putData("title", safe(title))
+                    .putData("body", safe(body))
+                    .putData("channelId", safe(channelForType(type)))
+                    .putData("category", safe(categoryForType(type)))
+                    .putData("deepLinkRoute", safe(deepLinkRoute))
+                    .setAndroidConfig(delivery.android())
+                    .setApnsConfig(ApnsConfig.builder()
+                            .putHeader("apns-priority", delivery.apnsPriority())
+                            .setAps(aps.build())
+                            .build())
+                    .build();
+            FirebaseMessaging.getInstance().send(msg);
+            success = true;
+        } catch (FirebaseMessagingException e) {
+            errorMessage = e.getMessage();
+            logger.warn("Catch-up push failed for {}: {}", recipientEmail, errorMessage);
+            handleFcmDeliveryError(e, recipientEmail, fcmToken);
+        } catch (Exception e) {
+            errorMessage = e.getMessage();
+            logger.warn("Catch-up push failed for {}: {}", recipientEmail, errorMessage);
+        }
+
+        // Audit + stamp row: written read and archived, and saved directly
+        // rather than through saveLogRow so no inbox "created" frame fires.
+        try {
+            Instant now = Instant.now();
+            NotificationLog row = new NotificationLog(recipientEmail, type, fcmToken, title, body,
+                    null, targetUrl, additionalData, now, success, errorMessage);
+            row.setLane(Lane.A.name());
+            row.setCategory(Category.QUIET_HOURS_CATCH_UP.name());
+            row.setReadAt(now);
+            row.setArchivedAt(now);
+            row.setPresentationJson(presentation);
+            notificationLogRepo.save(row);
+        } catch (Exception e) {
+            logger.warn("Catch-up audit row failed for {}: {}", recipientEmail, e.getMessage());
+        }
+        return success;
     }
 
     /** The hazard presentation — one builder for the push and the inbox-only row. */

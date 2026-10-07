@@ -189,7 +189,10 @@ public class GoBagExpiryReminderService {
                         /* referenceId */ householdId,
                         /* targetUrl */ "/go-bag",
                         /* additionalData */ null,
-                        fcmToken
+                        fcmToken,
+                        // Lane A, not critical: quiet hours defer it to the
+                        // inbox, the rate cap applies (EXEC-N; was no-policy).
+                        PushPolicyService.Category.READINESS_REMINDER
                 );
                 delivered++;
             } catch (Exception ex) {
