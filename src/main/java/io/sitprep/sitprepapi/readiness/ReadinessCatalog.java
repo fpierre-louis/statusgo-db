@@ -31,7 +31,7 @@ public final class ReadinessCatalog {
 
     private ReadinessCatalog() {}
 
-    public static final String CATALOG_VERSION = "readiness-catalog-2026.10.07";
+    public static final String CATALOG_VERSION = "readiness-catalog-2026.10.07.2";
 
     /** Shape every catalog key must match (also fits the 96-char column). */
     public static final Pattern KEY_FORMAT = Pattern.compile("^[a-z][a-z_]*\\.[a-z0-9_]{1,80}$");
@@ -90,6 +90,14 @@ public final class ReadinessCatalog {
             String relevanceReason,
             /** Item-specific copy for the unfinished-area reason, or null. */
             String unfinishedAreaReason,
+            /**
+             * Whether any household member may mark this MANUAL step done (and
+             * undo it). False means admin-only. Member-safe steps are personal,
+             * physical and low-stakes; steps that describe shared household
+             * records or decisions stay with the admins (EXEC-A1 task 4).
+             * Meaningless for non-MANUAL sources, which never accept DONE.
+             */
+            boolean memberCanComplete,
             int catalogIndex
     ) {
         public boolean isLocalRisk() { return key.startsWith(LOCAL_RISK_PREFIX); }
@@ -133,25 +141,25 @@ public final class ReadinessCatalog {
                 .desc("A phone with a dead battery can't show you anyone's number.")
                 .guidance("Household members, your out-of-area contact, doctor, pharmacy, insurer, landlord or utility",
                         "Keep one copy in the folder and one in a wallet or bag")
-                .manual().bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(45).review(365)
+                .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(45).review(365)
                 .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(SITPREP).build(items);
         b("documents.printed_plan", ReadinessArea.DOCUMENTS, "Print a copy of your plan")
                 .desc("Plans should work even when phones don't.")
                 .guidance("Put a copy on the fridge and another in each go-bag.")
-                .manual().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(35).review(180)
+                .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(35).review(180)
                 .action(ReadinessAction.OPEN_PRINTABLE_PLAN).provenance(HOUSEHOLD_PLAN).build(items);
 
         // OUTAGE
         b("outage.flashlight_bed", ReadinessArea.OUTAGE, "Keep a flashlight where you sleep")
                 .desc("Outages often start at night. Use flashlights, not candles.")
                 .guidance("Switch on every flashlight and lantern in the house. Replace the dead batteries now, not the night you need them.")
-                .manual().bands(TimeBand.MIN_2, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(55).review(180)
+                .manual().memberCanComplete().bands(TimeBand.MIN_2, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(55).review(180)
                 .tags("blizzard", "hurricane", "tornado", "earthquake", "extreme_heat")
                 .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER)).build(items);
         b("outage.charge_plan", ReadinessArea.OUTAGE, "Have a way to charge phones")
                 .desc("A charged power bank, a car charger, or a place nearby you can charge.")
                 .guidance("Charge power banks every few months")
-                .manual().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(50).review(180)
+                .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(50).review(180)
                 .tags("hurricane", "blizzard", "extreme_heat")
                 .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER)).build(items);
         b("outage.co_detector", ReadinessArea.OUTAGE, "Have a working CO alarm")
@@ -167,7 +175,7 @@ public final class ReadinessCatalog {
                         "Decide what you are eating before you open the door.",
                         "Leave an appliance thermometer inside. Afterwards it tells you whether food stayed below 40°F.",
                         "When in doubt, throw it out.")
-                .manual().alsoDrill("poweroutage-fridge-first-menu")
+                .manual().memberCanComplete().alsoDrill("poweroutage-fridge-first-menu")
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(40)
                 .tags("hurricane", "blizzard", "extreme_heat")
                 .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "food").provenance(readyGov(READY_POWER)).build(items);
@@ -185,7 +193,7 @@ public final class ReadinessCatalog {
                 .guidance("A generator runs outdoors only, at least twenty feet from the house, exhaust pointed away from doors, windows, and vents.",
                         "Never in a garage, even with the door open.",
                         "Never plug a generator into a wall outlet.")
-                .manual().bands(TimeBand.MIN_2, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(25)
+                .manual().memberCanComplete().bands(TimeBand.MIN_2, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(25)
                 .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "generator").provenance(readyGov(READY_POWER)).build(items);
         b("outage.warm_cool_place", ReadinessArea.OUTAGE, "Pick a place to warm up or cool down")
                 .desc("A library, community center, or relative's home you could go to if the power is out for days.")
@@ -384,6 +392,9 @@ public final class ReadinessCatalog {
                 action, Collections.unmodifiableMap(params),
                 List.of(LOCAL_RISK),
                 Applicability.ALWAYS, null, null,
+                // Local-risk steps are household decisions about the home's
+                // hazards: admin-only, like the other shared-record steps.
+                false,
                 LOCAL_RISK_INDEX_BASE + r.priority());
     }
 
@@ -446,6 +457,7 @@ public final class ReadinessCatalog {
         private Applicability applicability = Applicability.ALWAYS;
         private String relevanceReason;
         private String unfinishedAreaReason;
+        private boolean memberCanComplete;
 
         Builder(String key, ReadinessArea area, String title) {
             this.key = key;
@@ -472,6 +484,8 @@ public final class ReadinessCatalog {
         Builder provenance(Provenance p) { this.provenance.add(p); return this; }
         Builder applicability(Applicability a, String reason) { this.applicability = a; this.relevanceReason = reason; return this; }
         Builder unfinishedAreaReason(String r) { this.unfinishedAreaReason = r; return this; }
+        /** Any member may mark this step done; without it the step is admin-only. */
+        Builder memberCanComplete() { this.memberCanComplete = true; return this; }
 
         void build(List<CatalogItem> into) {
             into.add(new CatalogItem(key, area, ReadinessScope.HOUSEHOLD, title, description, guidance,
@@ -479,7 +493,7 @@ public final class ReadinessCatalog {
                     time, cost, effort, priority, reviewAfterDays, tags, action,
                     Collections.unmodifiableMap(new LinkedHashMap<>(actionParams)),
                     List.copyOf(provenance), applicability, relevanceReason, unfinishedAreaReason,
-                    into.size()));
+                    memberCanComplete, into.size()));
         }
     }
 }

@@ -192,6 +192,9 @@ public class ReadinessJourneyService {
                 if (item.source() != CompletionSource.MANUAL) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, NOT_MANUAL_MESSAGE);
                 }
+                // Admin-only steps (shared household records and decisions)
+                // need admin; member-safe ones don't (catalog memberCanComplete).
+                if (!item.memberCanComplete()) access.requireCanAdminHousehold(email, householdId);
                 // DONE replaces the household row. When that row is an admin's
                 // NOT_RELEVANT, replacing it is undoing an admin decision, so it
                 // takes admin — the same rule as clearing NOT_RELEVANT directly.
@@ -224,6 +227,10 @@ public class ReadinessJourneyService {
         CatalogItem item = itemOr404(itemKey, risk);
 
         if (kind == ItemStateKind.NOT_RELEVANT) access.requireCanAdminHousehold(email, householdId);
+        // Undoing DONE follows the same rule as setting it.
+        if (kind == ItemStateKind.DONE && !item.memberCanComplete()) {
+            access.requireCanAdminHousehold(email, householdId);
+        }
 
         Optional<HouseholdReadinessItemState> row = kind.householdScoped()
                 ? stateRepo.findFirstByHouseholdIdAndItemKeyAndScope(
@@ -566,10 +573,12 @@ public class ReadinessJourneyService {
                 || d.freshness() == Freshness.REVIEW_DUE || d.freshness() == Freshness.REVIEW_SOON;
         boolean open = !notRelevant && (d.completion() == CompletionState.INCOMPLETE || d.freshness() == Freshness.REVIEW_DUE);
         boolean calmish = mode != JourneyMode.ACTIVE_RESPONSE;
+        // A member may complete (and undo) only member-safe steps, and never
+        // over an admin's "not relevant"; admins may do both.
+        boolean memberMay = item.memberCanComplete() && !notRelevant;
         return new CapabilitiesDto(
-                // Marking done over an admin's "not relevant" is an admin call.
-                manual && incompleteOrDue && (!notRelevant || isAdmin),
-                d.householdState() == ItemStateKind.DONE,
+                manual && incompleteOrDue && (isAdmin || memberMay),
+                d.householdState() == ItemStateKind.DONE && (isAdmin || item.memberCanComplete()),
                 calmish && open && d.userState() != ItemStateKind.SKIPPED,
                 calmish && open && d.userState() != ItemStateKind.REMIND_LATER,
                 isAdmin && !notRelevant && d.completion() != CompletionState.COMPLETE,

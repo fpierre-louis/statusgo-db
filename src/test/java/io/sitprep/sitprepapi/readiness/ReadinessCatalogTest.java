@@ -52,6 +52,30 @@ class ReadinessCatalogTest {
                 .containsExactlyElementsOf(STATIC_KEYS_SNAPSHOT);
     }
 
+    /**
+     * Who may mark a MANUAL step done (EXEC-A1 task 4). Member-safe steps are
+     * personal, physical and low-stakes; the rest describe shared household
+     * records or decisions and stay with the admins. Widening this list is a
+     * permission change — make it on purpose.
+     */
+    @Test
+    void memberSafeManualStepsAreExactlyTheReviewedSix() {
+        assertThat(ReadinessCatalog.staticItems().stream()
+                .filter(i -> i.source() == CompletionSource.MANUAL && i.memberCanComplete())
+                .map(CatalogItem::key))
+                .containsExactlyInAnyOrder("outage.flashlight_bed", "outage.charge_plan", "outage.food_safety",
+                        "outage.generator_safety", "documents.paper_numbers", "documents.printed_plan");
+        assertThat(ReadinessCatalog.staticItems().stream()
+                .filter(i -> i.source() == CompletionSource.MANUAL && !i.memberCanComplete())
+                .map(CatalogItem::key))
+                .containsExactlyInAnyOrder("documents.first_folder", "outage.medical_backup", "outage.warm_cool_place");
+        RiskProfileDto profile = new RiskProfileDto("household_zip", "CO", "Colorado", List.of(),
+                List.of(new RiskAdjustedRequirementDto("wildfire_defensible_space", "wildfire", "Clear a space",
+                        "d", 1, "c", "/ask", "risk_added")), List.of(), Instant.now(), "v");
+        assertThat(ReadinessCatalog.localRiskItems(profile)).singleElement()
+                .satisfies(i -> assertThat(i.memberCanComplete()).isFalse());
+    }
+
     @Test
     void keysAreUniqueAndWellFormed() {
         var seen = new HashSet<String>();

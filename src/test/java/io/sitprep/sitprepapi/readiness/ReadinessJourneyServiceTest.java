@@ -227,7 +227,7 @@ class ReadinessJourneyServiceTest {
     void dtoCarriesVersionsAndAllAreasInOrder() {
         ReadinessJourneyDto j = journey();
         assertThat(j.schemaVersion()).isEqualTo(1);
-        assertThat(j.catalogVersion()).isEqualTo("readiness-catalog-2026.10.07");
+        assertThat(j.catalogVersion()).isEqualTo("readiness-catalog-2026.10.07.2");
         assertThat(j.recommendationVersion()).isEqualTo("readiness-rec-2026.10.07");
         assertThat(j.householdId()).isEqualTo(HH);
         assertThat(j.generatedAt()).isEqualTo(NOW);
@@ -253,7 +253,7 @@ class ReadinessJourneyServiceTest {
     void riskProfileIsResolvedOncePerRequest() {
         journey();
         verify(riskService, times(1)).resolveFor(any());
-        service.setState(HH, "documents.first_folder", new SetItemStateRequest("DONE", null, null), ME);
+        service.setState(HH, "documents.paper_numbers", new SetItemStateRequest("DONE", null, null), ME);
         verify(riskService, times(2)).resolveFor(any());
     }
 
@@ -375,7 +375,9 @@ class ReadinessJourneyServiceTest {
         assertThat(folder.completion()).isEqualTo(CompletionState.COMPLETE);
         assertThat(folder.completedAt()).isEqualTo(NOW.minus(Duration.ofDays(5)));
         assertThat(folder.householdState()).isEqualTo(ItemStateKind.DONE);
-        assertThat(folder.capabilities().canUndo()).isTrue();
+        // The folder is an admin-only step: a member sees it done but can't undo it.
+        assertThat(folder.capabilities().canUndo()).isFalse();
+        assertThat(item(service.getJourney(HH, ADMIN), "documents.first_folder").capabilities().canUndo()).isTrue();
     }
 
     @Test
@@ -579,7 +581,7 @@ class ReadinessJourneyServiceTest {
     @Test
     void capabilitiesDependOnTheRequestersRole() {
         ItemDto asMember = item(journey(), "documents.first_folder");
-        assertThat(asMember.capabilities().canMarkDone()).isTrue();
+        assertThat(asMember.capabilities().canMarkDone()).isFalse();   // admin-only step
         assertThat(asMember.capabilities().canSkip()).isTrue();
         assertThat(asMember.capabilities().canRemind()).isTrue();
         assertThat(asMember.capabilities().canMarkNotRelevant()).isFalse();
@@ -588,6 +590,10 @@ class ReadinessJourneyServiceTest {
 
         ItemDto asAdmin = item(service.getJourney(HH, ADMIN), "documents.first_folder");
         assertThat(asAdmin.capabilities().canMarkNotRelevant()).isTrue();
+        assertThat(asAdmin.capabilities().canMarkDone()).isTrue();
+
+        ItemDto memberSafe = item(journey(), "outage.flashlight_bed");
+        assertThat(memberSafe.capabilities().canMarkDone()).isTrue();
 
         ItemDto stockpileItem = item(journey(), "outage.co_detector");
         assertThat(stockpileItem.capabilities().canMarkDone()).isFalse();
@@ -597,10 +603,10 @@ class ReadinessJourneyServiceTest {
     // ------------------------------------------------------------------ mutations
 
     @Test
-    void memberCanMarkAManualStepDone() {
-        ReadinessJourneyDto j = service.setState(HH, "documents.first_folder",
+    void memberCanMarkAMemberSafeStepDone() {
+        ReadinessJourneyDto j = service.setState(HH, "outage.flashlight_bed",
                 new SetItemStateRequest("DONE", null, null), ME);
-        assertThat(item(j, "documents.first_folder").completion()).isEqualTo(CompletionState.COMPLETE);
+        assertThat(item(j, "outage.flashlight_bed").completion()).isEqualTo(CompletionState.COMPLETE);
         assertThat(rows).singleElement().satisfies(r -> {
             assertThat(r.getScope()).isEqualTo("HOUSEHOLD");
             assertThat(r.getUserEmail()).isNull();
@@ -643,21 +649,21 @@ class ReadinessJourneyServiceTest {
 
     @Test
     void doneReplacesNotRelevantInOneHouseholdRow() {
-        service.setState(HH, "documents.first_folder", new SetItemStateRequest("NOT_RELEVANT", null, null), ADMIN);
+        service.setState(HH, "outage.generator_safety", new SetItemStateRequest("NOT_RELEVANT", null, null), ADMIN);
 
         // A member can't undo the admin's "not relevant" by marking it done.
-        assertThat(item(journey(), "documents.first_folder").capabilities().canMarkDone()).isFalse();
-        assertStatus(() -> service.setState(HH, "documents.first_folder",
+        assertThat(item(journey(), "outage.generator_safety").capabilities().canMarkDone()).isFalse();
+        assertStatus(() -> service.setState(HH, "outage.generator_safety",
                 new SetItemStateRequest("DONE", null, null), ME), HttpStatus.FORBIDDEN);
         assertThat(rows).singleElement().satisfies(r -> assertThat(r.getState()).isEqualTo(ItemStateKind.NOT_RELEVANT));
 
-        assertThat(item(service.getJourney(HH, ADMIN), "documents.first_folder").capabilities().canMarkDone()).isTrue();
-        ReadinessJourneyDto j = service.setState(HH, "documents.first_folder",
+        assertThat(item(service.getJourney(HH, ADMIN), "outage.generator_safety").capabilities().canMarkDone()).isTrue();
+        ReadinessJourneyDto j = service.setState(HH, "outage.generator_safety",
                 new SetItemStateRequest("DONE", null, null), ADMIN);
         assertThat(rows).singleElement().satisfies(r -> assertThat(r.getState()).isEqualTo(ItemStateKind.DONE));
-        assertThat(item(j, "documents.first_folder").householdState()).isEqualTo(ItemStateKind.DONE);
+        assertThat(item(j, "outage.generator_safety").householdState()).isEqualTo(ItemStateKind.DONE);
 
-        service.setState(HH, "documents.first_folder", new SetItemStateRequest("NOT_RELEVANT", null, null), ADMIN);
+        service.setState(HH, "outage.generator_safety", new SetItemStateRequest("NOT_RELEVANT", null, null), ADMIN);
         assertThat(rows).singleElement().satisfies(r -> assertThat(r.getState()).isEqualTo(ItemStateKind.NOT_RELEVANT));
     }
 
@@ -699,17 +705,17 @@ class ReadinessJourneyServiceTest {
 
     @Test
     void clearIsIdempotentAndScopedToTheMatchingState() {
-        service.setState(HH, "documents.first_folder", new SetItemStateRequest("DONE", null, null), ME);
-        service.clearState(HH, "documents.first_folder", "NOT_RELEVANT", ADMIN);   // wrong state → no-op
+        service.setState(HH, "documents.paper_numbers", new SetItemStateRequest("DONE", null, null), ME);
+        service.clearState(HH, "documents.paper_numbers", "NOT_RELEVANT", ADMIN);   // wrong state → no-op
         assertThat(rows).hasSize(1);
 
-        ReadinessJourneyDto j = service.clearState(HH, "documents.first_folder", "DONE", ME);
+        ReadinessJourneyDto j = service.clearState(HH, "documents.paper_numbers", "DONE", ME);
         assertThat(rows).isEmpty();
-        assertThat(item(j, "documents.first_folder").completion()).isEqualTo(CompletionState.INCOMPLETE);
-        service.clearState(HH, "documents.first_folder", "DONE", ME);              // again → fine
+        assertThat(item(j, "documents.paper_numbers").completion()).isEqualTo(CompletionState.INCOMPLETE);
+        service.clearState(HH, "documents.paper_numbers", "DONE", ME);              // again → fine
         assertThat(rows).isEmpty();
 
-        assertStatus(() -> service.clearState(HH, "documents.first_folder", "NOT_RELEVANT", ME), HttpStatus.FORBIDDEN);
+        assertStatus(() -> service.clearState(HH, "documents.paper_numbers", "NOT_RELEVANT", ME), HttpStatus.FORBIDDEN);
     }
 
     @Test
@@ -718,6 +724,87 @@ class ReadinessJourneyServiceTest {
         service.setState(HH, "documents.first_folder", new SetItemStateRequest("SKIPPED", null, null), ADMIN);
         service.clearState(HH, "documents.first_folder", "SKIPPED", ME);
         assertThat(rows).singleElement().satisfies(r -> assertThat(r.getUserEmail()).isEqualTo(ADMIN));
+    }
+
+    // ------------------------------------------------------------------ member DONE permission (EXEC-A1 task 4)
+
+    @Test
+    void memberCannotCompleteOrUndoAnAdminOnlyStep() {
+        // Static admin-only steps (shared household records / decisions).
+        EmergencySupportProfile p = new EmergencySupportProfile();
+        p.setPowerDependentEquipment(true);
+        when(supportProfiles.findByHouseholdId(HH)).thenReturn(List.of(p));   // makes medical_backup applicable
+        for (String key : List.of("documents.first_folder", "outage.medical_backup", "outage.warm_cool_place")) {
+            assertStatus(() -> service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ME),
+                    HttpStatus.FORBIDDEN);
+            assertThat(rows).as(key).isEmpty();
+            assertThat(item(journey(), key).capabilities().canMarkDone()).as(key).isFalse();
+        }
+
+        // An admin's DONE stands; the member can neither see an undo nor perform one.
+        service.setState(HH, "documents.first_folder", new SetItemStateRequest("DONE", null, null), ADMIN);
+        assertThat(item(journey(), "documents.first_folder").capabilities().canUndo()).isFalse();
+        assertStatus(() -> service.clearState(HH, "documents.first_folder", "DONE", ME), HttpStatus.FORBIDDEN);
+        assertThat(rows).singleElement().satisfies(r -> assertThat(r.getState()).isEqualTo(ItemStateKind.DONE));
+
+        service.clearState(HH, "documents.first_folder", "DONE", ADMIN);
+        assertThat(rows).isEmpty();
+    }
+
+    @Test
+    void localRiskManualStepsAreAdminOnly() {
+        risk = new RiskProfileDto("household_zip", "CO", "Colorado",
+                List.of(new RiskDto("wildfire", "Wildfire", "high", "r", "s")),
+                List.of(new RiskAdjustedRequirementDto("wildfire_defensible_space", "wildfire", "Clear a defensible space",
+                        "Move firewood and dry brush away from the house.", 2, "c", "/ask", "risk_added")),
+                List.of(), NOW, "v");
+        String key = "local_risk.wildfire_defensible_space";
+        assertThat(item(journey(), key).completionSource()).isEqualTo(CompletionSource.MANUAL);
+        assertThat(item(journey(), key).capabilities().canMarkDone()).isFalse();
+        assertStatus(() -> service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ME),
+                HttpStatus.FORBIDDEN);
+        assertThat(rows).isEmpty();
+
+        assertThat(item(service.getJourney(HH, ADMIN), key).capabilities().canMarkDone()).isTrue();
+        service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ADMIN);
+        assertThat(item(journey(), key).completion()).isEqualTo(CompletionState.COMPLETE);
+    }
+
+    @Test
+    void memberCanCompleteAndUndoEveryMemberSafeStep() {
+        for (String key : List.of("outage.flashlight_bed", "outage.charge_plan", "outage.food_safety",
+                "outage.generator_safety", "documents.paper_numbers", "documents.printed_plan")) {
+            assertThat(item(journey(), key).capabilities().canMarkDone()).as(key).isTrue();
+            ReadinessJourneyDto j = service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ME);
+            assertThat(item(j, key).completion()).as(key).isEqualTo(CompletionState.COMPLETE);
+            assertThat(item(j, key).capabilities().canUndo()).as(key).isTrue();
+            j = service.clearState(HH, key, "DONE", ME);
+            assertThat(item(j, key).completion()).as(key).isEqualTo(CompletionState.INCOMPLETE);
+            assertThat(rows).as(key).isEmpty();
+        }
+    }
+
+    @Test
+    void membersStillCannotTouchHouseholdDecisionsThroughThisEndpoint() {
+        // NOT_RELEVANT set / clear: admin only, even on a member-safe step.
+        assertStatus(() -> service.setState(HH, "outage.flashlight_bed",
+                new SetItemStateRequest("NOT_RELEVANT", null, null), ME), HttpStatus.FORBIDDEN);
+        service.setState(HH, "outage.flashlight_bed", new SetItemStateRequest("NOT_RELEVANT", null, null), ADMIN);
+        assertStatus(() -> service.clearState(HH, "outage.flashlight_bed", "NOT_RELEVANT", ME), HttpStatus.FORBIDDEN);
+        // ...and DONE over that decision, even on a member-safe step.
+        assertThat(item(journey(), "outage.flashlight_bed").capabilities().canMarkDone()).isFalse();
+        assertStatus(() -> service.setState(HH, "outage.flashlight_bed",
+                new SetItemStateRequest("DONE", null, null), ME), HttpStatus.FORBIDDEN);
+        assertThat(rows).singleElement().satisfies(r -> assertThat(r.getState()).isEqualTo(ItemStateKind.NOT_RELEVANT));
+        // Real-data steps never take DONE, from anyone.
+        for (String key : List.of("outage.co_detector", "people.out_of_area_contact", "practice.plan_review",
+                "evacuation.alternate_route", "practice.contact_tree")) {
+            assertStatus(() -> service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ME),
+                    HttpStatus.CONFLICT);
+            assertStatus(() -> service.setState(HH, key, new SetItemStateRequest("DONE", null, null), ADMIN),
+                    HttpStatus.CONFLICT);
+        }
+        assertThat(rows).hasSize(1);
     }
 
     private static void assertStatus(Runnable call, HttpStatus status) {
