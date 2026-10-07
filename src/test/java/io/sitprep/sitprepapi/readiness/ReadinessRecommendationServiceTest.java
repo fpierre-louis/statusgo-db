@@ -52,10 +52,57 @@ class ReadinessRecommendationServiceTest {
         NextStepDto next = service.recommend(JourneyMode.CALM, ALL_DONE, freshHousehold(), List.of());
         assertThat(next.itemKey()).isEqualTo("people.out_of_area_contact");
         assertThat(next.reason().code()).isEqualTo("UNFINISHED_AREA");
-        assertThat(next.reason().text())
-                .isEqualTo("Suggested because no one outside your area is on your contact list yet.");
+        assertThat(next.reason().text()).isEqualTo("Your household doesn't have an out-of-area contact yet.");
         assertThat(next.action().type()).isEqualTo(ReadinessAction.OPEN_EMERGENCY_CONTACTS);
         assertThat(next.action().params()).containsEntry("intent", "outOfTownContact");
+    }
+
+    @Test
+    void unfinishedAreaAndGoodNextStepCarryTheStepsOwnWhy() {
+        // Documents has nothing done: the folder is an unfinished area's first step.
+        NextStepDto next = service.recommend(JourneyMode.CALM, ALL_DONE,
+                List.of(incomplete(item("documents.first_folder"))), List.of());
+        assertThat(next.reason().code()).isEqualTo("UNFINISHED_AREA");
+        assertThat(next.reason().text())
+                .isEqualTo("Keeping copies together makes them easier to grab, or to replace after an emergency.");
+
+        // Documents already has a done step: same item, no factor → GOOD_NEXT_STEP, same sentence.
+        next = service.recommend(JourneyMode.CALM, ALL_DONE, List.of(
+                incomplete(item("documents.first_folder")),
+                complete(item("documents.paper_numbers"), Freshness.CURRENT)), List.of());
+        assertThat(next.itemKey()).isEqualTo("documents.first_folder");
+        assertThat(next.reason().code()).isEqualTo("GOOD_NEXT_STEP");
+        assertThat(next.reason().text())
+                .isEqualTo("Keeping copies together makes them easier to grab, or to replace after an emergency.");
+
+        next = service.recommend(JourneyMode.CALM, ALL_DONE, List.of(
+                incomplete(item("outage.flashlight_bed")),
+                complete(item("outage.charge_plan"), Freshness.CURRENT)), List.of());
+        assertThat(next.reason().code()).isEqualTo("GOOD_NEXT_STEP");
+        assertThat(next.reason().text())
+                .isEqualTo("Outages often start at night, and a flashlight within reach is safer than a candle.");
+    }
+
+    @Test
+    void localRiskStepsWithoutATierBoostNameTheirHazard() {
+        var local = ReadinessCatalog.localRiskItems(ReadinessCatalogTest.profile(List.of(
+                ReadinessCatalogTest.req("flood_sandbags", "flood", 3, "/ask", "risk_added"))));
+        NextStepDto next = service.recommend(JourneyMode.CALM, ALL_DONE, List.of(incomplete(local.get(0))), List.of());
+        assertThat(next.reason().code()).isEqualTo("UNFINISHED_AREA");
+        assertThat(next.reason().text()).isEqualTo("Part of preparing for the flood risk where you live.");
+
+        var heat = ReadinessCatalog.localRiskItems(ReadinessCatalogTest.profile(List.of(
+                ReadinessCatalogTest.req("heat_cooling_plan", "extreme_heat", 3, "/ask", "risk_added"))));
+        assertThat(heat.get(0).whyItMatters()).isEqualTo("Part of preparing for the extreme heat risk where you live.");
+    }
+
+    @Test
+    void theDeterministicCodesStillWinOverTheWhy() {
+        // A tier boost still says LOCAL_RISK, not the item's sentence.
+        NextStepDto next = service.recommend(JourneyMode.CALM, ALL_DONE,
+                List.of(incomplete(item("outage.flashlight_bed"))), List.of(risk("tornado", "Tornado", "high")));
+        assertThat(next.reason().code()).isEqualTo("LOCAL_RISK");
+        assertThat(next.reason().text()).isEqualTo("Suggested because your area has a tornado risk.");
     }
 
     @Test

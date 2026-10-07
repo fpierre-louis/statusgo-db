@@ -88,8 +88,16 @@ public final class ReadinessCatalog {
             Applicability applicability,
             /** Shown as the reason when household relevance drives the pick. */
             String relevanceReason,
-            /** Item-specific copy for the unfinished-area reason, or null. */
-            String unfinishedAreaReason,
+            /**
+             * Why THIS step matters, in one calm sentence: the reason text when
+             * the step is picked as an unfinished area's first step or as a
+             * good next step (CONTRACT.md §4, amended by EXEC-A1). Written only
+             * from claims the step's own copy, guidance or the FE playbooks
+             * already make. Contact steps name the household's gap instead,
+             * which is true whenever they are a candidate (they have no review
+             * window, so a candidate is always incomplete).
+             */
+            String whyItMatters,
             /**
              * Whether any household member may mark this MANUAL step done (and
              * undo it). False means admin-only. Member-safe steps are personal,
@@ -136,18 +144,21 @@ public final class ReadinessCatalog {
                         "Tell one other adult where the folder lives")
                 .manual().bands(TimeBand.MIN_15, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(60).review(365)
                 .tags("hurricane", "flood", "wildfire").action(ReadinessAction.START_SELF_REPORT_STEP)
-                .provenance(readyGov(READY_FINANCIAL)).build(items);
+                .provenance(readyGov(READY_FINANCIAL))
+                .why("Keeping copies together makes them easier to grab, or to replace after an emergency.").build(items);
         b("documents.paper_numbers", ReadinessArea.DOCUMENTS, "Write key phone numbers on paper")
                 .desc("A phone with a dead battery can't show you anyone's number.")
                 .guidance("Household members, your out-of-area contact, doctor, pharmacy, insurer, landlord or utility",
                         "Keep one copy in the folder and one in a wallet or bag")
                 .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(45).review(365)
-                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(SITPREP).build(items);
+                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(SITPREP)
+                .why("If your phone dies, a paper list still gets you to the people you need to reach.").build(items);
         b("documents.printed_plan", ReadinessArea.DOCUMENTS, "Print a copy of your plan")
                 .desc("Plans should work even when phones don't.")
                 .guidance("Put a copy on the fridge and another in each go-bag.")
                 .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(35).review(180)
-                .action(ReadinessAction.OPEN_PRINTABLE_PLAN).provenance(HOUSEHOLD_PLAN).build(items);
+                .action(ReadinessAction.OPEN_PRINTABLE_PLAN).provenance(HOUSEHOLD_PLAN)
+                .why("A paper copy works when phones and power don't, and anyone in your home can read it.").build(items);
 
         // OUTAGE
         b("outage.flashlight_bed", ReadinessArea.OUTAGE, "Keep a flashlight where you sleep")
@@ -155,20 +166,23 @@ public final class ReadinessCatalog {
                 .guidance("Switch on every flashlight and lantern in the house. Replace the dead batteries now, not the night you need them.")
                 .manual().memberCanComplete().bands(TimeBand.MIN_2, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(55).review(180)
                 .tags("blizzard", "hurricane", "tornado", "earthquake", "extreme_heat")
-                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER))
+                .why("Outages often start at night, and a flashlight within reach is safer than a candle.").build(items);
         b("outage.charge_plan", ReadinessArea.OUTAGE, "Have a way to charge phones")
                 .desc("A charged power bank, a car charger, or a place nearby you can charge.")
                 .guidance("Charge power banks every few months")
                 .manual().memberCanComplete().bands(TimeBand.MIN_5, CostBand.USE_WHAT_YOU_HAVE, EffortBand.ON_YOUR_OWN).priority(50).review(180)
                 .tags("hurricane", "blizzard", "extreme_heat")
-                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_POWER))
+                .why("When the power is out, a charged phone is how alerts and your people reach you.").build(items);
         b("outage.co_detector", ReadinessArea.OUTAGE, "Have a working CO alarm")
                 .desc("Battery or battery-backup carbon monoxide alarm near sleeping areas. Generators and alternate heat make CO a real outage risk.")
                 .guidance("Battery-powered or with battery backup, on every level of the home and near sleeping areas.",
                         "If an alarm sounds, get everyone into fresh air and call for help from outside the building.")
                 .stockpile("stockpile-co-detector").bands(TimeBand.MIN_5, CostBand.OPTIONAL_PURCHASE, EffortBand.ON_YOUR_OWN).priority(52)
                 .tags("blizzard", "hurricane")
-                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "power_heat").provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "power_heat").provenance(readyGov(READY_POWER))
+                .why("Carbon monoxide has no color or smell, so an alarm is the only way to know it's there.").build(items);
         b("outage.food_safety", ReadinessArea.OUTAGE, "Know the fridge and freezer rule")
                 .desc("Unopened, a fridge stays safe about 4 hours and a full freezer about 48.")
                 .guidance("Keep the doors shut. Unopened, a refrigerator holds temperature about four hours, a full freezer about 48, a half-full freezer about 24.",
@@ -178,7 +192,8 @@ public final class ReadinessCatalog {
                 .manual().memberCanComplete().alsoDrill("poweroutage-fridge-first-menu")
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(40)
                 .tags("hurricane", "blizzard", "extreme_heat")
-                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "food").provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "food").provenance(readyGov(READY_POWER))
+                .why("Food that's no longer safe can still look and smell fine, so it helps to know the rule ahead of time.").build(items);
         b("outage.medical_backup", ReadinessArea.OUTAGE, "Plan for medical devices and cold medicines")
                 .desc("Ask your utility about a medical-priority list and your pharmacist about temperature limits.")
                 .guidance("Ask your utility about a medical-priority registry if anyone depends on powered equipment.",
@@ -187,43 +202,50 @@ public final class ReadinessCatalog {
                 .manual().bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(70).review(365)
                 .applicability(Applicability.MEDICAL,
                         "Suggested because someone in your household relies on power or refrigerated medicine.")
-                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "medical").provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "medical").provenance(readyGov(READY_POWER))
+                .why("Planning ahead keeps an outage from turning into a medical problem for someone who relies on power or cold medicine.").build(items);
         b("outage.generator_safety", ReadinessArea.OUTAGE, "Know the generator rules")
                 .desc("Outdoors only, twenty feet from the house, never into a wall outlet.")
                 .guidance("A generator runs outdoors only, at least twenty feet from the house, exhaust pointed away from doors, windows, and vents.",
                         "Never in a garage, even with the door open.",
                         "Never plug a generator into a wall outlet.")
                 .manual().memberCanComplete().bands(TimeBand.MIN_2, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(25)
-                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "generator").provenance(readyGov(READY_POWER)).build(items);
+                .action(ReadinessAction.OPEN_POWER_OUTAGE_PLAYBOOK, "section", "generator").provenance(readyGov(READY_POWER))
+                .why("Where a generator runs is what keeps it safe, and the rules fit in one line.").build(items);
         b("outage.warm_cool_place", ReadinessArea.OUTAGE, "Pick a place to warm up or cool down")
                 .desc("A library, community center, or relative's home you could go to if the power is out for days.")
                 .guidance("In hot weather, go to a cooling center, library, or shopping center rather than enduring it.",
                         "In cold weather, close off unused rooms and keep the household in one insulated space.")
                 .manual().bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(38).review(365)
                 .tags("extreme_heat", "blizzard")
-                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_HEAT)).build(items);
+                .action(ReadinessAction.START_SELF_REPORT_STEP).provenance(readyGov(READY_HEAT))
+                .why("In a long outage, losing heat or cooling matters more than losing light, so it helps to know where you'd go.").build(items);
 
         // SUPPLIES
         b("supplies.light_batteries", ReadinessArea.SUPPLIES, "Flashlights and spare batteries")
                 .desc("One per person plus a spare. Never candles as the primary light.")
                 .stockpile("stockpile-flashlights", "stockpile-batteries")
                 .bands(TimeBand.MIN_5, CostBand.UNDER_10, EffortBand.ON_YOUR_OWN).priority(42)
-                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "power_heat").provenance(SITPREP).build(items);
+                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "power_heat").provenance(SITPREP)
+                .why("A working light for everyone means no one reaches for a candle in the dark.").build(items);
         b("supplies.first_aid", ReadinessArea.SUPPLIES, "A basic first aid kit")
                 .desc("Bandages, gauze, tape, pain relievers, and any medicines your household uses, kept in one box.")
                 .stockpile("stockpile-first-aid-kit")
                 .bands(TimeBand.MIN_10, CostBand.OPTIONAL_PURCHASE, EffortBand.ON_YOUR_OWN).priority(30)
-                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "medical").provenance(SITPREP).build(items);
+                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "medical").provenance(SITPREP)
+                .why("Small injuries are easier to handle when everything you need is in one box.").build(items);
         b("supplies.medication_buffer", ReadinessArea.SUPPLIES, "A few extra days of medicine")
                 .desc("Ask your pharmacist whether an early refill is possible.")
                 .stockpile("stockpile-rx-14day")
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(34)
-                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "medical").provenance(SITPREP).build(items);
+                .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "medical").provenance(SITPREP)
+                .why("A few extra days of medicine gives you time if a refill is delayed.").build(items);
         b("supplies.home_kit", ReadinessArea.SUPPLIES, "Build the 14-day home kit over time")
                 .desc("A shelf at a time. It never lowers your baseline readiness.")
                 .stockpileFull()
                 .bands(TimeBand.MIN_20_30, CostBand.OPTIONAL_PURCHASE, EffortBand.WITH_HOUSEHOLD).priority(10)
-                .action(ReadinessAction.OPEN_HOME_STOCKPILE).provenance(SITPREP).build(items);
+                .action(ReadinessAction.OPEN_HOME_STOCKPILE).provenance(SITPREP)
+                .why("A 14-day kit lets you stay home through a long disruption, and you can build it a shelf at a time.").build(items);
 
         // PEOPLE
         b("people.out_of_area_contact", ReadinessArea.PEOPLE, "Add a contact outside your area")
@@ -232,20 +254,22 @@ public final class ReadinessCatalog {
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(65)
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "outOfTownContact")
                 .provenance(HOUSEHOLD_PLAN)
-                .unfinishedAreaReason("Suggested because no one outside your area is on your contact list yet.")
-                .build(items);
+                
+                .why("Your household doesn't have an out-of-area contact yet.").build(items);
         b("people.neighbor", ReadinessArea.PEOPLE, "Trade numbers with a neighbor")
                 .desc("Someone close by who can check on your home or your people when you can't get there.")
                 .contacts(ContactRule.NEIGHBOR)
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(44)
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "neighborCoordination")
-                .provenance(HOUSEHOLD_PLAN).build(items);
+                .provenance(HOUSEHOLD_PLAN)
+                .why("No neighbor is on your contact list yet, and someone close by can check on your home when you can't.").build(items);
         b("people.extended_family", ReadinessArea.PEOPLE, "Add family or friends outside your home")
                 .desc("The relatives and friends you would want to hear from you, and who would want to know you're okay.")
                 .contacts(ContactRule.EXTENDED_FAMILY)
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(32)
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "extendedFamilyContacts")
-                .provenance(HOUSEHOLD_PLAN).build(items);
+                .provenance(HOUSEHOLD_PLAN)
+                .why("No family or friends outside your home are on your contact list yet, and they'll want to know you're okay.").build(items);
 
         // EVACUATION
         b("evacuation.alternate_route", ReadinessArea.EVACUATION, "Add a second way out")
@@ -253,20 +277,23 @@ public final class ReadinessCatalog {
                 .evac("alternate_route")
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(48)
                 .tags("wildfire", "hurricane", "flood")
-                .action(ReadinessAction.OPEN_EVACUATION_PLAN, "step", "routes").provenance(HOUSEHOLD_PLAN).build(items);
+                .action(ReadinessAction.OPEN_EVACUATION_PLAN, "step", "routes").provenance(HOUSEHOLD_PLAN)
+                .why("If your usual road is blocked, a second route means you can still leave.").build(items);
         b("evacuation.offline_map", ReadinessArea.EVACUATION, "Save your route in your maps app")
                 .desc("Download it in Google or Apple Maps so it works with no cell signal.")
                 .evac("offline_maps")
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(36)
                 .tags("wildfire", "hurricane")
-                .action(ReadinessAction.OPEN_EVACUATION_PLAN, "step", "routes").provenance(HOUSEHOLD_PLAN).build(items);
+                .action(ReadinessAction.OPEN_EVACUATION_PLAN, "step", "routes").provenance(HOUSEHOLD_PLAN)
+                .why("Directions you've saved don't depend on a cell signal when you need them.").build(items);
         b("evacuation.pet_plan", ReadinessArea.EVACUATION, "Plan where your pets can go")
                 .desc("Carriers, food, records, and a place that takes pets, sorted out ahead of time.")
                 .contacts(ContactRule.PET)
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(56)
                 .applicability(Applicability.PETS, "Suggested because your household includes pets.")
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "petEvacuation")
-                .provenance(HOUSEHOLD_PLAN).build(items);
+                .provenance(HOUSEHOLD_PLAN)
+                .why("Deciding ahead of time where your pets can stay means one less hard choice when you have to leave.").build(items);
 
         // PRACTICE
         b("practice.blackout_drill", ReadinessArea.PRACTICE, "Try a ten-minute blackout")
@@ -275,18 +302,21 @@ public final class ReadinessCatalog {
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(40).review(180)
                 .tags("blizzard", "hurricane", "extreme_heat")
                 .action(ReadinessAction.OPEN_DRILL, "drillId", "poweroutage-blackout-test")
-                .provenance(readyGov(READY_POWER)).build(items);
+                .provenance(readyGov(READY_POWER))
+                .why("Ten minutes in the dark shows you what's missing while it's still easy to fix.").build(items);
         b("practice.contact_tree", ReadinessArea.PRACTICE, "Test your call chain")
                 .desc("Send the real message to everyone on the list and see who answers.")
                 .drill("contact-tree")
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(33).review(180)
                 .action(ReadinessAction.OPEN_DRILL, "drillId", "contact-tree")
-                .provenance(HOUSEHOLD_PLAN).build(items);
+                .provenance(HOUSEHOLD_PLAN)
+                .why("A real test shows whose number is out of date before you need it.").build(items);
         b("practice.plan_review", ReadinessArea.PRACTICE, "Review your plan together")
                 .desc("Sit down with your household and walk through who goes where and who calls whom.")
                 .planConfirmation()
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(28).review(180)
-                .action(ReadinessAction.OPEN_HOUSEHOLD_PLAN).provenance(HOUSEHOLD_PLAN).build(items);
+                .action(ReadinessAction.OPEN_HOUSEHOLD_PLAN).provenance(HOUSEHOLD_PLAN)
+                .why("A plan everyone has walked through is one everyone can follow.").build(items);
 
         ITEMS = Collections.unmodifiableList(items);
     }
@@ -391,11 +421,26 @@ public final class ReadinessCatalog {
                 r.hazard() == null ? List.of() : List.of(r.hazard()),
                 action, Collections.unmodifiableMap(params),
                 List.of(LOCAL_RISK),
-                Applicability.ALWAYS, null, null,
+                Applicability.ALWAYS, null, localRiskWhy(r),
                 // Local-risk steps are household decisions about the home's
                 // hazards: admin-only, like the other shared-record steps.
                 false,
                 LOCAL_RISK_INDEX_BASE + r.priority());
+    }
+
+    /**
+     * Why a local-risk step matters: it is on the list because the household's
+     * risk profile added it for one hazard, so say that ("…the wildfire risk
+     * where you live"). The requirement's detail is already the step's
+     * description, so it is the fallback only when no hazard is named.
+     */
+    static String localRiskWhy(RiskAdjustedRequirementDto r) {
+        if (r.hazard() != null && !r.hazard().isBlank()) {
+            return "Part of preparing for the " + r.hazard().trim().replace('_', ' ').toLowerCase(java.util.Locale.ROOT)
+                    + " risk where you live.";
+        }
+        if (r.detail() != null && !r.detail().isBlank()) return r.detail().trim();
+        return GOOD_NEXT_STEP_TEXT;
     }
 
     // ------------------------------------------------------------------
@@ -456,7 +501,7 @@ public final class ReadinessCatalog {
         private final Set<Provenance> provenance = new LinkedHashSet<>();
         private Applicability applicability = Applicability.ALWAYS;
         private String relevanceReason;
-        private String unfinishedAreaReason;
+        private String whyItMatters;
         private boolean memberCanComplete;
 
         Builder(String key, ReadinessArea area, String title) {
@@ -483,7 +528,7 @@ public final class ReadinessCatalog {
         Builder action(ReadinessAction a, String param, String value) { this.action = a; this.actionParams.put(param, value); return this; }
         Builder provenance(Provenance p) { this.provenance.add(p); return this; }
         Builder applicability(Applicability a, String reason) { this.applicability = a; this.relevanceReason = reason; return this; }
-        Builder unfinishedAreaReason(String r) { this.unfinishedAreaReason = r; return this; }
+        Builder why(String w) { this.whyItMatters = w; return this; }
         /** Any member may mark this step done; without it the step is admin-only. */
         Builder memberCanComplete() { this.memberCanComplete = true; return this; }
 
@@ -492,7 +537,7 @@ public final class ReadinessCatalog {
                     source, stockpileKeys, stockpileFull, evacMetric, drillId, contactRule,
                     time, cost, effort, priority, reviewAfterDays, tags, action,
                     Collections.unmodifiableMap(new LinkedHashMap<>(actionParams)),
-                    List.copyOf(provenance), applicability, relevanceReason, unfinishedAreaReason,
+                    List.copyOf(provenance), applicability, relevanceReason, whyItMatters,
                     memberCanComplete, into.size()));
         }
     }

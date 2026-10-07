@@ -228,7 +228,7 @@ class ReadinessJourneyServiceTest {
         ReadinessJourneyDto j = journey();
         assertThat(j.schemaVersion()).isEqualTo(1);
         assertThat(j.catalogVersion()).isEqualTo("readiness-catalog-2026.10.07.2");
-        assertThat(j.recommendationVersion()).isEqualTo("readiness-rec-2026.10.07");
+        assertThat(j.recommendationVersion()).isEqualTo("readiness-rec-2026.10.07.2");
         assertThat(j.householdId()).isEqualTo(HH);
         assertThat(j.generatedAt()).isEqualTo(NOW);
         assertThat(j.mode()).isEqualTo(JourneyMode.CALM);

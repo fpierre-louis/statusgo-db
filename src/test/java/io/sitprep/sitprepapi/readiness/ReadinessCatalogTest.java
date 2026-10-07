@@ -76,6 +76,22 @@ class ReadinessCatalogTest {
                 .satisfies(i -> assertThat(i.memberCanComplete()).isFalse());
     }
 
+    /** Every step says why it matters, in its own words (EXEC-A1 task 5). */
+    @Test
+    void everyStaticStepHasItsOwnCalmWhy() {
+        var seen = new HashSet<String>();
+        for (CatalogItem item : ReadinessCatalog.staticItems()) {
+            String why = item.whyItMatters();
+            assertThat(why).as(item.key()).isNotBlank().endsWith(".");
+            assertThat(seen.add(why)).as("duplicate why on %s", item.key()).isTrue();
+            assertThat(why).as(item.key()).isNotEqualTo(item.description());
+            // Surface copy rules (CONTRACT §9, CLAUDE.md practical preparedness).
+            assertThat(why.toLowerCase()).as(item.key())
+                    .doesNotContain("offline").doesNotContain("behind").doesNotContain("%")
+                    .doesNotContain("good first step");
+        }
+    }
+
     @Test
     void keysAreUniqueAndWellFormed() {
         var seen = new HashSet<String>();

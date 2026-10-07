@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 @Service
 public class ReadinessRecommendationService {
 
-    public static final String RECOMMENDATION_VERSION = "readiness-rec-2026.10.07";
+    public static final String RECOMMENDATION_VERSION = "readiness-rec-2026.10.07.2";
 
     static final int LOCAL_RISK_HIGH = 30;
     static final int LOCAL_RISK_MODERATE = 15;
@@ -112,8 +112,13 @@ public class ReadinessRecommendationService {
 
         // Reason = largest contributing factor; ties resolve in the listed
         // order local risk → relevance → review due → unfinished area.
+        // The two non-specific codes carry the step's own "why" (EXEC-A1
+        // task 5): the code stays deterministic, only the sentence is the
+        // item's. The generic line is a fallback for an item with none.
+        String why = item.whyItMatters() != null && !item.whyItMatters().isBlank()
+                ? item.whyItMatters() : ReadinessCatalog.GOOD_NEXT_STEP_TEXT;
         String code = "GOOD_NEXT_STEP";
-        String text = ReadinessCatalog.GOOD_NEXT_STEP_TEXT;
+        String text = why;
         int best = 0;
         if (localRisk > best) {
             best = localRisk;
@@ -132,8 +137,7 @@ public class ReadinessRecommendationService {
         }
         if (unfinished > best) {
             code = "UNFINISHED_AREA";
-            text = item.unfinishedAreaReason() != null ? item.unfinishedAreaReason()
-                    : "A good first step in " + item.area().title() + ".";
+            text = why;
         }
         return new Scored(d, score, code, text);
     }
