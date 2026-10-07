@@ -2,10 +2,8 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.gamification.TokenEventPublisher;
 import io.sitprep.sitprepapi.gamification.TokenEventType;
-import io.sitprep.sitprepapi.domain.AdvancedReadinessCompletion;
 import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.dto.MeDto.AdvancedReadinessCompletionDto;
 import io.sitprep.sitprepapi.dto.MeDto.DrillCompletionDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
@@ -16,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -52,14 +49,13 @@ public class HouseholdChallengesResource {
      * canonical form, but the BE shouldn't trust client input.
      */
     private static final Pattern WEEK_KEY = Pattern.compile("^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$");
-    private static final Pattern ITEM_KEY = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$");
 
     /**
      * A catalog drill id, optionally with a phase: {@code "go-bag"} or
      * {@code "go-bag#papers"}.
      *
-     * <p>Wider than {@link #ITEM_KEY} by exactly one character — {@code #} —
-     * because a split drill records each part's own date. The lengths add to
+     * <p>Allows one {@code #} because a split drill records each part's own
+     * date. The lengths add to
      * 96, which is the column width; a key that fit the regex and not the
      * column would fail at flush with a message about nothing.</p>
      *
@@ -145,56 +141,6 @@ public class HouseholdChallengesResource {
         return ResponseEntity.ok(Map.of("challengeLastShownWeek", household.getChallengeLastShownWeek()));
     }
 
-    /**
-     * Self-report an optional advanced-readiness item as complete. Admin-only
-     * because it edits household-shared plan state; idempotent because repeat
-     * taps should settle to the same row, not append activity.
-     */
-    @PutMapping("/{householdId}/advanced-readiness/{itemKey}")
-    @Transactional
-    public ResponseEntity<Map<String, AdvancedReadinessCompletionDto>> markAdvancedReadinessComplete(
-            @PathVariable String householdId,
-            @PathVariable String itemKey
-    ) {
-        String caller = AuthUtils.requireAuthenticatedEmail();
-        validateItemKey(itemKey);
-        access.requireCanAdminHousehold(caller, householdId);
-
-        Group household = householdOr404(householdId);
-        Map<String, AdvancedReadinessCompletion> progress = household.getAdvancedReadinessProgress();
-        if (progress == null) {
-            progress = new HashMap<>();
-            household.setAdvancedReadinessProgress(progress);
-        }
-
-        progress.putIfAbsent(itemKey, new AdvancedReadinessCompletion(Instant.now(), caller));
-        groupRepo.save(household);
-        return ResponseEntity.ok(advancedDto(progress));
-    }
-
-    /**
-     * Untoggle an optional advanced-readiness item. This removes only the
-     * self-reported optional row; contact- or plan-derived readiness remains
-     * derived from the source documents.
-     */
-    @DeleteMapping("/{householdId}/advanced-readiness/{itemKey}")
-    @Transactional
-    public ResponseEntity<Map<String, AdvancedReadinessCompletionDto>> clearAdvancedReadiness(
-            @PathVariable String householdId,
-            @PathVariable String itemKey
-    ) {
-        String caller = AuthUtils.requireAuthenticatedEmail();
-        validateItemKey(itemKey);
-        access.requireCanAdminHousehold(caller, householdId);
-
-        Group household = householdOr404(householdId);
-        Map<String, AdvancedReadinessCompletion> progress = household.getAdvancedReadinessProgress();
-        if (progress != null && progress.remove(itemKey) != null) {
-            groupRepo.save(household);
-        }
-        return ResponseEntity.ok(advancedDto(progress));
-    }
-
     // ─────────────────────────────────────────────────────────────────
     // Drills — per-drill, dated. See DrillCompletion for why this exists
     // alongside the week-keyed challengeProgress above.
@@ -203,17 +149,14 @@ public class HouseholdChallengesResource {
     /**
      * Record that this household did {@code drillKey}, now.
      *
-     * <p><b>THE DATE MOVES ON A REPEAT CALL.</b> This is the one place the
-     * drill log deliberately differs from the advanced-readiness routes below,
-     * which use {@code putIfAbsent} so a repeat tap settles to the same row.
-     * A readiness item is a checkbox — it is either done or not. A drill is a
+     * <p><b>THE DATE MOVES ON A REPEAT CALL.</b> A readiness item is a
+     * checkbox — it is either done or not. A drill is a
      * thing you do AGAIN, and the whole reason this table exists is to answer
      * "when did we last do this one". Keeping the first date would make the
      * second practice invisible and could show a household as overdue on a
      * drill it ran yesterday.</p>
      *
-     * <p>Auth is household MEMBERSHIP, matching the weekly challenge and
-     * differing from advanced readiness, which edits shared plan state. Any
+     * <p>Auth is household MEMBERSHIP, matching the weekly challenge. Any
      * member may report that the household practised something.</p>
      *
      * <p>Returns the full log so the caller re-renders from the response
@@ -295,31 +238,10 @@ public class HouseholdChallengesResource {
         }
     }
 
-    private void validateItemKey(String itemKey) {
-        if (itemKey == null || !ITEM_KEY.matcher(itemKey).matches()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid itemKey — expected 1-96 letters, numbers, hyphens, or underscores");
-        }
-    }
-
     private Group householdOr404(String householdId) {
         return groupRepo.findByGroupId(householdId)
                 .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Household not found"));
-    }
-
-    private static Map<String, AdvancedReadinessCompletionDto> advancedDto(
-            Map<String, AdvancedReadinessCompletion> progress
-    ) {
-        if (progress == null || progress.isEmpty()) return Map.of();
-        Map<String, AdvancedReadinessCompletionDto> out = new HashMap<>();
-        for (var entry : progress.entrySet()) {
-            if (entry.getKey() == null || entry.getValue() == null) continue;
-            AdvancedReadinessCompletion c = entry.getValue();
-            if (c.getCompletedAt() == null) continue;
-            out.put(entry.getKey(), new AdvancedReadinessCompletionDto(c.getCompletedAt(), c.getCompletedBy()));
-        }
-        return out;
     }
 }

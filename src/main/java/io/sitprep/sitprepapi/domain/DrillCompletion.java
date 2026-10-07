@@ -25,13 +25,6 @@ import java.time.Instant;
  * and each part records its own date. The catalog owns both halves of that
  * string ({@code src/me/challenges/challenges.js}); this side only validates
  * the shape.</p>
- *
- * <p><b>Deliberately identical to {@link AdvancedReadinessCompletion}.</b> Two
- * embeddables with the same two columns looks like something to unify, and it
- * is not: they are keyed differently, written by different endpoints under
- * different permissions (drills are member-writable, advanced readiness is
- * admin-only), and merging them would put one table's authorization rule in
- * reach of the other's callers. Same shape, different fact.</p>
  */
 @Embeddable
 @Getter

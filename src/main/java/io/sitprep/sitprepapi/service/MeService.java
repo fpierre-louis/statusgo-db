@@ -572,8 +572,14 @@ public class MeService {
                 () -> householdFirst(hasBase ? originLocationRepo.findByHouseholdId(baseHouseholdId) : List.of(),
                         () -> originLocationRepo.findByOwnerEmailIgnoreCase(email)),
                 List.of());
+        // Contacts follow the same household-first rule (Ready for More §3a,
+        // 2026-10-07). They were owner-only, so a non-authoring member's Home
+        // read the contacts essential as not done. The BE twin of Home's
+        // essentials rule — readiness.EssentialsReadinessService — reads these
+        // lists the same way; change both together.
         List<EmergencyContactGroup> emergencyGroups = safeGet("emergencyContactGroups", logCtx,
-                () -> emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email),
+                () -> householdFirst(hasBase ? emergencyContactGroupRepo.findByHouseholdId(baseHouseholdId) : List.of(),
+                        () -> emergencyContactGroupRepo.findByOwnerEmailIgnoreCase(email)),
                 List.of());
 
         return new MePlansDto(
@@ -935,39 +941,25 @@ public class MeService {
                 householdLastActiveFor(g, memberLastActiveMap),
                 householdState.challengeLastShownWeek(),
                 householdState.challengeProgress(),
-                householdState.advancedReadinessProgress(),
                 householdState.drillLog()
         );
     }
 
     private record HouseholdState(
             java.util.Map<String, Boolean> challengeProgress,
-            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress,
             java.util.Map<String, DrillCompletionDto> drillLog,
             String challengeLastShownWeek
     ) {
         static HouseholdState empty() {
-            return new HouseholdState(java.util.Map.of(), java.util.Map.of(), java.util.Map.of(), null);
+            return new HouseholdState(java.util.Map.of(), java.util.Map.of(), null);
         }
 
         static HouseholdState from(Group household) {
             java.util.Map<String, Boolean> challenge = household.getChallengeProgress() == null
                     ? java.util.Map.of()
                     : new java.util.HashMap<>(household.getChallengeProgress());
-            java.util.Map<String, AdvancedReadinessCompletionDto> advanced = new java.util.HashMap<>();
-            if (household.getAdvancedReadinessProgress() != null) {
-                for (var entry : household.getAdvancedReadinessProgress().entrySet()) {
-                    if (entry.getKey() == null || entry.getValue() == null) continue;
-                    AdvancedReadinessCompletion c = entry.getValue();
-                    if (c.getCompletedAt() == null) continue;
-                    advanced.put(entry.getKey(), new AdvancedReadinessCompletionDto(
-                            c.getCompletedAt(),
-                            c.getCompletedBy()
-                    ));
-                }
-            }
-            // Same defensive shape as `advanced` above: skip a null key, a null
-            // value, or a row with no timestamp. A drill with no completedAt is
+            // Defensive: skip a null key, a null value, or a row with no
+            // timestamp. A drill with no completedAt is
             // a row that says it was done and cannot say when, which is worse
             // on this surface than no row at all.
             java.util.Map<String, DrillCompletionDto> drills = new java.util.HashMap<>();
@@ -982,7 +974,7 @@ public class MeService {
                     ));
                 }
             }
-            return new HouseholdState(challenge, advanced, drills, household.getChallengeLastShownWeek());
+            return new HouseholdState(challenge, drills, household.getChallengeLastShownWeek());
         }
     }
 

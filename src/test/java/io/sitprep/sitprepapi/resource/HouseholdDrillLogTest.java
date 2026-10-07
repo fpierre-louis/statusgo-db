@@ -33,7 +33,7 @@ import static org.mockito.Mockito.*;
  * weeks.</p>
  *
  * <p>The assertion worth not "simplifying" is {@code repeatCompleteMovesTheDate}:
- * the sibling advanced-readiness route uses {@code putIfAbsent} and this one
+ * a checkbox-style route would use {@code putIfAbsent} and this one
  * must not, because a drill is a thing you do again and keeping the first date
  * would show a household as overdue on a drill it ran yesterday.</p>
  */
@@ -93,8 +93,8 @@ class HouseholdDrillLogTest {
 
     @Test
     void repeatCompleteMovesTheDate() throws Exception {
-        // THE POINT OF THE WHOLE TABLE. The sibling advanced-readiness route
-        // uses putIfAbsent; this one must not. A drill is a thing you do again,
+        // THE POINT OF THE WHOLE TABLE. A checkbox would use putIfAbsent;
+        // this one must not. A drill is a thing you do again,
         // and a frozen first date would make the second practice invisible.
         complete("exit-drill");
         Instant first = household.getDrillLog().get("exit-drill").getCompletedAt();

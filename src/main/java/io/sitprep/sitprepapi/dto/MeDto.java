@@ -281,11 +281,6 @@ public record MeDto(
              */
             java.util.Map<String, Boolean> challengeProgress,
             /**
-             * Optional advanced-readiness checklist completions keyed by item.
-             * These are self-reported and do not affect baseline readiness.
-             */
-            java.util.Map<String, AdvancedReadinessCompletionDto> advancedReadinessProgress,
-            /**
              * When this household last did each drill, keyed by catalog drill
              * id — optionally with a phase, {@code "go-bag#papers"}.
              *
@@ -298,11 +293,6 @@ public record MeDto(
     ) {}
 
     public record DrillCompletionDto(
-            Instant completedAt,
-            String completedBy
-    ) {}
-
-    public record AdvancedReadinessCompletionDto(
             Instant completedAt,
             String completedBy
     ) {}

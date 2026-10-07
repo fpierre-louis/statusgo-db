@@ -415,20 +415,6 @@ public class Group {
     private Map<String, Boolean> challengeProgress = new HashMap<>();
 
     /**
-     * Optional advanced-readiness checklist completion, stored per household
-     * item. These rows are not baseline readiness and never affect the
-     * household's essential-readiness score; they only let the Home optional
-     * drawer sync its self-reported toggles across devices.
-     */
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(
-            name = "group_advanced_readiness_progress",
-            joinColumns = @JoinColumn(name = "group_id")
-    )
-    @MapKeyColumn(name = "item_key", length = 96)
-    private Map<String, AdvancedReadinessCompletion> advancedReadinessProgress = new HashMap<>();
-
-    /**
      * When this household last did each preparedness drill.
      *
      * <p>Keys are catalog drill ids, optionally with a phase —
@@ -448,8 +434,7 @@ public class Group {
      * <p>Written by {@code POST /api/households/{id}/drills/{drillKey}/complete},
      * which is MEMBER-permitted rather than admin-only: any member may report
      * that the household did a drill. That matches
-     * {@link #challengeProgress}'s endpoint and differs deliberately from
-     * {@link #advancedReadinessProgress}, which edits shared plan state.</p>
+     * {@link #challengeProgress}'s endpoint.</p>
      */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
