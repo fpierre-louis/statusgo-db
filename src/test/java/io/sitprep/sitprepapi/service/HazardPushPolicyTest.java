@@ -134,11 +134,7 @@ class HazardPushPolicyTest {
         // "Severe", and most flash-flood deaths happen at night — the one
         // category the narrow rule deferred to 7am was among the most
         // time-critical things we send.
-        UserAlertPreference p = defaults();
-        p.setQuietHoursEnabled(true);
-        p.setQuietStart(LocalTime.of(0, 0));
-        p.setQuietEnd(LocalTime.of(23, 59));   // always quiet
-        prefs(p);
+        prefs(quietNow());
 
         assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Severe"))
                 .as("a Flash Flood Warning at 2am must still interrupt")
@@ -161,15 +157,77 @@ class HazardPushPolicyTest {
 
     @Test
     void quietHoursStillDeferANonCriticalCategory() {
-        UserAlertPreference p = defaults();
-        p.setQuietHoursEnabled(true);
-        p.setQuietStart(LocalTime.of(0, 0));
-        p.setQuietEnd(LocalTime.of(23, 59));
-        prefs(p);
+        prefs(quietNow());
 
         // A minor quake is not on the bypass list.
         assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "5.6"))
                 .isEqualTo(Lane.B);
+    }
+
+    @Test
+    void quietHoursDeferAFireWarningAndASubSevereNwsWarning() {
+        // The two non-critical shapes that really reach pushSevereAlert: the
+        // Fire Warning template (WILDFIRE_NEAR, never bypasses) and a
+        // critical_push template NWS stamped below Severe.
+        prefs(quietNow());
+
+        assertThat(policy.evaluate("u@x.com", Category.WILDFIRE_NEAR, "Severe")).isEqualTo(Lane.B);
+        assertThat(policy.evaluate("u@x.com", Category.WILDFIRE_NEAR, "Extreme"))
+                .as("the bypass is per category: wildfire is not on the list at any severity")
+                .isEqualTo(Lane.B);
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Moderate")).isEqualTo(Lane.B);
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Unknown")).isEqualTo(Lane.B);
+    }
+
+    // ==================================================================
+    // Critical bypass: inside quiet hours AND exempt from the rate cap
+    // ==================================================================
+
+    @Test
+    void everyCriticalCategoryBreaksThroughQuietHours() {
+        prefs(quietNow());
+
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Severe")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Extreme")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "Severe"))
+                .as("the severity word ingest really sends for M6+").isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "6.0"))
+                .as("numeric magnitude, at the threshold").isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.PLAN_ACTIVATION_RECEIVED, null)).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.GROUP_ALERT_HOUSEHOLD, null)).isEqualTo(Lane.A);
+    }
+
+    @Test
+    void criticalCategoriesAreExemptFromTheRateCapAndOthersAreNot() {
+        when(rateLimiter.tryConsume(any(), any())).thenReturn(false);   // every cap exhausted
+        prefs(defaults());
+
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Severe")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "Severe")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "6.0")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.PLAN_ACTIVATION_RECEIVED, null)).isEqualTo(Lane.A);
+        assertThat(policy.evaluate("u@x.com", Category.GROUP_ALERT_HOUSEHOLD, null)).isEqualTo(Lane.A);
+
+        assertThat(policy.evaluate("u@x.com", Category.WILDFIRE_NEAR, "Severe"))
+                .as("a capped wildfire push demotes to the inbox, it is not dropped")
+                .isEqualTo(Lane.B);
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Moderate")).isEqualTo(Lane.B);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "Moderate")).isEqualTo(Lane.B);
+    }
+
+    @Test
+    void anExplicitOptOutBeatsTheBypassForEveryCriticalCategory() {
+        UserAlertPreference p = quietNow();
+        p.setNwsAlerts(false);
+        p.setEarthquakes(false);
+        p.setPlanActivations(false);
+        p.setGroupAlerts(false);
+        prefs(p);
+
+        assertThat(policy.evaluate("u@x.com", Category.NWS_SEVERE_EXTREME, "Extreme")).isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "Severe")).isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate("u@x.com", Category.PLAN_ACTIVATION_RECEIVED, null)).isEqualTo(Lane.DROP);
+        assertThat(policy.evaluate("u@x.com", Category.GROUP_ALERT_HOUSEHOLD, null)).isEqualTo(Lane.DROP);
     }
 
     // ==================================================================
@@ -212,7 +270,11 @@ class HazardPushPolicyTest {
         return new AlertIngestService(new NwsZoneService()).normalizeUsgs(new ObjectMapper().readTree(json));
     }
 
-    /** Quiet hours on, window centred on the current UTC time — in-window whenever the test runs. */
+    /**
+     * Quiet hours on, window centred on the current UTC time — in-window whenever
+     * the test runs. Replaces a 00:00–23:59 window in the default zone, which was
+     * out-of-window for the minute 23:59–00:00 New York time and failed then.
+     */
     private static UserAlertPreference quietNow() {
         UserAlertPreference p = defaults();
         LocalTime now = LocalTime.now(ZoneOffset.UTC);
