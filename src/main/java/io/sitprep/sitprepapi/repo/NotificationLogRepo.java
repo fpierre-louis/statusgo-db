@@ -163,7 +163,7 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
                            @Param("email") String email,
                            @Param("at") Instant at);
 
-    // ── Quiet-hours catch-up (QuietHoursCatchUpService, V100) ─────────────
+    // ── Quiet-hours catch-up (QuietHoursCatchUpService, V101) ─────────────
 
     /**
      * Recipients (lower-cased) with at least one unread, unarchived row that

@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The three quiet-hours catch-up queries on REAL Postgres, over the real
- * Flyway schema through V100 (EXEC-N). {@code notification_log} carries a
+ * Flyway schema through V101 (EXEC-N). {@code notification_log} carries a
  * jsonb column H2 cannot create, so the default H2 {@code test} profile can't
  * host this; it follows {@code AgencyJurisdictionServicePostgresIT}'s pattern.
  *

@@ -40,7 +40,7 @@ import java.util.Optional;
  * safety copy is involved.</p>
  *
  * <p><b>Who.</b> Every 15 minutes, the recipients with an unread, unarchived
- * row marked {@code deferred_reason = 'QUIET_HOURS'} (V100) in the last
+ * row marked {@code deferred_reason = 'QUIET_HOURS'} (V101) in the last
  * {@link #LOOKBACK} — keyset-paged by email. For each:</p>
  * <ul>
  *   <li>skip unless push is on and quiet hours are still on (a user who turned

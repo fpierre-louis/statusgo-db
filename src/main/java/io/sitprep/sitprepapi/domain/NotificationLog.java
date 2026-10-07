@@ -102,7 +102,7 @@ public class NotificationLog {
      * window held a Lane A push (PushPolicyService.DeferReason). Null for
      * every other row, including Lane B rows caused by the rate cap, push
      * switched off, a per-group quiet window or a muted group. Read by
-     * {@code QuietHoursCatchUpService} (V100, EXEC-N).
+     * {@code QuietHoursCatchUpService} (V101, EXEC-N).
      */
     @Column(name = "deferred_reason", length = 16)
     private String deferredReason;
