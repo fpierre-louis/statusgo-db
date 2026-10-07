@@ -547,7 +547,15 @@ public class MeService {
         // hasMealPlan readiness flag and the household-scoped write in
         // MealPlanDataService.upsert, so every household member sees the plan
         // summary regardless of who authored it.
-        final String baseHouseholdId = user.getBaseHouseholdId();
+        //
+        // ONLY while the user still belongs to that household (EXEC-A1 task 3):
+        // an admin removing a member (GroupService.removeMember) does not clear
+        // the member's baseHouseholdId — only leaving does — so the raw id can
+        // name a household they can no longer read, and every household-first
+        // read below would hand them its plan. /me already resolves its base
+        // among the user's own households; this is the same rule.
+        final String baseHouseholdId = safeGet("baseHouseholdMembership", logCtx,
+                () -> memberBaseHouseholdId(user.getBaseHouseholdId(), email), null);
         MealPlanData mealPlan = safeGet("mealPlan", logCtx,
                 () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
                             ? mealPlanDataRepo.findFirstByHouseholdId(baseHouseholdId)
@@ -590,6 +598,25 @@ public class MeService {
                 emergencyGroups.stream().map(this::toEmergencyContactGroupSummary).toList(),
                 new MePlansDto.MetaDto(Instant.now(), DTO_VERSION)
         );
+    }
+
+    /**
+     * {@code baseHouseholdId} iff it is a Household the user is still the owner,
+     * an admin or a member of; else null (owner-email fallback everywhere).
+     */
+    private String memberBaseHouseholdId(String baseHouseholdId, String email) {
+        if (baseHouseholdId == null || baseHouseholdId.isBlank() || email == null || email.isBlank()) return null;
+        return groupRepo.findByGroupId(baseHouseholdId)
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .filter(g -> (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(email))
+                        || containsEmail(g.getAdminEmails(), email)
+                        || containsEmail(g.getMemberEmails(), email))
+                .map(Group::getGroupId)
+                .orElse(null);
+    }
+
+    private static boolean containsEmail(List<String> emails, String email) {
+        return emails != null && emails.stream().anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
     }
 
     /** The household's rows; the caller's own (un-backfilled) rows only when it has none. */
