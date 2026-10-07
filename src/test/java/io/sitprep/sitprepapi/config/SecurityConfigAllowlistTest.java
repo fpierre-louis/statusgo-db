@@ -66,6 +66,9 @@ class SecurityConfigAllowlistTest {
             // Invite link, opened before signing in.
             "GET,  /api/groups/does-not-exist/preview",
             "GET,  /api/invites/does-not-exist/resolve",
+            "GET,  /api/household-invites/does-not-exist/resolve",
+            // Claim-your-spot link, opened before signing in.
+            "GET,  /api/household-claims/does-not-exist",
             // Stripe. Never sends a Firebase token.
             "POST, /api/billing/webhook",
             // Ask reads — anonymous by product decision; the FE renders these
@@ -110,6 +113,12 @@ class SecurityConfigAllowlistTest {
             "GET,  /api/households/hh-1/accompaniments",
             "GET,  /api/households/hh-1/events",
             "GET,  /api/households/hh-1/map-places",
+            // Household roster EXEC-B: composition is member-only; claiming
+            // and minting claim links need an account.
+            "GET,  /api/households/hh-1/composition",
+            "PUT,  /api/households/hh-1/composition/counts",
+            "POST, /api/households/hh-1/manual-members/m-1/claim-invite",
+            "POST, /api/household-claims/does-not-exist/accept",
             "GET,  /api/groups/grp-1",
             "GET,  /api/groups/grp-1/readiness-summary",
             // Rows I recommended AGAINST allowlisting. If one of these turns out

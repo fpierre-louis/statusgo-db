@@ -99,6 +99,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/groups/*/preview").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/invites/*/resolve").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/household-invites/*/resolve").permitAll()
+                        // "Claim your spot" link preview, opened before signing in.
+                        // One segment only: /accept stays behind a token.
+                        .requestMatchers(HttpMethod.GET, "/api/household-claims/*").permitAll()
 
                         // Stripe will never send a Firebase token. The
                         // Stripe-Signature HMAC is the authentication. A 401 here is

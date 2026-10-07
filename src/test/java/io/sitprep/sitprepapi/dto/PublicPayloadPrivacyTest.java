@@ -217,6 +217,11 @@ class PublicPayloadPrivacyTest {
                 "/api/groups/*/preview",        // invite preview, declared in ALLOWED
                 "/api/invites/*/resolve",       // invite preview; no roster or member location
                 "/api/household-invites/*/resolve", // household invite preview; no roster
+                // Claim-your-spot preview (household roster EXEC-B): household
+                // name, the manual member's display name + band, the inviter's
+                // FIRST name. No email, no ids — asserted on the serialised
+                // body in claimPreviewCarriesNoPersonData below.
+                "/api/household-claims/*",
                 "/api/public/**",               // signed-token opt-out
                 "/api/billing/webhook",         // Stripe, no payload of ours
                 "/api/community/map",           // POIs; plots no individuals by design
@@ -254,6 +259,25 @@ class PublicPayloadPrivacyTest {
                         + "looked at. Decide what its payload may expose, then add the "
                         + "prefix here (and any sensitive fields to ALLOWED).")
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("the claim-link preview serialises no email, phone, address or location")
+    void claimPreviewCarriesNoPersonData() throws Exception {
+        var service = org.mockito.Mockito.mock(io.sitprep.sitprepapi.service.HouseholdClaimService.class);
+        org.mockito.Mockito.when(service.resolve("tok")).thenReturn(
+                new io.sitprep.sitprepapi.service.HouseholdClaimService.Preview(
+                        io.sitprep.sitprepapi.service.HouseholdClaimService.State.OK,
+                        "The Lees", "Maya", io.sitprep.sitprepapi.constant.HouseholdBand.TEEN,
+                        "Dione", java.time.Instant.parse("2026-10-14T00:00:00Z")));
+        var body = new io.sitprep.sitprepapi.resource.HouseholdClaimResource(service).resolve("tok").getBody();
+        String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(body).toLowerCase();
+        for (String fragment : SENSITIVE) {
+            assertThat(json).as("claim preview must not carry '%s'", fragment).doesNotContain(fragment);
+        }
+        assertThat(json).doesNotContain("@");
+        assertThat(body).containsOnlyKeys("kind", "state", "householdName", "memberName", "band",
+                "inviterFirstName", "expiresAt");
     }
 
     // ------------------------------------------------------------------
