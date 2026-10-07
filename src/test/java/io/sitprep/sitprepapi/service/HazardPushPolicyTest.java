@@ -15,7 +15,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -167,6 +170,57 @@ class HazardPushPolicyTest {
         // A minor quake is not on the bypass list.
         assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, "5.6"))
                 .isEqualTo(Lane.B);
+    }
+
+    // ==================================================================
+    // USGS: the bypass reads the severity WORD dispatch really passes
+    // ==================================================================
+
+    /**
+     * AlertDispatchService.pushSevereAlert passes {@code a.severity()}, and
+     * AlertIngestService.normalizeUsgs maps M6+ to "Severe" — never a number.
+     * The bypass used to parse only a magnitude, so in production no quake got
+     * through quiet hours (the "6.1" tests above masked it). These go through
+     * the real ingest normaliser so the string under test is the real one.
+     */
+    @Test
+    void aMajorQuakeFromTheDispatchPathBypassesQuietHours() throws Exception {
+        NormalizedAlert m62 = usgsFeature(6.2);
+        assertThat(m62.severity()).as("ingest's word for M6.2").isEqualTo("Severe");
+
+        prefs(quietNow());
+        assertThat(policy.evaluate("u@x.com", AlertDispatchService.pushCategoryFor(m62, null), m62.severity()))
+                .as("an M6.2 at 2am must still interrupt")
+                .isEqualTo(Lane.A);
+    }
+
+    @Test
+    void aModerateQuakeFromTheDispatchPathStillWaitsForMorning() throws Exception {
+        NormalizedAlert m55 = usgsFeature(5.5);
+        assertThat(m55.severity()).isEqualTo("Moderate");
+
+        prefs(quietNow());
+        assertThat(policy.evaluate("u@x.com", Category.USGS_QUAKE_MAJOR, m55.severity()))
+                .isEqualTo(Lane.B);
+    }
+
+    private static NormalizedAlert usgsFeature(double mag) throws Exception {
+        String json = "{\"type\":\"Feature\",\"id\":\"us7000test\","
+                + "\"properties\":{\"mag\":" + mag + ",\"place\":\"10 km N of Somewhere\","
+                + "\"time\":1790000000000,\"url\":\"https://earthquake.usgs.gov/\"},"
+                + "\"geometry\":{\"type\":\"Point\",\"coordinates\":[-118.2,34.0,10.0]}}";
+        return new AlertIngestService(new NwsZoneService()).normalizeUsgs(new ObjectMapper().readTree(json));
+    }
+
+    /** Quiet hours on, window centred on the current UTC time — in-window whenever the test runs. */
+    private static UserAlertPreference quietNow() {
+        UserAlertPreference p = defaults();
+        LocalTime now = LocalTime.now(ZoneOffset.UTC);
+        p.setQuietHoursEnabled(true);
+        p.setTimezone("UTC");
+        p.setQuietStart(now.minusHours(2));
+        p.setQuietEnd(now.plusHours(2));
+        return p;
     }
 
     // ==================================================================

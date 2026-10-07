@@ -774,7 +774,9 @@ public class AlertIngestService {
      * filter, AlertPost dispatcher) can route by severity without
      * knowing about magnitudes specifically.
      */
-    private NormalizedAlert normalizeUsgs(JsonNode f) {
+    // Package-private: HazardPushPolicyTest feeds its output to PushPolicyService
+    // so the quiet-hours bypass is tested with the severity word dispatch really passes.
+    NormalizedAlert normalizeUsgs(JsonNode f) {
         JsonNode p = f.path("properties");
         String id = textOrNull(f, "id");
 

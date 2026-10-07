@@ -67,8 +67,8 @@ public class PushPolicyService {
      * literal use case; the rest can wait until morning.
      */
     private static final Set<Category> CRITICAL_BYPASS = EnumSet.of(
-            Category.NWS_SEVERE_EXTREME,        // limited to severity Extreme below
-            Category.USGS_QUAKE_MAJOR,          // limited to mag >= 6.0 below
+            Category.NWS_SEVERE_EXTREME,        // limited to Severe/Extreme below
+            Category.USGS_QUAKE_MAJOR,          // limited to M6.0+ ("Severe") below
             Category.PLAN_ACTIVATION_RECEIVED,
             Category.GROUP_ALERT_HOUSEHOLD
     );
@@ -88,8 +88,8 @@ public class PushPolicyService {
      * @param category  the structured category from
      *                  {@code NOTIFICATIONS_INBOX.md}'s vocabulary
      * @param severity  source-specific severity used for critical-bypass
-     *                  judgments (NWS "Extreme" or USGS magnitude as a
-     *                  decimal string). May be null when the category
+     *                  judgments (NWS "Severe"/"Extreme"; USGS "Severe" for
+     *                  M6+, or a magnitude as a decimal string). May be null when the category
      *                  doesn't carry a severity.
      * @return the decided lane; never null
      */
@@ -292,10 +292,20 @@ public class PushPolicyService {
             // never get here regardless of the severity NWS stamped on them.
             case NWS_SEVERE_EXTREME ->
                     "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
-            // USGS major (M5.5+); M6.0+ bypasses.
+            // USGS major; M6.0+ bypasses. The dispatch path
+            // (AlertDispatchService.pushSevereAlert) passes the alert's
+            // severity WORD, which AlertIngestService.normalizeUsgs derives
+            // from magnitude: M6+ → "Severe", M5+ → "Moderate", else "Minor".
+            // This used to parse only a number, so the real "Severe" threw
+            // NumberFormatException and no quake ever got the bypass in
+            // production; the unit test passed "6.1" and hid it. Accept the
+            // word (and "Extreme", should the mapping grow one) and keep the
+            // numeric form for any caller that passes a magnitude.
             case USGS_QUAKE_MAJOR -> {
                 if (severity == null) yield false;
-                try { yield Double.parseDouble(severity) >= 6.0; }
+                String s = severity.trim();
+                if ("Severe".equalsIgnoreCase(s) || "Extreme".equalsIgnoreCase(s)) yield true;
+                try { yield Double.parseDouble(s) >= 6.0; }
                 catch (NumberFormatException nfe) { yield false; }
             }
             // Plan activation + household group alert always bypass.
