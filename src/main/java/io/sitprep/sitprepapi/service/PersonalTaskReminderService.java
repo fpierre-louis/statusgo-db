@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.PushPolicyService.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -44,12 +45,13 @@ import java.util.List;
  *
  * <h2>Notification lane</h2>
  *
- * The reminder uses notificationType {@code "task_reminder"}, which
- * is intentionally unmapped in {@code NotificationService}'s category
- * table — it flows through as a no-policy notification (socket when
- * online, FCM when offline, always logged to the inbox). A supply
- * reminder is low-urgency by nature; it doesn't need the critical-
- * bypass or quiet-hours machinery.
+ * The reminder uses notificationType {@code "task_reminder"} with policy
+ * category {@link Category#READINESS_REMINDER} (EXEC-N, 2026-10-07): Lane A,
+ * not critical. Quiet hours defer it to an inbox row (and the morning
+ * catch-up counts it); the rate cap means an owner with several tasks due in
+ * one sweep gets one push and the rest as inbox rows. It used to be a
+ * no-policy type — a full push at whatever hour the 24h sweep happened to
+ * run, ignoring quiet hours entirely.
  */
 @Service
 public class PersonalTaskReminderService {
@@ -149,7 +151,8 @@ public class PersonalTaskReminderService {
                 /* referenceId */ String.valueOf(task.getId()),
                 /* targetUrl */ "/me/tasks",
                 /* additionalData */ null,
-                fcmToken
+                fcmToken,
+                Category.READINESS_REMINDER
         );
     }
 }

@@ -36,8 +36,12 @@ public enum NotificationEventType {
             null, "alerts", "SYSTEM",
             NotificationSourceType.OFFICIAL_ALERT, "HAZARD_WARNING", Priority.EMERGENCY, "HAZARD_ALERT", true),
     /** A verified agency's alert post, fanned out through the hazard batch path
-     *  with referenceId {@code agency-alert:{postId}}. Resolved by that prefix. */
-    AGENCY_ALERT(Set.of(), Set.of(),
+     *  with referenceId {@code agency-alert:{postId}}. Resolved by that prefix.
+     *  Like HAZARD_ALERT, the CALLER owns the lane (policy null here):
+     *  AgencyAlertDispatchService evaluates Category.AGENCY_ALERT per recipient
+     *  with the agency's tier, and only the "emergency" tier bypasses quiet
+     *  hours (EXEC-N, 2026-10-07). */
+    AGENCY_ALERT(Set.of(), Set.of(Category.AGENCY_ALERT),
             null, "alerts", "SYSTEM",
             NotificationSourceType.OFFICIAL_ALERT, "CIVIC", Priority.EMERGENCY, "COMMUNITY_POST", false),
 
@@ -82,24 +86,28 @@ public enum NotificationEventType {
     TASK_STATUS_CHANGE(Set.of(), Set.of(Category.TASK_STATUS_CHANGE),
             Category.TASK_STATUS_CHANGE, "general", "SYSTEM",
             NotificationSourceType.GROUP, "TASK", Priority.ROUTINE, "WORK_ORDER", false),
+    /** Policy READINESS_REMINDER since EXEC-N (was no-policy: a full push that
+     *  ignored quiet hours and rate caps). Lane A, deferred to the inbox at night. */
     TASK_REMINDER(Set.of("task_reminder"), Set.of(),
-            null, "general", "SYSTEM",
+            Category.READINESS_REMINDER, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "TASK", Priority.ROUTINE, "PERSONAL_TASK", false),
+    /** Policy READINESS_REMINDER since EXEC-N (was no-policy). */
     GO_BAG_EXPIRY(Set.of("gobag_expiry"), Set.of(),
-            null, "general", "SYSTEM",
+            Category.READINESS_REMINDER, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "GO_BAG", Priority.ROUTINE, "GO_BAG", false),
     /**
      * A Ready for More step the member asked to be reminded about
-     * ("Remind me later") is due (ReadinessReminderService, EXEC-A1). Unlike
-     * the no-policy reminder family above it has a policy category: the
+     * ("Remind me later") is due (ReadinessReminderService, EXEC-A1). The
      * member asked for a push, so it is Lane A, but not critical-bypass —
-     * quiet hours and rate caps defer it to the inbox.
+     * quiet hours and rate caps defer it to the inbox. The task and go-bag
+     * reminders above share its category since EXEC-N.
      */
     READINESS_REMINDER(Set.of("readiness_reminder"), Set.of(Category.READINESS_REMINDER),
             Category.READINESS_REMINDER, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "TASK", Priority.ROUTINE, "READINESS_STEP", false),
-    GUEST_EXPIRY(Set.of("guest_expiry_reminder"), Set.of(),
-            null, "general", "SYSTEM",
+    /** Policy ACCOUNT_REMINDER since EXEC-N (was no-policy). */
+    GUEST_EXPIRY(Set.of("guest_expiry_reminder"), Set.of(Category.ACCOUNT_REMINDER),
+            Category.ACCOUNT_REMINDER, "general", "SYSTEM",
             NotificationSourceType.SYSTEM, "ACCOUNT", Priority.ATTENTION, "ACCOUNT", false),
 
     // ── Membership ───────────────────────────────────────────────────────

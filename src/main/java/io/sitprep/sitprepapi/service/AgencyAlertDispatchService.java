@@ -16,11 +16,34 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
-/** Durable, post-commit delivery worker for agency jurisdiction alerts. */
+/**
+ * Durable, post-commit delivery worker for agency jurisdiction alerts.
+ *
+ * <p><b>Push policy (EXEC-N, 2026-10-07; OWNER REVIEW).</b> Every recipient is
+ * evaluated against {@link PushPolicyService.Category#AGENCY_ALERT} with the
+ * agency's own tier as the severity. Before this the worker never asked
+ * policy, so every tier pushed at any hour and ignored the master push
+ * switch. Now:</p>
+ * <ul>
+ *   <li><b>emergency</b> — critical bypass: pushed inside quiet hours and
+ *       exempt from rate caps, like an NWS Severe/Extreme warning.</li>
+ *   <li><b>advisory / notice</b> — quiet hours and rate caps defer the push
+ *       to an inbox row (marked for the morning catch-up).</li>
+ *   <li>Any tier, recipient switched push off — inbox row, no push.</li>
+ * </ul>
+ * <p>Operator counts: {@code delivered} = pushes FCM accepted + inbox rows
+ * written for deferred recipients (the alert reached them durably);
+ * {@code failed} = push failures + missing accounts. A recipient whose push
+ * AND inbox are both switched off (Lane C) is in neither. A zero-delivery
+ * retry can therefore only happen when no inbox row was written.</p>
+ */
 @Service
 public class AgencyAlertDispatchService {
 
@@ -33,17 +56,20 @@ public class AgencyAlertDispatchService {
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notifications;
     private final TransactionTemplate transactions;
+    private final PushPolicyService pushPolicy;
 
     public AgencyAlertDispatchService(AgencyAlertRepo alertRepo,
                                       AgencyAlertDispatchAttemptRepo attemptRepo,
                                       UserInfoRepo userInfoRepo,
                                       NotificationService notifications,
-                                      TransactionTemplate transactions) {
+                                      TransactionTemplate transactions,
+                                      PushPolicyService pushPolicy) {
         this.alertRepo = alertRepo;
         this.attemptRepo = attemptRepo;
         this.userInfoRepo = userInfoRepo;
         this.notifications = notifications;
         this.transactions = transactions;
+        this.pushPolicy = pushPolicy;
     }
 
     @Scheduled(fixedDelayString = "${agency.alert.dispatch.interval:PT15S}",
@@ -83,17 +109,44 @@ public class AgencyAlertDispatchService {
                         .sorted(Comparator.comparing(
                                 user -> user.getUserEmail() == null ? "" : user.getUserEmail()))
                         .toList();
-        NotificationService.HazardBatchResult result = notifications.sendHazardAlertBatch(
-                users,
-                payload.title(),
-                payload.body() == null ? "" : payload.body(),
-                "agency-alert:" + payload.postId(),
-                "/community/posts/" + payload.postId());
+        String body = payload.body() == null ? "" : payload.body();
+        String referenceId = "agency-alert:" + payload.postId();
+        String targetUrl = "/community/posts/" + payload.postId();
 
-        int missingUsers = Math.max(0, payload.recipientEmails().size() - result.attempted());
+        List<UserInfo> push = new ArrayList<>();
+        List<UserInfo> inboxOnly = new ArrayList<>();
+        Set<String> quiet = new HashSet<>();
+        int suppressed = 0;
+        for (UserInfo u : users) {
+            PushPolicyService.Decision d = pushPolicy.decide(
+                    u.getUserEmail(), PushPolicyService.Category.AGENCY_ALERT, payload.officialTier());
+            switch (d.lane()) {
+                case A -> push.add(u);
+                case B -> {
+                    inboxOnly.add(u);
+                    if (d.deferredByQuietHours()) {
+                        quiet.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT));
+                    }
+                }
+                default -> suppressed++;
+            }
+        }
+
+        NotificationService.HazardBatchResult result = push.isEmpty()
+                ? new NotificationService.HazardBatchResult(0, 0, 0, null)
+                : notifications.sendHazardAlertBatch(push, payload.title(), body, referenceId, targetUrl);
+        int inboxed = inboxOnly.isEmpty() ? 0
+                : notifications.logHazardAlertInboxOnly(inboxOnly, payload.title(), body, referenceId,
+                        targetUrl, null, PushPolicyService.Category.AGENCY_ALERT, quiet);
+        if (inboxed + suppressed > 0) {
+            log.info("Agency alert {} ({}): {} pushed, {} inbox-only, {} suppressed by recipient settings",
+                    payload.id(), payload.officialTier(), push.size(), inboxed, suppressed);
+        }
+
+        int missingUsers = Math.max(0, payload.recipientEmails().size() - users.size());
         complete(payload, new NotificationService.HazardBatchResult(
                 payload.recipientEmails().size(),
-                result.delivered(),
+                result.delivered() + inboxed,
                 result.failed() + missingUsers,
                 missingUsers > 0 ? "Recipient account missing" : result.lastError()));
     }
@@ -108,6 +161,7 @@ public class AgencyAlertDispatchService {
             if (alert == null) return null;
             return new DispatchPayload(
                     alert.getId(), alert.getPostId(), alert.getTitle(), alert.getBody(),
+                    alert.getOfficialTier(),
                     alert.getAttemptCount(), alert.getStartedAt(),
                     List.copyOf(alert.getRecipientEmails()));
         });
@@ -201,6 +255,7 @@ public class AgencyAlertDispatchService {
     }
 
     private record DispatchPayload(Long id, Long postId, String title, String body,
+                                   String officialTier,
                                    int attemptCount, Instant startedAt,
                                    List<String> recipientEmails) {}
 }

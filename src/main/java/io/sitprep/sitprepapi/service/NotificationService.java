@@ -217,6 +217,31 @@ public class NotificationService {
                             Category category,
                             String actorUserId,
                             Map<String, Object> presentation) {
+        saveLogRow(recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
+                additionalData, success, errorMessage, lane, category, actorUserId, presentation,
+                /* deferredReason */ null);
+    }
+
+    /**
+     * The one writer. {@code deferredReason} marks a Lane B row that the
+     * recipient's own quiet hours held (PushPolicyService.Decision) so the
+     * morning catch-up can count it; null everywhere else.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            String additionalData,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId,
+                            Map<String, Object> presentation,
+                            PushPolicyService.DeferReason deferredReason) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -233,6 +258,7 @@ public class NotificationService {
         if (lane != null) row.setLane(lane.name());
         if (category != null) row.setCategory(category.name());
         if (actorUserId != null) row.setActorUserId(actorUserId);
+        if (deferredReason != null) row.setDeferredReason(deferredReason.name());
         row.setPresentationJson(presentation != null ? presentation : presentationOf(row));
         NotificationLog saved = notificationLogRepo.save(row);
 
@@ -548,9 +574,10 @@ public class NotificationService {
         Category catEnum = categoryOverride != null
                 ? categoryOverride
                 : mapTypeToCategory(notificationType);
-        Lane lane = (catEnum != null)
-                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+        PushPolicyService.Decision decision = (catEnum != null)
+                ? pushPolicyService.decide(recipientEmail, catEnum, /* severity */ null)
                 : null;
+        Lane lane = decision != null ? decision.lane() : null;
         if (lane == Lane.DROP) {
             // User opted out of this category entirely (or master-switched
             // off). No log, no push, no socket. Suppressed per policy.
@@ -614,7 +641,7 @@ public class NotificationService {
                     title, body, referenceId, targetUrl, additionalData,
                     /* success */ false,
                     /* error */ LANE_B_SILENT_INBOX,
-                    lane, catEnum, actorUserId, presentation);
+                    lane, catEnum, actorUserId, presentation, decision.deferredBy());
             return;
         }
 
@@ -766,16 +793,17 @@ public class NotificationService {
         // policy still applies: a user who muted earthquakes shouldn't
         // get an FCM through the legacy path either.
         Category catEnum = mapTypeToCategory(notificationType);
-        Lane lane = (catEnum != null && recipientEmail != null)
-                ? pushPolicyService.evaluate(recipientEmail, catEnum, /* severity */ null)
+        PushPolicyService.Decision decision = (catEnum != null && recipientEmail != null)
+                ? pushPolicyService.decide(recipientEmail, catEnum, /* severity */ null)
                 : null;
+        Lane lane = decision != null ? decision.lane() : null;
         if (lane == Lane.DROP) return;
         // Lane B = silent inbox: skip FCM, write log row.
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl, additionalData,
                     false, LANE_B_SILENT_INBOX,
-                    lane, catEnum, actorUserId);
+                    lane, catEnum, actorUserId, /* presentation */ null, decision.deferredBy());
             return;
         }
         // Lane C = ephemeral: this path is offline-FCM only, so Lane C
@@ -1314,6 +1342,23 @@ public class NotificationService {
                                        String targetUrl,
                                        String additionalData,
                                        Category category) {
+        return logHazardAlertInboxOnly(recipients, title, body, referenceId, targetUrl,
+                additionalData, category, Set.of());
+    }
+
+    /**
+     * @param quietHoursDeferred lower-cased emails whose Lane B came from their
+     *        own quiet hours ({@link PushPolicyService.Decision#deferredByQuietHours});
+     *        their rows are marked for the morning catch-up.
+     */
+    public int logHazardAlertInboxOnly(List<UserInfo> recipients,
+                                       String title,
+                                       String body,
+                                       String referenceId,
+                                       String targetUrl,
+                                       String additionalData,
+                                       Category category,
+                                       Set<String> quietHoursDeferred) {
         if (recipients == null || recipients.isEmpty()) return 0;
         Map<String, Object> presentation = hazardPresentation(title, body,
                 referenceId, targetUrl, additionalData);
@@ -1322,11 +1367,14 @@ public class NotificationService {
             String email = u != null ? u.getUserEmail() : null;
             if (email == null || email.isBlank()) continue;
             try {
+                boolean quiet = quietHoursDeferred != null
+                        && quietHoursDeferred.contains(email.trim().toLowerCase(java.util.Locale.ROOT));
                 saveLogRow(email, TYPE_HAZARD_ALERT, /* token */ null,
                         title, body, referenceId, targetUrl, additionalData,
                         /* success */ false,
                         /* error */ LANE_B_SILENT_INBOX,
-                        Lane.B, category, /* actorUserId */ null, presentation);
+                        Lane.B, category, /* actorUserId */ null, presentation,
+                        quiet ? PushPolicyService.DeferReason.QUIET_HOURS : null);
                 written++;
             } catch (Exception e) {
                 // One recipient's failed write must not cost the others theirs.

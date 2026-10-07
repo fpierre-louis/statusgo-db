@@ -935,7 +935,8 @@ public class AlertDispatchService {
                     referenceId,
                     HAZARD_TARGET_URL,
                     data,
-                    category);
+                    category,
+                    split.quietHoursDeferred());
         }
         log.info("AlertDispatch: severe alert {} pushed to {} and inboxed silently for {} nearby user(s)",
                 referenceId, split.push().size(), split.inboxOnly().size());
@@ -948,7 +949,8 @@ public class AlertDispatchService {
      * Recipients sorted by the lane {@link PushPolicyService#evaluate} gave
      * them. {@code nothing} counts Lane C and DROP — no push, no row.
      */
-    record LaneSplit(List<UserInfo> push, List<UserInfo> inboxOnly, int nothing) {}
+    record LaneSplit(List<UserInfo> push, List<UserInfo> inboxOnly, int nothing,
+                     Set<String> quietHoursDeferred) {}
 
     /** One evaluate per recipient; the policy service decides, this only sorts. */
     LaneSplit splitByLane(List<UserInfo> recipients,
@@ -956,15 +958,20 @@ public class AlertDispatchService {
                           String severity) {
         List<UserInfo> push = new ArrayList<>(recipients.size());
         List<UserInfo> inboxOnly = new ArrayList<>();
+        Set<String> quiet = new HashSet<>();
         int nothing = 0;
         for (UserInfo u : recipients) {
-            PushPolicyService.Lane lane =
-                    pushPolicyService.evaluate(u.getUserEmail(), category, severity);
+            PushPolicyService.Decision d =
+                    pushPolicyService.decide(u.getUserEmail(), category, severity);
+            PushPolicyService.Lane lane = d.lane();
             if (lane == PushPolicyService.Lane.A) push.add(u);
-            else if (lane == PushPolicyService.Lane.B) inboxOnly.add(u);
+            else if (lane == PushPolicyService.Lane.B) {
+                inboxOnly.add(u);
+                if (d.deferredByQuietHours()) quiet.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT));
+            }
             else nothing++;
         }
-        return new LaneSplit(push, inboxOnly, nothing);
+        return new LaneSplit(push, inboxOnly, nothing, Set.copyOf(quiet));
     }
 
     String hazardNotificationData(NormalizedAlert a, AlertSafetyPolicy.Decision decision) {

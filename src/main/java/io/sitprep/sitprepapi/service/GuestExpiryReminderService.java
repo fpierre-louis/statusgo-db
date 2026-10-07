@@ -96,7 +96,10 @@ public class GuestExpiryReminderService {
                 user.getFirebaseUid(),
                 "/login",
                 "{\"daysLeft\":7}",
-                token
+                token,
+                // Lane A, not critical: quiet hours defer it to the inbox and
+                // the rate cap applies (EXEC-N; was no-policy).
+                PushPolicyService.Category.ACCOUNT_REMINDER
         );
     }
 }
