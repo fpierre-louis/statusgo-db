@@ -169,6 +169,7 @@ public class EssentialsReadinessService {
                 : demographicRepo.findFirstByHouseholdIdOrderByIdDesc(hid)
                     .or(() -> ownerFallback
                             ? demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email)
+                                    .filter(d -> belongsHere(d, hid))
                             : Optional.empty())
                     .orElse(null);
 
@@ -177,6 +178,19 @@ public class EssentialsReadinessService {
                 meal,
                 meetingPlaces > 0 && routes > 0,
                 contactGroups > 0);
+    }
+
+    /**
+     * The owner-email fallback is for LEGACY rows that predate household
+     * keys (no household id). A row the user wrote for ANOTHER household is
+     * that household's head count, not this one's: reading it here made Home
+     * say "4 household members" about a household whose own page, food plan,
+     * go-bag and stockpile all said there was no plan yet (2026-10-07).
+     */
+    public static boolean belongsHere(Demographic d, String householdId) {
+        if (d == null) return false;
+        String own = d.getHouseholdId();
+        return own == null || own.isBlank() || own.equals(householdId);
     }
 
     /** FE {@code headCountOf}: people + pets. */

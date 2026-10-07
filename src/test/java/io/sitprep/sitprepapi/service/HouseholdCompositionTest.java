@@ -163,7 +163,9 @@ class HouseholdCompositionTest {
         HouseholdCompositionDto dto = composition.compose(g.getGroupId(), owner);
 
         assertThat(dto.planned()).isFalse();
-        assertThat(dto.counts().people()).isZero();
+        // No row → the plan counts who is named (one adult account, one kid).
+        assertThat(dto.counts()).isEqualTo(new HouseholdCompositionDto.Counts(1, 0, 1, 0, 0, 0, 0));
+        assertThat(dto.counts()).isEqualTo(dto.minimum());
         assertThat(dto.people()).extracting(Person::kind).containsExactly(PersonKind.ACCOUNT, PersonKind.MANUAL);
         assertThat(dto.summary().total()).isEqualTo(2);
         assertThat(dto.summary().unnamed()).isZero();
@@ -466,6 +468,89 @@ class HouseholdCompositionTest {
         assertThat(dto.planned()).isTrue();
         assertThat(row(g).getAdults()).isEqualTo(2);
         assertThat(row(g).getCats()).isEqualTo(1);
+    }
+
+    @Test
+    void aBrandNewHousehold_countingOneMore_startsFromWhoIsNamed_notFromZero() {
+        // The add drawer's "Just count them": server count + 1 for one band.
+        // Before 2026-10-07 a household with no row answered {kids: 1} with a
+        // 409 about ADULTS (unspecified fields defaulted to 0, below the
+        // viewer's own account), and {adults: 0 + 1} created a row that counted
+        // nobody new.
+        String owner = email("owner");
+        Group g = household(owner, owner);
+        HouseholdCompositionDto before = composition.compose(g.getGroupId(), owner);
+        assertThat(before.planned()).isFalse();
+        assertThat(before.counts().kids()).isZero();
+
+        HouseholdCompositionDto kid = composition.setCounts(g.getGroupId(),
+                new CountsRequest(null, null, before.counts().kids() + 1, null, null, null, null), owner);
+        assertThat(kid.planned()).isTrue();
+        assertThat(kid.counts()).isEqualTo(new HouseholdCompositionDto.Counts(1, 0, 1, 0, 0, 0, 0));
+        assertThat(kid.summary().people()).isEqualTo(2);
+        assertThat(kid.people()).extracting(Person::slotKey).contains("placeholder:KID:1");
+
+        String owner2 = email("owner2");
+        Group g2 = household(owner2, owner2);
+        HouseholdCompositionDto start = composition.compose(g2.getGroupId(), owner2);
+        HouseholdCompositionDto adult = composition.setCounts(g2.getGroupId(),
+                new CountsRequest(start.counts().adults() + 1, null, null, null, null, null, null), owner2);
+        assertThat(adult.counts().adults()).isEqualTo(2);
+        assertThat(adult.summary().people()).isEqualTo(2);
+        assertThat(adult.people()).extracting(Person::slotKey).contains("placeholder:ADULT:1");
+        // Every sizing surface reads this same row.
+        assertThat(row(g2).getAdults()).isEqualTo(2);
+    }
+
+    @Test
+    void aBrandNewHousehold_firstNamedAdult_createsTheRowEverySurfaceReads() {
+        String owner = email("owner");
+        Group g = household(owner, owner);
+        UserInfo me = user(owner, "Avery", "Agent", g.getGroupId());
+        assertThat(demographics.findFirstByHouseholdIdOrderByIdDesc(g.getGroupId())).isEmpty();
+        assertThat(essentials.evaluate(groups.findByGroupId(g.getGroupId()).orElseThrow(), owner).demographics()).isFalse();
+
+        manual.add(g.getGroupId(), req("RFM Test Adult", null, null, "ADULT"), owner);
+
+        Demographic d = row(g);
+        assertThat(d.getAdults()).isEqualTo(2);
+        HouseholdCompositionDto dto = composition.compose(g.getGroupId(), owner);
+        assertThat(dto.summary().people()).isEqualTo(2);
+        MeDto.HouseholdDto hh = meService.buildMe(me.getFirebaseUid()).orElseThrow().me().household();
+        assertThat(hh.composition().people()).isEqualTo(2);
+        assertThat(hh.demographic()).isNotNull();
+        assertThat(hh.demographic().adults()).isEqualTo(2);
+        assertThat(essentials.evaluate(groups.findByGroupId(g.getGroupId()).orElseThrow(), owner).demographics()).isTrue();
+
+        // Undo: deleting the person lowers the band back to who is named.
+        manual.remove(g.getGroupId(), manualId(g, "RFM Test Adult"));
+        assertThat(row(g).getAdults()).isEqualTo(1);
+    }
+
+    @Test
+    void homeNeverReadsAnotherHouseholdsHeadCount_throughTheOwnerFallback() {
+        String owner = email("owner");
+        Group old = household(owner, owner);
+        Group fresh = household(owner, owner);
+        UserInfo me = user(owner, "Avery", null, fresh.getGroupId());
+        Demographic foreign = demo(old.getGroupId(), 4, 0, 0, 0, 0, 0, 0);
+        foreign.setOwnerEmail(owner);
+        demographics.save(foreign);
+
+        MeDto.HouseholdDto hh = meService.buildMe(me.getFirebaseUid()).orElseThrow().me().household();
+        assertThat(hh.groupId()).isEqualTo(fresh.getGroupId());
+        assertThat(hh.demographic()).isNull();
+        assertThat(hh.composition().people()).isEqualTo(1);
+        assertThat(essentials.evaluate(groups.findByGroupId(fresh.getGroupId()).orElseThrow(), owner).demographics())
+                .isFalse();
+
+        // A legacy row with no household key still counts for the base.
+        Demographic legacy = demo(null, 2, 0, 0, 0, 0, 0, 0);
+        legacy.setOwnerEmail(owner);
+        demographics.save(legacy);
+        MeDto.HouseholdDto again = meService.buildMe(me.getFirebaseUid()).orElseThrow().me().household();
+        assertThat(again.demographic()).isNotNull();
+        assertThat(again.demographic().adults()).isEqualTo(2);
     }
 
     @Test

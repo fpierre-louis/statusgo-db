@@ -260,7 +260,10 @@ public class MeService {
                 () -> (baseHouseholdId != null && !baseHouseholdId.isBlank()
                             ? demographicRepo.findFirstByHouseholdIdOrderByIdDesc(baseHouseholdId)
                             : Optional.<Demographic>empty())
-                        .or(() -> demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email))
+                        // Legacy (household-less) rows only — never another household's.
+                        .or(() -> demographicRepo.findFirstByOwnerEmailIgnoreCaseOrderByIdDesc(email)
+                                .filter(d -> io.sitprep.sitprepapi.readiness.EssentialsReadinessService
+                                        .belongsHere(d, baseHouseholdId)))
                         .orElse(null),
                 null);
 

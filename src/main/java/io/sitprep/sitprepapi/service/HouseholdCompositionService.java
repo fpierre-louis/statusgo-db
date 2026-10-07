@@ -198,7 +198,17 @@ public class HouseholdCompositionService {
                     new Capabilities(true, true, viewerAdmin, false)));
         }
 
-        Counts counts = d == null ? new Counts(0, 0, 0, 0, 0, 0, 0) : countsOf(d);
+        // Named pets join the tally BEFORE the counts are read, so a household
+        // with no plan row can report its named totals (below).
+        for (HouseholdPet p : pets) named.add(PetSpecies.of(p.getSpecies()));
+
+        // NO PLAN ROW → THE PLAN COUNTS WHO IS NAMED (2026-10-07). Zeros here
+        // said "0 adults" beside a list holding the viewer, and a client adding
+        // one more ("count + 1") from those zeros either asked for fewer than
+        // named (409) or for exactly who was already there (a silent no-op).
+        // `planned` still says whether a row exists; there are no placeholders
+        // either way.
+        Counts counts = d == null ? named.asCounts() : countsOf(d);
 
         // Placeholders — per band, count − named.
         int unnamedPeople = 0;
@@ -220,7 +230,6 @@ public class HouseholdCompositionService {
         List<Pet> petRows = new ArrayList<>();
         for (HouseholdPet p : pets) {
             PetSpecies sp = PetSpecies.of(p.getSpecies());
-            named.add(sp);
             petRows.add(new Pet("pet:" + p.getId(), PetKind.NAMED, sp, p.getName(), p.getId(),
                     DtoImages.avatar(p.getPhotoUrl()),
                     // HouseholdPetService writes are admin-gated.
@@ -353,7 +362,10 @@ public class HouseholdCompositionService {
         if (g == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Household not found");
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "counts required");
         Demographic d = demographicRepo.findFirstByHouseholdIdOrderByIdDesc(householdId).orElse(null);
-        Counts current = d == null ? new Counts(0, 0, 0, 0, 0, 0, 0) : countsOf(d);
+        // Without a row, an unspecified field keeps what the household already
+        // names — the same totals the composition reports — so "one more child"
+        // on a brand-new household is {kids: 1}, not a 409 about adults.
+        Counts current = d == null ? tally(g).asCounts() : countsOf(d);
         Counts next = new Counts(
                 pick(body.adults(), current.adults()),
                 pick(body.teens(), current.teens()),
