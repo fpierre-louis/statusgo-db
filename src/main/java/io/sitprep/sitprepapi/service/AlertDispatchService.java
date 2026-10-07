@@ -305,6 +305,10 @@ public class AlertDispatchService {
                     continue;
                 }
 
+                // Asked BEFORE this tick's row is saved: is this the alert's
+                // first AlertPost under any geocell? Only the first may push.
+                boolean firstDispatchOfAlert = !alertPostRepo.existsByAlertId(alertId);
+
                 Post body = buildAutoPostTask(a, tpl, decision, coord);
                 PostDto dto = taskService.create(body, SYSTEM_EMAIL);
 
@@ -321,10 +325,13 @@ public class AlertDispatchService {
                 // quakes (isMajorQuakePush) also earn an FCM push to nearby
                 // located users — the feed post alone only reaches users
                 // with the app open.
-                // Fires exactly once per alert, all-time: the
-                // (alertId, geocellId) dedup above means this branch is
-                // reached only when a NEW AlertPost is created.
-                if (pushEligible(a, tpl, decision)) {
+                // Fires exactly once per alert, all-time. The
+                // (alertId, geocellId) dedup above is NOT enough on its own:
+                // USGS revises a quake's epicenter in place (same id), and a
+                // revision can land in a different zip bucket — a new geocell,
+                // a new AlertPost, and (before 2026-10-07) a second push of the
+                // same quake. firstDispatchOfAlert keys the push on alertId.
+                if (firstDispatchOfAlert && pushEligible(a, tpl, decision)) {
                     if (pushCandidates == null) {
                         pushCandidates = userInfoRepo.findPushablesWithLocation(
                                 LocationFreshness.cutoff(Instant.now()));
@@ -710,8 +717,8 @@ public class AlertDispatchService {
      * the difference, and {@code tier} is that distinction made explicit in
      * the one place the copy is authored.
      *
-     * <p>USGS quakes are excluded: the shaking has already happened, so the
-     * feed post is sufficient and a push would be after-the-fact noise.
+     * <p>USGS quakes are not tier-gated here; they get one named rule,
+     * {@link #isMajorQuakePush} (M6.0+, fresh, within 80 km — 2026-10-07).
      * FEMA declarations are recovery context and are all watch-tier.
      */
     /**
@@ -779,7 +786,7 @@ public class AlertDispatchService {
 
     /**
      * M6.0+ earthquakes push to people near the epicenter (EXEC-N, 2026-10-07;
-     * OWNER REVIEW: this is a dispatch-tier change, not a copy change).
+     * owner-approved 2026-10-07: a dispatch-tier change, not a copy change).
      *
      * <p><b>What was wrong.</b> The USGS template declares
      * {@code sitprep.dispatchMode: attention}, and only {@code CRITICAL_PUSH}
@@ -806,17 +813,42 @@ public class AlertDispatchService {
      *       safety-approved.</li>
      *   <li><b>No copy change.</b> The push uses the template's approved
      *       headline and body exactly as the policy decision would have.</li>
+     *   <li><b>Fresh only</b> — origin time within
+     *       {@link #MAJOR_QUAKE_PUSH_MAX_AGE} (added at the 2026-10-07 review).
+     *       The feed is USGS's {@code 4.5_day}, so a quake stays in the snapshot
+     *       for 24 hours, and a dispatch that first succeeds late (the reverse
+     *       geocoder down for hours, say) would otherwise push an hours-old quake
+     *       — at 3am, because the M6 bypass skips quiet hours. A bypass exists
+     *       because something cannot wait; a quake that already waited hours
+     *       gets the feed post only. Unknown origin time → no push.</li>
      * </ul>
-     * <p>Dedupe is unchanged: the push runs only when a new
-     * (alertId, geocellId) AlertPost is created, so an M6 pushes once.</p>
+     * <p>Dedupe: the push runs only on the alert's FIRST AlertPost under any
+     * geocell ({@code AlertPostRepo.existsByAlertId}), so an M6 pushes once
+     * even when USGS revises its epicenter into another zip bucket.</p>
      */
     static boolean isMajorQuakePush(NormalizedAlert a, DispatchTemplate tpl, AlertSafetyPolicy.Decision decision) {
+        return isMajorQuakePush(a, tpl, decision, Instant.now());
+    }
+
+    static boolean isMajorQuakePush(NormalizedAlert a, DispatchTemplate tpl,
+                                    AlertSafetyPolicy.Decision decision, Instant now) {
         if (a == null || !"USGS".equalsIgnoreCase(a.source())) return false;
         if (tpl == null || !tpl.isSafetyApproved()) return false;
         if (decision == null || decision.dispatchMode() != AlertSafetyPolicy.DispatchMode.ATTENTION) return false;
         String severity = a.severity() == null ? "" : a.severity().trim();
-        return "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
+        if (!"Severe".equalsIgnoreCase(severity) && !"Extreme".equalsIgnoreCase(severity)) return false;
+        Instant origin = parseInstantOrNull(a.startedAt());
+        if (origin == null) return false;
+        return !origin.isBefore(now.minus(MAJOR_QUAKE_PUSH_MAX_AGE));
     }
+
+    /**
+     * Oldest a quake may be (origin time) and still earn the M6 push. Normal
+     * pipeline latency — USGS publication, the 5-minute ingest, the 5-minute
+     * dispatch tick — is well under an hour; two hours leaves room for a retry
+     * or two without letting a stale quake bypass someone's quiet hours.
+     */
+    static final Duration MAJOR_QUAKE_PUSH_MAX_AGE = Duration.ofHours(2);
 
     static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl) {
         if (a == null || a.source() == null || tpl == null) return false;

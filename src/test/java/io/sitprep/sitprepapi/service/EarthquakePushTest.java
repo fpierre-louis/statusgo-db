@@ -106,10 +106,15 @@ class EarthquakePushTest {
     }
 
     private static NormalizedAlert quake(double mag) throws Exception {
+        return quake(mag, LAT, 600);
+    }
+
+    /** Same USGS id for the same magnitude, so a call with another lat is a revision of it. */
+    private static NormalizedAlert quake(double mag, double lat, long ageSeconds) throws Exception {
         String json = "{\"type\":\"Feature\",\"id\":\"us7000exn" + (int) (mag * 10) + "\","
                 + "\"properties\":{\"mag\":" + mag + ",\"place\":\"10 km N of Somewhere, CA\","
-                + "\"time\":" + Instant.now().minusSeconds(600).toEpochMilli() + "},"
-                + "\"geometry\":{\"type\":\"Point\",\"coordinates\":[" + LNG + "," + LAT + ",10.0]}}";
+                + "\"time\":" + Instant.now().minusSeconds(ageSeconds).toEpochMilli() + "},"
+                + "\"geometry\":{\"type\":\"Point\",\"coordinates\":[" + LNG + "," + lat + ",10.0]}}";
         return new AlertIngestService(new NwsZoneService()).normalizeUsgs(new ObjectMapper().readTree(json));
     }
 
@@ -230,5 +235,75 @@ class EarthquakePushTest {
 
         NormalizedAlert severeNws = TestAlerts.nws("Flood Warning").severity("Severe").build();
         assertThat(AlertDispatchService.isMajorQuakePush(severeNws, tpl, decision)).isFalse();
+    }
+
+    // ── review fixes (2026-10-07) ────────────────────────────────────────
+
+    /**
+     * USGS revises an epicenter in place (same id). A revision that crosses
+     * into another zip bucket passes the (alertId, geocell) dedupe — before the
+     * once-per-alert guard it created a second AlertPost AND pushed the same
+     * quake again, bypassing quiet hours both times.
+     */
+    @Test
+    void aRevisedEpicenterInAnotherGeocellDoesNotPushTheSameQuakeAgain() throws Exception {
+        NormalizedAlert first = quake(6.2, LAT, 600);
+        NormalizedAlert revised = quake(6.2, LAT + 0.05, 300);
+        assertThat(revised.id()).isEqualTo(first.id());
+        when(users.findPushablesWithLocation(any()))
+                .thenReturn(List.of(user("near@x.com", LAT, LNG, /* asleep */ true)));
+
+        snapshot(first);
+        dispatcher.dispatchOnce();
+
+        // Next tick: the revised point reverse-geocodes to a different zip.
+        when(geocode.reverse(anyDouble(), anyDouble())).thenReturn(
+                new NominatimGeocodeService.Place(null, "Los Angeles", null, "CA", "us", "90013", "90013"));
+        when(alertPostRepo.existsByAlertId("USGS-" + first.id())).thenReturn(true);
+        snapshot(revised);
+        dispatcher.dispatchOnce();
+
+        verify(notifications, times(1)).sendHazardAlertBatch(anyList(), anyString(), anyString(),
+                anyString(), anyString(), any(), anyBoolean());
+        verify(notifications, never()).logHazardAlertInboxOnly(anyList(), anyString(), anyString(),
+                anyString(), anyString(), any(), any(), any());
+    }
+
+    /**
+     * The 4.5_day feed keeps a quake for 24 hours. A dispatch that first
+     * succeeds hours late (geocoder outage) must not wake people for it: the
+     * M6 bypass exists because the push cannot wait, and this one already did.
+     */
+    @Test
+    void anM62FirstDispatchedHoursLateIsFeedOnly() throws Exception {
+        snapshot(quake(6.2, LAT, 3 * 3600));
+        when(users.findPushablesWithLocation(any()))
+                .thenReturn(List.of(user("near@x.com", LAT, LNG, true)));
+
+        assertThat(dispatcher.dispatchOnce()).as("the feed post is still created").isEqualTo(1);
+
+        verify(users, never()).findPushablesWithLocation(any());
+        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(),
+                anyString(), anyString(), any(), anyBoolean());
+    }
+
+    @Test
+    void theFreshnessWindowIsTwoHoursFromOrigin_andUnknownOriginNeverPushes() throws Exception {
+        NormalizedAlert m62 = quake(6.2);
+        DispatchTemplate tpl = dispatcher.matchForAlert(m62).orElseThrow();
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(m62, tpl);
+        Instant origin = Instant.parse(m62.startedAt());
+
+        assertThat(AlertDispatchService.isMajorQuakePush(m62, tpl, decision,
+                origin.plus(AlertDispatchService.MAJOR_QUAKE_PUSH_MAX_AGE))).isTrue();
+        assertThat(AlertDispatchService.isMajorQuakePush(m62, tpl, decision,
+                origin.plus(AlertDispatchService.MAJOR_QUAKE_PUSH_MAX_AGE).plusSeconds(1))).isFalse();
+
+        NormalizedAlert noTime = new AlertIngestService(new NwsZoneService()).normalizeUsgs(new ObjectMapper().readTree(
+                "{\"type\":\"Feature\",\"id\":\"us7000notime\",\"properties\":{\"mag\":6.4,"
+                        + "\"place\":\"Somewhere\"},\"geometry\":{\"type\":\"Point\","
+                        + "\"coordinates\":[" + LNG + "," + LAT + ",10.0]}}"));
+        assertThat(noTime.startedAt()).isNull();
+        assertThat(AlertDispatchService.isMajorQuakePush(noTime, tpl, decision)).isFalse();
     }
 }

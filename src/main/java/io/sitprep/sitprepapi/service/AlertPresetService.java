@@ -37,25 +37,32 @@ import java.util.function.Function;
  * {@code AlertPresetServiceTest}.</p>
  *
  * <p><b>Copy is checked against the code.</b> {@code PushPolicyService.CRITICAL_BYPASS}
- * lets only NWS Severe/Extreme, USGS M6+ ("Severe"), PLAN_ACTIVATION_RECEIVED and
- * GROUP_ALERT_HOUSEHOLD through quiet hours. Everything else that would push
- * (WILDFIRE_NEAR — the NWS Fire Warning —, CHECK_IN_REQUEST, DIRECT_MESSAGE, a
- * warning NWS rated below Severe) is demoted to Lane B, and Lane B writes an
- * inbox row with no push on both send paths: {@code NotificationService}'s
- * Lane B branch, and {@code AlertDispatchService.pushSevereAlert} →
- * {@code NotificationService.logHazardAlertInboxOnly} for hazards (before
- * 2026-10-07 the hazard path kept Lane A only and a deferred warning vanished).
- * The QUIET_HOURS note names only what is true of that:</p>
+ * lets only these through quiet hours: NWS Severe/Extreme warnings, USGS M6+
+ * ("Severe"), the {@code emergency} tier of a verified agency's alert,
+ * PLAN_ACTIVATION_RECEIVED and GROUP_ALERT_HOUSEHOLD. Everything else that would
+ * push (WILDFIRE_NEAR — the NWS Fire Warning —, CHECK_IN_REQUEST, DIRECT_MESSAGE,
+ * a warning NWS rated below Severe, an agency advisory or notice, the readiness
+ * and account reminders) is demoted to Lane B, and Lane B writes an inbox row
+ * with no push on every send path: {@code NotificationService}'s Lane B branch,
+ * {@code AlertDispatchService.pushSevereAlert} →
+ * {@code NotificationService.logHazardAlertInboxOnly} for hazards, and
+ * {@code AgencyAlertDispatchService} for agency alerts. The QUIET_HOURS note
+ * names only what is true of that (re-verified 2026-10-07, when two
+ * owner-approved decisions widened what comes through):</p>
  * <ul>
- *   <li>It does not promise earthquakes. The USGS dispatch template is
- *       {@code attention}, not {@code critical_push}, so a quake never pushes —
- *       day or night — and the M6+ bypass never runs for one. Naming quakes
- *       among things that "still come through" would imply an interruption
- *       that does not happen.</li>
- *   <li>It does not say "every other alert". Agency alerts and the
- *       no-policy reminders (task, go-bag, guest expiry) are not lane-evaluated,
- *       so quiet hours do not hold them; and feed-only warnings (Red Flag,
- *       watches) never reach the inbox at any hour.</li>
+ *   <li><b>"strong earthquakes nearby"</b> — since 2026-10-07 an M6.0+ quake
+ *       pushes to located users within 80 km of the epicenter
+ *       ({@code AlertDispatchService.isMajorQuakePush}), and
+ *       {@code USGS_QUAKE_MAJOR} bypasses quiet hours. M5.5–5.9 is
+ *       feed-only at any hour, so the note says "strong", not "earthquakes".
+ *       (A quake first dispatched more than two hours after it struck is
+ *       feed-only too; the clause is about what quiet hours hold, and they
+ *       never hold a fresh strong quake.)</li>
+ *   <li><b>"official emergency alerts"</b> — a verified agency's alert sent at
+ *       the {@code emergency} tier. Its {@code advisory} and {@code notice}
+ *       tiers wait for morning, so the note does not say "official alerts".</li>
+ *   <li>It does not say "every other alert". Feed-only warnings (Red Flag,
+ *       watches) and M5.5–5.9 quakes never reach the inbox at any hour.</li>
  * </ul>
  * <p>{@code AlertPresetServiceTest.theQuietHoursNoteIsWhatThePolicyDoes} pins
  * the wording to those lanes.</p>
@@ -100,7 +107,8 @@ public class AlertPresetService {
 
     /** Every clause is a lane {@code AlertPresetServiceTest} asserts; see the class note. */
     static final String QUIET_HOURS_SAFETY_NOTE =
-            "Severe weather warnings, plan activations, and household alerts still come through. "
+            "Severe weather warnings, strong earthquakes nearby, official emergency alerts, "
+                    + "plan activations, and household alerts still come through. "
                     + "Fire warnings, check-in requests, and messages go to your inbox instead of "
                     + "your lock screen.";
 

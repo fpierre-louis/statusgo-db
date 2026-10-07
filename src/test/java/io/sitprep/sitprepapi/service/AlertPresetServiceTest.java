@@ -145,6 +145,8 @@ class AlertPresetServiceTest {
             assertThat(policy.evaluate(ME, Category.NWS_SEVERE_EXTREME, "Extreme")).as(key).isEqualTo(Lane.A);
             assertThat(policy.evaluate(ME, Category.PLAN_ACTIVATION_RECEIVED, null)).as(key).isEqualTo(Lane.A);
             assertThat(policy.evaluate(ME, Category.GROUP_ALERT_HOUSEHOLD, null)).as(key).isEqualTo(Lane.A);
+            assertThat(policy.evaluate(ME, Category.USGS_QUAKE_MAJOR, "Severe")).as(key).isEqualTo(Lane.A);
+            assertThat(policy.evaluate(ME, Category.AGENCY_ALERT, "emergency")).as(key).isEqualTo(Lane.A);
         }
     }
 
@@ -168,30 +170,52 @@ class AlertPresetServiceTest {
      * The QUIET_HOURS note, clause by clause, against the lanes it describes.
      * "Come through" is Lane A inside the window; "go to your inbox instead of
      * your lock screen" is Lane B, which writes an inbox row and sends no push
-     * on both send paths (the hazard path since 2026-10-07 —
-     * {@code HazardQuietHoursInboxTest}).
+     * on every send path (hazards: {@code HazardQuietHoursInboxTest}; agency
+     * alerts: {@code AgencyAlertDispatchServiceTest}).
+     *
+     * <p>Two clauses arrived with the owner-approved 2026-10-07 decisions.
+     * "Strong earthquakes nearby": an M6.0+ quake within 80 km now pushes
+     * ({@code EarthquakePushTest}) as {@code USGS_QUAKE_MAJOR} with the
+     * severity word "Severe" — M5.5–5.9 stays feed-only, hence "strong".
+     * "Official emergency alerts": only the agency {@code emergency} tier
+     * bypasses; advisory and notice wait, hence "emergency".</p>
      */
     @Test
     void theQuietHoursNoteIsWhatThePolicyDoes() {
         Preset quiet = AlertPresetService.find("QUIET_HOURS");
         assertThat(quiet.safetyNote()).isEqualTo(
-                "Severe weather warnings, plan activations, and household alerts still come through. "
+                "Severe weather warnings, strong earthquakes nearby, official emergency alerts, "
+                        + "plan activations, and household alerts still come through. "
                         + "Fire warnings, check-in requests, and messages go to your inbox instead of "
                         + "your lock screen.");
         assertThat(quiet.safetyNote())
-                .as("quakes never push (USGS template is attention), so the note must not promise them")
-                .doesNotContainIgnoringCase("earthquake");
+                .as("only M6.0+ quakes push; a bare \"earthquakes\" would promise M5.5-5.9 too")
+                .containsIgnoringCase("strong earthquakes nearby");
         assertThat(quiet.safetyNote())
-                .as("agency alerts and reminders are not lane-evaluated; no blanket claim about other alerts")
+                .as("only the emergency tier bypasses; \"official alerts\" alone would promise advisories")
+                .contains("official emergency alerts")
+                .doesNotContainIgnoringCase("official alerts");
+        assertThat(quiet.safetyNote())
+                .as("feed-only warnings never reach anyone at any hour; no blanket claim about other alerts")
                 .doesNotContainIgnoringCase("other alerts");
 
         presets.apply(ME, "QUIET_HOURS", zoneWhereItIsTwoAm());
 
-        // "...still come through."
+        // "Severe weather warnings ... still come through."
         assertThat(policy.evaluate(ME, Category.NWS_SEVERE_EXTREME, "Severe")).isEqualTo(Lane.A);
         assertThat(policy.evaluate(ME, Category.NWS_SEVERE_EXTREME, "Extreme")).isEqualTo(Lane.A);
+        // "strong earthquakes nearby" — the dispatch path passes the USGS severity word.
+        assertThat(policy.evaluate(ME, Category.USGS_QUAKE_MAJOR, "Severe")).isEqualTo(Lane.A);
+        // "official emergency alerts" — the agency's own tier, any casing.
+        assertThat(policy.evaluate(ME, Category.AGENCY_ALERT, "emergency")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate(ME, Category.AGENCY_ALERT, "EMERGENCY")).isEqualTo(Lane.A);
+        // "plan activations, and household alerts"
         assertThat(policy.evaluate(ME, Category.PLAN_ACTIVATION_RECEIVED, null)).isEqualTo(Lane.A);
         assertThat(policy.evaluate(ME, Category.GROUP_ALERT_HOUSEHOLD, null)).isEqualTo(Lane.A);
+
+        // What the note deliberately does NOT promise: the lower agency tiers wait.
+        assertThat(policy.evaluate(ME, Category.AGENCY_ALERT, "advisory")).isEqualTo(Lane.B);
+        assertThat(policy.evaluate(ME, Category.AGENCY_ALERT, "notice")).isEqualTo(Lane.B);
 
         // "...go to your inbox instead of your lock screen." Lane B, not DROP or C.
         assertThat(policy.evaluate(ME, Category.WILDFIRE_NEAR, "Severe")).isEqualTo(Lane.B);

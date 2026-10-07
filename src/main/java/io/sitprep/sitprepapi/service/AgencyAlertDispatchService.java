@@ -26,7 +26,7 @@ import java.util.Set;
 /**
  * Durable, post-commit delivery worker for agency jurisdiction alerts.
  *
- * <p><b>Push policy (EXEC-N, 2026-10-07; OWNER REVIEW).</b> Every recipient is
+ * <p><b>Push policy (EXEC-N; owner-approved 2026-10-07).</b> Every recipient is
  * evaluated against {@link PushPolicyService.Category#AGENCY_ALERT} with the
  * agency's own tier as the severity. Before this the worker never asked
  * policy, so every tier pushed at any hour and ignored the master push

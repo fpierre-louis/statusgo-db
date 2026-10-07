@@ -19,6 +19,14 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
      */
     Optional<AlertPost> findByAlertIdAndGeocellId(String alertId, String geocellId);
 
+    /**
+     * Has this alert been dispatched under ANY geocell, resolved or not? The
+     * push-once-per-alert guard: a USGS epicenter revision can move a quake's
+     * representative coordinate into a different zip bucket, which passes the
+     * (alertId, geocellId) dedupe and would otherwise push the same quake twice.
+     */
+    boolean existsByAlertId(String alertId);
+
     /** Batched fold of alert areas onto a page of posts (V89). */
     List<AlertPost> findByPostIdIn(Collection<Long> postIds);
 
