@@ -776,69 +776,80 @@ public class AlertDispatchService {
     /**
      * Fan a life-threatening alert out to every located, push-enabled
      * user within {@link #SEVERE_PUSH_RADIUS_KM} of the alert's
-     * representative coordinate, via one batched
-     * {@link NotificationService#sendHazardAlertBatch} call — online
-     * users get a STOMP frame, offline users an iOS time-sensitive
-     * APNs push ({@code hazard_alert} breaks through Focus modes), and
-     * everyone gets an inbox log row.
+     * representative coordinate.
+     *
+     * <p>Each nearby user is evaluated once by {@link PushPolicyService} — the
+     * single lane authority — and delivered by lane:</p>
+     * <ul>
+     *   <li><b>A</b> — one batched {@link NotificationService#sendHazardAlertBatch}
+     *       call: online users get a STOMP frame, everyone with a token an iOS
+     *       time-sensitive APNs push, and everyone an inbox log row.</li>
+     *   <li><b>B</b> (quiet hours, rate cap, push switched off) —
+     *       {@link NotificationService#logHazardAlertInboxOnly}: the same inbox
+     *       row, no FCM. Quiet hours limit interruptions; they must not make
+     *       the warning disappear.</li>
+     *   <li><b>C</b> (push and inbox both off) and <b>DROP</b> (the user muted
+     *       this hazard category) — nothing.</li>
+     * </ul>
      *
      * <p>Fan-out is capped at {@link #MAX_PUSH_RECIPIENTS} as a guard
      * against a bad coordinate matching the whole table. The batch send
      * runs inside the dispatch transaction — acceptable at the 5-min
      * cron cadence and bounded by the 500-token multicast limit.</p>
      */
-    private void pushSevereAlert(NormalizedAlert a,
-                                 DispatchTemplate tpl,
-                                 AlertSafetyPolicy.Decision decision,
-                                 double[] coord,
-                                 List<UserInfo> candidates) {
+    void pushSevereAlert(NormalizedAlert a,
+                         DispatchTemplate tpl,
+                         AlertSafetyPolicy.Decision decision,
+                         double[] coord,
+                         List<UserInfo> candidates) {
         if (candidates == null || candidates.isEmpty()) return;
 
         double alertLat = coord[1];
         double alertLng = coord[0];
 
         // Radius-filter the pool down to users near this alert, capped
-        // so a bad coordinate can't fan out to the whole table.
+        // so a bad coordinate can't fan out to the whole table. One entry
+        // per recipient (email, case-insensitive): a recipient listed twice
+        // must be evaluated once, so they get one row and spend one rate token.
         List<UserInfo> nearby = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (UserInfo u : candidates) {
             if (nearby.size() >= MAX_PUSH_RECIPIENTS) {
                 log.warn("AlertDispatch: severe-alert push hit the {}-recipient cap for {}-{}",
                         MAX_PUSH_RECIPIENTS, a.source(), a.id());
                 break;
             }
+            if (u == null || u.getUserEmail() == null) continue;
             if (u.getLastKnownLat() == null || u.getLastKnownLng() == null) continue;
             double distKm = GeoUtil.haversineKm(alertLat, alertLng,
                     u.getLastKnownLat(), u.getLastKnownLng());
-            if (distKm <= SEVERE_PUSH_RADIUS_KM) nearby.add(u);
+            if (distKm > SEVERE_PUSH_RADIUS_KM) continue;
+            if (!seen.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT))) continue;
+            nearby.add(u);
         }
         if (nearby.isEmpty()) return;
 
-        // ── PUSH POLICY (audit P1-4) ──────────────────────────────────────
-        // Until now this path never consulted PushPolicyService, so the three
+        // ── PUSH POLICY (audit P1-4; Lane B added 2026-10-07) ─────────────
+        // Until P1-4 this path never consulted PushPolicyService, so the three
         // hazard toggles on /account/alert-preferences — "NWS weather alerts",
-        // "Earthquakes", "Wildfires nearby" — were decorative. A user who
-        // unchecked one still got the push. The categories existed, the
-        // evaluate() chokepoint existed, and nothing connected them.
+        // "Earthquakes", "Wildfires nearby" — were decorative.
         //
-        // Only Lane A recipients receive the push. Warning-tier alerts carry
-        // the critical bypass, so quiet hours still do not suppress a
-        // life-safety warning (see PushPolicyService.isCriticalBypass) — the
-        // change here is that an explicit opt-out is finally honoured, which
-        // is a stronger user signal than a quiet window.
+        // P1-4 then kept ONLY Lane A, which made quiet hours worse than
+        // decorative: a Fire Warning (or any warning NWS rated below Severe)
+        // demoted to Lane B at 2am reached the user neither as a push nor as
+        // an inbox row. Lane B now gets the row. Warning-tier Severe/Extreme
+        // alerts carry the critical bypass, so quiet hours still do not
+        // defer them (see PushPolicyService.isCriticalBypass), and an explicit
+        // opt-out (DROP) is still honoured over everything.
         PushPolicyService.Category category = pushCategoryFor(a, tpl);
-        List<UserInfo> laneA = new ArrayList<>(nearby.size());
-        int suppressed = 0;
-        for (UserInfo u : nearby) {
-            PushPolicyService.Lane lane =
-                    pushPolicyService.evaluate(u.getUserEmail(), category, a.severity());
-            if (lane == PushPolicyService.Lane.A) laneA.add(u); else suppressed++;
+        LaneSplit split = splitByLane(nearby, category, a.severity());
+        if (split.inboxOnly().size() + split.nothing() > 0) {
+            log.info("AlertDispatch: of {} nearby user(s) for {}, {} inbox-only (Lane B), "
+                            + "{} suppressed by push policy",
+                    nearby.size(), a.source() + "-" + a.id(),
+                    split.inboxOnly().size(), split.nothing());
         }
-        if (suppressed > 0) {
-            log.info("AlertDispatch: {} of {} nearby user(s) suppressed by push policy for {}",
-                    suppressed, nearby.size(), a.source() + "-" + a.id());
-        }
-        if (laneA.isEmpty()) return;
-        nearby = laneA;
+        if (split.push().isEmpty() && split.inboxOnly().isEmpty()) return;
 
         boolean sitprepGuidance = decision != null && decision.allowsSitPrepGuidance();
         String title = sitprepGuidance
@@ -847,21 +858,62 @@ public class AlertDispatchService {
                 : officialTitle(a, tpl);
         String body = truncate(buildPushBody(a, tpl, decision), 160);
         String referenceId = a.source() + "-" + a.id();
+        String data = hazardNotificationData(a, decision);
 
-        // One batched MulticastMessage instead of N sequential sends.
         // Deep-link to the renamed hazards page. /Fema is still routed in
         // the FE as an alias (see App.js) for in-flight pushes; new ones
-        // land on the canonical /hazards URL.
-        notificationService.sendHazardAlertBatch(
-                nearby,
-                title,
-                body,
-                referenceId,
-                "/hazards",
-                hazardNotificationData(a, decision),
-                tpl != null && tpl.sitprep != null && tpl.sitprep.concealmentSensitive);
-        log.info("AlertDispatch: severe-alert push for {} dispatched to {} nearby user(s)",
-                referenceId, nearby.size());
+        // land on the canonical /hazards URL. Both lanes carry the same
+        // title, body, reference, link and data, so the inbox row a Lane B
+        // recipient finds is the one a Lane A recipient's push opened.
+        if (!split.push().isEmpty()) {
+            // One batched MulticastMessage instead of N sequential sends.
+            notificationService.sendHazardAlertBatch(
+                    split.push(),
+                    title,
+                    body,
+                    referenceId,
+                    HAZARD_TARGET_URL,
+                    data,
+                    tpl != null && tpl.sitprep != null && tpl.sitprep.concealmentSensitive);
+        }
+        if (!split.inboxOnly().isEmpty()) {
+            notificationService.logHazardAlertInboxOnly(
+                    split.inboxOnly(),
+                    title,
+                    body,
+                    referenceId,
+                    HAZARD_TARGET_URL,
+                    data,
+                    category);
+        }
+        log.info("AlertDispatch: severe alert {} pushed to {} and inboxed silently for {} nearby user(s)",
+                referenceId, split.push().size(), split.inboxOnly().size());
+    }
+
+    /** The hazard notification's deep link, shared by the push and the Lane B row. */
+    static final String HAZARD_TARGET_URL = "/hazards";
+
+    /**
+     * Recipients sorted by the lane {@link PushPolicyService#evaluate} gave
+     * them. {@code nothing} counts Lane C and DROP — no push, no row.
+     */
+    record LaneSplit(List<UserInfo> push, List<UserInfo> inboxOnly, int nothing) {}
+
+    /** One evaluate per recipient; the policy service decides, this only sorts. */
+    LaneSplit splitByLane(List<UserInfo> recipients,
+                          PushPolicyService.Category category,
+                          String severity) {
+        List<UserInfo> push = new ArrayList<>(recipients.size());
+        List<UserInfo> inboxOnly = new ArrayList<>();
+        int nothing = 0;
+        for (UserInfo u : recipients) {
+            PushPolicyService.Lane lane =
+                    pushPolicyService.evaluate(u.getUserEmail(), category, severity);
+            if (lane == PushPolicyService.Lane.A) push.add(u);
+            else if (lane == PushPolicyService.Lane.B) inboxOnly.add(u);
+            else nothing++;
+        }
+        return new LaneSplit(push, inboxOnly, nothing);
     }
 
     String hazardNotificationData(NormalizedAlert a, AlertSafetyPolicy.Decision decision) {

@@ -101,6 +101,12 @@ public class NotificationService {
      */
     public static final String TYPE_TOKEN_UNLOCKED = "token_unlocked";
 
+    /** The batched hazard path's type — the push and its Lane B inbox twin. */
+    public static final String TYPE_HAZARD_ALERT = "hazard_alert";
+
+    /** Error marker on a Lane B row: written to the inbox, deliberately not pushed. */
+    static final String LANE_B_SILENT_INBOX = "Lane B (silent inbox)";
+
     /**
      * Decide push lane for an outgoing notification by mapping the
      * legacy free-form {@code notificationType} string onto a structured
@@ -607,7 +613,7 @@ public class NotificationService {
             saveLogRow(recipientEmail, notificationType, recipientFcmTokenOrNull,
                     title, body, referenceId, targetUrl, additionalData,
                     /* success */ false,
-                    /* error */ "Lane B (silent inbox)",
+                    /* error */ LANE_B_SILENT_INBOX,
                     lane, catEnum, actorUserId, presentation);
             return;
         }
@@ -768,7 +774,7 @@ public class NotificationService {
         if (lane == Lane.B) {
             saveLogRow(recipientEmail, notificationType, null,
                     title, body, referenceId, targetUrl, additionalData,
-                    false, "Lane B (silent inbox)",
+                    false, LANE_B_SILENT_INBOX,
                     lane, catEnum, actorUserId);
             return;
         }
@@ -1120,10 +1126,14 @@ public class NotificationService {
      * {@link #handleFcmDeliveryError}, same as the single-send path.</p>
      *
      * <p>Policy note: {@code hazard_alert} is intentionally un-mapped
-     * in {@link #mapTypeToCategory} — life-safety weather warnings are
-     * never quiet-hours-suppressed. The APNs payload carries
-     * {@code interruption-level: time-sensitive} so it still breaks
-     * through Focus modes (see {@link #applyIosLockScreenAffordances}).</p>
+     * in {@link #mapTypeToCategory} because the CALLER owns the lane:
+     * {@code AlertDispatchService.pushSevereAlert} evaluates each recipient
+     * against the hazard categories and hands only Lane A recipients to this
+     * method. Its Lane B recipients (quiet hours, rate cap, push switched off)
+     * go to {@link #logHazardAlertInboxOnly} instead — the same row, no FCM.
+     * The APNs payload carries {@code interruption-level: time-sensitive}
+     * so a Lane A send still breaks through Focus modes (see
+     * {@link #applyIosLockScreenAffordances}).</p>
      */
     public record HazardBatchResult(int attempted, int delivered, int failed, String lastError) {}
 
@@ -1162,10 +1172,10 @@ public class NotificationService {
             return new HazardBatchResult(0, 0, 0, null);
         }
 
-        final String type = "hazard_alert";
+        final String type = TYPE_HAZARD_ALERT;
         // Identical for every recipient (no actor, no group), so built once.
-        Map<String, Object> presentation = presentationFor(type, null, title, body,
-                referenceId, targetUrl, additionalData, null);
+        Map<String, Object> presentation = hazardPresentation(title, body,
+                referenceId, targetUrl, additionalData);
         String deepLinkRoute = deepLinkRouteOf(presentation, targetUrl);
         List<String> batchTokens = new ArrayList<>();
         List<UserInfo> batchUsers = new ArrayList<>();
@@ -1269,6 +1279,71 @@ public class NotificationService {
             }
         }
         return new HazardBatchResult(attempted, delivered, failed, lastError);
+    }
+
+    /**
+     * Lane B for a hazard alert: the inbox row a Lane A recipient would get,
+     * and no FCM, no APNs, no in-app banner.
+     *
+     * <p><b>Why this exists.</b> Quiet hours and the rate cap demote a
+     * non-critical hazard push (a Fire Warning, a warning NWS rated below
+     * Severe) from Lane A to Lane B. {@code pushSevereAlert} used to keep only
+     * Lane A, so a Lane B recipient got neither the push nor an inbox row —
+     * the warning simply did not exist for them. Every other sender already
+     * honoured Lane B with a row ({@link #deliverPresenceAware}'s Lane B
+     * branch); this is that branch for the batched hazard path.</p>
+     *
+     * <p><b>Same row as the push.</b> Type {@code hazard_alert}, the same
+     * title, body, referenceId, targetUrl, additionalData and the same
+     * presentation ({@link #hazardPresentation}, built exactly as
+     * {@link #sendHazardAlertBatch} builds it), so the inbox renders and
+     * deep-links it identically. Only the delivery markers differ, and they
+     * match the Lane B branch: lane {@code B}, the policy category, null token,
+     * {@code success=false}, error {@code "Lane B (silent inbox)"}.</p>
+     *
+     * <p>Policy is the caller's job — pass only recipients
+     * {@link PushPolicyService#evaluate} put in Lane B. Nothing here references
+     * {@code FirebaseMessaging}, so a row written here cannot become a push.</p>
+     *
+     * @return the number of rows written
+     */
+    public int logHazardAlertInboxOnly(List<UserInfo> recipients,
+                                       String title,
+                                       String body,
+                                       String referenceId,
+                                       String targetUrl,
+                                       String additionalData,
+                                       Category category) {
+        if (recipients == null || recipients.isEmpty()) return 0;
+        Map<String, Object> presentation = hazardPresentation(title, body,
+                referenceId, targetUrl, additionalData);
+        int written = 0;
+        for (UserInfo u : recipients) {
+            String email = u != null ? u.getUserEmail() : null;
+            if (email == null || email.isBlank()) continue;
+            try {
+                saveLogRow(email, TYPE_HAZARD_ALERT, /* token */ null,
+                        title, body, referenceId, targetUrl, additionalData,
+                        /* success */ false,
+                        /* error */ LANE_B_SILENT_INBOX,
+                        Lane.B, category, /* actorUserId */ null, presentation);
+                written++;
+            } catch (Exception e) {
+                // One recipient's failed write must not cost the others theirs.
+                logger.warn("Hazard-alert inbox row failed for {} ({}): {}",
+                        email, referenceId, e.getMessage());
+            }
+        }
+        return written;
+    }
+
+    /** The hazard presentation — one builder for the push and the inbox-only row. */
+    private Map<String, Object> hazardPresentation(String title, String body, String referenceId,
+                                                   String targetUrl, String additionalData) {
+        // No actor, no group, no category: a hazard row's presentation is a
+        // function of the alert alone, so a Lane A and a Lane B row match.
+        return presentationFor(TYPE_HAZARD_ALERT, null, title, body,
+                referenceId, targetUrl, additionalData, null);
     }
 
     static List<BatchRange> hazardBatchRanges(int recipientCount) {

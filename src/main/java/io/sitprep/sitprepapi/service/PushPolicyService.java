@@ -25,15 +25,21 @@ import java.util.Set;
  * <p>The policy doc gives the full rule set; this service is the
  * operational mechanism. Rules applied in order:</p>
  * <ol>
- *   <li><b>Master switches</b> — {@code pushEnabled} / {@code inboxEnabled}
- *       short-circuit. Push off → all Lane-A categories drop to Lane B.
- *       Inbox off → drop to Lane C or DROP.</li>
- *   <li><b>Per-category opt-out</b> — user muted earthquakes? Lane B
- *       (still inboxed unless inbox is also off).</li>
+ *   <li><b>Per-category opt-out</b> — user muted earthquakes? DROP: no push,
+ *       no inbox row. Runs first, so it beats the critical bypass.</li>
+ *   <li><b>Master switches</b> — push off → Lane A demotes to Lane B; inbox
+ *       off → Lane B strips to Lane C.</li>
  *   <li><b>Quiet hours</b> — Lane A pushes during the user's quiet
- *       window defer to inbox UNLESS in {@link #CRITICAL_BYPASS}.</li>
- *   <li><b>Default</b> — return the category's documented lane.</li>
+ *       window defer to Lane B (an inbox row, no push) UNLESS critical
+ *       bypass.</li>
+ *   <li><b>Rate caps</b> — an over-cap Lane A push demotes to Lane B;
+ *       critical bypass is exempt.</li>
  * </ol>
+ *
+ * <p>Every sender honours Lane B with an inbox row: {@code NotificationService}'s
+ * Lane B branch, and for hazards {@code AlertDispatchService.pushSevereAlert} →
+ * {@code NotificationService.logHazardAlertInboxOnly}. Quiet hours and caps
+ * limit interruptions; they never make a notification disappear.</p>
  *
  * <p><b>Both of the follow-ups this comment used to defer are DONE.</b>
  * It said rate caps and the send-site wiring were "out of scope for this

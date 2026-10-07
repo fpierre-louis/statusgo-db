@@ -157,11 +157,46 @@ class AlertPresetServiceTest {
                 .as("check-in requests do not bypass quiet hours; the safety note must not say they do")
                 .isEqualTo(Lane.B);
         assertThat(policy.evaluate(ME, Category.WILDFIRE_NEAR, "Severe"))
-                .as("wildfire warnings do not bypass quiet hours; the safety note says so")
+                .as("fire warnings do not bypass quiet hours; they go to the inbox, as the note says")
                 .isEqualTo(Lane.B);
         assertThat(policy.evaluate(ME, Category.ACTIVATION_ACK, null))
                 .as("QUIET_HOURS turns acknowledgment updates off")
                 .isEqualTo(Lane.DROP);
+    }
+
+    /**
+     * The QUIET_HOURS note, clause by clause, against the lanes it describes.
+     * "Come through" is Lane A inside the window; "go to your inbox instead of
+     * your lock screen" is Lane B, which writes an inbox row and sends no push
+     * on both send paths (the hazard path since 2026-10-07 —
+     * {@code HazardQuietHoursInboxTest}).
+     */
+    @Test
+    void theQuietHoursNoteIsWhatThePolicyDoes() {
+        Preset quiet = AlertPresetService.find("QUIET_HOURS");
+        assertThat(quiet.safetyNote()).isEqualTo(
+                "Severe weather warnings, plan activations, and household alerts still come through. "
+                        + "Fire warnings, check-in requests, and messages go to your inbox instead of "
+                        + "your lock screen.");
+        assertThat(quiet.safetyNote())
+                .as("quakes never push (USGS template is attention), so the note must not promise them")
+                .doesNotContainIgnoringCase("earthquake");
+        assertThat(quiet.safetyNote())
+                .as("agency alerts and reminders are not lane-evaluated; no blanket claim about other alerts")
+                .doesNotContainIgnoringCase("other alerts");
+
+        presets.apply(ME, "QUIET_HOURS", zoneWhereItIsTwoAm());
+
+        // "...still come through."
+        assertThat(policy.evaluate(ME, Category.NWS_SEVERE_EXTREME, "Severe")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate(ME, Category.NWS_SEVERE_EXTREME, "Extreme")).isEqualTo(Lane.A);
+        assertThat(policy.evaluate(ME, Category.PLAN_ACTIVATION_RECEIVED, null)).isEqualTo(Lane.A);
+        assertThat(policy.evaluate(ME, Category.GROUP_ALERT_HOUSEHOLD, null)).isEqualTo(Lane.A);
+
+        // "...go to your inbox instead of your lock screen." Lane B, not DROP or C.
+        assertThat(policy.evaluate(ME, Category.WILDFIRE_NEAR, "Severe")).isEqualTo(Lane.B);
+        assertThat(policy.evaluate(ME, Category.CHECK_IN_REQUEST, null)).isEqualTo(Lane.B);
+        assertThat(policy.evaluate(ME, Category.DIRECT_MESSAGE, null)).isEqualTo(Lane.B);
     }
 
     @Test

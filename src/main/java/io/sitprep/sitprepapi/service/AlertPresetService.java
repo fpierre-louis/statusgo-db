@@ -38,11 +38,27 @@ import java.util.function.Function;
  *
  * <p><b>Copy is checked against the code.</b> {@code PushPolicyService.CRITICAL_BYPASS}
  * lets only NWS Severe/Extreme, USGS M6+ ("Severe"), PLAN_ACTIVATION_RECEIVED and
- * GROUP_ALERT_HOUSEHOLD through quiet hours. WILDFIRE_NEAR and CHECK_IN_REQUEST
- * do not, and a quiet-hours-deferred hazard push writes no inbox row
- * ({@code AlertDispatchService.pushSevereAlert} keeps Lane A only), while a
- * deferred {@code NotificationService} send does (Lane B → log row). The
- * QUIET_HOURS safety note says exactly that.</p>
+ * GROUP_ALERT_HOUSEHOLD through quiet hours. Everything else that would push
+ * (WILDFIRE_NEAR — the NWS Fire Warning —, CHECK_IN_REQUEST, DIRECT_MESSAGE, a
+ * warning NWS rated below Severe) is demoted to Lane B, and Lane B writes an
+ * inbox row with no push on both send paths: {@code NotificationService}'s
+ * Lane B branch, and {@code AlertDispatchService.pushSevereAlert} →
+ * {@code NotificationService.logHazardAlertInboxOnly} for hazards (before
+ * 2026-10-07 the hazard path kept Lane A only and a deferred warning vanished).
+ * The QUIET_HOURS note names only what is true of that:</p>
+ * <ul>
+ *   <li>It does not promise earthquakes. The USGS dispatch template is
+ *       {@code attention}, not {@code critical_push}, so a quake never pushes —
+ *       day or night — and the M6+ bypass never runs for one. Naming quakes
+ *       among things that "still come through" would imply an interruption
+ *       that does not happen.</li>
+ *   <li>It does not say "every other alert". Agency alerts and the
+ *       no-policy reminders (task, go-bag, guest expiry) are not lane-evaluated,
+ *       so quiet hours do not hold them; and feed-only warnings (Red Flag,
+ *       watches) never reach the inbox at any hour.</li>
+ * </ul>
+ * <p>{@code AlertPresetServiceTest.theQuietHoursNoteIsWhatThePolicyDoes} pins
+ * the wording to those lanes.</p>
  */
 @Service
 public class AlertPresetService {
@@ -82,6 +98,12 @@ public class AlertPresetService {
     public record Preset(String key, String title, String description, String safetyNote,
                          UserAlertPreferenceDto patch, boolean takesTimezone) {}
 
+    /** Every clause is a lane {@code AlertPresetServiceTest} asserts; see the class note. */
+    static final String QUIET_HOURS_SAFETY_NOTE =
+            "Severe weather warnings, plan activations, and household alerts still come through. "
+                    + "Fire warnings, check-in requests, and messages go to your inbox instead of "
+                    + "your lock screen.";
+
     private static final Boolean T = Boolean.TRUE;
     private static final Boolean F = Boolean.FALSE;
 
@@ -100,8 +122,7 @@ public class AlertPresetService {
                     floor(T, T, T, F, F, null, null), false),
             new Preset("QUIET_HOURS", "Quiet hours",
                     "Quiet from 9 PM to 7 AM. Acknowledgments and drill reminders are off.",
-                    "Severe weather, major earthquakes, plan activations, and household alerts still come "
-                            + "through. Wildfire warnings and other alerts stay silent overnight.",
+                    QUIET_HOURS_SAFETY_NOTE,
                     floor(F, null, null, F, T, LocalTime.of(21, 0), LocalTime.of(7, 0)), true));
 
     private final PushPolicyService pushPolicy;
