@@ -55,22 +55,31 @@ public class ActiveResponseResolver {
                     household.getGroupId() == null ? Map.of() : Map.of("householdId", household.getGroupId()));
         }
 
-        if (riskProfile != null) {
+        if (hasOfficialAlert(riskProfile)) {
             List<ActiveAlertDto> alerts = riskProfile.activeAlerts() == null ? List.of() : riskProfile.activeAlerts();
-            boolean upgraded = riskProfile.riskAdjustedRequirements() != null
-                    && riskProfile.riskAdjustedRequirements().stream()
-                        .anyMatch(r -> r != null && ReadinessCatalog.ORIGIN_ACTIVE_ALERT.equals(r.origin()));
-            if (!alerts.isEmpty() || upgraded) {
-                String headline = alerts.stream()
-                        .filter(a -> a != null && a.headline() != null && !a.headline().isBlank())
-                        .map(ActiveAlertDto::headline)
-                        .findFirst()
-                        .orElse("An official alert is in effect");
-                return new ActiveResponse(Kind.OFFICIAL_ALERT, headline,
-                        "Follow official instructions first. Preparedness steps can wait.",
-                        ReadinessAction.OPEN_ACTIVE_ALERTS, Map.of());
-            }
+            String headline = alerts.stream()
+                    .filter(a -> a != null && a.headline() != null && !a.headline().isBlank())
+                    .map(ActiveAlertDto::headline)
+                    .findFirst()
+                    .orElse("An official alert is in effect");
+            return new ActiveResponse(Kind.OFFICIAL_ALERT, headline,
+                    "Follow official instructions first. Preparedness steps can wait.",
+                    ReadinessAction.OPEN_ACTIVE_ALERTS, Map.of());
         }
         return null;
+    }
+
+    /**
+     * An official alert at the household's home: an active alert in the risk
+     * profile, or an {@code active_alert_upgraded} precaution. Shared with
+     * {@link io.sitprep.sitprepapi.service.CommerceSuppressionService} so the
+     * journey's active response and commerce suppression cannot disagree.
+     */
+    public static boolean hasOfficialAlert(RiskProfileDto riskProfile) {
+        if (riskProfile == null) return false;
+        if (riskProfile.activeAlerts() != null && !riskProfile.activeAlerts().isEmpty()) return true;
+        return riskProfile.riskAdjustedRequirements() != null
+                && riskProfile.riskAdjustedRequirements().stream()
+                    .anyMatch(r -> r != null && ReadinessCatalog.ORIGIN_ACTIVE_ALERT.equals(r.origin()));
     }
 }

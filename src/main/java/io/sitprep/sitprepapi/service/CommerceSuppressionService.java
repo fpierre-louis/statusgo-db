@@ -1,15 +1,15 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.PlanActivation;
+import io.sitprep.sitprepapi.readiness.ActiveResponseResolver;
 import io.sitprep.sitprepapi.repo.AlertModeStateRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Set;
+import java.util.List;
 
 /**
  * Single source of truth for <b>commerce suppression</b> — the monetization-
@@ -22,9 +22,15 @@ import java.util.Set;
  * <p>Precedence (first match wins):</p>
  * <ol>
  *   <li>{@code household_checkin} — the household's check-in is Active;</li>
- *   <li>{@code deployed_plan} — the household owner or any household member
- *       has an unexpired plan activation;</li>
- *   <li>{@code area_alert} — the persisted {@link io.sitprep.sitprepapi.domain.AlertModeState}
+ *   <li>{@code deployed_plan} — a live plan activation for the household
+ *       ({@link PlanActivationRepo#findLiveForHousehold}: the owner's, any
+ *       member's, or one keyed to the household id);</li>
+ *   <li>{@code area_alert} (home) — an official alert at the household's home
+ *       ({@link ActiveResponseResolver#hasOfficialAlert}), the same signal
+ *       Ready for More treats as an active response (release audit
+ *       2026-10-07: without it, /home-kit showed buy links while the journey
+ *       said "an official alert is in effect");</li>
+ *   <li>{@code area_alert} (zip bucket) — the persisted {@link io.sitprep.sitprepapi.domain.AlertModeState}
  *       for the household's zip bucket is {@code alert}/{@code crisis}. Read
  *       straight from the state table by PK — deliberately NOT
  *       {@code AlertModeService.getForLatLng}, which reverse-geocodes via
@@ -38,13 +44,16 @@ public class CommerceSuppressionService {
     private final GroupRepo groupRepo;
     private final PlanActivationRepo activationRepo;
     private final AlertModeStateRepo alertModeRepo;
+    private final RiskProfileService riskProfileService;
 
     public CommerceSuppressionService(GroupRepo groupRepo,
                                       PlanActivationRepo activationRepo,
-                                      AlertModeStateRepo alertModeRepo) {
+                                      AlertModeStateRepo alertModeRepo,
+                                      RiskProfileService riskProfileService) {
         this.groupRepo = groupRepo;
         this.activationRepo = activationRepo;
         this.alertModeRepo = alertModeRepo;
+        this.riskProfileService = riskProfileService;
     }
 
     /** First matching suppression reason, or {@code null} when commerce may render. */
@@ -55,9 +64,12 @@ public class CommerceSuppressionService {
 
         if ("Active".equalsIgnoreCase(household.getAlert())) return "household_checkin";
 
-        if (hasActiveHouseholdActivation(household, Instant.now())) {
+        List<PlanActivation> live = activationRepo.findLiveForHousehold(household, Instant.now());
+        if (live != null && !live.isEmpty()) {
             return "deployed_plan";
         }
+
+        if (officialAlertAtHome(household)) return "area_alert";
 
         String zip = household.getZipCode();
         if (zip != null && zip.trim().length() >= 3) {
@@ -76,19 +88,13 @@ public class CommerceSuppressionService {
         return suppressionReason(householdId) != null;
     }
 
-    private boolean hasActiveHouseholdActivation(Group household, Instant now) {
-        Set<String> owners = new LinkedHashSet<>();
-        addEmail(owners, household.getOwnerEmail());
-        if (household.getMemberEmails() != null) {
-            household.getMemberEmails().forEach(raw -> addEmail(owners, raw));
+    private boolean officialAlertAtHome(Group household) {
+        try {
+            return ActiveResponseResolver.hasOfficialAlert(riskProfileService.resolveFor(household));
+        } catch (RuntimeException e) {
+            // A risk-profile failure must not break the supply list; the zip
+            // bucket check below still runs.
+            return false;
         }
-        return owners.stream()
-                .anyMatch(owner -> !activationRepo.findActiveByOwnerEmail(owner, now).isEmpty());
-    }
-
-    private static void addEmail(Set<String> emails, String raw) {
-        if (raw == null) return;
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if (!normalized.isEmpty()) emails.add(normalized);
     }
 }
