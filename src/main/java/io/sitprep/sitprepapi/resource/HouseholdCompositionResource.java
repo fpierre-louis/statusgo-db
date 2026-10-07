@@ -27,6 +27,11 @@ import java.util.Map;
  *       optional (null = unchanged). 200 → the fresh composition. 409
  *       {@code BELOW_NAMED} when a band would count fewer than are named
  *       (body names the band, its {@code minimum} and what was {@code requested}).</li>
+ *   <li>{@code DELETE /api/households/{id}/composition/counts} — admins. "Reset
+ *       the household's plan numbers": deletes the household's demographic
+ *       row(s) and nothing else (named people/pets, accounts, claim links stay).
+ *       200 → the fresh composition ({@code planned:false}, counts = named
+ *       totals), same body as the PUT. 204 when there was no row (idempotent).</li>
  * </ul>
  */
 @RestController
@@ -68,5 +73,13 @@ public class HouseholdCompositionResource {
             out.put("requested", e.requested());
             return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
         }
+    }
+
+    @DeleteMapping("/counts")
+    public ResponseEntity<HouseholdCompositionDto> resetCounts(@PathVariable String householdId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanAdminHousehold(caller, householdId);
+        HouseholdCompositionDto fresh = service.resetCounts(householdId, caller);
+        return fresh == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(fresh);
     }
 }

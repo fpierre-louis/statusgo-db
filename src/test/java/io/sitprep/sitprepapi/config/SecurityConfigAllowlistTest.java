@@ -117,6 +117,7 @@ class SecurityConfigAllowlistTest {
             // and minting claim links need an account.
             "GET,  /api/households/hh-1/composition",
             "PUT,  /api/households/hh-1/composition/counts",
+            "DELETE, /api/households/hh-1/composition/counts",
             "POST, /api/households/hh-1/manual-members/m-1/claim-invite",
             "POST, /api/household-claims/does-not-exist/accept",
             "GET,  /api/groups/grp-1",

@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdManualMember;
 import io.sitprep.sitprepapi.domain.HouseholdMemberBand;
+import io.sitprep.sitprepapi.domain.HouseholdPet;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.HouseholdCompositionDto;
 import io.sitprep.sitprepapi.dto.HouseholdCompositionDto.Person;
@@ -19,6 +20,7 @@ import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdManualMemberRepo;
 import io.sitprep.sitprepapi.repo.HouseholdMemberBandRepo;
+import io.sitprep.sitprepapi.repo.HouseholdPetRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.HouseholdCompositionService.CountsBelowNamedException;
 import io.sitprep.sitprepapi.service.HouseholdCompositionService.CountsRequest;
@@ -40,10 +42,17 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
 
 /**
  * Household roster EXEC-B — the composition derivation and the write-time
@@ -61,6 +70,8 @@ class HouseholdCompositionTest {
     @Autowired DemographicRepo demographics;
     @Autowired HouseholdManualMemberRepo manualRepo;
     @Autowired HouseholdMemberBandRepo bandRepo;
+    @Autowired HouseholdPetRepo petRepo;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Autowired HouseholdCompositionService composition;
     @Autowired HouseholdManualMemberService manual;
@@ -69,6 +80,9 @@ class HouseholdCompositionTest {
     @Autowired DemographicService demographicService;
     @Autowired EssentialsReadinessService essentials;
     @Autowired MeService meService;
+    @Autowired HomeStockpileService stockpile;
+    @Autowired FoodPlanCalculatorService food;
+    @Autowired GoBagRecommendationService goBag;
 
     private String sfx;
 
@@ -581,6 +595,148 @@ class HouseholdCompositionTest {
                 .isEqualTo(5);
     }
 
+    // ── reset (DELETE …/composition/counts) ─────────────────────────────
+
+    @Test
+    void resetDeletesEveryRowOfThisHousehold_andNothingElse() {
+        String owner = email("owner"), b = email("b");
+        Group g = household(owner, owner, b);
+        manualRow(g.getGroupId(), "Kid", false, 4, null);
+        petRow(g.getGroupId(), "Rex", "Dog");
+        Demographic mine = demo(g.getGroupId(), 4, 1, 2, 1, 2, 1, 0);
+        mine.setAdminEmails(new ArrayList<>(List.of(owner)));   // its collection rows go with it
+        mine = demographics.save(mine);
+        Demographic mineToo = demo(g.getGroupId(), 3, 0, 1, 0, 1, 0, 0); // a second owner's row, same household
+        Group other = household(email("x"), email("x"));
+        Demographic theirs = demo(other.getGroupId(), 5, 0, 0, 0, 0, 0, 0);
+        Demographic legacy = demo(null, 2, 0, 0, 0, 0, 0, 0);            // owner-email-only, no household
+        legacy.setOwnerEmail(owner);
+        demographics.save(legacy);
+        long manualBefore = manualRepo.findByHouseholdIdOrderByCreatedAtAsc(g.getGroupId()).size();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM demographic_admin_emails WHERE demographic_id = ?",
+                Integer.class, mine.getId())).isEqualTo(1);
+        clearInvocations(ws);
+
+        HouseholdCompositionDto dto = composition.resetCounts(g.getGroupId(), owner);
+
+        assertThat(dto).isNotNull();
+        assertThat(dto.planned()).isFalse();
+        // Two accounts + one named kid + one named dog: the counts ARE the named totals.
+        assertThat(dto.counts()).isEqualTo(new HouseholdCompositionDto.Counts(2, 0, 1, 0, 1, 0, 0));
+        assertThat(dto.counts()).isEqualTo(dto.minimum());
+        assertThat(dto.summary().unnamed()).isZero();
+        assertThat(dto.summary().total()).isEqualTo(dto.summary().named()).isEqualTo(4);
+        assertThat(dto.people()).extracting(Person::kind)
+                .containsExactly(PersonKind.ACCOUNT, PersonKind.ACCOUNT, PersonKind.MANUAL);
+
+        assertThat(demographics.findByHouseholdId(g.getGroupId())).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM demographic_admin_emails WHERE demographic_id = ?",
+                Integer.class, mine.getId())).isZero();
+        assertThat(demographics.findAll()).extracting(Demographic::getId)
+                .doesNotContain(mine.getId(), mineToo.getId())
+                .contains(theirs.getId(), legacy.getId());
+        assertThat(demographics.findFirstByHouseholdIdOrderByIdDesc(other.getGroupId()).orElseThrow().getAdults())
+                .isEqualTo(5);
+        Demographic legacyAfter = demographics.findAll().stream()
+                .filter(d -> d.getId().equals(legacy.getId())).findFirst().orElseThrow();
+        assertThat(legacyAfter.getHouseholdId()).isNull();
+        assertThat(legacyAfter.getAdults()).isEqualTo(2);
+        // Named people, pets and the roster are untouched.
+        assertThat(manualRepo.findByHouseholdIdOrderByCreatedAtAsc(g.getGroupId())).hasSize((int) manualBefore);
+        assertThat(petRepo.findByHouseholdIdOrderByCreatedAtAsc(g.getGroupId())).hasSize(1);
+        assertThat(groups.findByGroupId(g.getGroupId()).orElseThrow().getMemberEmails()).containsExactly(owner, b);
+        // The same frame a counts write pushes (the FE refetches on type == "demographic").
+        verify(ws).sendHouseholdDemographic(eq(g.getGroupId()), argThat(f -> {
+            Map<?, ?> m = (Map<?, ?>) f;
+            return "demographic".equals(m.get("type")) && m.get("demographic") == null
+                    && Boolean.TRUE.equals(m.get("reset"));
+        }));
+        verify(ws, never()).sendHouseholdDemographic(eq(other.getGroupId()), any());
+    }
+
+    @Test
+    void resetIsIdempotent_aHouseholdWithNoRowIsANoOp() {
+        String owner = email("owner");
+        Group g = household(owner, owner);
+        demo(g.getGroupId(), 3, 0, 0, 0, 0, 0, 0);
+
+        assertThat(composition.resetCounts(g.getGroupId(), owner)).isNotNull();
+        clearInvocations(ws);
+        assertThat(composition.resetCounts(g.getGroupId(), owner)).isNull();
+        verify(ws, never()).sendHouseholdDemographic(any(), any());
+
+        String fresh = email("fresh");
+        Group pristine = household(fresh, fresh);
+        assertThat(composition.resetCounts(pristine.getGroupId(), fresh)).isNull();
+    }
+
+    @Test
+    void resetOfANonHouseholdIs404() {
+        assertThatThrownBy(() -> composition.resetCounts("no-such-" + sfx, email("o")))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void afterAReset_everyReaderBehavesLikeAHouseholdThatNeverSavedNumbers() {
+        // Two households with the same named roster: one saved numbers and was
+        // reset, the other never saved any.
+        String o1 = email("reset"), o2 = email("pristine");
+        Group reset = household(o1, o1);
+        Group pristine = household(o2, o2);
+        UserInfo u1 = user(o1, "Reset", null, reset.getGroupId());
+        UserInfo u2 = user(o2, "Never", null, pristine.getGroupId());
+        for (Group g : List.of(reset, pristine)) {
+            manualRow(g.getGroupId(), "Kid", false, 4, null);
+            petRow(g.getGroupId(), "Rex", "Dog");
+        }
+        composition.setCounts(reset.getGroupId(), new CountsRequest(3, 1, 2, 1, 1, 1, 0), o1);
+        assertThat(essentials.evaluate(group(reset), o1).demographics()).isTrue();
+        assertThat(meService.buildMe(u1.getFirebaseUid()).orElseThrow().me().household().demographic()).isNotNull();
+
+        composition.resetCounts(reset.getGroupId(), o1);
+
+        // Composition
+        HouseholdCompositionDto a = composition.compose(reset.getGroupId(), o1);
+        HouseholdCompositionDto b = composition.compose(pristine.getGroupId(), o2);
+        assertThat(a.planned()).isEqualTo(b.planned()).isFalse();
+        assertThat(a.counts()).isEqualTo(b.counts()).isEqualTo(a.minimum())
+                .isEqualTo(new HouseholdCompositionDto.Counts(1, 0, 1, 0, 1, 0, 0));
+        assertThat(a.summary()).isEqualTo(b.summary());
+        // /me — the demographic, the composition summary
+        MeDto.HouseholdDto meA = meService.buildMe(u1.getFirebaseUid()).orElseThrow().me().household();
+        MeDto.HouseholdDto meB = meService.buildMe(u2.getFirebaseUid()).orElseThrow().me().household();
+        assertThat(meA.demographic()).isNull();
+        assertThat(meB.demographic()).isNull();
+        assertThat(meA.composition()).isEqualTo(meB.composition());
+        // Essentials — "Household Demographics" is not done
+        assertThat(essentials.evaluate(group(reset), o1).demographics()).isFalse();
+        assertThat(essentials.evaluate(group(pristine), o2)).isEqualTo(essentials.evaluate(group(reset), o1));
+        // 14-day stockpile — the 1-person baseline
+        var sa = stockpile.getForHousehold(reset.getGroupId());
+        var sb = stockpile.getForHousehold(pristine.getGroupId());
+        assertThat(sa.persons()).isEqualTo(sb.persons()).isEqualTo(1);
+        assertThat(sa.categories()).isEqualTo(sb.categories());
+        // Food planner — zero demographic, same list
+        var fa = food.recommendForHousehold(reset.getGroupId());
+        var fb = food.recommendForHousehold(pristine.getGroupId());
+        assertThat(fa.demographic()).isEqualTo(fb.demographic());
+        assertThat(fa.demographic().persons()).isZero();
+        assertThat(fa.items()).isEqualTo(fb.items());
+        // Go-bag — "size the household first" (409), same as never sized
+        for (Group g : List.of(reset, pristine)) {
+            assertThatThrownBy(() -> goBag.recommendForHousehold(g.getGroupId(), false, false))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        }
+
+        // And the next add starts from who is named again: "one more kid" is {kids: 2}.
+        HouseholdCompositionDto again = composition.setCounts(reset.getGroupId(),
+                new CountsRequest(null, null, a.counts().kids() + 1, null, null, null, null), o1);
+        assertThat(again.planned()).isTrue();
+        assertThat(again.counts()).isEqualTo(new HouseholdCompositionDto.Counts(1, 0, 2, 0, 1, 0, 0));
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────
 
     private String email(String who) {
@@ -635,6 +791,19 @@ class HouseholdCompositionTest {
         m.setAge(age);
         m.setBand(band);
         return manualRepo.save(m);
+    }
+
+    private HouseholdPet petRow(String hid, String name, String species) {
+        HouseholdPet p = new HouseholdPet();
+        p.setId(UUID.randomUUID().toString());
+        p.setHouseholdId(hid);
+        p.setName(name);
+        p.setSpecies(species);
+        return petRepo.save(p);
+    }
+
+    private Group group(Group g) {
+        return groups.findByGroupId(g.getGroupId()).orElseThrow();
     }
 
     private String manualId(Group g, String name) {

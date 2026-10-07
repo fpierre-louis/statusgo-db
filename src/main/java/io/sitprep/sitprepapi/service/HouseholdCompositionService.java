@@ -387,6 +387,34 @@ public class HouseholdCompositionService {
         return compose(g, d, caller);
     }
 
+    /**
+     * Admin reset ({@code DELETE /api/households/{id}/composition/counts}) —
+     * "reset the household's plan numbers". Deletes every demographic row keyed
+     * to this household and nothing else: named people and pets, accounts,
+     * account bands, claim links and every other plan stay. A legacy row with no
+     * household key is never touched, nor is any other household's row.
+     *
+     * <p>Afterwards the household is exactly one that never answered "who are
+     * you planning for?": {@code planned=false}, counts = named totals (the
+     * invariant holds by construction), and every reader takes its no-row path.
+     * Pushes the same {@code /demographic} frame a counts write does (the FE
+     * treats it as a refetch signal), with {@code demographic: null}.</p>
+     *
+     * @return the fresh composition, or {@code null} when the household had no
+     *         row (nothing changed, nothing broadcast)
+     */
+    @Transactional
+    public HouseholdCompositionDto resetCounts(String householdId, String caller) {
+        Group g = household(householdId);
+        if (g == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Household not found");
+        List<Demographic> rows = demographicRepo.findByHouseholdId(g.getGroupId());
+        if (rows.isEmpty()) return null;
+        demographicRepo.deleteAll(rows);
+        demographicRepo.flush();
+        broadcast(g.getGroupId(), null);
+        return compose(g, null, caller);
+    }
+
     public record CountsRequest(Integer adults, Integer teens, Integer kids, Integer infants,
                                 Integer dogs, Integer cats, Integer otherPets) {}
 
@@ -577,9 +605,19 @@ public class HouseholdCompositionService {
     /** Save and push the new head count to the household's other devices after commit. */
     private void save(Demographic d) {
         Demographic saved = demographicRepo.save(d);
-        final String hid = saved.getHouseholdId();
+        broadcast(saved.getHouseholdId(), DemographicDto.from(saved));
+    }
+
+    /**
+     * The household's {@code /demographic} frame, after commit when a
+     * transaction is active. {@code demographic} is null after a reset.
+     */
+    private void broadcast(String hid, DemographicDto demographic) {
         if (hid == null || hid.isBlank()) return;
-        final Map<String, Object> frame = Map.of("type", "demographic", "demographic", DemographicDto.from(saved));
+        final Map<String, Object> frame = new HashMap<>();
+        frame.put("type", "demographic");
+        frame.put("demographic", demographic);
+        if (demographic == null) frame.put("reset", true);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { ws.sendHouseholdDemographic(hid, frame); }

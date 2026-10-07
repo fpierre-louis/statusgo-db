@@ -28,8 +28,9 @@ import java.util.List;
  *
  * @param version   wire version; bumped on a breaking shape change
  * @param planned   a demographic row exists (the household answered "who are
- *                  you planning for?"). False → {@code counts} are zeros and
- *                  only named rows are listed.
+ *                  you planning for?"). False → {@code counts} equal
+ *                  {@code minimum} (the named totals) and only named rows are
+ *                  listed — also the state after {@code DELETE …/composition/counts}.
  * @param counts    the plan demographic
  * @param minimum   per-band floor for a counts write: the named total in that
  *                  band. A write below it is 409.

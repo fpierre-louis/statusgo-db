@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.HouseholdCompositionDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.service.HouseholdCompositionService;
 import io.sitprep.sitprepapi.service.HouseholdCompositionService.CountsBelowNamedException;
@@ -42,6 +43,8 @@ class HouseholdCompositionResourceTest {
                 .requireCanReadHousehold(eq("outsider@x.com"), eq(HH));
         doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN)).when(access)
                 .requireCanAdminHousehold(eq("member@x.com"), eq(HH));
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN)).when(access)
+                .requireCanAdminHousehold(eq("outsider@x.com"), eq(HH));
     }
 
     @AfterEach
@@ -86,6 +89,51 @@ class HouseholdCompositionResourceTest {
         assertThat(body).containsEntry("band", "ADULT").containsEntry("minimum", 3).containsEntry("requested", 1);
         assertThat((String) body.get("message")).contains("3 named adults");
         assertThat(body.get("error").toString()).contains("BELOW_NAMED");
+    }
+
+    // ── DELETE …/composition/counts ─────────────────────────────────────
+
+    @Test
+    void anAdminResetReturns200WithTheFreshComposition() {
+        as("admin@x.com");
+        var named = new HouseholdCompositionDto.Counts(1, 0, 1, 0, 0, 0, 0);
+        HouseholdCompositionDto fresh = new HouseholdCompositionDto(HouseholdCompositionDto.VERSION, HH,
+                new HouseholdCompositionDto.Viewer("OWNER", true), false, named, named, List.of(), List.of(),
+                new HouseholdCompositionDto.Summary(2, 0, 2, 2, 0, 1, 1, 0));
+        when(service.resetCounts(HH, "admin@x.com")).thenReturn(fresh);
+        ResponseEntity<HouseholdCompositionDto> res = resource.resetCounts(HH);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res.getBody()).isSameAs(fresh);
+    }
+
+    @Test
+    void aResetWithNothingToDeleteIs204() {
+        as("admin@x.com");
+        when(service.resetCounts(HH, "admin@x.com")).thenReturn(null);
+        ResponseEntity<HouseholdCompositionDto> first = resource.resetCounts(HH);
+        ResponseEntity<HouseholdCompositionDto> second = resource.resetCounts(HH);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(second.getBody()).isNull();
+    }
+
+    @Test
+    void aMemberWhoIsNotAnAdminCannotReset() {
+        as("member@x.com");
+        assertThatThrownBy(() -> resource.resetCounts(HH)).isInstanceOfSatisfying(ResponseStatusException.class,
+                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(service, never()).resetCounts(anyString(), anyString());
+    }
+
+    @Test
+    void aNonMemberCannotReset_andAnonymousIs401() {
+        as("outsider@x.com");
+        assertThatThrownBy(() -> resource.resetCounts(HH)).isInstanceOfSatisfying(ResponseStatusException.class,
+                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        SecurityContextHolder.clearContext();
+        assertThatThrownBy(() -> resource.resetCounts(HH)).isInstanceOfSatisfying(ResponseStatusException.class,
+                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
+        verify(service, never()).resetCounts(anyString(), anyString());
     }
 
     private static void as(String email) {

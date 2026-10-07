@@ -46,6 +46,14 @@ public interface DemographicRepo extends JpaRepository<Demographic, String> {
     /** The household's demographic (Phase 2 household-scoped read). */
     Optional<Demographic> findFirstByHouseholdIdOrderByIdDesc(String householdId);
 
+    /**
+     * EVERY row keyed to this household ({@code WHERE household_id = ?}) — the
+     * set a counts reset deletes. Strictly household-scoped: SQL equality never
+     * matches a NULL household_id, so a legacy owner-email-only row is never in
+     * it, and no other household's row can be. Callers pass a non-blank id.
+     */
+    List<Demographic> findByHouseholdId(String householdId);
+
     // ✅ Admin Email – MEMBER OF collection field
     @Query("SELECT d FROM Demographic d WHERE :adminEmail MEMBER OF d.adminEmails")
     List<Demographic> findByAdminEmail(String adminEmail);
