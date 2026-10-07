@@ -202,6 +202,7 @@ public final class ReadinessCatalog {
                 .bands(TimeBand.MIN_5, CostBand.UNDER_10, EffortBand.ON_YOUR_OWN).priority(42)
                 .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "power_heat").provenance(SITPREP).build(items);
         b("supplies.first_aid", ReadinessArea.SUPPLIES, "A basic first aid kit")
+                .desc("Bandages, gauze, tape, pain relievers, and any medicines your household uses, kept in one box.")
                 .stockpile("stockpile-first-aid-kit")
                 .bands(TimeBand.MIN_10, CostBand.OPTIONAL_PURCHASE, EffortBand.ON_YOUR_OWN).priority(30)
                 .action(ReadinessAction.OPEN_HOME_STOCKPILE, "category", "medical").provenance(SITPREP).build(items);
@@ -226,11 +227,13 @@ public final class ReadinessCatalog {
                 .unfinishedAreaReason("Suggested because no one outside your area is on your contact list yet.")
                 .build(items);
         b("people.neighbor", ReadinessArea.PEOPLE, "Trade numbers with a neighbor")
+                .desc("Someone close by who can check on your home or your people when you can't get there.")
                 .contacts(ContactRule.NEIGHBOR)
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(44)
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "neighborCoordination")
                 .provenance(HOUSEHOLD_PLAN).build(items);
         b("people.extended_family", ReadinessArea.PEOPLE, "Add family or friends outside your home")
+                .desc("The relatives and friends you would want to hear from you, and who would want to know you're okay.")
                 .contacts(ContactRule.EXTENDED_FAMILY)
                 .bands(TimeBand.MIN_5, CostBand.FREE, EffortBand.ON_YOUR_OWN).priority(32)
                 .action(ReadinessAction.OPEN_EMERGENCY_CONTACTS, "intent", "extendedFamilyContacts")
@@ -250,6 +253,7 @@ public final class ReadinessCatalog {
                 .tags("wildfire", "hurricane")
                 .action(ReadinessAction.OPEN_EVACUATION_PLAN, "step", "routes").provenance(HOUSEHOLD_PLAN).build(items);
         b("evacuation.pet_plan", ReadinessArea.EVACUATION, "Plan where your pets can go")
+                .desc("Carriers, food, records, and a place that takes pets, sorted out ahead of time.")
                 .contacts(ContactRule.PET)
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(56)
                 .applicability(Applicability.PETS, "Suggested because your household includes pets.")
@@ -271,6 +275,7 @@ public final class ReadinessCatalog {
                 .action(ReadinessAction.OPEN_DRILL, "drillId", "contact-tree")
                 .provenance(HOUSEHOLD_PLAN).build(items);
         b("practice.plan_review", ReadinessArea.PRACTICE, "Review your plan together")
+                .desc("Sit down with your household and walk through who goes where and who calls whom.")
                 .planConfirmation()
                 .bands(TimeBand.MIN_10, CostBand.FREE, EffortBand.WITH_HOUSEHOLD).priority(28).review(180)
                 .action(ReadinessAction.OPEN_HOUSEHOLD_PLAN).provenance(HOUSEHOLD_PLAN).build(items);
