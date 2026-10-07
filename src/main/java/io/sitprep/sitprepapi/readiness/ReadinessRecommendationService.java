@@ -133,8 +133,7 @@ public class ReadinessRecommendationService {
         if (unfinished > best) {
             code = "UNFINISHED_AREA";
             text = item.unfinishedAreaReason() != null ? item.unfinishedAreaReason()
-                    : "Suggested because " + item.area().title().toLowerCase(Locale.ROOT)
-                        + " is one of your unfinished areas.";
+                    : "A good first step in " + item.area().title() + ".";
         }
         return new Scored(d, score, code, text);
     }
