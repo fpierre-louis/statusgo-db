@@ -176,7 +176,7 @@ public class PlanActivationService {
                 a.getContactIds().addAll(req.recipients().contactIds());
             }
             if (req.recipients().contactGroupIds() != null) {
-                a.getContactGroupIds().addAll(req.recipients().contactGroupIds());
+                a.getContactGroupIds().addAll(readableContactGroupIds(req.recipients().contactGroupIds(), ownerEmail));
             }
         }
 
@@ -1031,6 +1031,38 @@ public class PlanActivationService {
                         "Referenced starting point does not belong to you");
             }
         });
+    }
+
+    /**
+     * SECURITY (IDOR guard, EXEC-A1 2026-10-07). Contact group ids are sequential
+     * {@code @GeneratedValue} Longs, and the activation's detail snapshot returns
+     * every contact's phone, email, address and medical notes to the owner and
+     * their household — so an unchecked id let any signed-in user read another
+     * family's contacts back through their own activation. Keep only groups the
+     * owner can already read: their own, a household co-member's
+     * ({@link HouseholdAccessService#canReadPlanDataFor}), or one stamped with a
+     * household the owner belongs to (the household-first list /me/plans hands
+     * the client). Unreadable ids are DROPPED, not rejected: unlike the meeting
+     * place, they are attached automatically, and a stale id on a device must
+     * never stop an emergency activation.
+     */
+    private List<Long> readableContactGroupIds(List<Long> requested, String ownerEmail) {
+        List<Long> wanted = requested.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (wanted.isEmpty()) return List.of();
+        java.util.Set<Long> readable = new java.util.HashSet<>();
+        for (EmergencyContactGroup g : emergencyContactGroupRepo.findAllById(wanted)) {
+            if (g == null || g.getId() == null) continue;
+            if (householdAccess.canReadPlanDataFor(ownerEmail, g.getOwnerEmail())
+                    || (g.getHouseholdId() != null && householdAccess.canReadHousehold(ownerEmail, g.getHouseholdId()))) {
+                readable.add(g.getId());
+            }
+        }
+        List<Long> kept = wanted.stream().filter(readable::contains).toList();
+        if (kept.size() < wanted.size()) {
+            log.warn("Activation by {} dropped {} contact group id(s) the owner cannot read",
+                    ownerEmail, wanted.size() - kept.size());
+        }
+        return kept;
     }
 
     private void assertEvacPlanOwned(Long evacPlanId, String ownerEmail) {
