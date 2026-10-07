@@ -87,29 +87,21 @@ public class AlertPresetService {
 
     static final List<Preset> PRESETS = List.of(
             new Preset("BALANCED", "Balanced",
-                    "Every warning and household alert, plus the updates that keep a plan moving: "
-                            + "acknowledgments, task assignments, join requests, and drill reminders.",
-                    "Weather, earthquake, and wildfire warnings, plan activations, and household alerts stay on. "
-                            + "Quiet hours are off, so they can reach you at any hour.",
+                    "Every warning and household alert, plus plan updates, tasks, and drill reminders.",
+                    "Safety alerts can reach you at any hour.",
                     floor(T, T, T, T, F, null, null), false),
             new Preset("HAZARD_AWARE", "Hazard aware",
-                    "Official warnings and household alerts first, with fewer coordination pings. "
-                            + "Acknowledgment, task, and join-request notifications are off; drill reminders stay on.",
-                    "Weather, earthquake, and wildfire warnings, plan activations, and household alerts stay on, "
-                            + "and quiet hours are off so they can reach you at any hour. Acknowledgment, task, and "
-                            + "join-request notifications are not sent at all, not even to your inbox.",
+                    "Warnings and household alerts first, with fewer coordination pings.",
+                    "Acknowledgment, task, and join-request notifications are turned off, including in your inbox.",
                     floor(F, F, F, T, F, null, null), false),
             new Preset("HOUSEHOLD_FOCUS", "Household focus",
-                    "Every household and plan update, including acknowledgments, tasks, and join requests, "
-                            + "without weekly practice reminders.",
-                    "Household alerts and plan activations stay on alongside weather, earthquake, and wildfire "
-                            + "warnings. Quiet hours are off, so they can reach you at any hour.",
+                    "Every household and plan update, without weekly practice reminders.",
+                    "Safety alerts can reach you at any hour.",
                     floor(T, T, T, F, F, null, null), false),
             new Preset("QUIET_HOURS", "Quiet hours",
-                    "Quiet from 9 PM to 7 AM in your time zone. Acknowledgment updates and drill reminders are turned off.",
-                    "Severe weather warnings, major earthquakes, plan activations, and household alerts still come "
-                            + "through. Wildfire warnings and other notifications stay silent overnight; messages and "
-                            + "requests from your people wait in your inbox.",
+                    "Quiet from 9 PM to 7 AM. Acknowledgments and drill reminders are off.",
+                    "Severe weather, major earthquakes, plan activations, and household alerts still come "
+                            + "through. Wildfire warnings and other alerts stay silent overnight.",
                     floor(F, null, null, F, T, LocalTime.of(21, 0), LocalTime.of(7, 0)), true));
 
     private final PushPolicyService pushPolicy;
