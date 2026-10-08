@@ -125,6 +125,28 @@ class PracticeAvailabilityServiceTest {
     }
 
     @Test
+    void previewFlagIsHonoredOnlyInAPreviewEnvironment() {
+        assertThat(PracticeAvailabilityService.previewAllowed(false, new String[]{"local"})).isFalse();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{})).isFalse();      // Heroku today
+        assertThat(PracticeAvailabilityService.previewAllowed(true, null)).isFalse();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{"staging"})).isFalse();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{"local", "prod"})).isFalse();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{"production", "practice-preview"})).isFalse();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{"local"})).isTrue();
+        assertThat(PracticeAvailabilityService.previewAllowed(true, new String[]{"practice-preview"})).isTrue();
+    }
+
+    @Test
+    void theSpringConstructorAppliesTheGuard() {
+        var env = new org.springframework.mock.env.MockEnvironment();
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, env).previewActive()).isFalse();
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, env).checkStart("wip").denial())
+                .isEqualTo(StartDenial.NOT_PUBLISHED);
+        env.setActiveProfiles("local");
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, env).previewActive()).isTrue();
+    }
+
+    @Test
     void disableAndEnableRecordWhoAndWhy() {
         PracticeAvailabilityService s = service(true, false);
         PracticeContentControl c = s.disable("live", "unsafe wording", "mod@example.com");

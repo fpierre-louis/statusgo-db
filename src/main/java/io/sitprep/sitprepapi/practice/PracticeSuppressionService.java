@@ -141,7 +141,7 @@ public class PracticeSuppressionService {
 
     private static Suppression unverified() {
         return new Suppression(Reason.UNVERIFIED, "Practice is paused for a moment",
-                "We couldn't confirm things are calm right now. Try again in a minute.",
+                "SitPrep can't confirm the current safety situation right now.",
                 null, Map.of());
     }
 }

@@ -30,9 +30,9 @@ import java.util.List;
  *   <li>{@code DELETE /api/admin/practice/content/{key}/disable} — back in service</li>
  * </ul>
  *
- * <p>Gated by {@link PlatformPermission#MODERATE_REPORTS}: pulling unsafe
- * content is a moderation act, and reusing the existing permission keeps the
- * FE {@code platformRoles.js} mirror unchanged. The break-glass
+ * <p>Gated by {@link PlatformPermission#MANAGE_PRACTICE_CONTENT}, which only
+ * SUPER_ADMIN holds by default: whoever moderates a reported comment does not
+ * thereby get authority over safety-reviewed preparedness content. The break-glass
  * {@code X-Sitprep-Admin-Token} works here as on every admin route, so the
  * switch can be thrown even when no console admin is at hand.</p>
  */
@@ -42,7 +42,7 @@ public class PracticeAdminResource {
 
     public record DisableRequest(String reason) {}
 
-    public record StatusResponse(boolean practiceEnabled, List<ContentStatus> content,
+    public record StatusResponse(boolean practiceEnabled, boolean previewActive, List<ContentStatus> content,
                                  List<PracticeCatalog.Rejected> rejected) {}
 
     public record ControlResponse(String key, boolean disabled, Instant disabledAt,
@@ -60,8 +60,8 @@ public class PracticeAdminResource {
     @GetMapping
     public ResponseEntity<StatusResponse> status(
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token) {
-        requireModerator(token);
-        return ResponseEntity.ok(new StatusResponse(availability.practiceEnabled(),
+        requireContentManager(token);
+        return ResponseEntity.ok(new StatusResponse(availability.practiceEnabled(), availability.previewActive(),
                 availability.statusList(), availability.rejected()));
     }
 
@@ -70,7 +70,7 @@ public class PracticeAdminResource {
             @PathVariable String key,
             @RequestBody(required = false) DisableRequest body,
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token) {
-        var access = requireModerator(token);
+        var access = requireContentManager(token);
         validateKey(key);
         String reason = body == null || body.reason() == null ? "" : body.reason().trim();
         if (reason.isEmpty() || reason.length() > 500) {
@@ -84,16 +84,16 @@ public class PracticeAdminResource {
     public ResponseEntity<ControlResponse> enable(
             @PathVariable String key,
             @RequestHeader(value = "X-Sitprep-Admin-Token", required = false) String token) {
-        var access = requireModerator(token);
+        var access = requireContentManager(token);
         validateKey(key);
         return availability.enable(key, access.auditActorEmail())
                 .map(c -> ResponseEntity.ok(toResponse(c)))
                 .orElseGet(() -> ResponseEntity.ok(new ControlResponse(key, false, null, null, null)));
     }
 
-    private PlatformAccessService.PlatformAccess requireModerator(String token) {
+    private PlatformAccessService.PlatformAccess requireContentManager(String token) {
         var access = platformAccessService.resolveForRequest(AuthUtils.getCurrentUserEmail(), token);
-        access.require(PlatformPermission.MODERATE_REPORTS);
+        access.require(PlatformPermission.MANAGE_PRACTICE_CONTENT);
         return access;
     }
 

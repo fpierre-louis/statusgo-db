@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.practice;
 
+import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.PlatformAdmin;
 import io.sitprep.sitprepapi.repo.PlatformAdminRepo;
@@ -28,12 +29,15 @@ import static org.mockito.Mockito.when;
 
 /**
  * The kill switch is an operator control: 401 without a session, 403 without
- * MODERATE_REPORTS, and the break-glass token works. Uses the real
+ * MANAGE_PRACTICE_CONTENT (a report moderator does not inherit it), and the
+ * break-glass token works. Uses the real
  * {@link PlatformAccessService} over a mocked admin table.
  */
 class PracticeAdminResourceTest {
 
-    private static final String MOD = "mod@example.com";
+    private static final String MOD = "mod@example.com";           // extra grant MANAGE_PRACTICE_CONTENT
+    private static final String REPORTS = "reports@example.com";   // ADMIN: MODERATE_REPORTS, no grant
+    private static final String SUPER = "super@example.com";
     private static final String USER = "neighbor@example.com";
     private static final String BREAK_GLASS = "s3cret-token";
 
@@ -45,8 +49,17 @@ class PracticeAdminResourceTest {
         PlatformAdminRepo admins = mock(PlatformAdminRepo.class);
         PlatformAdmin moderator = new PlatformAdmin();
         moderator.setEmail(MOD);
-        moderator.setRole(PlatformRole.ADMIN); // ADMIN carries MODERATE_REPORTS
+        moderator.setRole(PlatformRole.CONSULTANT);
+        moderator.setExtraGrants(java.util.EnumSet.of(PlatformPermission.MANAGE_PRACTICE_CONTENT));
         when(admins.findByEmailIgnoreCaseAndActiveTrue(MOD)).thenReturn(Optional.of(moderator));
+        PlatformAdmin reports = new PlatformAdmin();
+        reports.setEmail(REPORTS);
+        reports.setRole(PlatformRole.ADMIN); // carries MODERATE_REPORTS, not practice content
+        when(admins.findByEmailIgnoreCaseAndActiveTrue(REPORTS)).thenReturn(Optional.of(reports));
+        PlatformAdmin superAdmin = new PlatformAdmin();
+        superAdmin.setEmail(SUPER);
+        superAdmin.setRole(PlatformRole.SUPER_ADMIN);
+        when(admins.findByEmailIgnoreCaseAndActiveTrue(SUPER)).thenReturn(Optional.of(superAdmin));
         when(admins.findByEmailIgnoreCaseAndActiveTrue(USER)).thenReturn(Optional.empty());
 
         controls = mock(PracticeContentControlRepo.class);
@@ -55,7 +68,7 @@ class PracticeAdminResourceTest {
         when(controls.save(any())).thenAnswer(i -> i.getArgument(0));
 
         PracticeCatalog catalog = PracticeCatalog.of(List.of(version(approve(scenario("live", 1), PublishState.PUBLISHED))));
-        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, false);
+        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, false, java.time.Clock.systemUTC());
         resource = new PracticeAdminResource(availability, new PlatformAccessService(admins, BREAK_GLASS));
     }
 
@@ -93,6 +106,23 @@ class PracticeAdminResourceTest {
                 .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(statusOf(() -> resource.enable("live", null))).isEqualTo(HttpStatus.FORBIDDEN);
         verify(controls, never()).save(any());
+    }
+
+    @Test
+    void reportModerationDoesNotGrantPracticeContent() {
+        assertThat(PlatformRole.ADMIN.has(PlatformPermission.MANAGE_PRACTICE_CONTENT)).isFalse();
+        assertThat(PlatformRole.CONSULTANT.has(PlatformPermission.MANAGE_PRACTICE_CONTENT)).isFalse();
+        signIn(REPORTS);
+        assertThat(statusOf(() -> resource.status(null))).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(statusOf(() -> resource.disable("live", new PracticeAdminResource.DisableRequest("x"), null)))
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        verify(controls, never()).save(any());
+    }
+
+    @Test
+    void superAdminHoldsItByDefault() {
+        signIn(SUPER);
+        assertThat(statusOf(() -> resource.status(null))).isEqualTo(HttpStatus.OK);
     }
 
     @Test

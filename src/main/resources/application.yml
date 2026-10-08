@@ -128,8 +128,10 @@ app:
     # Per-key switches live in practice_content_control (admin endpoint).
     enabled: ${PRACTICE_ENABLED:true}
     # Local review only: lets DRAFT / SAFETY_REVIEWED content be started,
-    # flagged `preview`. Never set in production — only PUBLISHED content,
-    # with an approved safety review pinned to its hash, belongs there.
+    # flagged `preview`. Honored ONLY with a `local`, `test` or
+    # `practice-preview` profile and no `prod`/`production` profile
+    # (PracticeAvailabilityService.previewAllowed) — anywhere else it is
+    # ignored and logged at ERROR, so production never serves DRAFT content.
     include-unpublished: ${PRACTICE_INCLUDE_UNPUBLISHED:false}
 
 # --- ALERTS (NWS / USGS / FEMA ingest + zone resolution) ---

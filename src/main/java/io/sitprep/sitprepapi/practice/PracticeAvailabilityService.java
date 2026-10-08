@@ -1,18 +1,23 @@
 package io.sitprep.sitprepapi.practice;
 
 import io.sitprep.sitprepapi.practice.PracticeContent.Version;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * THE answer to "may this Practice content be used right now?" — every
@@ -34,6 +39,14 @@ import java.util.Optional;
  */
 @Service
 public class PracticeAvailabilityService {
+
+    private static final Logger log = LoggerFactory.getLogger(PracticeAvailabilityService.class);
+
+    /** Profiles where unreviewed (DRAFT / SAFETY_REVIEWED) content may be previewed. */
+    static final Set<String> PREVIEW_PROFILES = Set.of("local", "test", "practice-preview");
+
+    /** Profiles that veto preview outright, even alongside an allowed one. */
+    static final Set<String> PRODUCTION_PROFILES = Set.of("prod", "production");
 
     /** A startable catalog entry. {@code preview} = not yet PUBLISHED (local review only). */
     public record Entry(Version version, boolean preview) {}
@@ -77,8 +90,36 @@ public class PracticeAvailabilityService {
     public PracticeAvailabilityService(PracticeCatalog catalog,
                                        PracticeContentControlRepo controlRepo,
                                        @Value("${app.practice.enabled:true}") boolean enabled,
-                                       @Value("${app.practice.include-unpublished:false}") boolean includeUnpublished) {
-        this(catalog, controlRepo, enabled, includeUnpublished, Clock.systemUTC());
+                                       @Value("${app.practice.include-unpublished:false}") boolean includeUnpublished,
+                                       Environment environment) {
+        this(catalog, controlRepo, enabled,
+                previewAllowed(includeUnpublished, environment.getActiveProfiles()), Clock.systemUTC());
+    }
+
+    /**
+     * The structural guard on {@code PRACTICE_INCLUDE_UNPUBLISHED} (owner review
+     * 2026-10-08): DRAFT means not approved, so "nobody will set this in
+     * production" is not a boundary. The flag counts only when an allowlisted
+     * preview profile is active and no production profile is. Heroku runs with
+     * neither, so a stray config var there is ignored — loudly.
+     */
+    static boolean previewAllowed(boolean flag, String[] activeProfiles) {
+        if (!flag) return false;
+        Set<String> profiles = Set.copyOf(Arrays.asList(activeProfiles == null ? new String[0] : activeProfiles));
+        boolean production = profiles.stream().anyMatch(PRODUCTION_PROFILES::contains);
+        boolean preview = profiles.stream().anyMatch(PREVIEW_PROFILES::contains);
+        if (production || !preview) {
+            log.error("PRACTICE_INCLUDE_UNPUBLISHED is set but active profiles {} are not a preview environment; "
+                    + "IGNORED. Unreviewed practice content stays unavailable.", profiles);
+            return false;
+        }
+        log.warn("Practice preview ON (profiles {}): DRAFT / SAFETY_REVIEWED content is startable.", profiles);
+        return true;
+    }
+
+    /** Is unreviewed content startable here (after the profile guard)? */
+    public boolean previewActive() {
+        return includeUnpublished;
     }
 
     PracticeAvailabilityService(PracticeCatalog catalog, PracticeContentControlRepo controlRepo,

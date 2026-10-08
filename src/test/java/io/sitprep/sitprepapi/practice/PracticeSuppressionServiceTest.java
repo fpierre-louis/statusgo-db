@@ -96,7 +96,12 @@ class PracticeSuppressionServiceTest {
     @Test
     void unreadableRiskProfileFailsClosed() {
         when(risk.resolveFor(household)).thenThrow(new IllegalStateException("alerts feed down"));
-        assertThat(service.check(HH, ME)).map(PracticeSuppressionService.Suppression::reason).contains(Reason.UNVERIFIED);
+        var s = service.check(HH, ME).orElseThrow();
+        assertThat(s.reason()).isEqualTo(Reason.UNVERIFIED);
+        // Truthful: an unknown is never presented as a known emergency, and has no live link to offer.
+        assertThat(s.title()).isEqualTo("Practice is paused for a moment");
+        assertThat(s.detail()).isEqualTo("SitPrep can't confirm the current safety situation right now.");
+        assertThat(s.action()).isNull();
     }
 
     @Test

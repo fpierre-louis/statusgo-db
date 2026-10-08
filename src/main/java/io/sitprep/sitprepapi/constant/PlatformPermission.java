@@ -16,5 +16,13 @@ public enum PlatformPermission {
     MANAGE_BILLING,
     VIEW_METRICS,
     MANAGE_ADMINS,
-    VIEW_PII
+    VIEW_PII,
+    /**
+     * Enable / disable safety-reviewed Practice content (the kill switch at
+     * /api/admin/practice/content). Deliberately NOT in any role's defaults
+     * but SUPER_ADMIN's: moderating a reported comment is not authority over
+     * life-safety educational content (owner review 2026-10-08). Grant it
+     * explicitly as an extra grant.
+     */
+    MANAGE_PRACTICE_CONTENT
 }
