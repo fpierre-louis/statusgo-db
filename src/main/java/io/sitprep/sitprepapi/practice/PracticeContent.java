@@ -77,9 +77,11 @@ public final class PracticeContent {
 
     /**
      * Debrief copy for one tag. {@code action} is the next family step a
-     * "Worth practicing" tag points at (a {@link PracticeActions#ALLOWED} editor).
+     * "Worth practicing" tag points at (a {@link PracticeActions#ALLOWED} editor);
+     * {@code params} narrow it (e.g. {@code intent=outOfTownContact}) and are
+     * passed to the FE action map verbatim.
      */
-    public record TagCopy(String text, ReadinessAction action) {}
+    public record TagCopy(String text, ReadinessAction action, Map<String, String> params) {}
 
     /** A choose-your-path graph: nodes ask, choices move, outcomes end. Acyclic. */
     public record Scenario(
@@ -111,7 +113,8 @@ public final class PracticeContent {
             String key,
             String title,
             String body,
-            ReadinessAction defaultAction) {}
+            ReadinessAction defaultAction,
+            Map<String, String> defaultParams) {}
 
     /**
      * A loaded, hashed version. {@code resourcePath} is where it came from,

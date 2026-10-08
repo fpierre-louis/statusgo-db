@@ -187,6 +187,7 @@ public final class PracticeContentValidator {
                     errors.add(where + ": tag " + e.getKey() + " action " + copy.action()
                             + " is not a preparedness editor (PracticeActions.ALLOWED)");
                 }
+                validateParams(copy.params(), copy.action(), where + ": tag " + e.getKey(), errors);
             }
         }
 
@@ -210,6 +211,20 @@ public final class PracticeContentValidator {
             }
         }
     }
+
+    /** Action params: short identifier-like strings only, and only alongside an action. */
+    private static void validateParams(Map<String, String> params, Object action, String at, List<String> errors) {
+        if (params == null || params.isEmpty()) return;
+        if (action == null) errors.add(at + " has params but no action");
+        for (Map.Entry<String, String> p : params.entrySet()) {
+            if (p.getKey() == null || !PARAM.matcher(p.getKey()).matches()
+                    || p.getValue() == null || !PARAM.matcher(p.getValue()).matches()) {
+                errors.add(at + " param " + p.getKey() + " must be a short identifier");
+            }
+        }
+    }
+
+    static final Pattern PARAM = Pattern.compile("^[A-Za-z][A-Za-z0-9_-]{0,63}$");
 
     // ------------------------------------------------------------------
     // Scenario graph
@@ -244,6 +259,7 @@ public final class PracticeContentValidator {
             if (!PracticeActions.allowed(o.defaultAction())) {
                 errors.add(where + ": outcome " + o.key() + " needs a defaultAction from PracticeActions.ALLOWED");
             }
+            validateParams(o.defaultParams(), o.defaultAction(), where + ": outcome " + o.key(), errors);
         }
 
         if (s.startNode() == null || !nodeByKey.containsKey(s.startNode())) {

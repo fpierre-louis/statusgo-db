@@ -147,6 +147,21 @@ class PracticeContentValidatorTest {
     }
 
     @Test
+    void actionParamsAreShortIdentifiersOnly() {
+        ObjectNode ok = scenario("k", 1);
+        ((ObjectNode) content(ok).get("tags").get("needs_contact_review")).putObject("params").put("intent", "outOfTownContact");
+        assertThat(errors(ok)).isEmpty();
+
+        ObjectNode bad = scenario("k", 1);
+        ((ObjectNode) content(bad).get("tags").get("needs_contact_review")).putObject("params").put("intent", "../../admin?x=1");
+        assertRejected(bad, "must be a short identifier");
+
+        ObjectNode orphan = scenario("k", 1);
+        ((ObjectNode) content(orphan).get("tags").get("communicated_clearly")).putObject("params").put("intent", "x");
+        assertRejected(orphan, "has params but no action");
+    }
+
+    @Test
     void choiceTagWithoutCopy() {
         ObjectNode r = scenario("k", 1);
         ((ArrayNode) choiceAt(r, 0, 0).get("tags")).add("used_household_plan");
