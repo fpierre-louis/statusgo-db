@@ -165,10 +165,14 @@ public class GroupViewService {
                         && alertAreas != null
                         ? alertAreas.activeAreas()
                         : null;
+        Instant checkInStartedAt = alertActive ? g.getAlertActivatedAt() : null;
+        Instant checkInEndsAt = checkInEndsAt(g);
+        Instant now = Instant.now();
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
                         g.getGroupId(), g.getGroupType(), alertActive,
+                        checkInStartedAt, checkInEndsAt, now,
                         askedAt.get(normalize(email)),
                         dispatch.get(normalize(email)),
                         currentPlaces, includePhones, activeAreas))
@@ -369,6 +373,9 @@ public class GroupViewService {
     MemberSummary toMemberSummary(String email, UserInfo u,
                                   String groupId, String groupType,
                                   boolean alertActive,
+                                  Instant checkInStartedAt,
+                                  Instant checkInEndsAt,
+                                  Instant now,
                                   Instant checkInRequestedAt,
                                   GroupMemberViewDto.DispatchOutcome dispatch,
                                   Map<Long, UserSavedLocation> currentPlaces,
@@ -380,12 +387,17 @@ public class GroupViewService {
         if (u == null) {
             return new MemberSummary(normalize(email), null, null, null, null,
                     null, null, null, null, checkInRequestedAt, dispatchWire,
-                    null, null, null, null, null, null);
+                    null, null, null, null, null, null,
+                    CheckInState.of(checkInRequestedAt, null, null, null,
+                            alertActive, checkInStartedAt, checkInEndsAt, now));
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
                 statusSetByName(u)
         );
+        CheckIn checkIn = CheckInState.of(checkInRequestedAt,
+                status.value(), status.updatedAt(), status.setByName(),
+                alertActive, checkInStartedAt, checkInEndsAt, now);
 
         // Gate live location on the member's per-group sharing pref +
         // current alert state. When the gate denies, lat/lng/at are null;
@@ -441,7 +453,8 @@ public class GroupViewService {
                 locationSource,
                 locationAccuracyM,
                 includePhone ? blankToNull(u.getPhone()) : null,
-                inAlertIds
+                inAlertIds,
+                checkIn
         );
     }
 

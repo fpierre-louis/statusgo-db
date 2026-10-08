@@ -209,7 +209,37 @@ public record GroupMemberViewDto(
              * lookup is queued). Never {@code []} on unknown: that would say
              * "inside nothing" about a place nobody checked.
              */
-            List<String> inAlertIds
+            List<String> inAlertIds,
+
+            /**
+             * The row's ask-and-answer state, shaped by the server so no client
+             * re-derives 24 hours (household drawer gameplan §5.3). Never null.
+             * See {@link CheckIn} and {@code service.CheckInState}.
+             */
+            CheckIn checkIn
+    ) {}
+
+    /**
+     * "Were they asked, and what did they say" for one roster row.
+     *
+     * @param state      {@code NONE} | {@code AWAITING} | {@code ANSWERED}
+     * @param askedAt    the latest ask in the current window; null when none
+     * @param answeredAt when the shown status was written; null unless ANSWERED
+     * @param value      {@code SAFE} | {@code HELP} | {@code INJURED}; null unless ANSWERED
+     * @param setByName  who answered FOR them; null for a self-report or unless ANSWERED
+     * @param showUntil  when the row falls back (AWAITING → NONE, SAFE → NONE).
+     *                   <b>Null with ANSWERED means it never lapses</b> — the
+     *                   value is INJURED or HELP, which always outranks a new
+     *                   ask. Null with NONE means there is nothing to expire.
+     *                   During a running check-in it is the check-in's end.
+     */
+    public record CheckIn(
+            String state,
+            Instant askedAt,
+            Instant answeredAt,
+            String value,
+            String setByName,
+            Instant showUntil
     ) {}
 
     /**
