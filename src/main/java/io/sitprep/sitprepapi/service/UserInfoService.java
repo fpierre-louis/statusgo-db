@@ -801,6 +801,9 @@ public class UserInfoService {
         // Capture pre-patch userStatus so we can fire a status-changed event
         // after a successful save when (and only when) it actually changed.
         String oldUserStatus = userInfo.getUserStatus();
+        // …and when it was last written, so the event knows whether this
+        // write answers an ask (an ask is open only if it came after that).
+        final Instant oldStatusAt = userInfo.getUserStatusLastUpdated();
 
         // Judge EVERY key before writing ANY — a refused field must not leave
         // the allowed ones half-applied. Checked here, outside the reflective
@@ -866,7 +869,7 @@ public class UserInfoService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    householdEventService.recordStatusChangedForActor(actorEmail, committedStatus);
+                    householdEventService.recordSelfStatusWrite(actorEmail, committedStatus, true, oldStatusAt);
                 }
             });
         }

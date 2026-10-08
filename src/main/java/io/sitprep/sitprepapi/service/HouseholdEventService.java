@@ -163,17 +163,9 @@ public class HouseholdEventService {
     // ---------------------------------------------------------------------
 
     /**
-     * Record a status change for one user across every household they
-     * belong to. The frontend's chat surface lives on the household page,
-     * so the same status update flows into 0, 1, or N household feeds
-     * depending on the user's group memberships.
-     */
-    public void recordStatusChangedForActor(String actorEmail, String newStatus) {
-        recordSelfStatusWrite(actorEmail, newStatus, true, null);
-    }
-
-    /**
-     * One self-report, changed or not.
+     * One self-report, changed or not, across every household the user
+     * belongs to — the chat surface lives on the household page, so the same
+     * write flows into 0, 1, or N household feeds.
      *
      * <p>A write that ANSWERS an open ask is a reply even when the value is the
      * same — a SAFE member asked "are you ok?" who says SAFE again has
@@ -183,7 +175,9 @@ public class HouseholdEventService {
      * Safe twice is not two rows.</p>
      *
      * @param previousStatusAt when the status was last written before this
-     *        write — an ask is open only if it came after that
+     *        write — an ask is open only if it came after that. Null means
+     *        never written, so any ask in the window is open: callers pass
+     *        the real prior time, never null for "unknown".
      */
     public void recordSelfStatusWrite(String actorEmail, String newStatus,
                                       boolean valueChanged, Instant previousStatusAt) {
@@ -229,16 +223,11 @@ public class HouseholdEventService {
      * <p>Written into every household the SUBJECT belongs to — the audience
      * that needs it is the people reading that person's status, not the
      * admin's own households.</p>
-     */
-    public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus) {
-        recordStatusSetForMember(actorEmail, subjectEmail, newStatus, true, null);
-    }
-
-    /**
-     * A proxy write, changed or not. Same rule as {@link #recordSelfStatusWrite}
-     * — an admin answering an open ask for someone (SAFE while already SAFE) is
+     *
+     * <p>Changed or not — same rule as {@link #recordSelfStatusWrite}: an
+     * admin answering an open ask for someone (SAFE while already SAFE) is
      * worth a row; re-saving an unchanged status with no ask is not — but the
-     * sentence stays {@code status-set-for}: "Maya replied" is still false.
+     * sentence stays {@code status-set-for}: "Maya replied" is still false.</p>
      */
     public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus,
                                          boolean valueChanged, Instant previousStatusAt) {

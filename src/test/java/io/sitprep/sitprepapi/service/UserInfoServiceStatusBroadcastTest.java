@@ -10,6 +10,8 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -166,5 +168,31 @@ class UserInfoServiceStatusBroadcastTest {
         recorder.recordSelfStatusWrite(MAYA, "HELP", true, EARLIER);
 
         assertEquals(HouseholdEventService.KIND_STATUS_CHANGED, savedKind());
+    }
+
+    @Test
+    void aChangedValueAfterAnAnsweredAskIsStatusChangedNotAReply() {
+        realRecorder();
+        // Asked, answered SAFE an hour later (EARLIER), now HELP: no ask is open.
+        when(asks.askedAt(calmHousehold, MAYA)).thenReturn(EARLIER.minus(Duration.ofHours(1)));
+
+        recorder.recordSelfStatusWrite(MAYA, "HELP", true, EARLIER);
+
+        assertEquals(HouseholdEventService.KIND_STATUS_CHANGED, savedKind());
+    }
+
+    @Test
+    void theLegacyPatchPathPassesThePriorWriteTime() {
+        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.patchUserById("u-maya", java.util.Map.of("userStatus", "HELP"));
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        // Not null: an unknown prior write time would make any ask look open.
+        verify(events).recordSelfStatusWrite(MAYA, "HELP", true, EARLIER);
     }
 }

@@ -321,6 +321,15 @@ public class GroupService {
     }
 
     /**
+     * The same rollup for a group already in hand — the scheduled reminder's
+     * tally reads it, so the push says what /check-in-rollup and the drawer
+     * say (manual members included).
+     */
+    public CheckInRollupDto checkInRollupFor(Group group) {
+        return buildCheckInRollup(group);
+    }
+
+    /**
      * Nudge only members who have not checked in since the current active
      * alert started. This is the targeted follow-up behind the admin rollup
      * card: first review who is missing, then ping only the missing people.

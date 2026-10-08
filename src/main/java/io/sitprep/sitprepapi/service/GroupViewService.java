@@ -165,7 +165,9 @@ public class GroupViewService {
                         && alertAreas != null
                         ? alertAreas.activeAreas()
                         : null;
-        Instant checkInStartedAt = alertActive ? g.getAlertActivatedAt() : null;
+        // The rollup's anchor (updatedAt for a check-in opened before
+        // alertActivatedAt existed), so a row's ANSWERED and the count agree.
+        Instant checkInStartedAt = alertActive ? StatusRollups.anchorFor(g) : null;
         Instant checkInEndsAt = checkInEndsAt(g);
         Instant now = Instant.now();
         List<MemberSummary> members = memberEmails.stream()

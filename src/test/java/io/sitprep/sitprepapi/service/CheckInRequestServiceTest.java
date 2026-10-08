@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -162,6 +163,26 @@ class CheckInRequestServiceTest {
 
         assertThat(asked).containsKey("a@probe.app");
         assertThat(asked).doesNotContainKey("b@probe.app");
+    }
+
+    @Test
+    void askedAtForOnePersonIgnoresAnAskFromAnEarlierWindow() {
+        // An ask from before this check-in opened is not an ask in it — the
+        // status write that follows must not read it as open.
+        Instant earlierWindow = ACTIVATED.minus(Duration.ofHours(30));
+        Instant thisWindowAsk = ACTIVATED.plus(Duration.ofMinutes(20));
+        when(repo.findByGroupIdAndSubjectEmailIgnoreCase("hh-1", "a@probe.app"))
+                .thenReturn(List.of(
+                        new CheckInRequest("hh-1", "a@probe.app", earlierWindow,
+                                ACTIVATED.minus(Duration.ofMinutes(5)), "owner@probe.app"),
+                        new CheckInRequest("hh-1", "a@probe.app", ACTIVATED, thisWindowAsk, "owner@probe.app")));
+        when(repo.findByGroupIdAndSubjectEmailIgnoreCase("hh-1", "b@probe.app"))
+                .thenReturn(List.of(new CheckInRequest("hh-1", "b@probe.app", earlierWindow,
+                        earlierWindow, "owner@probe.app")));
+
+        Group g = household("Active", ACTIVATED);
+        assertThat(service.askedAt(g, "A@probe.app")).isEqualTo(thisWindowAsk);
+        assertThat(service.askedAt(g, "b@probe.app")).isNull();
     }
 
     @Test

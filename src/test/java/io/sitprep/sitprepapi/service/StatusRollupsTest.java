@@ -143,6 +143,22 @@ class StatusRollupsTest {
     }
 
     @Test
+    void manual_duringACheckIn_staleBadNewsWithAnAccompanimentIsNeverSafe() {
+        // Marked INJURED in calm, "with" Dad, then a check-in starts: the row
+        // still reads Injured, so the count must not call the child safe.
+        Instant started = NOW.minus(Duration.ofHours(2));
+        StatusRollup r = manualOnly(List.of(
+                manual("m1", "INJURED", started.minus(Duration.ofHours(1))),
+                manual("m2", "HELP", started.minus(Duration.ofHours(1)))),
+                List.of(withMe("m1"), withMe("m2")), true, started);
+        assertThat(r.safe()).isZero();
+        assertThat(r.noResponse()).isEqualTo(2);
+        assertThat(StatusRollups.manualBucket(
+                manual("m1", "INJURED", started.minus(Duration.ofHours(1))),
+                List.of(withMe("m1")), true, started)).isNull();
+    }
+
+    @Test
     void theCheckInRollupAndTheMemberViewRollupAgree() {
         Instant started = NOW.minus(Duration.ofHours(2));
         Group g = new Group();
@@ -189,5 +205,8 @@ class StatusRollupsTest {
         assertThat(checkIn.safe()).isEqualTo(view.safe()).isEqualTo(2);
         assertThat(checkIn.help()).isEqualTo(view.help()).isEqualTo(1);
         assertThat(checkIn.missing()).isEqualTo(view.noResponse()).isEqualTo(2);
+        // The admin reminder push reads the same rollup — manual members included.
+        assertThat(GroupCheckInReminderService.rollupBody(groupService.checkInRollupFor(g)))
+                .isEqualTo("3 of 5 checked in: 2 safe, 1 need help, 0 injured, 2 missing. Tap to review.");
     }
 }

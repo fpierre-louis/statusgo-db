@@ -226,7 +226,7 @@ public class HouseholdManualMemberService {
      * What a status needs to know about its household: whether a check-in is
      * running and its window. Read once per list, not per member.
      */
-    private record StatusContext(boolean alertActive, Instant activatedAt, Instant expiresAt,
+    private record StatusContext(boolean alertActive, Instant startedAt, Instant expiresAt,
                                  Instant now, Map<String, String> nameByEmail) {}
 
     private StatusContext statusContext(String householdId) {
@@ -235,13 +235,21 @@ public class HouseholdManualMemberService {
 
     private StatusContext statusContext(Group g) {
         boolean active = g != null && "Active".equalsIgnoreCase(g.getAlert());
-        Instant activated = active ? g.getAlertActivatedAt() : null;
+        // The rollups' anchor (alertActivatedAt, else updatedAt for a check-in
+        // opened before that column), so a row never shows a status the
+        // counts call no response.
+        Instant startedAt = active ? StatusRollups.anchorFor(g) : null;
+        // The same end GroupViewService gives an account's row: V90's column,
+        // else start + the configured window (pre-V90 check-ins carry no end).
         Instant expires = !active ? null
                 : g.getAlertExpiresAt() != null ? g.getAlertExpiresAt()
-                // Pre-V90 check-ins carry no end; 48h is app.groupAlert.decayHours' default.
-                : activated == null ? null : activated.plus(Duration.ofHours(48));
-        return new StatusContext(active, activated, expires, Instant.now(), new HashMap<>());
+                : g.getAlertActivatedAt() == null ? null
+                : g.getAlertActivatedAt().plus(Duration.ofHours(checkInHours));
+        return new StatusContext(active, startedAt, expires, Instant.now(), new HashMap<>());
     }
+
+    @org.springframework.beans.factory.annotation.Value("${app.groupAlert.decayHours:48}")
+    private int checkInHours = 48;
 
     private String nameOf(String email, StatusContext ctx) {
         if (email == null || email.isBlank()) return null;
@@ -261,7 +269,7 @@ public class HouseholdManualMemberService {
     private ManualStatus manualStatus(HouseholdManualMember m, StatusContext ctx) {
         if (m.getStatus() == null) return null;
         CheckIn c = CheckInState.of(null, m.getStatus(), m.getStatusUpdatedAt(), null,
-                ctx.alertActive(), ctx.activatedAt(), ctx.expiresAt(), ctx.now());
+                ctx.alertActive(), ctx.startedAt(), ctx.expiresAt(), ctx.now());
         if (!CheckInState.showsStatus(c)) return null;
         return new ManualStatus(
                 c.value(),

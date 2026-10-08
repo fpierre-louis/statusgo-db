@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.service;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.CheckInRollupDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
@@ -19,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Sends staged reminder notifications during a group's 48h check-in
@@ -235,13 +235,12 @@ public class GroupCheckInReminderService {
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
         List<UserInfo> users = userInfoRepo.findByUserEmailIn(recipientEmails);
-        List<UserInfo> members = group.getMemberEmails() == null
-                ? List.of()
-                : userInfoRepo.findByUserEmailIn(group.getMemberEmails());
         // The slot's question AND the tally. The tally used to REPLACE the
         // question, so "Continue or end the check-in?" and "Auto-ends in 12
         // hours" never reached anyone (ask-to-check-in audit 2026-09-29).
-        String tally = rollupBody(null, members, group);
+        // Counted by GroupService's check-in rollup, so the push, the rollup
+        // endpoint and the drawer's "N of M" agree — manual members included.
+        String tally = rollupBody(groupService.checkInRollupFor(group));
         if (tally != null) body = body + " " + tally;
         for (UserInfo user : users) {
             String token = user.getFcmtoken();
@@ -287,34 +286,11 @@ public class GroupCheckInReminderService {
                 slotIndex, group.getGroupId(), users.size(), reminded);
     }
 
-    private static String rollupBody(String fallback, List<UserInfo> members, Group group) {
-        if (members == null || members.isEmpty()) return fallback;
-        Instant startedAt = group.getAlertActivatedAt() != null
-                ? group.getAlertActivatedAt()
-                : group.getUpdatedAt();
-        int safe = 0;
-        int help = 0;
-        int injured = 0;
-        int accounted = 0;
-        for (UserInfo user : members) {
-            Instant statusAt = user.getUserStatusLastUpdated();
-            if (startedAt != null && (statusAt == null || statusAt.isBefore(startedAt))) continue;
-            String status = user.getUserStatus() == null
-                    ? ""
-                    : user.getUserStatus().trim().toUpperCase(Locale.ROOT);
-            if (status.isBlank()) continue;
-            accounted++;
-            switch (status) {
-                case "SAFE" -> safe++;
-                case "HELP" -> help++;
-                case "INJURED" -> injured++;
-                default -> { }
-            }
-        }
-        int total = members.size();
-        int missing = Math.max(0, total - accounted);
-        return accounted + " of " + total + " checked in: "
-                + safe + " safe, " + help + " need help, " + injured
-                + " injured, " + missing + " missing. Tap to review.";
+    /** "N of M checked in: …" from the check-in rollup, or null for an empty roster. */
+    static String rollupBody(CheckInRollupDto r) {
+        if (r == null || r.total() == 0) return null;
+        return r.accounted() + " of " + r.total() + " checked in: "
+                + r.safe() + " safe, " + r.help() + " need help, " + r.injured()
+                + " injured, " + r.missing() + " missing. Tap to review.";
     }
 }

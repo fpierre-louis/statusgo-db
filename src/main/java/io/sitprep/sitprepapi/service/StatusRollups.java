@@ -93,7 +93,8 @@ public final class StatusRollups {
      *       (a calm SAFE inside its 24h; HELP / INJURED until changed) and,
      *       while a check-in runs, it was set at or after the anchor — the
      *       same clamp an account's status gets.</li>
-     *   <li>So HELP / INJURED outrank the SAFE an accompaniment implies.</li>
+     *   <li>So HELP / INJURED outrank the SAFE an accompaniment implies —
+     *       even a stale one: it counts as noResponse, never SAFE.</li>
      *   <li>Otherwise a "with me" accompaniment counts them safe.</li>
      *   <li>Otherwise null: nobody has accounted for them.</li>
      * </ol>
@@ -104,9 +105,15 @@ public final class StatusRollups {
         if (m == null) return null;
         HouseholdManualMemberDto.ManualStatus st = m.status();
         if (st != null && st.value() != null) {
+            String v = st.value().trim().toUpperCase(Locale.ROOT);
             boolean fresh = !alertActive || anchor == null
                     || (st.updatedAt() != null && !st.updatedAt().isBefore(anchor));
-            if (fresh) return st.value().trim().toUpperCase(Locale.ROOT);
+            if (fresh) return v;
+            // HELP / INJURED from before the check-in: noResponse, as an
+            // account's would be — never the SAFE an accompaniment implies.
+            // The row still shows the bad news (it never lapses); the count
+            // just won't call that child safe.
+            if ("HELP".equals(v) || "INJURED".equals(v)) return null;
         }
         boolean claimed = accompaniments != null && accompaniments.stream().anyMatch(a ->
                 a.accompaniedRef() != null

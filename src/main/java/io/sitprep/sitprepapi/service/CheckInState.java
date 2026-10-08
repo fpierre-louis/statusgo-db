@@ -60,7 +60,9 @@ public final class CheckInState {
      * @param updatedAt        when that status was written
      * @param setByName        who wrote it when it was not the person; null for self
      * @param alertActive      the group's check-in is running
-     * @param alertActivatedAt when it started (ignored when not running)
+     * @param alertActivatedAt when it started (ignored when not running) —
+     *                         callers pass {@link StatusRollups#anchorFor},
+     *                         the line the counts use, so row and count agree
      * @param alertExpiresAt   when it ends by itself (ignored when not running)
      */
     public static CheckIn of(Instant askedAt, String value, Instant updatedAt, String setByName,
