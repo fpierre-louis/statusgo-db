@@ -46,15 +46,19 @@ public class CheckInRequestService {
      */
     public static Instant windowStartFor(Group group, Instant now) {
         Instant activated = group == null ? null : group.getAlertActivatedAt();
-        boolean alertOpen = group != null
-                && group.getAlert() != null
-                && !group.getAlert().isBlank()
-                && !"inactive".equalsIgnoreCase(group.getAlert());
+        // "Active" is the ONE open value. This tested "anything but
+        // 'inactive'", and the live closed value is "Not Active" — it held
+        // only because alertActivatedAt is cleared on all-clear.
+        boolean alertOpen = group != null && "Active".equalsIgnoreCase(group.getAlert());
         return (alertOpen && activated != null) ? activated : now;
     }
 
-    /** How long an ask sent with no check-in running keeps saying "asked". */
-    static final java.time.Duration OUTSIDE_CHECK_IN_WINDOW = java.time.Duration.ofHours(24);
+    /**
+     * How long an ask sent with no check-in running keeps saying "asked" — and,
+     * through the member view's check-in state, how long a calm answer keeps
+     * showing. The one source of "24 hours" for the check-in surfaces.
+     */
+    public static final java.time.Duration OUTSIDE_CHECK_IN_WINDOW = java.time.Duration.ofHours(24);
 
     /**
      * Where the READ window starts: the open check-in's start, else the last
@@ -144,6 +148,30 @@ public class CheckInRequestService {
                     group.getGroupId(), e.getMessage());
         }
         return out;
+    }
+
+    /**
+     * When ONE person was last asked, for this group's current read window —
+     * null when they were not. The single-subject form of
+     * {@link #askedAtByEmail}, for a status write deciding whether it answers
+     * an ask.
+     */
+    @Transactional(readOnly = true)
+    public Instant askedAt(Group group, String subjectEmail) {
+        String email = normalize(subjectEmail);
+        if (group == null || group.getGroupId() == null || email == null) return null;
+        Instant windowStart = readWindowStartFor(group, Instant.now());
+        Instant latest = null;
+        try {
+            for (CheckInRequest r : repo.findByGroupIdAndSubjectEmailIgnoreCase(group.getGroupId(), email)) {
+                if (r.getWindowStartedAt() == null || r.getWindowStartedAt().isBefore(windowStart)) continue;
+                if (latest == null || r.getRequestedAt().isAfter(latest)) latest = r.getRequestedAt();
+            }
+        } catch (Exception e) {
+            log.warn("CheckInRequest: failed to read ask for {} in group {}: {}",
+                    email, group.getGroupId(), e.getMessage());
+        }
+        return latest;
     }
 
     private static String normalize(String raw) {

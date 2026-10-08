@@ -91,6 +91,7 @@ public class HouseholdEventService {
     private final HouseholdRitualRepo ritualRepo;
     private final WebSocketMessageSender ws;
     private final ObjectMapper objectMapper;
+    private final CheckInRequestService checkInRequestService;
 
     /** Fallback tz when neither ritual nor household supplies one. */
     private static final ZoneId FALLBACK_TZ = ZoneId.of("America/Denver");
@@ -100,13 +101,15 @@ public class HouseholdEventService {
                                  GroupRepo groupRepo,
                                  HouseholdRitualRepo ritualRepo,
                                  WebSocketMessageSender ws,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 CheckInRequestService checkInRequestService) {
         this.eventRepo = eventRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
         this.ritualRepo = ritualRepo;
         this.ws = ws;
         this.objectMapper = objectMapper;
+        this.checkInRequestService = checkInRequestService;
     }
 
     // ---------------------------------------------------------------------
@@ -155,20 +158,52 @@ public class HouseholdEventService {
      * depending on the user's group memberships.
      */
     public void recordStatusChangedForActor(String actorEmail, String newStatus) {
+        recordSelfStatusWrite(actorEmail, newStatus, true, null);
+    }
+
+    /**
+     * One self-report, changed or not.
+     *
+     * <p>A write that ANSWERS an open ask is a reply even when the value is the
+     * same — a SAFE member asked "are you ok?" who says SAFE again has
+     * answered, and that is the most common reply there is. So per household:
+     * an open ask (or a running check-in) records {@code checkin-replied}; with
+     * no ask, only a CHANGED value records {@code status-changed}, so tapping
+     * Safe twice is not two rows.</p>
+     *
+     * @param previousStatusAt when the status was last written before this
+     *        write — an ask is open only if it came after that
+     */
+    public void recordSelfStatusWrite(String actorEmail, String newStatus,
+                                      boolean valueChanged, Instant previousStatusAt) {
         if (actorEmail == null || actorEmail.isBlank() || newStatus == null) return;
         List<Group> households = householdGroupsForMember(actorEmail);
         if (households.isEmpty()) return;
         Map<String, Object> payload = Map.of("status", newStatus);
         for (Group hh : households) {
+            boolean answersAsk = askOpen(hh, actorEmail, previousStatusAt);
+            boolean checkInRunning = ALERT_ACTIVE.equalsIgnoreCase(hh.getAlert());
+            if (!valueChanged && !answersAsk) continue;
             // A status write during an open check-in IS the reply. Recorded as
             // its own kind rather than left to be inferred downstream from a
             // timestamp inside a window — and recorded INSTEAD OF
             // status-changed, not alongside it, because one write is one fact.
-            String kind = ALERT_ACTIVE.equalsIgnoreCase(hh.getAlert())
+            String kind = (answersAsk || checkInRunning)
                     ? KIND_CHECKIN_REPLIED
                     : KIND_STATUS_CHANGED;
             recordSafely(hh.getGroupId(), kind, actorEmail, payload);
         }
+    }
+
+    /**
+     * Whether {@code subjectEmail} has an unanswered ask in this household: an
+     * ask in the current window that came after their last status write.
+     */
+    private boolean askOpen(Group hh, String subjectEmail, Instant previousStatusAt) {
+        Instant askedAt = checkInRequestService == null ? null
+                : checkInRequestService.askedAt(hh, subjectEmail);
+        if (askedAt == null) return false;
+        return previousStatusAt == null || previousStatusAt.isBefore(askedAt);
     }
 
     /**
@@ -185,6 +220,17 @@ public class HouseholdEventService {
      * admin's own households.</p>
      */
     public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus) {
+        recordStatusSetForMember(actorEmail, subjectEmail, newStatus, true, null);
+    }
+
+    /**
+     * A proxy write, changed or not. Same rule as {@link #recordSelfStatusWrite}
+     * — an admin answering an open ask for someone (SAFE while already SAFE) is
+     * worth a row; re-saving an unchanged status with no ask is not — but the
+     * sentence stays {@code status-set-for}: "Maya replied" is still false.
+     */
+    public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus,
+                                         boolean valueChanged, Instant previousStatusAt) {
         if (actorEmail == null || subjectEmail == null || newStatus == null) return;
         List<Group> households = householdGroupsForMember(subjectEmail);
         if (households.isEmpty()) return;
@@ -205,6 +251,7 @@ public class HouseholdEventService {
         payload.put("subjectEmail", subjectEmail.toLowerCase(Locale.ROOT));
         if (subjectName != null) payload.put("subjectName", subjectName);
         for (Group hh : households) {
+            if (!valueChanged && !askOpen(hh, subjectEmail, previousStatusAt)) continue;
             recordSafely(hh.getGroupId(), KIND_STATUS_SET_FOR, actorEmail, payload);
         }
     }

@@ -99,8 +99,9 @@ class MemberStatusProxyTest {
         service.setStatusForMember(ADMIN, "SAFE", ADMIN);
 
         assertNull(admin.getStatusSetByEmail());
-        verify(events).recordStatusChangedForActor(ADMIN, "SAFE");
-        verify(events, never()).recordStatusSetForMember(anyString(), anyString(), anyString());
+        verify(events).recordSelfStatusWrite(eq(ADMIN), eq("SAFE"), anyBoolean(), any());
+        verify(events, never()).recordStatusSetForMember(
+                anyString(), anyString(), anyString(), anyBoolean(), any());
     }
 
     @Test
@@ -111,8 +112,8 @@ class MemberStatusProxyTest {
         // a different row.
         service.setStatusForMember(MAYA, "SAFE", ADMIN);
 
-        verify(events).recordStatusSetForMember(ADMIN, MAYA, "SAFE");
-        verify(events, never()).recordStatusChangedForActor(anyString(), anyString());
+        verify(events).recordStatusSetForMember(eq(ADMIN), eq(MAYA), eq("SAFE"), eq(true), any());
+        verify(events, never()).recordSelfStatusWrite(anyString(), anyString(), anyBoolean(), any());
     }
 
     @Test

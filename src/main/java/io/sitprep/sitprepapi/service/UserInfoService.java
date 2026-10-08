@@ -451,6 +451,7 @@ public class UserInfoService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         final String oldStatus = normalizeStatusOrNull(userInfo.getUserStatus());
+        final Instant previousStatusAt = userInfo.getUserStatusLastUpdated();
 
         userInfo.setUserStatus(normalizedStatus);
         userInfo.setStatusColor(effectiveColor);
@@ -465,20 +466,26 @@ public class UserInfoService {
                 saved.getUserEmail() == null ? null : saved.getUserEmail().trim().toLowerCase(Locale.ROOT),
                 saved.getUserStatus(),
                 saved.getStatusColor(),
-                saved.getUserStatusLastUpdated()
+                saved.getUserStatusLastUpdated(),
+                actorEmail == null ? null : firstNameOf(actorEmail)
         );
 
+        // The frame goes out on EVERY write, not only a changed value: a SAFE
+        // member answering an ask with SAFE again is the most common reply, and
+        // gating on a change left the asker's row on "Asked" until a refetch.
+        // The event recorders apply their own rule (a reply, or a change).
         final boolean statusChanged = !Objects.equals(oldStatus, normalizedStatus);
-        if (statusChanged && saved.getUserEmail() != null) {
+        if (saved.getUserEmail() != null) {
             if (actorEmail == null) {
-                householdEventService.recordStatusChangedForActor(saved.getUserEmail(), normalizedStatus);
+                householdEventService.recordSelfStatusWrite(
+                        saved.getUserEmail(), normalizedStatus, statusChanged, previousStatusAt);
             } else {
                 // A DIFFERENT SENTENCE, not the same one with a different name
                 // on it. "Maya replied — safe" is false when Dione set it, and
                 // recording the admin as the actor under the existing kind
                 // would print "Dione replied — safe" about Maya's status.
                 householdEventService.recordStatusSetForMember(
-                        actorEmail, saved.getUserEmail(), normalizedStatus);
+                        actorEmail, saved.getUserEmail(), normalizedStatus, statusChanged, previousStatusAt);
             }
 
             final String householdId = saved.getBaseHouseholdId();
@@ -510,6 +517,15 @@ public class UserInfoService {
         }
 
         return frame;
+    }
+
+    /** A display first name for a proxy frame, or null — never an email local-part. */
+    private String firstNameOf(String email) {
+        return userInfoRepo.findByUserEmailIgnoreCase(email)
+                .map(UserInfo::getUserFirstName)
+                .filter(n -> n != null && !n.isBlank())
+                .map(String::trim)
+                .orElse(null);
     }
 
     private String normalizeSelfStatus(String status) {

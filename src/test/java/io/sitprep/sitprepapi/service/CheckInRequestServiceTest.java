@@ -101,6 +101,18 @@ class CheckInRequestServiceTest {
         assertThat(CheckInRequestService.windowStartFor(g, now)).isEqualTo(now);
     }
 
+    /**
+     * "Not Active" is the live closed value. The check read "anything but
+     * 'inactive'" as open, so a stale activation time anchored a calm ask to a
+     * check-in that had ended.
+     */
+    @Test
+    void notActiveIsClosedEvenWithAStaleActivationTime() {
+        Group g = household("Not Active", ACTIVATED);
+        Instant now = Instant.parse("2026-09-12T05:00:00Z");
+        assertThat(CheckInRequestService.windowStartFor(g, now)).isEqualTo(now);
+    }
+
     @Test
     void recordsOneRowPerPersonAgainstTheOpenWindow() {
         service.recordAsked(household("Active", ACTIVATED),
