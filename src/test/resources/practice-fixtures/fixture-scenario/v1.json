@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "key": "fixture-scenario",
+  "version": 1,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": { "status": "PENDING" }
+  },
+  "content": {
+    "title": "Fixture scenario",
+    "summary": "Test fixture loaded from the classpath. Not reviewed guidance.",
+    "estimatedMinutes": 3,
+    "sources": [{ "label": "Ready.gov — Make a Plan", "url": "https://www.ready.gov/plan" }],
+    "tags": {
+      "communicated_clearly": { "text": "Short and clear." },
+      "needs_contact_review": { "text": "Check your contacts.", "action": "OPEN_EMERGENCY_CONTACTS" }
+    },
+    "scenario": {
+      "startNode": "start",
+      "nodes": [
+        {
+          "key": "start",
+          "body": "Calls are dropping.",
+          "prompt": "What first?",
+          "choices": [
+            { "key": "text", "label": "Text", "feedback": "Texts often get through.", "tags": ["communicated_clearly"], "next": "done" },
+            { "key": "call", "label": "Call again", "feedback": "Calls add load.", "tags": ["needs_contact_review"], "next": "done" }
+          ]
+        }
+      ],
+      "outcomes": [
+        { "key": "done", "title": "Reconnected", "body": "You found each other.", "defaultAction": "OPEN_EMERGENCY_CONTACTS" }
+      ]
+    }
+  }
+}

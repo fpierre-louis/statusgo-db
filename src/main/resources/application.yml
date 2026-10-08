@@ -122,6 +122,15 @@ app:
     # link (GoBagProductCatalog). Default baked so no env var is required;
     # override per environment if the tag ever rotates.
     amazon-associate-tag: ${APP_COMMERCE_AMAZON_ASSOCIATE_TAG:sitprep0f-20}
+  practice:
+    # Global kill switch for Practice scenarios + family activities. false =
+    # nothing startable and every in-progress run stops showing content.
+    # Per-key switches live in practice_content_control (admin endpoint).
+    enabled: ${PRACTICE_ENABLED:true}
+    # Local review only: lets DRAFT / SAFETY_REVIEWED content be started,
+    # flagged `preview`. Never set in production — only PUBLISHED content,
+    # with an approved safety review pinned to its hash, belongs there.
+    include-unpublished: ${PRACTICE_INCLUDE_UNPUBLISHED:false}
 
 # --- ALERTS (NWS / USGS / FEMA ingest + zone resolution) ---
 # Declared here rather than left as bare @Value defaults so the tunables are

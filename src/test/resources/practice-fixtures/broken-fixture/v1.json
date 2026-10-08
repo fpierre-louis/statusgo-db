@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "key": "broken-fixture",
+  "version": 1,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": { "publishState": "PUBLISHED", "publishedAt": "2026-10-08" },
+  "content": { "title": "No review, no sources, no graph", "summary": "Must be rejected.", "estimatedMinutes": 3 }
+}
