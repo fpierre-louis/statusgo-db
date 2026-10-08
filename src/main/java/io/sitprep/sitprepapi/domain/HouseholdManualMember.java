@@ -75,6 +75,22 @@ public class HouseholdManualMember {
     @Column(name = "photo_url", length = 1024)
     private String photoUrl;
 
+    /**
+     * SAFE | HELP | INJURED, set FOR this person by an owner or admin (V103) —
+     * they cannot answer for themselves. Null when unset or cleared. Read
+     * through {@code CheckInState}: a SAFE lapses after 24h, HELP and INJURED
+     * never do.
+     */
+    @Column(name = "status", length = 16)
+    private String status;
+
+    @Column(name = "status_updated_at")
+    private Instant statusUpdatedAt;
+
+    /** The admin who set {@link #status}; the roster names them. */
+    @Column(name = "status_set_by_email", length = 255)
+    private String statusSetByEmail;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

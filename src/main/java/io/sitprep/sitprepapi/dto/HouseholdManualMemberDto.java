@@ -23,5 +23,27 @@ public record HouseholdManualMemberDto(
         String band,
         String photoUrl,
         Instant createdAt,
-        Instant updatedAt
-) {}
+        Instant updatedAt,
+        /**
+         * The status an owner or admin set FOR this person (V103), or null
+         * when unset or lapsed — a SAFE shows for 24h (or for the running
+         * check-in), HELP and INJURED until changed. Appended: positional.
+         */
+        ManualStatus status
+) {
+
+    /**
+     * @param value     SAFE | HELP | INJURED
+     * @param color     derived on the server, the same palette as an account's status
+     * @param updatedAt when it was set
+     * @param setByName first name of the admin who set it; null if unresolvable
+     * @param showUntil when it lapses; <b>null means never</b> (HELP / INJURED)
+     */
+    public record ManualStatus(
+            String value,
+            String color,
+            Instant updatedAt,
+            String setByName,
+            Instant showUntil
+    ) {}
+}

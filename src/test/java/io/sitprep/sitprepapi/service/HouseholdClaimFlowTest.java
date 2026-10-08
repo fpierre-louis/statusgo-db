@@ -79,6 +79,7 @@ class HouseholdClaimFlowTest {
     @Autowired EmergencySupportProfileRepo profiles;
     @Autowired EmergencySupportAssignmentRepo assignments;
     @Autowired EmergencyContactGroupRepo contactGroups;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     private String sfx;
     private String owner;
@@ -293,6 +294,39 @@ class HouseholdClaimFlowTest {
                 nullable(String.class), anyString(), anyString(), anyString(), nullable(String.class),
                 nullable(String.class), nullable(String.class));
         verify(ws).sendHouseholdManualMemberDeletion(hh.getGroupId(), mayaRow.getId());
+    }
+
+    /**
+     * V103 — a status an admin set FOR the dependent is dropped on claim, never
+     * carried onto the account: a proxy SAFE must not become a self-report.
+     */
+    @Test
+    void aProxyStatusIsDroppedOnClaim_neverCopiedToTheAccount() {
+        user(maya, "Maya", "Lee", null);
+        HouseholdManualMember row = manualRepo.findById(mayaRow.getId()).orElseThrow();
+        row.setStatus("SAFE");
+        row.setStatusUpdatedAt(Instant.now());
+        row.setStatusSetByEmail(owner);
+        manualRepo.save(row);
+
+        new org.springframework.transaction.support.TransactionTemplate(txManager).executeWithoutResult(
+                tx -> claims.migrateReferences(hh.getGroupId(), mayaRow.getId(), maya, "Maya"));
+        HouseholdManualMember after = manualRepo.findById(mayaRow.getId()).orElseThrow();
+        assertThat(after.getStatus()).isNull();
+        assertThat(after.getStatusUpdatedAt()).isNull();
+        assertThat(after.getStatusSetByEmail()).isNull();
+
+        // And through the whole accept: the account answers for itself.
+        after.setStatus("SAFE");
+        after.setStatusUpdatedAt(Instant.now());
+        after.setStatusSetByEmail(owner);
+        manualRepo.save(after);
+        ClaimInvite inv = claims.mint(hh.getGroupId(), mayaRow.getId(), owner);
+        assertThat(claims.accept(inv.token(), maya).state()).isEqualTo(State.OK);
+        UserInfo account = users.findByUserEmailIgnoreCase(maya).orElseThrow();
+        assertThat(account.getUserStatus()).isNotEqualTo("SAFE");
+        assertThat(account.getStatusSetByEmail()).isNull();
+        assertThat(manualRepo.findById(mayaRow.getId())).isEmpty();
     }
 
     @Test

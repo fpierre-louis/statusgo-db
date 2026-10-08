@@ -62,6 +62,34 @@ public class HouseholdManualMemberResource {
         return ResponseEntity.ok(service.update(householdId, id, body));
     }
 
+    /**
+     * An owner or admin answers for a manual member. Body {@code {"status":
+     * "SAFE" | "HELP" | "INJURED"}}. 200 with the member, carrying
+     * {@code status}; 400 for any other value; 403 for a non-admin member (or
+     * a non-member); 404 when the member is not in this household. No push.
+     */
+    @PostMapping("/{id}/status")
+    public ResponseEntity<HouseholdManualMemberDto> setStatus(
+            @PathVariable String householdId,
+            @PathVariable String id,
+            @RequestBody(required = false) StatusRequest body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(service.setStatus(householdId, id, body == null ? null : body.status(), caller));
+    }
+
+    /** Clear it. Same gate; 200 with the member, {@code status: null}. */
+    @DeleteMapping("/{id}/status")
+    public ResponseEntity<HouseholdManualMemberDto> clearStatus(
+            @PathVariable String householdId,
+            @PathVariable String id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(service.clearStatus(householdId, id, caller));
+    }
+
+    public record StatusRequest(String status) {}
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> remove(
             @PathVariable String householdId,

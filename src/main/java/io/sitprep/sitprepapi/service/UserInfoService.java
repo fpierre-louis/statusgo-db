@@ -528,7 +528,11 @@ public class UserInfoService {
                 .orElse(null);
     }
 
-    private String normalizeSelfStatus(String status) {
+    /**
+     * SAFE | HELP | INJURED, upper-cased, or IllegalArgumentException. The one
+     * status vocabulary — also validates a manual member's proxy status.
+     */
+    static String normalizeSelfStatus(String status) {
         String normalized = normalizeStatusOrNull(status);
         if (normalized == null || !Set.of("SAFE", "HELP", "INJURED").contains(normalized)) {
             throw new IllegalArgumentException("status must be SAFE, HELP, or INJURED");
@@ -536,12 +540,13 @@ public class UserInfoService {
         return normalized;
     }
 
-    private String normalizeStatusOrNull(String status) {
+    private static String normalizeStatusOrNull(String status) {
         if (status == null || status.isBlank()) return null;
         return status.trim().toUpperCase(Locale.ROOT);
     }
 
-    private String defaultStatusColor(String status) {
+    /** The server's colour for a status — shared with manual members, which store none. */
+    static String defaultStatusColor(String status) {
         return switch (status) {
             case "SAFE" -> "#1BBC9B";
             case "HELP" -> "#FFC107";

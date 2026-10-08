@@ -324,6 +324,18 @@ public class HouseholdClaimService {
      * Package-private for the reference-migration tests.
      */
     void migrateReferences(String hid, String manualId, String email, String callerName) {
+        // A status an admin set FOR the dependent (V103) is DROPPED, never
+        // carried onto the account: a proxy SAFE must not become a self-report.
+        // From here the account answers for itself. (The row is deleted right
+        // after this; clearing first keeps that true if it ever is not.)
+        manualRepo.findById(manualId).ifPresent(mm -> {
+            if (mm.getStatus() == null && mm.getStatusUpdatedAt() == null && mm.getStatusSetByEmail() == null) return;
+            mm.setStatus(null);
+            mm.setStatusUpdatedAt(null);
+            mm.setStatusSetByEmail(null);
+            manualRepo.save(mm);
+        });
+
         // Accompaniments — both sides.
         List<HouseholdAccompaniment> rows = accompanimentRepo.findByHouseholdId(hid);
         boolean userAlreadyAccompanied = rows.stream()

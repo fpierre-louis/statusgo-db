@@ -267,6 +267,27 @@ public class HouseholdEventService {
         }
     }
 
+    /** The {@code status} a cleared manual-member status records. */
+    public static final String MANUAL_STATUS_CLEARED = "CLEARED";
+
+    /**
+     * An admin answered for a MANUAL member — a child or elder with no account.
+     * Same {@code status-set-for} sentence as for an account, written into THIS
+     * household only (a manual member belongs to exactly one), with the subject
+     * named by id and name instead of email. A cleared status records
+     * {@code status: "CLEARED"} and {@code cleared: true}.
+     */
+    public void recordStatusSetForManualMember(String householdId, String actorEmail,
+                                               String manualMemberId, String subjectName, String status) {
+        if (householdId == null || actorEmail == null || manualMemberId == null || status == null) return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", status);
+        payload.put("subjectManualId", manualMemberId);
+        if (subjectName != null && !subjectName.isBlank()) payload.put("subjectName", subjectName.trim());
+        if (MANUAL_STATUS_CLEARED.equals(status)) payload.put("cleared", true);
+        recordSafely(householdId, KIND_STATUS_SET_FOR, actorEmail, payload);
+    }
+
     /**
      * Record a check-in start/end on a specific household (the alert
      * toggle on the Group entity). One event per call.
