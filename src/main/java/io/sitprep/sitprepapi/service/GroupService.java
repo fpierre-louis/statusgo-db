@@ -88,6 +88,21 @@ public class GroupService {
         this.householdProvisioning = householdProvisioning;
     }
 
+    // Setter-injected for the same reason: the check-in rollup counts a
+    // household's manual members (gameplan §5.5). Null in hand-built tests.
+    private HouseholdManualMemberService manualMembers;
+    private HouseholdAccompanimentService accompaniments;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setManualMembers(HouseholdManualMemberService manualMembers) {
+        this.manualMembers = manualMembers;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAccompaniments(HouseholdAccompanimentService accompaniments) {
+        this.accompaniments = accompaniments;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setHouseholdMemberBandRepo(io.sitprep.sitprepapi.repo.HouseholdMemberBandRepo repo) {
         this.householdMemberBandRepo = repo;
@@ -516,6 +531,37 @@ public class GroupService {
                     statusAt,
                     accounted
             ));
+        }
+
+        // Manual members — dependents without accounts — by the member view's
+        // own rule (StatusRollups.manualBucket), so /check-in-rollup,
+        // ping-missing and the drawer's "N of M" agree. No email: they cannot
+        // be nudged, and nudgeMissing skips them.
+        if (manualMembers != null
+                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType())) {
+            List<io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto> acc = accompaniments == null
+                    ? List.of() : accompaniments.list(group.getGroupId());
+            for (io.sitprep.sitprepapi.dto.HouseholdManualMemberDto m : manualMembers.list(group.getGroupId())) {
+                String bucket = StatusRollups.manualBucket(m, acc, active, startedAt);
+                boolean accounted = bucket != null;
+                if (accounted) {
+                    counts[3]++;
+                    switch (bucket) {
+                        case "HELP" -> counts[1]++;
+                        case "INJURED" -> counts[2]++;
+                        default -> counts[0]++;
+                    }
+                }
+                members.add(new CheckInRollupDto.Member(
+                        null,
+                        m.name(),
+                        null,
+                        DtoImages.avatar(m.photoUrl()),
+                        bucket,
+                        m.status() == null ? null : m.status().updatedAt(),
+                        accounted
+                ));
+            }
         }
 
         int total = members.size();

@@ -22,9 +22,11 @@ import java.util.Map;
  *       Active, a status last updated before the alert start ({@code updatedAt})
  *       is treated as NO RESPONSE. SAFE / HELP / INJURED bucket to their
  *       counts; anything else (incl. blank / stale / unknown) is noResponse.</li>
- *   <li><b>Manual members</b> (dependents without accounts): accounted (safe)
- *       only when an adult has claimed them via a "with me" accompaniment;
- *       otherwise noResponse.</li>
+ *   <li><b>Manual members</b> (dependents without accounts) — see
+ *       {@link #manualBucket}: a fresh status an admin set for them buckets
+ *       to SAFE / HELP / INJURED (V103); otherwise a "with me" accompaniment
+ *       counts them safe; otherwise noResponse. An unmarked, unaccompanied
+ *       dependent stays noResponse — nobody has accounted for them.</li>
  * </ul>
  */
 public final class StatusRollups {
@@ -70,16 +72,48 @@ public final class StatusRollups {
 
         for (HouseholdManualMemberDto m : manualMembers) {
             total++;
-            boolean claimed = accompaniments.stream().anyMatch(a ->
-                    a.accompaniedRef() != null
-                            && "manual".equals(a.accompaniedRef().kind())
-                            && m.id() != null
-                            && m.id().equals(a.accompaniedRef().id()));
-            if (claimed) safe++;
-            else noResponse++;
+            String bucket = manualBucket(m, accompaniments, alertActive, updatedAt);
+            if (bucket == null) { noResponse++; continue; }
+            switch (bucket) {
+                case "HELP" -> help++;
+                case "INJURED" -> injured++;
+                default -> safe++;
+            }
         }
 
         return new StatusRollup(total, safe + help + injured, safe, help, injured, noResponse);
+    }
+
+    /**
+     * Where one manual member counts — SAFE / HELP / INJURED, or null for
+     * noResponse. Shared by this rollup and {@code GroupService}'s
+     * check-in rollup so the two cannot disagree (gameplan §5.5).
+     * <ol>
+     *   <li>A FRESH status set for them wins. Fresh = the DTO still shows it
+     *       (a calm SAFE inside its 24h; HELP / INJURED until changed) and,
+     *       while a check-in runs, it was set at or after the anchor — the
+     *       same clamp an account's status gets.</li>
+     *   <li>So HELP / INJURED outrank the SAFE an accompaniment implies.</li>
+     *   <li>Otherwise a "with me" accompaniment counts them safe.</li>
+     *   <li>Otherwise null: nobody has accounted for them.</li>
+     * </ol>
+     */
+    public static String manualBucket(HouseholdManualMemberDto m,
+                                      List<HouseholdAccompanimentDto> accompaniments,
+                                      boolean alertActive, Instant anchor) {
+        if (m == null) return null;
+        HouseholdManualMemberDto.ManualStatus st = m.status();
+        if (st != null && st.value() != null) {
+            boolean fresh = !alertActive || anchor == null
+                    || (st.updatedAt() != null && !st.updatedAt().isBefore(anchor));
+            if (fresh) return st.value().trim().toUpperCase(Locale.ROOT);
+        }
+        boolean claimed = accompaniments != null && accompaniments.stream().anyMatch(a ->
+                a.accompaniedRef() != null
+                        && "manual".equals(a.accompaniedRef().kind())
+                        && m.id() != null
+                        && m.id().equals(a.accompaniedRef().id()));
+        return claimed ? "SAFE" : null;
     }
 
     /**
