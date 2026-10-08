@@ -205,8 +205,18 @@ public class GroupService {
      *
      * <p>Throws {@link SecurityException} on an authorization failure —
      * the resource layer maps that to HTTP 403.</p>
+     *
+     * <p><b>Households only</b> (gameplan §5.1, 2026-10-08): the caller is not
+     * recorded as asked — nobody asks themselves — and one ask per household
+     * per {@link HouseholdEventService#ASK_EVERYONE_COOLDOWN}, from any member.
+     * A second ask inside it sends nothing and returns who sent the first.
+     * Every other group type behaves exactly as before.</p>
+     *
+     * <p>Deliberately NOT {@code @Transactional}: {@code recordAsked} swallows
+     * its own failures, and joining one outer transaction would turn a
+     * swallowed bookkeeping error into a rollback of the ask itself.</p>
      */
-    public void requestCheckIn(String groupId, String callerEmail) {
+    public AskEveryoneResult requestCheckIn(String groupId, String callerEmail) {
         if (callerEmail == null || callerEmail.isBlank()) {
             throw new SecurityException("Sign in to request a check-in");
         }
@@ -223,10 +233,35 @@ public class GroupService {
                     "Only admins can request a check-in for this group");
         }
 
+        boolean household = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
+        if (household) {
+            Optional<io.sitprep.sitprepapi.domain.HouseholdEvent> prior =
+                    householdEventService.activeCheckInRequest(group.getGroupId());
+            if (prior.isPresent()) {
+                io.sitprep.sitprepapi.domain.HouseholdEvent first = prior.get();
+                String byEmail = first.getActorEmail();
+                String byName = byEmail == null ? null : userInfoRepo.findByUserEmailIgnoreCase(byEmail)
+                        .map(UserInfo::getUserFirstName)
+                        .filter(n -> n != null && !n.isBlank())
+                        .map(String::trim)
+                        .orElse(null);
+                return AskEveryoneResult.coolingDown(byEmail, byName, first.getAt(),
+                        first.getAt().plus(HouseholdEventService.ASK_EVERYONE_COOLDOWN));
+            }
+        }
+
         String callerName = userInfoRepo.findByUserEmailIgnoreCase(callerEmail)
                 .map(UserInfo::getUserFirstName)
                 .filter(n -> n != null && !n.isBlank())
                 .orElse(null);
+
+        // Nobody asks themselves — in a household. Org groups keep recording
+        // the whole roster, as they always have.
+        List<String> asked = household
+                ? safeList(group.getMemberEmails()).stream()
+                        .filter(e -> e != null && !e.trim().equalsIgnoreCase(me))
+                        .toList()
+                : group.getMemberEmails();
 
         // RECORD THE ASK BEFORE SENDING IT (RC-2).
         //
@@ -236,9 +271,32 @@ public class GroupService {
         // the ones with no evidence they were ever asked. Recording first means
         // "asked" survives every delivery outcome, which is the distinction the
         // roster needs: never asked is not the same as asked and silent.
-        checkInRequestService.recordAsked(group, group.getMemberEmails(), callerEmail);
+        checkInRequestService.recordAsked(group, asked, callerEmail);
+        if (household) {
+            householdEventService.recordCheckInRequest(group.getGroupId(), me,
+                    asked.stream().map(e -> e.trim().toLowerCase(Locale.ROOT)).toList(),
+                    callerName == null ? null : callerName.trim());
+        }
 
         notificationService.notifyCheckInRequest(group, callerEmail, callerName);
+        return AskEveryoneResult.SENT;
+    }
+
+    /**
+     * Outcome of "Ask everyone". {@code sent=false} only for a household inside
+     * its cooldown; the other fields then name the ask that is still standing,
+     * so the client can say "Maya asked everyone · 3m ago" instead of failing.
+     */
+    public record AskEveryoneResult(boolean sent,
+                                    String requestedByEmail,
+                                    String requestedByName,
+                                    Instant requestedAt,
+                                    Instant retryAt) {
+        public static final AskEveryoneResult SENT = new AskEveryoneResult(true, null, null, null, null);
+
+        static AskEveryoneResult coolingDown(String byEmail, String byName, Instant at, Instant retryAt) {
+            return new AskEveryoneResult(false, byEmail, byName, at, retryAt);
+        }
     }
 
     @Transactional(readOnly = true)

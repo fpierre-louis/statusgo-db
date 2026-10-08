@@ -10,12 +10,14 @@ import io.sitprep.sitprepapi.dto.GroupMembershipActionResultDto;
 import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -335,12 +337,31 @@ public class GroupResource {
      * {@code GroupService.requestCheckIn} — any member for households,
      * admin/owner only for larger org groups. Returns 204 on success,
      * 403 when the caller isn't allowed, 404 when the group is missing.
+     *
+     * <p>Households only: <b>429</b> while another ask from this household is
+     * inside its 10-minute cooldown, with {@code Retry-After} (seconds) and a
+     * body naming that ask — {@code {requestedBy:{name,email}, requestedAt}} —
+     * so the client says who asked rather than showing an error. Org groups
+     * never see a 429 here.</p>
      */
     @PostMapping("/{groupId}/check-in-request")
-    public ResponseEntity<Void> requestCheckIn(@PathVariable String groupId) {
+    public ResponseEntity<?> requestCheckIn(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         try {
-            groupService.requestCheckIn(groupId, caller);
+            GroupService.AskEveryoneResult result = groupService.requestCheckIn(groupId, caller);
+            if (!result.sent()) {
+                long retrySeconds = result.retryAt() == null ? 0
+                        : Math.max(1, java.time.Duration.between(java.time.Instant.now(), result.retryAt()).toSeconds());
+                Map<String, Object> requestedBy = new LinkedHashMap<>();
+                requestedBy.put("name", result.requestedByName());
+                requestedBy.put("email", result.requestedByEmail());
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("requestedBy", requestedBy);
+                body.put("requestedAt", result.requestedAt());
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, String.valueOf(retrySeconds))
+                        .body(body);
+            }
             return ResponseEntity.noContent().build();
         } catch (SecurityException se) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, se.getMessage());

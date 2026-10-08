@@ -65,6 +65,9 @@ public class HouseholdEventService {
     public static final String KIND_ACTIVATION_STARTED = "activation-started";
     public static final String KIND_ACTIVATION_ENDED   = "activation-ended";
     public static final String KIND_NUDGE            = "nudge";
+    // "Ask everyone to check in" in a household — socket + timeline only, the
+    // push is CHECK_IN_REQUEST's job. Also the record its cooldown reads.
+    public static final String KIND_CHECKIN_REQUEST  = "check-in-request";
     public static final String KIND_WITH_CLAIM       = "with-claim";
     public static final String KIND_WITH_RELEASE     = "with-release";
     public static final String KIND_MEMBER_ADDED     = "member-added";
@@ -81,6 +84,14 @@ public class HouseholdEventService {
      * down. 10 minutes is long enough that a second tap is a decision.
      */
     private static final java.time.Duration NUDGE_COOLDOWN = java.time.Duration.ofMinutes(10);
+
+    /**
+     * How long one household "Ask everyone" silences the next, from ANY member.
+     * The same 10 minutes as a nudge, for the same reason — and per household,
+     * not per caller, so two parents tapping the drawer's top button a minute
+     * apart send one ask, and the second learns who sent it.
+     */
+    public static final java.time.Duration ASK_EVERYONE_COOLDOWN = java.time.Duration.ofMinutes(10);
 
     private static final Logger log = LoggerFactory.getLogger(HouseholdEventService.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
@@ -355,6 +366,47 @@ public class HouseholdEventService {
             // that bypasses quiet hours. Fail closed.
             log.warn("nudgeAllowed check failed for {}/{}: {}", householdId, subject, ex.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Record a household "Ask everyone". One row for the ask, naming who was
+     * asked (the caller is never in it) and who asked. Broadcast on the
+     * household event socket so every open drawer flips its rows.
+     */
+    public void recordCheckInRequest(String householdId, String actorEmail,
+                                     Collection<String> askedEmails, String requestedByName) {
+        Map<String, Object> requestedBy = new LinkedHashMap<>();
+        requestedBy.put("name", requestedByName);
+        requestedBy.put("email", actorEmail == null ? null : actorEmail.toLowerCase(Locale.ROOT));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("askedEmails", askedEmails == null ? List.of() : List.copyOf(askedEmails));
+        payload.put("requestedBy", requestedBy);
+        recordSafely(householdId, KIND_CHECKIN_REQUEST, actorEmail, payload);
+    }
+
+    /**
+     * The household's last "Ask everyone" if it is still inside
+     * {@link #ASK_EVERYONE_COOLDOWN}; empty when a new one may go.
+     *
+     * <p>Read from the event rows the ask already writes — no column, no JVM
+     * map, so the cooldown survives a restart and names who asked. Fails OPEN,
+     * unlike {@link #nudgeAllowed}: a failed read must not stop a household
+     * asking whether everyone is safe, and this push does not bypass quiet
+     * hours.</p>
+     */
+    public Optional<HouseholdEvent> activeCheckInRequest(String householdId) {
+        if (householdId == null || householdId.isBlank()) return Optional.empty();
+        Instant since = Instant.now().minus(ASK_EVERYONE_COOLDOWN);
+        try {
+            List<HouseholdEvent> rows = eventRepo.findRangeByKind(
+                    householdId, KIND_CHECKIN_REQUEST, since, FAR_FUTURE);
+            return rows.stream()
+                    .filter(e -> e.getAt() != null)
+                    .max(Comparator.comparing(HouseholdEvent::getAt));
+        } catch (Exception ex) {
+            log.warn("activeCheckInRequest read failed for {}: {}", householdId, ex.getMessage());
+            return Optional.empty();
         }
     }
 
