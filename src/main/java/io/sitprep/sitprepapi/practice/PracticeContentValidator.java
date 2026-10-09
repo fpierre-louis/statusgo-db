@@ -49,6 +49,9 @@ public final class PracticeContentValidator {
     static final int MIN_CHOICES = 2;
     static final int MAX_CHOICES = 4;
 
+    /** A choice's optional in-story "what happened next" line (spec Q10). */
+    static final int CONSEQUENCE_MAX = 140;
+
     /** Never in any Practice copy: death, failure framing, scoring. */
     private static final List<Pattern> PROHIBITED_ALL = List.of(
             word("die|dies|died|dead|death|deaths|killed|kills|fatal|fatality|fatalities"),
@@ -67,6 +70,21 @@ public final class PracticeContentValidator {
             Pattern.compile("(?i)\\byou are (in charge of|responsible for)\\b"),
             Pattern.compile("(?i)\\b(protect|save|rescue) your (family|parents?|mom|dad|brother|sister|siblings?)\\b"),
             Pattern.compile("(?i)\\balone\\b"));
+
+    /**
+     * Never in a choice's consequence line. A consequence describes what
+     * happened in the story, not a verdict on the person who chose: no
+     * right/wrong, no mistakes, no "should have". Applied on top of
+     * {@link #PROHIBITED_ALL} (and the family rules for family content).
+     */
+    private static final List<Pattern> JUDGMENT_IN_CONSEQUENCE = List.of(
+            word("wrong|wrongly"),
+            word("mistake|mistakes|mistaken"),
+            word("fail|fails|failed|failing|failure"),
+            Pattern.compile("(?i)\\bshould(n'?t| not)? have\\b"),
+            Pattern.compile("(?i)\\bshould(n'?t)?'ve\\b"),
+            word("correct|correctly|incorrect|incorrectly"),
+            Pattern.compile("(?i)\\b(bad|poor|good|great|smart|best|better|worse|worst|right) (choice|call|decision|move|answer|pick)\\b"));
 
     private static Pattern word(String alternatives) {
         return Pattern.compile("(?i)\\b(" + alternatives + ")\\b");
@@ -268,6 +286,8 @@ public final class PracticeContentValidator {
 
         Set<String> declaredTags = b.tags() == null ? Set.of() : b.tags().keySet();
         Set<String> usedTags = new HashSet<>();
+        List<String> withConsequence = new ArrayList<>();
+        List<String> withoutConsequence = new ArrayList<>();
         for (Node n : nodeByKey.values()) {
             String at = where + ": node " + n.key();
             if (n.title() != null) requireText(n.title(), 160, at + " title", errors);
@@ -286,6 +306,18 @@ public final class PracticeContentValidator {
                 if (!choiceKeys.add(c.key())) errors.add(at + ": duplicate choice key " + c.key());
                 requireText(c.label(), 160, at + " choice " + c.key() + " label", errors);
                 requireText(c.feedback(), 280, at + " choice " + c.key() + " feedback", errors);
+                String ref = n.key() + "." + c.key();
+                if (c.consequence() == null) {
+                    withoutConsequence.add(ref);
+                } else {
+                    withConsequence.add(ref);
+                    if (c.consequence().isBlank()) {
+                        errors.add(at + " choice " + c.key() + " consequence is blank (omit it instead)");
+                    } else if (c.consequence().length() > CONSEQUENCE_MAX) {
+                        errors.add(at + " choice " + c.key() + " consequence is longer than "
+                                + CONSEQUENCE_MAX + " characters");
+                    }
+                }
                 if (c.next() == null || !(nodeByKey.containsKey(c.next()) || outcomeKeys.contains(c.next()))) {
                     errors.add(at + " choice " + c.key() + " points to missing node/outcome '" + c.next() + "'");
                 }
@@ -299,6 +331,11 @@ public final class PracticeContentValidator {
         }
         for (String declared : declaredTags) {
             if (!usedTags.contains(declared)) errors.add(where + ": tag " + declared + " has copy but no choice earns it");
+        }
+        if (!withConsequence.isEmpty() && !withoutConsequence.isEmpty()) {
+            errors.add(where + ": consequence is all-or-none per version; " + withConsequence.size() + " of "
+                    + (withConsequence.size() + withoutConsequence.size())
+                    + " choices have one, missing on " + String.join(", ", withoutConsequence));
         }
 
         if (s.startNode() != null && nodeByKey.containsKey(s.startNode())) {
@@ -357,6 +394,7 @@ public final class PracticeContentValidator {
 
     private static void validateCopy(PracticeKind kind, Body b, String where, List<String> errors) {
         List<String> texts = new ArrayList<>();
+        List<String> consequences = new ArrayList<>();
         add(texts, b.title(), b.summary(), b.objective(), b.facilitation());
         if (b.tags() != null) b.tags().values().forEach(t -> { if (t != null) add(texts, t.text()); });
         if (b.scenario() != null) {
@@ -364,7 +402,11 @@ public final class PracticeContentValidator {
             if (s.nodes() != null) for (Node n : s.nodes()) {
                 if (n == null) continue;
                 add(texts, n.title(), n.body(), n.prompt());
-                if (n.choices() != null) for (Choice c : n.choices()) if (c != null) add(texts, c.label(), c.feedback());
+                if (n.choices() != null) for (Choice c : n.choices()) {
+                    if (c == null) continue;
+                    add(texts, c.label(), c.consequence(), c.feedback());
+                    if (c.consequence() != null) consequences.add(c.consequence());
+                }
             }
             if (s.outcomes() != null) for (Outcome o : s.outcomes()) if (o != null) add(texts, o.title(), o.body());
         }
@@ -376,6 +418,14 @@ public final class PracticeContentValidator {
             for (Pattern p : rules) {
                 if (p.matcher(text).find()) {
                     errors.add(where + ": prohibited practice copy (" + p.pattern() + ") in \"" + abbreviate(text) + "\"");
+                }
+            }
+        }
+        for (String text : consequences) {
+            for (Pattern p : JUDGMENT_IN_CONSEQUENCE) {
+                if (p.matcher(text).find()) {
+                    errors.add(where + ": judgment wording in consequence (" + p.pattern() + ") in \""
+                            + abbreviate(text) + "\"; describe what happened, not the person");
                 }
             }
         }

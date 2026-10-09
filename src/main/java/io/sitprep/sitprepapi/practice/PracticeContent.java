@@ -98,12 +98,21 @@ public final class PracticeContent {
 
     /**
      * One option. {@code next} names a node or an outcome; {@code feedback}
-     * is the calm one-line reflection shown after choosing; {@code tags} are
-     * the debrief tags this choice earns.
+     * is the calm one-line reflection shown after choosing (the "why");
+     * {@code tags} are the debrief tags this choice earns.
+     *
+     * <p>{@code consequence} is the optional in-story "what happened next"
+     * line shown before {@code feedback} (spec Q10). It describes the
+     * situation, never the person. All-or-none per version, so a version
+     * never shows two-line reflections on some steps and one-line on others.
+     * Additive and nullable: a file without it (v1) parses, validates and
+     * hashes exactly as before, because the hash is taken over the file's
+     * JSON tree, not over this record.</p>
      */
     public record Choice(
             String key,
             String label,
+            String consequence,
             String feedback,
             List<String> tags,
             String next) {}

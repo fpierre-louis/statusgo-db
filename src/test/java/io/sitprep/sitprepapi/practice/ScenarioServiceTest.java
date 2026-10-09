@@ -170,8 +170,31 @@ class ScenarioServiceTest {
         RunDto after = service.commit(id, ME, "start", "text");
         assertThat(after.lastCommit().feedback()).isEqualTo("Texts often get through when calls do not.");
         assertThat(after.lastCommit().choiceLabel()).isEqualTo("Send a short text");
+        assertThat(after.lastCommit().consequence()).as("content without consequence lines").isNull();
         assertThat(after.node().key()).isEqualTo("second");
         assertThat(table.get(0).getDecisionTrace()).hasSize(1);
+    }
+
+    @Test
+    void commitCarriesTheConsequenceBeforeTheFeedback() {
+        Version v2 = version(approve(PracticeFixtures.withConsequences(scenario("two-line", 1)), PublishState.PUBLISHED));
+        PracticeCatalog catalog = PracticeCatalog.of(List.of(v2));
+        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, false,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioService twoLine = new ScenarioService(availability, suppression, inMemoryRepo(), groups, access,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        long id = twoLine.start("two-line", ME, HH).runId();
+        RunDto after = twoLine.commit(id, ME, "start", "text");
+        assertThat(after.lastCommit().consequence()).isEqualTo("Consequence for text: the reply comes.");
+        assertThat(after.lastCommit().feedback()).isEqualTo("Texts often get through when calls do not.");
+        // Reloading the run shows the same two-line reflection.
+        assertThat(twoLine.get(id, ME).lastCommit().consequence()).isEqualTo("Consequence for text: the reply comes.");
     }
 
     @Test

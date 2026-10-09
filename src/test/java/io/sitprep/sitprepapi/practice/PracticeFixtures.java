@@ -109,6 +109,16 @@ final class PracticeFixtures {
         for (String tag : tags) t.add(tag);
     }
 
+    /** Gives every choice an in-story consequence line (the v2 two-line reflection shape). */
+    static ObjectNode withConsequences(ObjectNode root) {
+        for (com.fasterxml.jackson.databind.JsonNode n : content(root).get("scenario").get("nodes")) {
+            for (com.fasterxml.jackson.databind.JsonNode c : n.get("choices")) {
+                ((ObjectNode) c).put("consequence", "Consequence for " + c.get("key").asText() + ": the reply comes.");
+            }
+        }
+        return root;
+    }
+
     /** Marks a tree as approved + in {@code state}, pinning the review to its current hash. */
     static ObjectNode approve(ObjectNode root, PublishState state) {
         ObjectNode lifecycle = (ObjectNode) root.get("lifecycle");

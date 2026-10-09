@@ -45,9 +45,14 @@ public final class ScenarioDtos {
 
     public record NodeDto(String key, String title, String body, String prompt, List<ChoiceDto> choices) {}
 
-    /** The choice just committed and its calm reflection (R4 beat 3). */
+    /**
+     * The choice just committed and its calm reflection (R4 beat 3):
+     * {@code consequence} (what happened next) then {@code feedback} (why it
+     * matters). {@code consequence} is null for content without it (v1), and
+     * the client then shows {@code feedback} alone.
+     */
     public record CommittedDto(String nodeKey, String nodeTitle, String choiceKey, String choiceLabel,
-                               String feedback) {}
+                               String consequence, String feedback) {}
 
     public record NextStepDto(ReadinessAction action, Map<String, String> params,
                               String prompt, String label, String note) {}

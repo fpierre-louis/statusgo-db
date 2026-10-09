@@ -15,6 +15,7 @@ import static io.sitprep.sitprepapi.practice.PracticeFixtures.node;
 import static io.sitprep.sitprepapi.practice.PracticeFixtures.scenario;
 import static io.sitprep.sitprepapi.practice.PracticeFixtures.version;
 import static io.sitprep.sitprepapi.practice.PracticeFixtures.versionAt;
+import static io.sitprep.sitprepapi.practice.PracticeFixtures.withConsequences;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -261,6 +262,90 @@ class PracticeContentValidatorTest {
         ObjectNode adult = scenario("k", 1);
         content(adult).put("objective", "Check whether anyone is injured before you leave.");
         assertThat(errors(adult)).isEmpty();
+    }
+
+    // -- consequence (spec Q10) ------------------------------------------
+
+    @Test
+    void consequenceOnEveryChoiceParsesAndPasses() {
+        ObjectNode r = withConsequences(scenario("k", 2));
+        assertThat(errors(r)).isEmpty();
+        assertThat(version(r).body().scenario().nodes().get(0).choices().get(0).consequence())
+                .isEqualTo("Consequence for text: the reply comes.");
+    }
+
+    @Test
+    void noConsequenceAnywhereIsStillValid() {
+        ObjectNode r = scenario("k", 1);
+        assertThat(errors(r)).isEmpty();
+        assertThat(version(r).body().scenario().nodes())
+                .allSatisfy(n -> assertThat(n.choices()).allSatisfy(c -> assertThat(c.consequence()).isNull()));
+    }
+
+    @Test
+    void consequenceIsAllOrNonePerVersion() {
+        ObjectNode one = scenario("k", 1);
+        choiceAt(one, 0, 0).put("consequence", "Your sister replies a minute later.");
+        assertRejected(one, "consequence is all-or-none per version; 1 of 4 choices have one");
+        assertRejected(one, "missing on start.call, second.plan, second.improvise");
+
+        // All but one, across nodes, is still a mix.
+        ObjectNode most = withConsequences(scenario("k", 1));
+        choiceAt(most, 1, 1).remove("consequence");
+        assertRejected(most, "missing on second.improvise");
+    }
+
+    @Test
+    void consequenceLengthAndBlank() {
+        ObjectNode exact = withConsequences(scenario("k", 1));
+        choiceAt(exact, 0, 0).put("consequence", "a".repeat(PracticeContentValidator.CONSEQUENCE_MAX));
+        assertThat(errors(exact)).isEmpty();
+
+        ObjectNode longer = withConsequences(scenario("k", 1));
+        choiceAt(longer, 0, 0).put("consequence", "a".repeat(PracticeContentValidator.CONSEQUENCE_MAX + 1));
+        assertRejected(longer, "choice text consequence is longer than 140 characters");
+
+        ObjectNode blank = withConsequences(scenario("k", 1));
+        choiceAt(blank, 0, 1).put("consequence", "  ");
+        assertRejected(blank, "choice call consequence is blank");
+    }
+
+    @Test
+    void consequenceNeverJudgesThePerson() {
+        for (String line : List.of(
+                "That was the WRONG move.",
+                "A small mistake: the message sits unsent.",
+                "The plan failed.",
+                "You should have texted first.",
+                "You should've texted first.",
+                "Bad choice. The line stays busy.",
+                "Correct. Your brother answers.",
+                "Right call. Your brother answers.")) {
+            ObjectNode r = withConsequences(scenario("k", 1));
+            choiceAt(r, 0, 0).put("consequence", line);
+            assertThat(errors(r)).as(line).anySatisfy(e -> assertThat(e).contains("judgment wording in consequence"));
+        }
+    }
+
+    @Test
+    void consequenceIsInTheGeneralCopyGuard() {
+        ObjectNode r = withConsequences(scenario("k", 1));
+        choiceAt(r, 1, 1).put("consequence", "Nobody answers. You lose an hour and 10 points.");
+        assertRejected(r, "prohibited practice copy");
+    }
+
+    @Test
+    void judgmentTermsAreConsequenceOnly() {
+        // The same words in feedback are left to the human review, as before.
+        ObjectNode r = scenario("k", 1);
+        choiceAt(r, 0, 0).put("feedback", "A wrong number in a contact card is easy to miss.");
+        assertThat(errors(r)).isEmpty();
+    }
+
+    @Test
+    void consequenceChangesTheHash() {
+        assertThat(ContentHasher.hashFile(withConsequences(scenario("k", 1))))
+                .isNotEqualTo(ContentHasher.hashFile(scenario("k", 1)));
     }
 
     // -- kind rules -----------------------------------------------------

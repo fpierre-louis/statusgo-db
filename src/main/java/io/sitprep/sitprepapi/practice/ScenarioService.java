@@ -318,7 +318,7 @@ public class ScenarioService {
         Optional<Choice> choice = node.flatMap(n -> ScenarioEngine.choice(n, last.choiceKey()));
         if (choice.isEmpty()) return null;
         return new CommittedDto(last.nodeKey(), node.get().title(), last.choiceKey(),
-                choice.get().label(), choice.get().feedback());
+                choice.get().label(), choice.get().consequence(), choice.get().feedback());
     }
 
     private static DebriefDto debriefDto(Version v, ScenarioRun run) {
