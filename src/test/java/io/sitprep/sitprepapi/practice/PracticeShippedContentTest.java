@@ -1,11 +1,22 @@
 package io.sitprep.sitprepapi.practice;
 
+import io.sitprep.sitprepapi.practice.PracticeContent.Choice;
+import io.sitprep.sitprepapi.practice.PracticeContent.Node;
+import io.sitprep.sitprepapi.practice.PracticeContent.Version;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The build gate for real content: every file under
@@ -37,6 +48,90 @@ class PracticeShippedContentTest {
         assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
         assertThat(v1.body().scenario().nodes())
                 .allSatisfy(n -> assertThat(n.choices()).allSatisfy(c -> assertThat(c.consequence()).isNull()));
+    }
+
+    private static final String COMMS = "comms-outage-family-reconnect";
+
+    /**
+     * The hash the v2 review packet (SitPrep FE
+     * docs/epics/scenarios-and-youth/EXEC-D2-content-v2-review-packet.md)
+     * shows the owner. Any edit to v2 fails here first: regenerate the packet
+     * with the new hash before asking for review again.
+     */
+    static final String COMMS_V2_DRAFT_HASH =
+            "sha256:8a370c0f555643f8701712f66c4f6ecb1c03c816bf66b1a9e81952871571bb5d";
+
+    /**
+     * Comms Outage v2 (spec Q10: two-part reflections) is a DRAFT awaiting the
+     * owner's safety review. It must validate clean, carry no approval the
+     * author could have filled in, and change copy only: the graph, tags and
+     * sources are v1's.
+     */
+    @Test
+    void commsOutageV2IsACleanUnapprovedDraftWithAConsequenceOnEveryChoice() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v1 = catalog.exact(COMMS, 1).orElseThrow();
+        Version v2 = catalog.exact(COMMS, 2).orElseThrow();
+        System.out.println("[practice] " + COMMS + " v2 contentHash = " + v2.contentHash());
+
+        assertThat(PracticeContentValidator.validate(v2)).isEmpty();
+        assertThat(v2.contentHash()).isEqualTo(COMMS_V2_DRAFT_HASH);
+
+        var lifecycle = v2.file().lifecycle();
+        assertThat(lifecycle.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(lifecycle.publishedAt()).isNull();
+        assertThat(lifecycle.retiredAt()).isNull();
+        var review = lifecycle.safetyReview();
+        assertThat(review.status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(review.reviewedBy()).isNull();
+        assertThat(review.reviewedAt()).isNull();
+        assertThat(review.reviewedContentHash()).isNull();
+
+        List<Choice> v2Choices = v2.body().scenario().nodes().stream().flatMap(n -> n.choices().stream()).toList();
+        assertThat(v2Choices).hasSize(13).allSatisfy(c -> {
+            assertThat(c.consequence()).as(c.key()).isNotBlank();
+            assertThat(c.consequence().trim().split("\\s+")).as("%s consequence words (spec Q10: <= 15)", c.key())
+                    .hasSizeLessThanOrEqualTo(15);
+        });
+
+        // Copy changes only: same nodes, choices, edges, tags, actions and sources as v1.
+        assertThat(shape(v2)).isEqualTo(shape(v1));
+        assertThat(v2.body().sources()).isEqualTo(v1.body().sources());
+        assertThat(v2.body().tags()).isEqualTo(v1.body().tags());
+    }
+
+    /** DRAFT is validated in the build but never served where previews are off (production). */
+    @Test
+    void commsOutageV2IsNotInThePublicCatalog() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v2 = catalog.exact(COMMS, 2).orElseThrow();
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(1);
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        PracticeAvailabilityService prod = new PracticeAvailabilityService(catalog, repo, true, false,
+                Clock.fixed(Instant.parse("2026-10-09T12:00:00Z"), ZoneOffset.UTC));
+        assertThat(prod.startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
+                .satisfies(e -> {
+                    assertThat(e.version().version()).isEqualTo(1);
+                    assertThat(e.preview()).isFalse();
+                });
+        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(1);
+        assertThat(prod.checkRun(COMMS, 2, v2.contentHash()).canContinue()).isFalse();
+    }
+
+    /** Node keys, choice keys, next pointers, tags and actions: everything but the words. */
+    private static List<String> shape(Version v) {
+        var s = v.body().scenario();
+        List<String> out = new java.util.ArrayList<>();
+        out.add("start=" + s.startNode());
+        for (Node n : s.nodes()) {
+            for (Choice c : n.choices()) out.add(n.key() + "." + c.key() + "->" + c.next() + " " + c.tags());
+        }
+        s.outcomes().forEach(o -> out.add("outcome " + o.key() + " " + o.defaultAction() + " " + o.defaultParams()));
+        return out;
     }
 
     @Test

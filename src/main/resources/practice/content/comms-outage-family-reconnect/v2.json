@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "key": "comms-outage-family-reconnect",
+  "version": 2,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "Authored 2026-10-09 by Claude (agent). Awaiting owner safety review — see SitPrep FE docs/epics/scenarios-and-youth/EXEC-D2-content-v2-review-packet.md. Do not approve on the owner's behalf."
+    }
+  },
+  "content": {
+    "title": "Communications outage: family reconnect",
+    "summary": "Calls aren't getting through and your household is spread across town. Walk through how you'd find each other.",
+    "objective": "Practice reconnecting with your household when phone calls aren't getting through.",
+    "estimatedMinutes": 5,
+    "sources": [
+      { "label": "Ready.gov — Make a Plan", "url": "https://www.ready.gov/plan" },
+      { "label": "American Red Cross — Make a Plan", "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/make-a-plan.html" },
+      { "label": "Ready.gov — Hurricanes (staying in touch after a disaster)", "url": "https://www.ready.gov/hurricanes" },
+      { "label": "Ready.gov — Earthquakes (texting and battery)", "url": "https://www.ready.gov/earthquakes" },
+      { "label": "Ready.gov — Emergency Alerts", "url": "https://www.ready.gov/alerts" }
+    ],
+    "tags": {
+      "communicated_clearly": {
+        "text": "You reached out with a short, clear message instead of waiting on calls."
+      },
+      "used_out_of_area_contact": {
+        "text": "You gave everyone one out-of-area contact to check in with."
+      },
+      "used_household_plan": {
+        "text": "You leaned on what your household had already agreed on."
+      },
+      "recognized_official_source": {
+        "text": "You checked official sources before acting on a rumor."
+      },
+      "needs_contact_review": {
+        "text": "Make sure your household has an out-of-area contact, written down as well as saved in phones.",
+        "action": "OPEN_EMERGENCY_CONTACTS"
+      },
+      "needs_meeting_place_review": {
+        "text": "Agree on a meeting place everyone knows, before you need it.",
+        "action": "OPEN_EVACUATION_PLAN"
+      }
+    },
+    "scenario": {
+      "startNode": "calls_failing",
+      "nodes": [
+        {
+          "key": "calls_failing",
+          "title": "Calls aren't connecting",
+          "body": "A major storm moved through this morning. Your household is safe but spread across town, and phone calls keep failing.",
+          "prompt": "How do you reach your household first?",
+          "choices": [
+            {
+              "key": "short_text",
+              "label": "Send a short text: \"I'm safe. Where are you?\"",
+              "consequence": "Your text sends. Now you wait to see who answers.",
+              "feedback": "Texts may get through when calls don't, and they can save battery. Ready.gov suggests saving phone calls for emergencies after a disaster.",
+              "tags": ["communicated_clearly"],
+              "next": "partial_replies"
+            },
+            {
+              "key": "keep_calling",
+              "label": "Keep calling until a call connects",
+              "consequence": "The next few calls don't connect either.",
+              "feedback": "Phone systems are often down or busy after a disaster. Ready.gov suggests text messages or social media to reach family, and saving calls for emergencies.",
+              "tags": [],
+              "next": "partial_replies"
+            },
+            {
+              "key": "post_okay",
+              "label": "Post \"We're okay\" where your family will see it",
+              "consequence": "Your post goes up. Now you wait to see who sees it.",
+              "feedback": "Ready.gov lists social media, along with texts, as a way to reach family and friends when phone systems are busy.",
+              "tags": ["communicated_clearly"],
+              "next": "partial_replies"
+            }
+          ]
+        },
+        {
+          "key": "partial_replies",
+          "title": "Only some people get through",
+          "body": "You hear from one person in your household at school: they're okay, but their phone battery is low. You haven't heard from the others yet.",
+          "prompt": "How do you keep track of who's okay?",
+          "choices": [
+            {
+              "key": "out_of_area",
+              "label": "Ask everyone to check in with your out-of-area contact",
+              "consequence": "Your message names one person for everyone to check in with.",
+              "feedback": "The Red Cross notes it may be easier to text or call long distance when local lines are overloaded. One shared contact gives everyone the same place to check in.",
+              "tags": ["used_out_of_area_contact"],
+              "next": "where_to_meet"
+            },
+            {
+              "key": "no_contact_yet",
+              "label": "We don't have an out-of-area contact yet",
+              "consequence": "For now, every check-in comes back to you.",
+              "feedback": "That's worth setting up on a calm day. The Red Cross recommends choosing one, because long-distance texts and calls may get through when local lines are overloaded.",
+              "tags": ["needs_contact_review"],
+              "next": "finding_numbers"
+            },
+            {
+              "key": "resend_each",
+              "label": "Keep trying each person",
+              "consequence": "Some people answer on another try. Others haven't yet.",
+              "feedback": "Trying again can work. A shared check-in contact means everyone reaches one person instead of everyone trying everyone.",
+              "tags": [],
+              "next": "where_to_meet"
+            }
+          ]
+        },
+        {
+          "key": "finding_numbers",
+          "title": "Finding the numbers",
+          "body": "Without one person everyone checks in with, you'll need to reach people one by one.",
+          "prompt": "Where do you look for the numbers you need?",
+          "choices": [
+            {
+              "key": "written_card",
+              "label": "The contact card we keep in our wallets and bags",
+              "consequence": "You find the card where you keep it.",
+              "feedback": "Written contacts still work when a phone is out of battery or lost. The Red Cross recommends everyone carry emergency contacts in writing.",
+              "tags": ["used_household_plan"],
+              "next": "where_to_meet"
+            },
+            {
+              "key": "search_phone",
+              "label": "Search my phone and try to remember the rest",
+              "consequence": "Most numbers are saved in your phone. A few take longer to find.",
+              "feedback": "Phones run out of battery. The Red Cross recommends carrying emergency contacts in writing as well as saving them on your phone.",
+              "tags": ["needs_contact_review"],
+              "next": "where_to_meet"
+            }
+          ]
+        },
+        {
+          "key": "where_to_meet",
+          "title": "Where do we meet up?",
+          "body": "Another adult in your household finally replies: \"Phone almost out of battery. Where do we meet up?\"",
+          "prompt": "What do you send back?",
+          "choices": [
+            {
+              "key": "plan_meeting_place",
+              "label": "\"Our meeting place from the plan.\"",
+              "consequence": "They reply: \"Got it.\" You both know where to meet.",
+              "feedback": "A meeting place everyone already knows means nobody has to work it out under stress. Ready.gov recommends one that's familiar and easy to find.",
+              "tags": ["used_household_plan"],
+              "next": "rumor"
+            },
+            {
+              "key": "decide_later",
+              "label": "\"Let's decide when we can talk.\"",
+              "consequence": "They reply: \"Okay.\" Where to meet is still open.",
+              "feedback": "Deciding later is harder when phones are spotty. Ready.gov recommends setting a familiar meeting place ahead of time.",
+              "tags": ["needs_meeting_place_review"],
+              "next": "rumor"
+            },
+            {
+              "key": "call_me",
+              "label": "\"Call me and we'll work it out.\"",
+              "consequence": "They reply: \"Will try.\" No call has come through yet.",
+              "feedback": "Their battery is low. Ready.gov notes texts may be more reliable than calls and can save battery power.",
+              "tags": [],
+              "next": "rumor"
+            }
+          ]
+        },
+        {
+          "key": "rumor",
+          "title": "A post about the phones",
+          "body": "A neighbor shares a post saying phone service will be out for three days. It doesn't say who it's from.",
+          "prompt": "How do you find out what's actually happening?",
+          "choices": [
+            {
+              "key": "check_official",
+              "label": "Check official alerts and what local officials are saying",
+              "consequence": "You find the official updates for your area.",
+              "feedback": "Ready.gov says to pay attention to local officials for updates and what to do. Wireless Emergency Alerts aren't held up when the phone network is busy.",
+              "tags": ["recognized_official_source"],
+              "next": "reconnected"
+            },
+            {
+              "key": "forward_post",
+              "label": "Forward the post to your household",
+              "consequence": "The post goes out to your household. Where it came from is still unclear.",
+              "feedback": "A post with no source may not be right. Ready.gov points to local officials and official alerts for information and instructions.",
+              "tags": [],
+              "next": "reconnected_check_sources"
+            }
+          ]
+        }
+      ],
+      "outcomes": [
+        {
+          "key": "reconnected",
+          "title": "Your household reconnected",
+          "body": "You used what you had and kept everyone in the loop. That's what practice is for. If you'd like, talk it over together. How would each of you finish this: \"If calls fail, our household will…\"?",
+          "defaultAction": "OPEN_EMERGENCY_CONTACTS"
+        },
+        {
+          "key": "reconnected_check_sources",
+          "title": "Your household reconnected",
+          "body": "Everyone found each other. Next time, check official sources before passing news along. If you'd like, talk it over together. How would each of you finish this: \"If calls fail, our household will…\"?",
+          "defaultAction": "OPEN_ALERT_PREFERENCES"
+        }
+      ]
+    }
+  }
+}

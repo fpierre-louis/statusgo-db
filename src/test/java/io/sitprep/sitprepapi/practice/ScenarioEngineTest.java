@@ -7,6 +7,8 @@ import io.sitprep.sitprepapi.practice.ScenarioEngine.Refusal;
 import io.sitprep.sitprepapi.practice.ScenarioRun.TraceStep;
 import io.sitprep.sitprepapi.readiness.ReadinessAction;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,10 +69,11 @@ class ScenarioEngineTest {
      * Walks EVERY path through the shipped Communications Outage content: each
      * ends at an outcome, and each debrief offers an allowed next step with copy.
      */
-    @Test
-    void everyPathThroughShippedContentEndsWithAUsableDebrief() {
+    @ParameterizedTest(name = "v{0}")
+    @ValueSource(ints = {1, 2})
+    void everyPathThroughShippedContentEndsWithAUsableDebrief(int version) {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
-        Version v = catalog.exact("comms-outage-family-reconnect", 1).orElseThrow();
+        Version v = catalog.exact("comms-outage-family-reconnect", version).orElseThrow();
         List<List<TraceStep>> paths = new ArrayList<>();
         List<String> ends = new ArrayList<>();
         walk(v, ScenarioEngine.startNode(v), new ArrayList<>(), paths, ends);
@@ -91,13 +94,14 @@ class ScenarioEngineTest {
      * (EmergencyContacts.js intent effect), which would make the debrief's
      * "Nothing changes unless you save it" untrue. The plain route writes nothing.
      */
-    @Test
-    void shippedNextStepsOpenEditorsWithoutSideEffectParams() {
+    @ParameterizedTest(name = "v{0}")
+    @ValueSource(ints = {1, 2})
+    void shippedNextStepsOpenEditorsWithoutSideEffectParams(int version) {
         Version v = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION)
-                .exact("comms-outage-family-reconnect", 1).orElseThrow();
+                .exact("comms-outage-family-reconnect", version).orElseThrow();
         v.body().tags().values().forEach(t -> assertThat(t.params()).isNullOrEmpty());
         v.body().scenario().outcomes().forEach(o -> assertThat(o.defaultParams()).isNullOrEmpty());
-        System.out.println("[practice] comms-outage-family-reconnect v1 contentHash = " + v.contentHash());
+        System.out.println("[practice] comms-outage-family-reconnect v" + version + " contentHash = " + v.contentHash());
     }
 
     private static void walk(Version v, String at, List<TraceStep> trace, List<List<TraceStep>> paths, List<String> ends) {
