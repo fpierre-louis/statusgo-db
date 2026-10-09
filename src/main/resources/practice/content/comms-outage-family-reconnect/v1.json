@@ -4,11 +4,15 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "Authored 2026-10-08 by Claude (agent). Awaiting owner safety review — see SitPrep FE docs/epics/scenarios-and-youth/EXEC-B-content-review-packet.md. Do not approve on the owner's behalf."
-    }
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-08",
+      "reviewedBy": "francisd.plouis@gmail.com (product owner)",
+      "reviewedContentHash": "sha256:6c6346a3f56315aefa29adec7dbc95bb8e83603d5570896cc652ffa00a837543",
+      "notes": "Authored 2026-10-08 by Claude (agent). Approved by the product owner 2026-10-08 against SitPrep FE docs/epics/scenarios-and-youth/EXEC-B-content-review-packet.md at this hash. The author did not approve it."
+    },
+    "publishedAt": "2026-10-08"
   },
   "content": {
     "title": "Communications outage: family reconnect",
