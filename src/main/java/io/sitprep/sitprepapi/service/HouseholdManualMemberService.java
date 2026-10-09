@@ -45,6 +45,11 @@ import java.util.UUID;
  * than the membership-only CRUD above. No push and no notification: the write
  * goes out on the manual-member socket and as a {@code status-set-for}
  * timeline row in this household only.</p>
+ *
+ * <p><b>Changing or deleting a named person is owner/admin only</b>
+ * (2026-10-09, {@link MemberActionPolicy#canEditNamedMembers}): rename, remove
+ * the name ({@code keepInCount}) and remove from the household. Adding by name
+ * stays open to any member — the add drawer's rule.</p>
  */
 @Service
 public class HouseholdManualMemberService {
@@ -101,7 +106,7 @@ public class HouseholdManualMemberService {
         HouseholdManualMember m = new HouseholdManualMember();
         m.setId(body.id() == null || body.id().isBlank() ? UUID.randomUUID().toString() : body.id());
         m.setHouseholdId(householdId);
-        m.setName(body.name().trim());
+        m.setName(cleanName(body.name()));
         m.setRelationship(body.relationship());
         m.setAge(body.age());
         HouseholdBand band = HouseholdBand.parse(body.band());
@@ -118,11 +123,18 @@ public class HouseholdManualMemberService {
         return dto;
     }
 
+    /**
+     * Edit a named person — owner or admin (403 otherwise; 404 when they are
+     * not in this household). A {@code name} that is present must be non-blank
+     * after trimming and at most {@link #NAME_MAX} characters (400).
+     */
     @Transactional
-    public HouseholdManualMemberDto update(String householdId, String id, UpsertRequest body) {
+    public HouseholdManualMemberDto update(String householdId, String id, UpsertRequest body, String actorEmail) {
+        requireCanEditNamed(householdId, actorEmail);
+        if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "body required");
         HouseholdManualMember m = loadOr404(householdId, id);
         HouseholdBand before = m.effectiveBand();
-        if (body.name() != null && !body.name().isBlank()) m.setName(body.name().trim());
+        if (body.name() != null) m.setName(cleanName(body.name()));
         if (body.relationship() != null) m.setRelationship(body.relationship());
         if (body.age() != null) m.setAge(body.age());
         // Explicit-only update — null body.isAdult leaves the stored value
@@ -152,14 +164,31 @@ public class HouseholdManualMemberService {
         return dto;
     }
 
+    /**
+     * Delete a named person — owner or admin (403 otherwise; 404 when they are
+     * not in this household). Their status goes with the row, and every
+     * accompaniment that names them is dropped.
+     *
+     * <ul>
+     *   <li>{@code keepInCount = false} — "Remove from household": the plan
+     *       stops counting them (their band drops by one).</li>
+     *   <li>{@code keepInCount = true} — "Remove name": the plan still counts
+     *       them, so the row becomes an unnamed placeholder in the same band
+     *       ("Child · Add a name"). A household with no plan row gets one,
+     *       seeded at the named totals BEFORE the delete — without it the
+     *       counts are the named totals and the person would silently drop.</li>
+     * </ul>
+     */
     @Transactional
-    public void remove(String householdId, String id) {
+    public void remove(String householdId, String id, String actorEmail, boolean keepInCount) {
+        requireCanEditNamed(householdId, actorEmail);
         HouseholdManualMember m = loadOr404(householdId, id);
         HouseholdBand band = m.effectiveBand();
+        if (keepInCount) composition.raiseToNamed(householdId, true, actorEmail);
         repo.delete(m);
         repo.flush();
-        // The household removed a person it had named: the plan stops counting them.
-        composition.lowerBand(householdId, band);
+        // "Remove from household": the plan stops counting them.
+        if (!keepInCount) composition.lowerBand(householdId, band);
         accompanimentService.cascadeManualMemberRemoval(householdId, id);
         broadcastAfterCommit(() -> ws.sendHouseholdManualMemberDeletion(householdId, id));
     }
@@ -211,6 +240,31 @@ public class HouseholdManualMemberService {
     }
 
     // ------------------------------------------------------------------
+
+    /** The {@code name} column's length. */
+    public static final int NAME_MAX = 120;
+
+    /** Trimmed; 400 when blank or longer than {@link #NAME_MAX}. */
+    static String cleanName(String raw) {
+        String n = raw == null ? "" : raw.trim();
+        if (n.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A name can't be empty");
+        }
+        if (n.length() > NAME_MAX) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A name can be " + NAME_MAX + " characters at most");
+        }
+        return n;
+    }
+
+    private void requireCanEditNamed(String householdId, String actorEmail) {
+        Group g = groupRepo.findByGroupId(householdId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (actorEmail == null || !MemberActionPolicy.canEditNamedMembers(g, actorEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the household's owner or admins can change someone added by name");
+        }
+    }
 
     private Group requireCanSetStatus(String householdId, String actorEmail) {
         Group g = groupRepo.findByGroupId(householdId)

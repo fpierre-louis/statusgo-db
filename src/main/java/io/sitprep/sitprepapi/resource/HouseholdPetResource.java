@@ -44,13 +44,19 @@ public class HouseholdPetResource {
         return ResponseEntity.ok(service.update(caller, householdId, id, body));
     }
 
+    /**
+     * 204. Owner or admin. {@code ?keepInCount=true} is "Remove name": the pet
+     * stays counted as an unnamed placeholder of its species; without it the
+     * species count drops by one.
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> remove(
             @PathVariable String householdId,
-            @PathVariable String id
+            @PathVariable String id,
+            @RequestParam(name = "keepInCount", defaultValue = "false") boolean keepInCount
     ) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        service.remove(caller, householdId, id);
+        service.remove(caller, householdId, id, keepInCount);
         return ResponseEntity.noContent().build();
     }
 }

@@ -212,7 +212,9 @@ class HouseholdCompositionTest {
         assertThat(asMember.viewer().canEditCounts()).isFalse();
         assertThat(person(asMember, "user:" + admin).capabilities().canRemove()).isFalse();
         assertThat(person(asMember, "manual:" + manualId(g, "Kid")).capabilities().canInviteToClaim()).isFalse();
-        assertThat(person(asMember, "manual:" + manualId(g, "Kid")).capabilities().canRemove()).isTrue();
+        // Renaming / removing someone added by hand is owner/admin (2026-10-09).
+        assertThat(person(asMember, "manual:" + manualId(g, "Kid")).capabilities().canRemove()).isFalse();
+        assertThat(person(asMember, "manual:" + manualId(g, "Kid")).capabilities().canRename()).isFalse();
         assertThat(person(asMember, "placeholder:ADULT:1").capabilities().canName()).isTrue();
         assertThat(person(asMember, "placeholder:ADULT:1").capabilities().canRemove()).isFalse();
     }
@@ -302,14 +304,14 @@ class HouseholdCompositionTest {
         HouseholdManualMemberDto ava = manual.add(g.getGroupId(), req("Ava", null, 7, null), owner);
         HouseholdManualMemberDto ben = manual.add(g.getGroupId(), req("Ben", null, 9, null), owner);
 
-        manual.update(g.getGroupId(), ben.id(), req(null, null, null, "teen"));
+        manual.update(g.getGroupId(), ben.id(), req(null, null, null, "teen"), owner);
         assertThat(row(g).getKids()).isEqualTo(1);
         assertThat(row(g).getTeens()).isEqualTo(1);
 
-        manual.update(g.getGroupId(), ava.id(), req("Ava R", null, null, null)); // rename: no move
+        manual.update(g.getGroupId(), ava.id(), req("Ava R", null, null, null), owner); // rename: no move
         assertThat(row(g).getKids()).isEqualTo(1);
 
-        manual.remove(g.getGroupId(), ava.id());
+        manual.remove(g.getGroupId(), ava.id(), owner, false);
         assertThat(row(g).getKids()).isZero();
         assertThat(row(g).getTeens()).isEqualTo(1);
     }
@@ -322,7 +324,7 @@ class HouseholdCompositionTest {
         HouseholdManualMemberDto ava = manual.add(g.getGroupId(), req("Ava", null, 7, null), owner);
         manual.add(g.getGroupId(), req("Ben", null, 9, null), owner);
 
-        manual.remove(g.getGroupId(), ava.id());
+        manual.remove(g.getGroupId(), ava.id(), owner, false);
 
         assertThat(row(g).getKids()).isEqualTo(2); // 3 − 1; Ben + one placeholder remain
     }
@@ -344,7 +346,7 @@ class HouseholdCompositionTest {
         assertThat(row(g).getDogs()).isZero();
         assertThat(row(g).getCats()).isEqualTo(2);
 
-        pets.remove(owner, g.getGroupId(), rex.id());
+        pets.remove(owner, g.getGroupId(), rex.id(), false);
         assertThat(row(g).getCats()).isEqualTo(1);
     }
 
@@ -537,7 +539,7 @@ class HouseholdCompositionTest {
         assertThat(essentials.evaluate(groups.findByGroupId(g.getGroupId()).orElseThrow(), owner).demographics()).isTrue();
 
         // Undo: deleting the person lowers the band back to who is named.
-        manual.remove(g.getGroupId(), manualId(g, "RFM Test Adult"));
+        manual.remove(g.getGroupId(), manualId(g, "RFM Test Adult"), owner, false);
         assertThat(row(g).getAdults()).isEqualTo(1);
     }
 

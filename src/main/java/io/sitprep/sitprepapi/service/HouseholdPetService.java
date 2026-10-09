@@ -16,6 +16,11 @@ import java.util.UUID;
  * Named pets. Like manual members, the plan's pet counts move here (V100): a
  * named pet fills a placeholder of its species or raises the count, a delete
  * lowers it, a species change moves it — via {@link HouseholdCompositionService}.
+ *
+ * <p>Every write is owner/admin ({@link HouseholdAccessService#requireCanAdminHousehold}).
+ * Pets have no topic of their own, so a rename or delete pushes the
+ * household's {@code /demographic} frame ({@link HouseholdCompositionService#announce})
+ * — the signal every open roster already refetches on.</p>
  */
 @Service
 public class HouseholdPetService {
@@ -49,7 +54,7 @@ public class HouseholdPetService {
         HouseholdPet pet = new HouseholdPet();
         pet.setId(body.id() == null || body.id().isBlank() ? UUID.randomUUID().toString() : body.id());
         pet.setHouseholdId(householdId);
-        pet.setName(body.name().trim());
+        pet.setName(HouseholdManualMemberService.cleanName(body.name()));
         pet.setSpecies(clean(body.species()));
         pet.setNotes(clean(body.notes()));
         pet.setPhotoUrl(clean(body.photoUrl()));
@@ -61,9 +66,10 @@ public class HouseholdPetService {
     @Transactional
     public HouseholdPetDto update(String caller, String householdId, String id, UpsertRequest body) {
         access.requireCanAdminHousehold(caller, householdId);
+        if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "body required");
         HouseholdPet pet = loadOr404(householdId, id);
         PetSpecies before = PetSpecies.of(pet.getSpecies());
-        if (body.name() != null && !body.name().isBlank()) pet.setName(body.name().trim());
+        if (body.name() != null) pet.setName(HouseholdManualMemberService.cleanName(body.name()));
         if (body.species() != null) pet.setSpecies(clean(body.species()));
         if (body.notes() != null) pet.setNotes(clean(body.notes()));
         if (body.photoUrl() != null) pet.setPhotoUrl(clean(body.photoUrl()));
@@ -73,17 +79,26 @@ public class HouseholdPetService {
             composition.lowerSpecies(householdId, before);
             composition.raiseToNamed(householdId, true, caller);
         }
+        composition.announce(householdId);
         return toDto(saved);
     }
 
+    /**
+     * {@code keepInCount = true} is "Remove name": the species keeps its count
+     * and the pet becomes an unnamed placeholder (a household with no plan row
+     * gets one first, seeded at the named totals). Otherwise the species count
+     * drops by one.
+     */
     @Transactional
-    public void remove(String caller, String householdId, String id) {
+    public void remove(String caller, String householdId, String id, boolean keepInCount) {
         access.requireCanAdminHousehold(caller, householdId);
         HouseholdPet pet = loadOr404(householdId, id);
         PetSpecies species = PetSpecies.of(pet.getSpecies());
+        if (keepInCount) composition.raiseToNamed(householdId, true, caller);
         repo.delete(pet);
         repo.flush();
-        composition.lowerSpecies(householdId, species);
+        if (!keepInCount) composition.lowerSpecies(householdId, species);
+        composition.announce(householdId);
     }
 
     private HouseholdPet loadOr404(String householdId, String id) {

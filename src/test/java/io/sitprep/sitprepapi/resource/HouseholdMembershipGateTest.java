@@ -106,15 +106,15 @@ class HouseholdMembershipGateTest {
     void outsiderCannotEditAnotherFamilysManualMember() {
         authenticateAs(OUTSIDER);
         assertForbidden(() -> manualMemberResource.update(HOUSEHOLD, "m-1", null));
-        verify(manualMembers, never()).update(anyString(), anyString(), any());
+        verify(manualMembers, never()).update(anyString(), anyString(), any(), anyString());
     }
 
     @Test
     void outsiderCannotDeleteAnotherFamilysChild() {
         // The destructive one: removal cascades into accompaniment links.
         authenticateAs(OUTSIDER);
-        assertForbidden(() -> manualMemberResource.remove(HOUSEHOLD, "m-1"));
-        verify(manualMembers, never()).remove(anyString(), anyString());
+        assertForbidden(() -> manualMemberResource.remove(HOUSEHOLD, "m-1", false));
+        verify(manualMembers, never()).remove(anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test

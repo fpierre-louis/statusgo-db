@@ -132,6 +132,7 @@ public class HouseholdCompositionService {
         String viewer = lower(viewerEmail);
         GroupRole viewerRole = GroupRole.fromGroup(g, viewer);
         boolean viewerAdmin = viewerRole.isAtLeastAdmin();
+        boolean viewerEditsNamed = MemberActionPolicy.canEditNamedMembers(g, viewer);
 
         List<String> accounts = accountEmails(g);
         Map<String, HouseholdBand> accountBands = accountBands(hid);
@@ -193,9 +194,10 @@ public class HouseholdCompositionService {
                     m.getRelationship(),
                     m.getAge(),
                     DtoImages.avatar(m.getPhotoUrl()),
-                    // Manual-member writes are member-gated (HouseholdManualMemberResource);
-                    // a claim link is an admin act.
-                    new Capabilities(true, true, viewerAdmin, false)));
+                    // Adding is member-gated; renaming, removing the name and
+                    // removing from the household are owner/admin
+                    // (MemberActionPolicy.canEditNamedMembers), as is a claim link.
+                    new Capabilities(viewerEditsNamed, viewerEditsNamed, viewerAdmin, false)));
         }
 
         // Named pets join the tally BEFORE the counts are read, so a household
@@ -606,6 +608,35 @@ public class HouseholdCompositionService {
     private void save(Demographic d) {
         Demographic saved = demographicRepo.save(d);
         broadcast(saved.getHouseholdId(), DemographicDto.from(saved));
+    }
+
+    /**
+     * Push the household's {@code /demographic} frame with the row as it
+     * stands — for a write that changed the roster without moving a count (a
+     * pet renamed, a pet's name removed). Every open roster refetches on it.
+     */
+    @Transactional(readOnly = true)
+    public void announce(String householdId) {
+        if (householdId == null || householdId.isBlank()) return;
+        Demographic d = demographicRepo.findFirstByHouseholdIdOrderByIdDesc(householdId).orElse(null);
+        if (d == null) {
+            final Map<String, Object> frame = new HashMap<>();
+            frame.put("type", "demographic");
+            frame.put("demographic", null);
+            afterCommit(() -> ws.sendHouseholdDemographic(householdId, frame));
+            return;
+        }
+        broadcast(householdId, DemographicDto.from(d));
+    }
+
+    private static void afterCommit(Runnable r) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { r.run(); }
+            });
+        } else {
+            r.run();
+        }
     }
 
     /**

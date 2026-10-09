@@ -25,6 +25,12 @@ import java.util.List;
  *
  * Nudge and ask-everyone also require the caller to be on the member roster,
  * as they always have.
+ *
+ * <p><b>editNamedMembers</b> (2026-10-09) — rename, remove the name of, or
+ * remove from the household somebody the household added by hand, or a named
+ * pet: owner or admin. Adding by name stays open to any member (the add
+ * drawer's rule); changing or deleting what someone else named does not. The
+ * composition's per-row {@code canRename} / {@code canRemove} read this.</p>
  */
 public final class MemberActionPolicy {
 
@@ -42,6 +48,10 @@ public final class MemberActionPolicy {
     }
 
     public static boolean canSetOthersStatus(Group group, String email) {
+        return GroupRole.fromGroup(group, email).isAtLeastAdmin();
+    }
+
+    public static boolean canEditNamedMembers(Group group, String email) {
         return GroupRole.fromGroup(group, email).isAtLeastAdmin();
     }
 

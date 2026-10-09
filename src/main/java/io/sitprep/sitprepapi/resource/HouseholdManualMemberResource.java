@@ -24,6 +24,12 @@ import java.util.List;
  * hole was in: whether a non-admin <em>member</em> should be able to edit a
  * manual member is a separate product question, and quietly tightening it here
  * would break households where a non-admin parent adds a child today.</p>
+ *
+ * <p><b>That question was answered 2026-10-09:</b> PATCH and DELETE (rename,
+ * remove the name, remove from household) are owner/admin only — 403 for a
+ * plain member, enforced in the service through
+ * {@link io.sitprep.sitprepapi.service.MemberActionPolicy#canEditNamedMembers}.
+ * Adding (POST) stays open to any member.</p>
  */
 @RestController
 @RequestMapping("/api/households/{householdId}/manual-members")
@@ -58,8 +64,9 @@ public class HouseholdManualMemberResource {
             @PathVariable String householdId,
             @PathVariable String id,
             @RequestBody UpsertRequest body) {
-        access.requireCanReadHousehold(AuthUtils.requireAuthenticatedEmail(), householdId);
-        return ResponseEntity.ok(service.update(householdId, id, body));
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(service.update(householdId, id, body, caller));
     }
 
     /**
@@ -90,12 +97,20 @@ public class HouseholdManualMemberResource {
 
     public record StatusRequest(String status) {}
 
+    /**
+     * 204. Owner or admin (403 otherwise; 404 when not in this household).
+     * {@code ?keepInCount=true} is "Remove name": the person stays counted and
+     * becomes an unnamed placeholder in the same band. Without it, "Remove from
+     * household": their band's count drops by one.
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> remove(
             @PathVariable String householdId,
-            @PathVariable String id) {
-        access.requireCanReadHousehold(AuthUtils.requireAuthenticatedEmail(), householdId);
-        service.remove(householdId, id);
+            @PathVariable String id,
+            @RequestParam(name = "keepInCount", defaultValue = "false") boolean keepInCount) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        access.requireCanReadHousehold(caller, householdId);
+        service.remove(householdId, id, caller, keepInCount);
         return ResponseEntity.noContent().build();
     }
 }
