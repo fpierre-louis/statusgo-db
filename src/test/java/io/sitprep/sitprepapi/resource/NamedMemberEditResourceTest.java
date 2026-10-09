@@ -3,6 +3,8 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.constant.HouseholdBand;
 import io.sitprep.sitprepapi.constant.PetSpecies;
 import io.sitprep.sitprepapi.domain.Demographic;
+import io.sitprep.sitprepapi.domain.EmergencySupportAssignment;
+import io.sitprep.sitprepapi.domain.EmergencySupportProfile;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdManualMember;
 import io.sitprep.sitprepapi.domain.HouseholdPet;
@@ -14,9 +16,12 @@ import io.sitprep.sitprepapi.dto.HouseholdCompositionDto.PetKind;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
 import io.sitprep.sitprepapi.dto.HouseholdPetDto;
 import io.sitprep.sitprepapi.repo.DemographicRepo;
+import io.sitprep.sitprepapi.repo.EmergencySupportAssignmentRepo;
+import io.sitprep.sitprepapi.repo.EmergencySupportProfileRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdManualMemberRepo;
 import io.sitprep.sitprepapi.repo.HouseholdPetRepo;
+import io.sitprep.sitprepapi.service.GroupService;
 import io.sitprep.sitprepapi.service.HouseholdCompositionService;
 import io.sitprep.sitprepapi.service.HouseholdManualMemberService;
 import io.sitprep.sitprepapi.service.HouseholdPetService;
@@ -68,6 +73,9 @@ class NamedMemberEditResourceTest {
     @Autowired DemographicRepo demographics;
     @Autowired HouseholdManualMemberRepo manualRepo;
     @Autowired HouseholdPetRepo petRepo;
+    @Autowired EmergencySupportProfileRepo supportProfiles;
+    @Autowired EmergencySupportAssignmentRepo supportAssignments;
+    @Autowired GroupService groupService;
 
     private String owner;
     private String admin;
@@ -356,4 +364,63 @@ class NamedMemberEditResourceTest {
         p.setSpecies(species);
         return petRepo.save(p);
     }
+
+    // ── support needs leave with the person ──────────────────────────────
+
+    @Test
+    void removeFromHousehold_deletesTheirSupportNeedsAndThePlanForThem() {
+        as(owner);
+        supportFor("manual", chris.getId(), "someone@x.com");
+
+        manualResource.remove(hh.getGroupId(), chris.getId(), false);
+
+        assertThat(supportProfiles.findByHouseholdId(hh.getGroupId())).isEmpty();
+        assertThat(supportAssignments.findByHouseholdId(hh.getGroupId())).isEmpty();
+    }
+
+    @Test
+    void removeName_deletesTheirSupportNeedsToo_aPlaceholderHasNoOneToHangThemOn() {
+        demo(hh.getGroupId(), 3, 0, 1, 0, 1, 0, 0);
+        as(owner);
+        supportFor("manual", chris.getId(), "someone@x.com");
+
+        manualResource.remove(hh.getGroupId(), chris.getId(), true);
+
+        assertThat(supportProfiles.findByHouseholdId(hh.getGroupId())).isEmpty();
+        assertThat(supportAssignments.findByHouseholdId(hh.getGroupId())).isEmpty();
+    }
+
+    @Test
+    void anAccountRemoved_takesTheirSupportNeedsAndTheirHelperRolesWithThem_othersStay() {
+        supportFor("user", member, admin);          // member's own needs, admin helps
+        supportFor("manual", chris.getId(), member); // member was Chris's helper
+        supportFor("user", admin, owner);            // unrelated: stays
+
+        groupService.removeMember(hh.getGroupId(), member);
+
+        assertThat(supportProfiles.findByHouseholdId(hh.getGroupId()))
+                .extracting(EmergencySupportProfile::getSubjectId)
+                .containsExactlyInAnyOrder(chris.getId(), admin);
+        assertThat(supportAssignments.findByHouseholdId(hh.getGroupId()))
+                .extracting(EmergencySupportAssignment::getSubjectId)
+                .containsExactly(admin);
+    }
+
+    private void supportFor(String type, String subjectId, String helperEmail) {
+        EmergencySupportProfile p = new EmergencySupportProfile();
+        p.setHouseholdId(hh.getGroupId());
+        p.setSubjectType(type);
+        p.setSubjectId(subjectId);
+        p.setNeedsEvacuationAssistance(true);
+        supportProfiles.save(p);
+        EmergencySupportAssignment a = new EmergencySupportAssignment();
+        a.setHouseholdId(hh.getGroupId());
+        a.setSubjectType(type);
+        a.setSubjectId(subjectId);
+        a.setRole(EmergencySupportAssignment.Role.PRIMARY);
+        a.setHelperType(EmergencySupportAssignment.HelperType.MEMBER);
+        a.setHelperUserEmail(helperEmail);
+        supportAssignments.save(a);
+    }
+
 }

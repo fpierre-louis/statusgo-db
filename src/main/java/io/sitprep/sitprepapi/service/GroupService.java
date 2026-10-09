@@ -103,6 +103,13 @@ public class GroupService {
         this.accompaniments = accompaniments;
     }
 
+    private EmergencySupportService supportService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSupportService(EmergencySupportService supportService) {
+        this.supportService = supportService;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setHouseholdMemberBandRepo(io.sitprep.sitprepapi.repo.HouseholdMemberBandRepo repo) {
         this.householdMemberBandRepo = repo;
@@ -1451,6 +1458,12 @@ public class GroupService {
         boolean isHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(saved.getGroupType());
         if (isHousehold && householdMemberBandRepo != null && normalized != null) {
             householdMemberBandRepo.deleteMembership(groupId, normalized);
+        }
+        // Their support needs, the plan for them, and any plan naming them as a
+        // helper leave with them (leave() comes through here too).
+        if (isHousehold && supportService != null && normalized != null && wasMember) {
+            supportService.cascadeSubjectRemoval(groupId, "user", normalized);
+            supportService.cascadeHelperRemoval(groupId, normalized);
         }
 
         if (normalized != null) {

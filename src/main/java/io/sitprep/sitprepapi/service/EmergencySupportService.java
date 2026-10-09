@@ -182,6 +182,36 @@ public class EmergencySupportService {
         assignmentRepo.deleteByHouseholdIdAndSubjectTypeAndSubjectId(householdId, type, id);
     }
 
+    /**
+     * Somebody is no longer in this household — a manual member removed (or
+     * un-named back to a count), or an account removed / left. Their support
+     * needs and the plan for helping them go with them: a deleted person's
+     * profile would otherwise sit in the database as sensitive data no screen
+     * can reach. No caller check — the removal itself was already authorised.
+     */
+    @Transactional
+    public void cascadeSubjectRemoval(String householdId, String subjectType, String subjectId) {
+        if (householdId == null || subjectId == null) return;
+        String type = normalizeType(subjectType);
+        if (!SUBJECT_TYPES.contains(type)) return;
+        String id = normalizeId(type, subjectId);
+        profileRepo.deleteByHouseholdIdAndSubjectTypeAndSubjectId(householdId, type, id);
+        assignmentRepo.deleteByHouseholdIdAndSubjectTypeAndSubjectId(householdId, type, id);
+    }
+
+    /**
+     * An account left this household: it can no longer be anyone's helper
+     * here. Leaving "Primary support: Marcus" standing after Marcus left would
+     * tell the household somebody is prepared who is not.
+     */
+    @Transactional
+    public void cascadeHelperRemoval(String householdId, String helperEmail) {
+        String email = normalizeEmail(helperEmail);
+        if (householdId == null || email == null) return;
+        assignmentRepo.deleteByHouseholdIdAndHelperTypeAndHelperUserEmail(
+                householdId, EmergencySupportAssignment.HelperType.MEMBER, email);
+    }
+
     @Transactional
     public SupportAssignmentDto upsertAssignment(String householdId, String subjectType, String subjectId,
                                                  String role, SupportAssignmentRequest req, String caller) {

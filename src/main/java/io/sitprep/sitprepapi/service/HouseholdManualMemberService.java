@@ -78,6 +78,13 @@ public class HouseholdManualMemberService {
         this.events = events;
     }
 
+    private EmergencySupportService supportService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSupportService(EmergencySupportService supportService) {
+        this.supportService = supportService;
+    }
+
     public List<HouseholdManualMemberDto> list(String householdId) {
         if (householdId == null || householdId.isBlank()) return List.of();
         StatusContext ctx = statusContext(householdId);
@@ -190,6 +197,9 @@ public class HouseholdManualMemberService {
         // "Remove from household": the plan stops counting them.
         if (!keepInCount) composition.lowerBand(householdId, band);
         accompanimentService.cascadeManualMemberRemoval(householdId, id);
+        // Either way the named person is gone, so is their support plan — a
+        // placeholder has no id to hang one on.
+        if (supportService != null) supportService.cascadeSubjectRemoval(householdId, "manual", id);
         broadcastAfterCommit(() -> ws.sendHouseholdManualMemberDeletion(householdId, id));
     }
 

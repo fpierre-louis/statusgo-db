@@ -13,4 +13,6 @@ public interface EmergencySupportAssignmentRepo extends JpaRepository<EmergencyS
             EmergencySupportAssignment.Role role);
     void deleteByHouseholdIdAndSubjectTypeAndSubjectId(
             String householdId, String subjectType, String subjectId);
+    void deleteByHouseholdIdAndHelperTypeAndHelperUserEmail(
+            String householdId, EmergencySupportAssignment.HelperType helperType, String helperUserEmail);
 }
