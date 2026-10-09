@@ -181,4 +181,25 @@ class GroupSetAlertTest {
         Group saved = service.setAlert("g-hoa", true, "mv@probe.app");
         assertThat(saved.getLastUpdatedBy()).isEqualTo("mv@probe.app");
     }
+
+    // ── continue: the window moves, so open rosters must hear it ─────────────
+
+    @Test
+    void continuingACheckInBroadcastsTheAlertFrameSoRostersReRead() {
+        Group g = stored("Active");
+        g.setAlertActivatedAt(java.time.Instant.now().minusSeconds(3600));
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.continueCheckIn("g-hoa", "owner@probe.app");
+        for (TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
+            sync.afterCommit();
+        }
+
+        org.mockito.ArgumentCaptor<io.sitprep.sitprepapi.dto.GroupAlertFrame> frame =
+                org.mockito.ArgumentCaptor.forClass(io.sitprep.sitprepapi.dto.GroupAlertFrame.class);
+        verify(ws).sendGroupAlertStatus(org.mockito.ArgumentMatchers.eq("g-hoa"), frame.capture());
+        assertThat(frame.getValue().alert()).isEqualTo("Active");
+        assertThat(frame.getValue().reason()).isEqualTo("continue");
+        assertThat(frame.getValue().alertActivatedAt()).isEqualTo(g.getAlertActivatedAt());
+    }
 }

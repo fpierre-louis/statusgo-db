@@ -12,5 +12,5 @@ public record GroupAlertFrame(
         String alert,                // Active | Cleared
         Instant alertActivatedAt,
         String initiatedByEmail,
-        String reason                // manual | decay
+        String reason                // manual | decay | continue (window moved, state unchanged)
 ) {}

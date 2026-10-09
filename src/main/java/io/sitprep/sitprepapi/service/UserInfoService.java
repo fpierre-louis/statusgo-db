@@ -55,6 +55,9 @@ public class UserInfoService {
      * {@code baseHouseholdId}. A new column is now unwritable until someone
      * decides it belongs here. See docs/epics/userinfo-write-privilege/EXEC.md.
      */
+    /** The status keys a PATCH may carry; they route to {@link #writeStatus}. */
+    static final Set<String> STATUS_PATCH_KEYS = Set.of("userStatus", "statusColor");
+
     static final Set<String> CLIENT_WRITABLE_FIELDS = Set.of(
             // profile (EditProfilePage)
             "userFirstName", "userLastName", "title", "phone", "address",
@@ -362,8 +365,10 @@ public class UserInfoService {
         existing.setUserLastName(incoming.getUserLastName());
         existing.setPhone(incoming.getPhone());
         existing.setAddress(incoming.getAddress());
-        existing.setUserStatus(incoming.getUserStatus());
-        existing.setStatusColor(incoming.getStatusColor());
+        // NOT copied: userStatus / statusColor. A status has one write path
+        // (PATCH /userinfo/me/status, or a PATCH carrying `userStatus`), and
+        // this PUT echoes the whole record back — a stale copy would silently
+        // undo a status written moments earlier, with no frame and no event.
         existing.setProfileImageUrl(profileImageForFullUpdate(
                 existing.getProfileImageUrl(), incoming.getProfileImageUrl()));
         existing.setFcmtoken(incoming.getFcmtoken());
@@ -488,9 +493,21 @@ public class UserInfoService {
                         actorEmail, saved.getUserEmail(), normalizedStatus, statusChanged, previousStatusAt);
             }
 
-            final String householdId = saved.getBaseHouseholdId();
-            final List<String> groupIds = groupRepo.findByMemberEmail(saved.getUserEmail()).stream()
+            final List<Group> groups = groupRepo.findByMemberEmail(saved.getUserEmail());
+            final List<String> groupIds = groups.stream()
                     .map(Group::getGroupId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            // EVERY household the person is in, not only their base one. A
+            // second household's roster (a parent's, an ex's) listened on its
+            // own household topic and never heard this member answer; its
+            // events were recorded, its frame was not sent.
+            final List<String> householdIds = java.util.stream.Stream.concat(
+                            java.util.stream.Stream.ofNullable(saved.getBaseHouseholdId()),
+                            groups.stream()
+                                    .filter(g -> HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
+                                    .map(Group::getGroupId))
                     .filter(Objects::nonNull)
                     .distinct()
                     .toList();
@@ -502,7 +519,9 @@ public class UserInfoService {
             // `HouseholdEventService.broadcastAfterCommit` and
             // `PlanActivationService.endActivation`.
             Runnable broadcast = () -> {
-                ws.sendHouseholdMemberStatus(householdId, frame);
+                for (String householdId : householdIds) {
+                    ws.sendHouseholdMemberStatus(householdId, frame);
+                }
                 for (String groupId : groupIds) {
                     ws.sendGroupMemberStatus(groupId, frame);
                 }
@@ -798,13 +817,6 @@ public class UserInfoService {
         UserInfo userInfo = userInfoRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User with ID " + id + " not found"));
 
-        // Capture pre-patch userStatus so we can fire a status-changed event
-        // after a successful save when (and only when) it actually changed.
-        String oldUserStatus = userInfo.getUserStatus();
-        // …and when it was last written, so the event knows whether this
-        // write answers an ask (an ask is open only if it came after that).
-        final Instant oldStatusAt = userInfo.getUserStatusLastUpdated();
-
         // Judge EVERY key before writing ANY — a refused field must not leave
         // the allowed ones half-applied. Checked here, outside the reflective
         // try/catch below, which swallows exceptions.
@@ -822,6 +834,8 @@ public class UserInfoService {
             if (rawKey == null || value == null) return;
             String key = rawKey;
             if (!CLIENT_WRITABLE_FIELDS.contains(key)) return;
+            // Status goes through the one status write below, not reflection.
+            if (STATUS_PATCH_KEYS.contains(key)) return;
 
             // The avatar is validated OUTSIDE the reflective try below, which
             // swallows every exception — a policy failure thrown in there would
@@ -856,22 +870,19 @@ public class UserInfoService {
 
         UserInfo saved = userInfoRepo.save(userInfo);
 
-        String newStatus = saved.getUserStatus();
-        if (newStatus != null && !Objects.equals(oldUserStatus, newStatus)
-                && saved.getUserEmail() != null) {
-            // Capture immutable args for the afterCommit hook — the household
-            // chat system event must only fire if the user-row commit actually
-            // lands. Closes audit BE-05: previously the event could be recorded
-            // even when the surrounding transaction rolled back, and could be
-            // skipped when the row landed via a deferred flush.
-            final String actorEmail = saved.getUserEmail();
-            final String committedStatus = newStatus;
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    householdEventService.recordSelfStatusWrite(actorEmail, committedStatus, true, oldStatusAt);
-                }
-            });
+        // ── STATUS HAS ONE WRITE PATH ────────────────────────────────────────
+        // This PATCH wrote `userStatus` by reflection: no timestamp, the proxy
+        // attribution left standing ("set by Dad" under your own answer), no
+        // member status frame — so no open roster moved — and an event recorded
+        // from inside afterCommit, where its insert had no transaction left to
+        // commit in. A status here is now the self-report it is: the same
+        // write as PATCH /userinfo/me/status (validated, stamped, attributed,
+        // broadcast after commit, the household event in this transaction).
+        Object rawStatus = updates.get("userStatus");
+        if (rawStatus != null && saved.getUserEmail() != null) {
+            Object rawColor = updates.get("statusColor");
+            writeStatus(saved.getUserEmail(), String.valueOf(rawStatus),
+                    rawColor == null ? null : String.valueOf(rawColor), null, null);
         }
 
         return saved;

@@ -42,13 +42,14 @@ class UserInfoServiceStatusBroadcastTest {
     private WebSocketMessageSender ws;
     private UserInfoService service;
     private UserInfo maya;
+    private GroupRepo groupRepo;
 
     @BeforeEach
     void setUp() {
         userInfoRepo = mock(UserInfoRepo.class);
         events = mock(HouseholdEventService.class);
         ws = mock(WebSocketMessageSender.class);
-        GroupRepo groupRepo = mock(GroupRepo.class);
+        groupRepo = mock(GroupRepo.class);
         service = new UserInfoService(userInfoRepo, events, groupRepo,
                 mock(PostService.class), mock(FollowService.class), mock(BlockService.class),
                 new ObjectMapper(), ws, mock(LocationPresenceService.class),
@@ -194,5 +195,77 @@ class UserInfoServiceStatusBroadcastTest {
         }
         // Not null: an unknown prior write time would make any ask look open.
         verify(events).recordSelfStatusWrite(MAYA, "HELP", true, EARLIER);
+    }
+
+    // ── 2026-10-09: every status write reaches every roster ──────────────────
+
+    private void commit(Runnable write) {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            write.run();
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void theLegacyPatchIsTheSelfWriteFrameStampAndAttributionIncluded() {
+        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
+        maya.setStatusSetByEmail(ADMIN); // Dione had answered for her earlier
+
+        commit(() -> service.patchUserById("u-maya", java.util.Map.of("userStatus", "help", "statusColor", "#FFC107")));
+
+        assertEquals("HELP", maya.getUserStatus(), "validated and normalised, not written raw");
+        assertNull(maya.getStatusSetByEmail(), "her own answer is not 'set by Dione'");
+        assertTrue(maya.getUserStatusLastUpdated().isAfter(EARLIER), "stamped");
+        // The open rosters hear it — this path used to send no frame at all.
+        verify(ws).sendHouseholdMemberStatus(eq("hh-1"), any());
+        verify(ws).sendGroupMemberStatus(eq("hh-1"), any());
+    }
+
+    @Test
+    void aLegacyPatchOfAnUnknownStatusIsRefusedNotStored() {
+        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.patchUserById("u-maya", java.util.Map.of("userStatus", "NO RESPONSE")));
+        verify(ws, never()).sendHouseholdMemberStatus(any(), any());
+    }
+
+    @Test
+    void thePutEchoCannotUndoAStatus() {
+        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
+        UserInfo staleEcho = new UserInfo();
+        staleEcho.setUserFirstName("Maya");
+        staleEcho.setUserStatus("NO RESPONSE");
+        staleEcho.setStatusColor("Gray");
+
+        service.updateUserById("u-maya", staleEcho);
+
+        assertEquals("SAFE", maya.getUserStatus());
+        assertEquals(EARLIER, maya.getUserStatusLastUpdated());
+    }
+
+    @Test
+    void everyHouseholdTheyAreInHearsTheFrameNotOnlyTheBaseOne() {
+        Group base = new Group();
+        base.setGroupId("hh-1");
+        base.setGroupType("Household");
+        Group second = new Group();
+        second.setGroupId("hh-2");
+        second.setGroupType("Household");
+        Group school = new Group();
+        school.setGroupId("org-1");
+        school.setGroupType("School");
+        when(groupRepo.findByMemberEmail(anyString())).thenReturn(List.of(base, second, school));
+
+        commit(() -> service.updateSelfStatusByEmail(MAYA, "SAFE", null, null));
+
+        verify(ws).sendHouseholdMemberStatus(eq("hh-1"), any());
+        verify(ws).sendHouseholdMemberStatus(eq("hh-2"), any());
+        verify(ws, never()).sendHouseholdMemberStatus(eq("org-1"), any());
+        verify(ws).sendGroupMemberStatus(eq("org-1"), any());
+        verify(ws).sendGroupMemberStatus(eq("hh-2"), any());
     }
 }

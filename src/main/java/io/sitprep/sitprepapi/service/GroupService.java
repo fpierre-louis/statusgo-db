@@ -416,7 +416,11 @@ public class GroupService {
         if (fired != null && fired > GroupCheckInReminderService.ENDING_SOON_SLOT) {
             group.setCheckInRemindersFired(GroupCheckInReminderService.ENDING_SOON_SLOT);
         }
-        groupRepo.save(group);
+        Group saved = groupRepo.save(group);
+        // Every row's window (`checkIn.showUntil`) just moved, with no status
+        // written — the same frame a start or an end sends, so open rosters
+        // re-read instead of lapsing members at the old end.
+        broadcastAlertFrame(saved, "continue");
         logger.info("Check-in continued for group {} by {} until {}", groupId, callerEmail, until);
         return until;
     }
@@ -885,12 +889,16 @@ public class GroupService {
      */
     private void broadcastAlertIfChanged(String previousAlert, Group saved) {
         if (sameAlertState(previousAlert, saved.getAlert())) return;
+        broadcastAlertFrame(saved, "manual");
+    }
+
+    private void broadcastAlertFrame(Group saved, String reason) {
         GroupAlertFrame frame = new GroupAlertFrame(
                 saved.getGroupId(),
                 frameAlert(saved.getAlert()),
                 saved.getAlertActivatedAt(),
                 initiatedBy(saved),
-                "manual"
+                reason
         );
         // After the commit when there IS one to wait for; immediately otherwise.
         //
