@@ -281,6 +281,23 @@ class ScenarioServiceTest {
         assertThat(service.catalog(ME, HH).suppression().title()).isEqualTo("Your household is checking in");
     }
 
+    @Test
+    void aFinishedRunSaysPracticeWaitsToo() {
+        long id = service.start(KEY, ME, HH).runId();
+        service.commit(id, ME, "start", "text");
+        service.commit(id, ME, "second", "plan");
+        service.complete(id, ME);
+        assertThat(service.get(id, ME).suppression()).isNull();
+        when(suppression.check(any(), any())).thenReturn(Optional.of(new Suppression(Reason.CHECK_IN,
+                "Your household is checking in", PracticeSuppressionService.WAIT, ReadinessAction.OPEN_CHECK_IN, Map.of())));
+
+        RunDto done = service.get(id, ME);
+        assertThat(done.status()).isEqualTo("COMPLETED");
+        assertThat(done.suppression().reason()).isEqualTo("CHECK_IN");
+        // Practice again is refused, and the reloaded finished run says why.
+        assertThat(status(() -> service.start(KEY, ME, HH))).isEqualTo(409);
+    }
+
     // -- kill switch / content drift -----------------------------------
 
     @Test

@@ -279,8 +279,10 @@ public class ScenarioService {
         RunCheck check = availability.checkRun(run.getScenarioKey(), run.getContentVersion(), run.getContentHash());
         Version v = check.version();
         boolean showContent = check.canContinue();
-        SuppressionDto waiting = run.getStatus() == Status.IN_PROGRESS
-                ? SuppressionDto.of(suppression.check(run.getHouseholdId(), email).orElse(null)) : null;
+        // Every run says whether Practice waits, finished ones too: the debrief
+        // steps aside for a live response like any other phase (spec P10), and
+        // Practice again's 409 relies on the reloaded run saying why.
+        SuppressionDto waiting = SuppressionDto.of(suppression.check(run.getHouseholdId(), email).orElse(null));
 
         NodeDto node = null;
         CommittedDto lastCommit = null;
