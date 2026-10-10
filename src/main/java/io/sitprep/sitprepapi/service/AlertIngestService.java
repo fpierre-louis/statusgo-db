@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -267,14 +268,20 @@ public class AlertIngestService {
         // upstream call inside its transaction) finds them already cached.
         // Steady-state this queues nothing — the set of active zones barely
         // moves between polls.
-        // ONE zone per alert, not all of them. resolveDispatchCoord wants a
-        // single representative coordinate and takes the first zone that has
-        // one, so warming every code an alert lists multiplied the work by
-        // ~3.5x for no benefit — 909 fetches where 254 would do.
-        Set<String> zones = new HashSet<>();
-        for (NormalizedAlert a : merged) {
-            if (a.geometry() == null && a.ugc() != null && !a.ugc().isEmpty()) {
-                zones.add(a.ugc().get(0));
+        // The FIRST FEW zones per alert, in rank order (2026-10-09). The
+        // dispatcher now tries up to MAX_DISPATCH_COORD_CANDIDATES zone centres
+        // until one lands in a zip bucket, and a zone that was never warmed has
+        // no centre to try. Warming only zone #1 is why the Wasatch Front Flood
+        // Watch (zone #1: the Great Salt Lake Desert, no zip) never posted:
+        // measured on prod, "2 candidate point(s)" of 14 zones. Ordered so
+        // every alert's first zone is still queued before anyone's second, so
+        // the per-tick cap delays the fallbacks, never the first choice.
+        Set<String> zones = new LinkedHashSet<>();
+        for (int rank = 0; rank < AlertDispatchService.MAX_DISPATCH_COORD_CANDIDATES; rank++) {
+            for (NormalizedAlert a : merged) {
+                if (a.geometry() == null && a.ugc() != null && a.ugc().size() > rank) {
+                    zones.add(a.ugc().get(rank));
+                }
             }
         }
         zoneService.warmZones(zones);
