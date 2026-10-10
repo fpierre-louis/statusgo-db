@@ -159,6 +159,20 @@ class PostAlertPinCoverageTest {
     }
 
     @Test
+    void anUpdatedWatchStillPinsThePostMadeFromTheMessageItReplaces() {
+        // NWS updated the watch: the snapshot now carries a NEW id that lists
+        // the original under `references`; the post was made from the original.
+        covering(TestAlerts.nws("Flood Watch").id("nws-FA-UPDATE").references(List.of("nws-FA-ORIGINAL")).build());
+        when(alertPostRepo.findActiveByAlertIdIn(any())).thenReturn(List.of(link("nws-FA-ORIGINAL", 7L)));
+        when(taskRepo.findAllById(any())).thenReturn(List.of(alertPost(7L, null)));
+
+        List<PostDto> feed = service.discoverCommunity(LEHI_LAT, LEHI_LNG, 16, null, "viewer@x.com");
+
+        assertEquals(7L, feed.get(0).id());
+        assertTrue(feed.get(0).community().pinned());
+    }
+
+    @Test
     void tierRankReadsTheNwsProductName() {
         assertEquals(3, PostService.alertTierRank("Flash Flood Warning"));
         assertEquals(3, PostService.alertTierRank("Evacuation Immediate"));

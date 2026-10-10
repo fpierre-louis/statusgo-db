@@ -1789,10 +1789,21 @@ public class PostService {
             return Optional.empty();
         }
         if (snap == null || snap.alerts() == null || snap.alerts().isEmpty()) return Optional.empty();
+        // Keyed by the alert's own id AND every id it supersedes. NWS updates a
+        // watch by issuing a NEW message that lists the earlier ones under CAP
+        // `references`; the dispatcher's post keeps the id it was created from.
+        // Measured on prod 2026-10-09: the Flood Watch over Lehi was post 25276
+        // (…e4f6ed06…), while the snapshot carried the update (…fc1404fb…),
+        // so an id-only match pinned nothing.
         Map<String, AlertIngestService.NormalizedAlert> covering = new HashMap<>();
         for (AlertIngestService.NormalizedAlert a : snap.alerts()) {
             if (a == null || a.id() == null || "FEMA".equalsIgnoreCase(a.source())) continue;
             covering.putIfAbsent(a.id(), a);
+            if (a.references() != null) {
+                for (String ref : a.references()) {
+                    if (ref != null && !ref.isBlank()) covering.putIfAbsent(ref, a);
+                }
+            }
         }
         if (covering.isEmpty()) return Optional.empty();
 
