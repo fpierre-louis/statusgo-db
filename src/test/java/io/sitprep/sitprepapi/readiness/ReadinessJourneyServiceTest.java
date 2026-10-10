@@ -226,7 +226,7 @@ class ReadinessJourneyServiceTest {
     @Test
     void dtoCarriesVersionsAndAllAreasInOrder() {
         ReadinessJourneyDto j = journey();
-        assertThat(j.schemaVersion()).isEqualTo(1);
+        assertThat(j.schemaVersion()).isEqualTo(2);
         assertThat(j.catalogVersion()).isEqualTo("readiness-catalog-2026.10.07.2");
         assertThat(j.recommendationVersion()).isEqualTo("readiness-rec-2026.10.07.2");
         assertThat(j.householdId()).isEqualTo(HH);
@@ -245,7 +245,7 @@ class ReadinessJourneyServiceTest {
         String json = mapper.writeValueAsString(journey());
         assertThat(json).doesNotContainIgnoringCase("score");
         assertThat(json).doesNotContain("percent");
-        assertThat(json).contains("\"schemaVersion\":1");
+        assertThat(json).contains("\"schemaVersion\":2");
         assertThat(json).contains("\"canMarkDone\"");
     }
 
@@ -545,18 +545,36 @@ class ReadinessJourneyServiceTest {
     }
 
     @Test
-    void officialAlertGatesToActiveResponseAndUrgentStepsNeverBecomeItems() {
+    void aCheckInOutranksTheAlertsHeadsUp() {
+        household.setAlert("Active");
+        risk = new RiskProfileDto("household_zip", "UT", "Utah", List.of(), List.of(),
+                List.of(new ActiveAlertDto("a", "NWS", "Moderate", "flood", "Flood Watch", "x", "y", null, null,
+                        "Flood Watch")),
+                NOW, "v");
+        ReadinessJourneyDto j = journey();
+        assertActiveResponse(j, "CHECK_IN");
+        assertThat(j.alertHeadsUp()).isNull();
+    }
+
+    @Test
+    void officialAlertKeepsTheJourneyAndAddsAHeadsUp() {
         risk = new RiskProfileDto("household_zip", "FL", "Florida",
                 List.of(new RiskDto("hurricane", "Hurricane", "very_high", "r", "s")),
                 List.of(new RiskAdjustedRequirementDto("active_alert_hurricane", "hurricane", "Act now", "d", 0,
                                 "Safety steps", "/hazards", "active_alert_upgraded"),
                         new RiskAdjustedRequirementDto("noaa_radio", "hurricane", "Radio", "d", 3, "c", "/go-bag",
                                 "risk_added")),
-                List.of(new ActiveAlertDto("a", "NWS", "Extreme", "hurricane", "Hurricane Warning", "x", "y", null, null)),
+                List.of(new ActiveAlertDto("a", "NWS", "Extreme", "hurricane", "Hurricane Warning", "x", "y", null, null,
+                        "Hurricane Warning")),
                 NOW, "v");
         ReadinessJourneyDto j = journey();
-        assertActiveResponse(j, "OFFICIAL_ALERT");
-        assertThat(j.activeResponse().title()).isEqualTo("Hurricane Warning");
+        // EXEC-H1: the steps stay; commerce + alert setup stay quiet.
+        assertThat(j.mode()).isNotEqualTo(JourneyMode.ACTIVE_RESPONSE);
+        assertThat(j.activeResponse()).isNull();
+        assertThat(j.alertHeadsUp().title()).isEqualTo("Hurricane Warning near home");
+        assertThat(j.alertHeadsUp().action().type()).isEqualTo(ReadinessAction.OPEN_ACTIVE_ALERTS);
+        assertThat(j.tools()).extracting(ReadinessJourneyDtos.ToolDto::key)
+                .doesNotContain("tools.home_kit", "tools.alert_setup");
         assertThat(area(j, ReadinessArea.LOCAL_RISKS).items()).extracting(ItemDto::key)
                 .containsExactly("local_risk.noaa_radio");
     }

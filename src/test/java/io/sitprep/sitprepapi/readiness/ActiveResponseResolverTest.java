@@ -6,6 +6,8 @@ import io.sitprep.sitprepapi.dto.RiskProfileDtos.ActiveAlertDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskAdjustedRequirementDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto;
 import io.sitprep.sitprepapi.readiness.ActiveResponseResolver.ActiveResponse;
+import io.sitprep.sitprepapi.readiness.ActiveResponseResolver.AlertHeadsUp;
+import io.sitprep.sitprepapi.readiness.ActiveResponseResolver.Surface;
 import io.sitprep.sitprepapi.readiness.ActiveResponseResolver.Kind;
 import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,21 +74,47 @@ class ActiveResponseResolverTest {
     }
 
     @Test
-    void officialAlertUsesTheFirstHeadline() {
-        var alert = new ActiveAlertDto("a1", "NWS", "Severe", "flood", "Flood Warning for Your County",
-                "Area", "Move to higher ground", null, null);
-        ActiveResponse r = resolver.resolve(household, risk(List.of(alert), List.of()), NOW);
-        assertThat(r.kind()).isEqualTo(Kind.OFFICIAL_ALERT);
-        assertThat(r.title()).isEqualTo("Flood Warning for Your County");
-        assertThat(r.action()).isEqualTo(ReadinessAction.OPEN_ACTIVE_ALERTS);
+    void anOfficialAlertIsNotGateOne() {
+        // Owner, 2026-10-10 (EXEC-H1): an alert nudges; only a plan or a
+        // check-in takes preparedness away.
+        var alert = alert("Severe", "Flood Warning");
+        assertThat(resolver.resolve(household, risk(List.of(alert), List.of()), NOW)).isNull();
     }
 
     @Test
-    void upgradedPrecautionAloneIsAnOfficialAlert() {
+    void headsUpNamesTheMostSevereAlertNearHome() {
+        AlertHeadsUp h = ActiveResponseResolver.alertHeadsUp(
+                risk(List.of(alert("Moderate", "Flood Watch"), alert("Extreme", "Tornado Warning")), List.of()),
+                Surface.READY_FOR_MORE);
+        assertThat(h.title()).isEqualTo("Tornado Warning near home");
+        assertThat(h.detail()).isEqualTo("Now's a good time to check that everyone's okay and ready to leave or act "
+                + "if needed. Just here for tips? Keep going.");
+        assertThat(h.action()).isEqualTo(ReadinessAction.OPEN_ACTIVE_ALERTS);
+    }
+
+    @Test
+    void practiceHeadsUpGivesPracticePermission() {
+        AlertHeadsUp h = ActiveResponseResolver.alertHeadsUp(
+                risk(List.of(alert("Severe", "Flood Watch")), List.of()), Surface.PRACTICE);
+        assertThat(h.detail()).endsWith("Just here to practice? Keep going.");
+    }
+
+    @Test
+    void upgradedPrecautionAloneGetsThePlainTitle() {
         var upgraded = new RiskAdjustedRequirementDto("active_alert_flood", "flood", "l", "d", 0,
                 "Safety steps", "/hazards", "active_alert_upgraded");
-        ActiveResponse r = resolver.resolve(household, risk(List.of(), List.of(upgraded)), NOW);
-        assertThat(r.kind()).isEqualTo(Kind.OFFICIAL_ALERT);
-        assertThat(r.title()).isEqualTo("An official alert is in effect");
+        AlertHeadsUp h = ActiveResponseResolver.alertHeadsUp(risk(List.of(), List.of(upgraded)), Surface.READY_FOR_MORE);
+        assertThat(h.title()).isEqualTo("An alert is in effect near home");
+    }
+
+    @Test
+    void noAlertNoHeadsUp() {
+        assertThat(ActiveResponseResolver.alertHeadsUp(risk(List.of(), List.of()), Surface.READY_FOR_MORE)).isNull();
+        assertThat(ActiveResponseResolver.alertHeadsUp(null, Surface.PRACTICE)).isNull();
+    }
+
+    private static ActiveAlertDto alert(String severity, String event) {
+        return new ActiveAlertDto("a-" + event, "NWS", severity, "flood", event + " issued by NWS",
+                "Area", "Move to higher ground", null, null, event);
     }
 }

@@ -42,6 +42,8 @@ class PracticeInvariantTest {
             // reads: is something live right now (suppression)
             "io.sitprep.sitprepapi.readiness.ActiveResponseResolver",
             "io.sitprep.sitprepapi.readiness.ActiveResponseResolver.ActiveResponse",
+            // EXEC-H1: the alert nudge is a read-only value, like ActiveResponse.
+            "io.sitprep.sitprepapi.readiness.ActiveResponseResolver.AlertHeadsUp",
             "io.sitprep.sitprepapi.service.RiskProfileService",
             "io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto",
             "io.sitprep.sitprepapi.service.ConcealmentSafetyService",

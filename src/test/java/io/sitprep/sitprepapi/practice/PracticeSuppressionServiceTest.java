@@ -79,12 +79,24 @@ class PracticeSuppressionServiceTest {
     }
 
     @Test
-    void checkInAndOfficialAlertWait() {
+    void checkInWaits() {
         active(ActiveResponseResolver.Kind.CHECK_IN, ReadinessAction.OPEN_CHECK_IN, Map.of());
         assertThat(service.check(HH, ME)).map(PracticeSuppressionService.Suppression::reason).contains(Reason.CHECK_IN);
+    }
 
-        active(ActiveResponseResolver.Kind.OFFICIAL_ALERT, ReadinessAction.OPEN_ACTIVE_ALERTS, Map.of());
-        assertThat(service.check(HH, ME)).map(PracticeSuppressionService.Suppression::reason).contains(Reason.OFFICIAL_ALERT);
+    @Test
+    void anOfficialAlertNudgesInsteadOfWaiting() {
+        // EXEC-H1: the resolver no longer returns an alert, so check() is calm,
+        // and headsUp() carries the alert in Practice's words.
+        when(risk.resolveFor(household)).thenReturn(new io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto(
+                "household_zip", "UT", "Utah", java.util.List.of(), java.util.List.of(),
+                java.util.List.of(new io.sitprep.sitprepapi.dto.RiskProfileDtos.ActiveAlertDto("a1", "NWS", "Moderate",
+                        "flood", "Flood Watch issued", "Area", "Be ready", null, null, "Flood Watch")),
+                NOW, "v"));
+        assertThat(service.check(HH, ME)).isEmpty();
+        var h = service.headsUp(HH).orElseThrow();
+        assertThat(h.title()).isEqualTo("Flood Watch near home");
+        assertThat(h.detail()).endsWith("Just here to practice? Keep going.");
     }
 
     @Test

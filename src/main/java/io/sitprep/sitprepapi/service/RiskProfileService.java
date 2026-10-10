@@ -239,7 +239,7 @@ public class RiskProfileService {
         return new ActiveAlertDto(a.id(), a.source(), a.severity(), hazard,
                 a.headline(), a.area(),
                 ALERT_ACTION.getOrDefault(hazard, ALERT_ACTION.get("other")),
-                a.startedAt(), a.endsAt());
+                a.startedAt(), a.endsAt(), a.event());
     }
 
     private static String homeHazardDetailRoute(ActiveAlertDto alert) {

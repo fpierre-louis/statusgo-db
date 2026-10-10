@@ -464,9 +464,12 @@ public final class ReadinessCatalog {
                     "Your household's contact list.",
                     ReadinessAction.OPEN_EMERGENCY_CONTACTS, false));
 
-    /** Tools for the mode; ACTIVE_RESPONSE drops commerce and alert setup. */
-    public static List<Tool> tools(JourneyMode mode) {
-        if (mode != JourneyMode.ACTIVE_RESPONSE) return TOOLS;
+    /**
+     * Tools for the mode; ACTIVE_RESPONSE — or an official alert at home
+     * ({@code alertInEffect}, EXEC-H1) — drops commerce and alert setup.
+     */
+    public static List<Tool> tools(JourneyMode mode, boolean alertInEffect) {
+        if (mode != JourneyMode.ACTIVE_RESPONSE && !alertInEffect) return TOOLS;
         return TOOLS.stream().filter(t -> !t.hiddenInActiveResponse()).toList();
     }
 

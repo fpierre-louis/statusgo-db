@@ -191,6 +191,9 @@ public class ReadinessReminderService {
     static Decision decide(Optional<ReadinessJourneyDto> journey, Optional<ItemDto> item) {
         if (journey.isEmpty()) return Decision.CLOSE;
         if (journey.get().mode() == JourneyMode.ACTIVE_RESPONSE) return Decision.DEFER;
+        // An alert at home keeps the steps on screen (EXEC-H1) but no push nags
+        // about a go bag during a Flood Watch.
+        if (journey.get().alertHeadsUp() != null) return Decision.DEFER;
         if (item.isEmpty()) return Decision.CLOSE;
         ItemDto i = item.get();
         if (i.householdState() == ItemStateKind.NOT_RELEVANT) return Decision.CLOSE;

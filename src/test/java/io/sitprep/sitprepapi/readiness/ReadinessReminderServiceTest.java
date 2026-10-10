@@ -92,7 +92,7 @@ class ReadinessReminderServiceTest {
     }
 
     static ReadinessJourneyDto journey(JourneyMode mode, ItemDto... items) {
-        return new ReadinessJourneyDto(1, "c", "r", HH, NOW, mode, new EssentialsDto(true, 4, 4, null), null, 0,
+        return new ReadinessJourneyDto(1, "c", "r", HH, NOW, mode, new EssentialsDto(true, 4, 4, null), null, null, 0,
                 false, null,
                 List.of(new AreaDto(ReadinessArea.OUTAGE, "Outage Ready", "d", 0, items.length, null, null, List.of(items))),
                 List.of());

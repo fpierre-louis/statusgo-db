@@ -21,6 +21,7 @@ import io.sitprep.sitprepapi.practice.ScenarioDtos.ScenarioDetailDto;
 import io.sitprep.sitprepapi.practice.ScenarioDtos.ScenarioProgressDto;
 import io.sitprep.sitprepapi.practice.ScenarioDtos.SourceDto;
 import io.sitprep.sitprepapi.practice.ScenarioDtos.SuppressionDto;
+import io.sitprep.sitprepapi.practice.ScenarioDtos.AlertHeadsUpDto;
 import io.sitprep.sitprepapi.practice.ScenarioRun.Status;
 import io.sitprep.sitprepapi.practice.ScenarioRun.TraceStep;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -114,7 +115,8 @@ public class ScenarioService {
             inProgress.add(new InProgressDto(r.getId(), r.getScenarioKey(), v.body().title(),
                     stepNumber(r), nodeTitle));
         }
-        return new CatalogDto(ScenarioDtos.SCHEMA_VERSION, availability.practiceEnabled(), waiting, cards, inProgress);
+        return new CatalogDto(ScenarioDtos.SCHEMA_VERSION, availability.practiceEnabled(), waiting, cards, inProgress,
+                waiting == null ? alertHeadsUp(hid) : null);
     }
 
     @Transactional(readOnly = true)
@@ -126,9 +128,15 @@ public class ScenarioService {
         Version v = start.entry().version();
         List<SourceDto> sources = v.body().sources().stream().map(s -> new SourceDto(s.label(), s.url())).toList();
         Long runId = activeRun(email, hid, scenarioKey).map(ScenarioRun::getId).orElse(null);
+        SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
         return new ScenarioDetailDto(ScenarioDtos.SCHEMA_VERSION, v.key(), v.version(), v.body().title(),
                 v.body().summary(), v.body().objective(), v.body().estimatedMinutes(), sources,
-                start.entry().preview(), SuppressionDto.of(suppression.check(hid, email).orElse(null)), runId);
+                start.entry().preview(), waiting, runId, waiting == null ? alertHeadsUp(hid) : null);
+    }
+
+    /** The alert nudge, only where nothing outranks it. */
+    private AlertHeadsUpDto alertHeadsUp(String hid) {
+        return AlertHeadsUpDto.of(suppression.headsUp(hid).orElse(null));
     }
 
     @Transactional(readOnly = true)

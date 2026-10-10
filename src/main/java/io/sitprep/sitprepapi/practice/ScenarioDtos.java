@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.practice;
 
+import io.sitprep.sitprepapi.readiness.ActiveResponseResolver.AlertHeadsUp;
 import io.sitprep.sitprepapi.readiness.ReadinessAction;
 
 import java.time.Instant;
@@ -28,6 +29,14 @@ public final class ScenarioDtos {
         }
     }
 
+    /** An official alert at home, as a nudge above the content (EXEC-H1). */
+    public record AlertHeadsUpDto(String title, String detail, ReadinessAction action, Map<String, String> params) {
+        static AlertHeadsUpDto of(AlertHeadsUp h) {
+            return h == null ? null : new AlertHeadsUpDto(h.title(), h.detail(), h.action(),
+                    h.params() == null ? Map.of() : h.params());
+        }
+    }
+
     public record ScenarioCardDto(String key, int version, String title, String summary,
                                   Integer estimatedMinutes, boolean preview) {}
 
@@ -35,11 +44,13 @@ public final class ScenarioDtos {
     public record InProgressDto(long runId, String scenarioKey, String title, int stepNumber, String nodeTitle) {}
 
     public record CatalogDto(int schemaVersion, boolean practiceEnabled, SuppressionDto suppression,
-                             List<ScenarioCardDto> scenarios, List<InProgressDto> inProgress) {}
+                             List<ScenarioCardDto> scenarios, List<InProgressDto> inProgress,
+                             AlertHeadsUpDto alertHeadsUp) {}
 
     public record ScenarioDetailDto(int schemaVersion, String key, int version, String title, String summary,
                                     String objective, Integer estimatedMinutes, List<SourceDto> sources,
-                                    boolean preview, SuppressionDto suppression, Long inProgressRunId) {}
+                                    boolean preview, SuppressionDto suppression, Long inProgressRunId,
+                                    AlertHeadsUpDto alertHeadsUp) {}
 
     public record ChoiceDto(String key, String label) {}
 

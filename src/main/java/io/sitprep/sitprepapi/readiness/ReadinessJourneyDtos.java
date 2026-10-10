@@ -15,7 +15,11 @@ public final class ReadinessJourneyDtos {
     private ReadinessJourneyDtos() {}
 
     /** Bump when the JSON shape changes. */
-    public static final int SCHEMA_VERSION = 1;
+    /**
+     * 2 (2026-10-10, EXEC-H1): OFFICIAL_ALERT left {@code activeResponse};
+     * an alert at home now arrives as {@code alertHeadsUp} beside a normal mode.
+     */
+    public static final int SCHEMA_VERSION = 2;
 
     public record ReadinessJourneyDto(
             int schemaVersion,
@@ -26,6 +30,8 @@ public final class ReadinessJourneyDtos {
             JourneyMode mode,
             EssentialsDto essentials,
             ActiveResponseDto activeResponse,
+            /** An official alert at home, as a nudge; null when none or when activeResponse outranks it. */
+            AlertHeadsUpDto alertHeadsUp,
             int doneCount,
             boolean allCaughtUp,
             NextStepDto nextStep,
@@ -36,6 +42,8 @@ public final class ReadinessJourneyDtos {
     public record EssentialsDto(boolean complete, int done, int total, String nextKey) {}
 
     public record ActiveResponseDto(String kind, String title, String detail, ActionDto action) {}
+
+    public record AlertHeadsUpDto(String title, String detail, ActionDto action) {}
 
     public record NextStepDto(
             String itemKey,

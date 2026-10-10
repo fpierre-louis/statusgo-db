@@ -67,7 +67,7 @@ class CommerceSuppressionServiceTest {
         Group household = household();
         when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
         when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(new ActiveAlertDto("a1", "NWS", "Severe", "flood", "Flash Flood Warning", "Home", "Move to higher ground", null, null)), List.of()));
+        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(new ActiveAlertDto("a1", "NWS", "Severe", "flood", "Flash Flood Warning", "Home", "Move to higher ground", null, null, "Flash Flood Warning")), List.of()));
 
         assertThat(service().suppressionReason("hh-1")).isEqualTo("area_alert");
         verifyNoInteractions(alertModeRepo);

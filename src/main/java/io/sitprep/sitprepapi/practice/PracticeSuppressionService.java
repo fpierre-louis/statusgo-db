@@ -25,9 +25,10 @@ import java.util.Optional;
  * the real thing for a person's attention, or be mistaken for it.
  *
  * <p>The household half is {@link ActiveResponseResolver} — the same gate
- * Ready for More uses (plan activation, then household check-in, then an
- * official alert at home) — so "calm" means one thing across preparedness
- * surfaces. The caller half adds a lockdown/concealment event near the caller
+ * Ready for More uses (plan activation, then household check-in) — so "calm"
+ * means one thing across preparedness surfaces. An official alert at home on
+ * its own does NOT suppress (owner, 2026-10-10, EXEC-H1): it yields
+ * {@link #headsUp}, a nudge the scenario pages show above their content. The caller half adds a lockdown/concealment event near the caller
  * ({@link ConcealmentSafetyService}), which also covers a caller with no
  * household.</p>
  *
@@ -44,7 +45,7 @@ public class PracticeSuppressionService {
 
     private static final Logger log = LoggerFactory.getLogger(PracticeSuppressionService.class);
 
-    public enum Reason { PLAN_ACTIVATION, CHECK_IN, OFFICIAL_ALERT, LOCKDOWN, UNVERIFIED }
+    public enum Reason { PLAN_ACTIVATION, CHECK_IN, LOCKDOWN, UNVERIFIED }
 
     /** Why Practice is waiting, in Practice's own words, plus where the real thing lives. */
     public record Suppression(Reason reason, String title, String detail,
@@ -112,15 +113,29 @@ public class PracticeSuppressionService {
         Reason reason = switch (active.kind()) {
             case PLAN_ACTIVATION -> Reason.PLAN_ACTIVATION;
             case CHECK_IN -> Reason.CHECK_IN;
-            case OFFICIAL_ALERT -> Reason.OFFICIAL_ALERT;
         };
-        String title = switch (reason) {
-            case PLAN_ACTIVATION -> "Your plan is active";
-            case CHECK_IN -> "Your household is checking in";
-            default -> "An official alert is in effect";
-        };
+        String title = reason == Reason.PLAN_ACTIVATION ? "Your plan is active" : "Your household is checking in";
         return Optional.of(new Suppression(reason, title, WAIT, active.action(),
                 active.params() == null ? Map.of() : active.params()));
+    }
+
+    /**
+     * The alert nudge for {@code householdId}, or empty. A nudge, not a gate:
+     * an unreadable signal yields nothing here ({@link #check} is the half
+     * that fails closed).
+     */
+    @Transactional(readOnly = true)
+    public Optional<ActiveResponseResolver.AlertHeadsUp> headsUp(String householdId) {
+        if (householdId == null || householdId.isBlank()) return Optional.empty();
+        try {
+            return groupRepo.findByGroupId(householdId)
+                    .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                    .map(riskProfileService::resolveFor)
+                    .map(risk -> ActiveResponseResolver.alertHeadsUp(risk, ActiveResponseResolver.Surface.PRACTICE));
+        } catch (RuntimeException e) {
+            log.warn("Practice heads-up: household {} risk unreadable; no nudge", householdId, e);
+            return Optional.empty();
+        }
     }
 
     private Optional<Suppression> callerSignal(String callerEmail) {

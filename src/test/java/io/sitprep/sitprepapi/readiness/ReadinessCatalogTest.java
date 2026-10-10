@@ -226,10 +226,10 @@ class ReadinessCatalogTest {
 
     @Test
     void activeResponseToolsDropCommerceAndAlertSetup() {
-        assertThat(ReadinessCatalog.tools(JourneyMode.CALM)).extracting(ReadinessCatalog.Tool::key)
+        assertThat(ReadinessCatalog.tools(JourneyMode.CALM, false)).extracting(ReadinessCatalog.Tool::key)
                 .containsExactly("tools.power_outage_playbook", "tools.alert_setup",
                         "tools.home_kit", "tools.emergency_contacts");
-        assertThat(ReadinessCatalog.tools(JourneyMode.ACTIVE_RESPONSE)).extracting(ReadinessCatalog.Tool::key)
+        assertThat(ReadinessCatalog.tools(JourneyMode.ACTIVE_RESPONSE, false)).extracting(ReadinessCatalog.Tool::key)
                 .containsExactly("tools.power_outage_playbook", "tools.emergency_contacts");
     }
 

@@ -16,6 +16,7 @@ import io.sitprep.sitprepapi.readiness.ReadinessCatalog.CatalogItem;
 import io.sitprep.sitprepapi.readiness.ReadinessCatalog.ContactRule;
 import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.ActionDto;
 import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.ActiveResponseDto;
+import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.AlertHeadsUpDto;
 import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.AreaDto;
 import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.BandDto;
 import io.sitprep.sitprepapi.readiness.ReadinessJourneyDtos.CapabilitiesDto;
@@ -424,6 +425,9 @@ public class ReadinessJourneyService {
 
         EssentialsResult e = t.essentials();
         ActiveResponse a = t.active();
+        // A response the household started outranks the alert's nudge.
+        ActiveResponseResolver.AlertHeadsUp heads = a != null ? null
+                : ActiveResponseResolver.alertHeadsUp(t.risk(), ActiveResponseResolver.Surface.READY_FOR_MORE);
         return new ReadinessJourneyDto(
                 ReadinessJourneyDtos.SCHEMA_VERSION,
                 ReadinessCatalog.CATALOG_VERSION,
@@ -434,11 +438,13 @@ public class ReadinessJourneyService {
                 new EssentialsDto(e.complete(), e.done(), e.total(), e.nextKey()),
                 a == null ? null : new ActiveResponseDto(a.kind().name(), a.title(), a.detail(),
                         ActionDto.of(a.action(), a.params())),
+                heads == null ? null : new AlertHeadsUpDto(heads.title(), heads.detail(),
+                        ActionDto.of(heads.action(), heads.params())),
                 doneCount,
                 mode == JourneyMode.CALM && next == null,
                 next,
                 areas,
-                ReadinessCatalog.tools(mode).stream()
+                ReadinessCatalog.tools(mode, heads != null).stream()
                         .map(tool -> new ToolDto(tool.key(), tool.title(), tool.description(),
                                 ActionDto.of(tool.action(), Map.of())))
                         .toList());

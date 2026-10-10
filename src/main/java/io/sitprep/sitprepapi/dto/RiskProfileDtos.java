@@ -90,6 +90,8 @@ public final class RiskProfileDtos {
             /** ISO-8601 effective time (nullable). */
             String startedAt,
             /** ISO-8601 "in effect until" (nullable). */
-            String endsAt
+            String endsAt,
+            /** NWS product name verbatim ("Flood Watch"); null for USGS/FEMA. */
+            String event
     ) {}
 }
