@@ -153,16 +153,15 @@ class UserInfoWritePrivilegeTest {
     }
 
     @Test
-    void ownStatusStillSaves() {
-        // A status change registers an after-commit hook (the household chat
-        // event), which needs the synchronization a real transaction provides.
-        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
-        try {
-            assertThat(service.patchUserById("u-1", Map.of("userStatus", "HELP", "statusColor", "Red"))
-                    .getUserStatus()).isEqualTo("HELP");
-        } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
-        }
+    void aStatusOnTheProfilePatchIsIgnored_notWritten_notRefused() {
+        // Q19(a), 2026-10-09: status is written only by PATCH /me/status and
+        // the proxy POST. The editor's diff used to echo it; an installed
+        // build must keep its 200 for the name edit riding with it.
+        UserInfo out = service.patchUserById("u-1",
+                Map.of("userFirstName", "Ana", "userStatus", "HELP", "statusColor", "Red"));
+        assertThat(out.getUserFirstName()).isEqualTo("Ana");
+        assertThat(out.getUserStatus()).isEqualTo("SAFE");
+        assertThat(out.getStatusColor()).isNull();
     }
 
     // ── PUT: the echoed record cannot carry a plan or a uid ────────────────

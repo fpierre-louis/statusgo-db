@@ -183,18 +183,23 @@ class UserInfoServiceStatusBroadcastTest {
     }
 
     @Test
-    void theLegacyPatchPathPassesThePriorWriteTime() {
+    void theProfilePatchNoLongerWritesAStatus() {
+        // Q19(a): one status write path per actor. The PATCH ignores the keys —
+        // no write, no frame, no event.
         when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
         TransactionSynchronizationManager.initSynchronization();
         try {
-            service.patchUserById("u-maya", java.util.Map.of("userStatus", "HELP"));
+            service.patchUserById("u-maya", java.util.Map.of("userStatus", "HELP", "statusColor", "#FFC107"));
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(TransactionSynchronization::afterCommit);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
-        // Not null: an unknown prior write time would make any ask look open.
-        verify(events).recordSelfStatusWrite(MAYA, "HELP", true, EARLIER);
+        assertEquals("SAFE", maya.getUserStatus());
+        assertEquals(EARLIER, maya.getUserStatusLastUpdated());
+        verify(events, never()).recordSelfStatusWrite(any(), any(), anyBoolean(), any());
+        verify(ws, never()).sendHouseholdMemberStatus(any(), any());
+        verify(ws, never()).sendGroupMemberStatus(any(), any());
     }
 
     // ── 2026-10-09: every status write reaches every roster ──────────────────
@@ -208,29 +213,6 @@ class UserInfoServiceStatusBroadcastTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
-    }
-
-    @Test
-    void theLegacyPatchIsTheSelfWriteFrameStampAndAttributionIncluded() {
-        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
-        maya.setStatusSetByEmail(ADMIN); // Dione had answered for her earlier
-
-        commit(() -> service.patchUserById("u-maya", java.util.Map.of("userStatus", "help", "statusColor", "#FFC107")));
-
-        assertEquals("HELP", maya.getUserStatus(), "validated and normalised, not written raw");
-        assertNull(maya.getStatusSetByEmail(), "her own answer is not 'set by Dione'");
-        assertTrue(maya.getUserStatusLastUpdated().isAfter(EARLIER), "stamped");
-        // The open rosters hear it — this path used to send no frame at all.
-        verify(ws).sendHouseholdMemberStatus(eq("hh-1"), any());
-        verify(ws).sendGroupMemberStatus(eq("hh-1"), any());
-    }
-
-    @Test
-    void aLegacyPatchOfAnUnknownStatusIsRefusedNotStored() {
-        when(userInfoRepo.findById("u-maya")).thenReturn(Optional.of(maya));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.patchUserById("u-maya", java.util.Map.of("userStatus", "NO RESPONSE")));
-        verify(ws, never()).sendHouseholdMemberStatus(any(), any());
     }
 
     @Test

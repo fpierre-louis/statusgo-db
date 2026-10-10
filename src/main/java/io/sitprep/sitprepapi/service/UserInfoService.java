@@ -55,15 +55,10 @@ public class UserInfoService {
      * {@code baseHouseholdId}. A new column is now unwritable until someone
      * decides it belongs here. See docs/epics/userinfo-write-privilege/EXEC.md.
      */
-    /** The status keys a PATCH may carry; they route to {@link #writeStatus}. */
-    static final Set<String> STATUS_PATCH_KEYS = Set.of("userStatus", "statusColor");
-
     static final Set<String> CLIENT_WRITABLE_FIELDS = Set.of(
             // profile (EditProfilePage)
             "userFirstName", "userLastName", "title", "phone", "address",
             "profileImageUrl", "bio", "coverImageUrl", "profileVisibility",
-            // own status (the editor's diff can carry it; /me/status is the main path)
-            "userStatus", "statusColor",
             // push token (AuthContext, useNotificationPermission, WelcomeWizard)
             "fcmtoken",
             // WelcomeWizard: manual ZIP + onboarding step timestamps
@@ -81,9 +76,17 @@ public class UserInfoService {
      * {@code Set<String>}, JSON arrives as a List, and the reflective setter's
      * exception was swallowed. Ignored explicitly now, so the caller keeps its
      * 200 and the server's copy cannot be overwritten.
+     *
+     * <p>{@code userStatus} / {@code statusColor} (2026-10-09, gameplan Q19a):
+     * a status has exactly two write paths — PATCH /userinfo/me/status (self)
+     * and POST /groups/{id}/members/status (proxy). This PATCH no longer
+     * writes one. Ignored rather than refused because the profile editor's
+     * diff used to echo them, and an installed build must not lose a name
+     * edit to a 403 over a field it never meant to change.</p>
      */
     private static final Set<String> PATCH_IGNORED_KEYS =
-            Set.of("id", "userEmail", "joinedGroupIDs", "managedGroupIDs");
+            Set.of("id", "userEmail", "joinedGroupIDs", "managedGroupIDs",
+                    "userStatus", "statusColor");
 
     private final UserInfoRepo userInfoRepo;
     private final HouseholdEventService householdEventService;
@@ -365,10 +368,11 @@ public class UserInfoService {
         existing.setUserLastName(incoming.getUserLastName());
         existing.setPhone(incoming.getPhone());
         existing.setAddress(incoming.getAddress());
-        // NOT copied: userStatus / statusColor. A status has one write path
-        // (PATCH /userinfo/me/status, or a PATCH carrying `userStatus`), and
-        // this PUT echoes the whole record back — a stale copy would silently
-        // undo a status written moments earlier, with no frame and no event.
+        // NOT copied: userStatus / statusColor. A status has two write paths
+        // (PATCH /userinfo/me/status for yourself, POST
+        // /groups/{id}/members/status for someone else), and this PUT echoes
+        // the whole record back — a stale copy would silently undo a status
+        // written moments earlier, with no frame and no event.
         existing.setProfileImageUrl(profileImageForFullUpdate(
                 existing.getProfileImageUrl(), incoming.getProfileImageUrl()));
         existing.setFcmtoken(incoming.getFcmtoken());
@@ -834,8 +838,6 @@ public class UserInfoService {
             if (rawKey == null || value == null) return;
             String key = rawKey;
             if (!CLIENT_WRITABLE_FIELDS.contains(key)) return;
-            // Status goes through the one status write below, not reflection.
-            if (STATUS_PATCH_KEYS.contains(key)) return;
 
             // The avatar is validated OUTSIDE the reflective try below, which
             // swallows every exception — a policy failure thrown in there would
@@ -868,24 +870,7 @@ public class UserInfoService {
             }
         });
 
-        UserInfo saved = userInfoRepo.save(userInfo);
-
-        // ── STATUS HAS ONE WRITE PATH ────────────────────────────────────────
-        // This PATCH wrote `userStatus` by reflection: no timestamp, the proxy
-        // attribution left standing ("set by Dad" under your own answer), no
-        // member status frame — so no open roster moved — and an event recorded
-        // from inside afterCommit, where its insert had no transaction left to
-        // commit in. A status here is now the self-report it is: the same
-        // write as PATCH /userinfo/me/status (validated, stamped, attributed,
-        // broadcast after commit, the household event in this transaction).
-        Object rawStatus = updates.get("userStatus");
-        if (rawStatus != null && saved.getUserEmail() != null) {
-            Object rawColor = updates.get("statusColor");
-            writeStatus(saved.getUserEmail(), String.valueOf(rawStatus),
-                    rawColor == null ? null : String.valueOf(rawColor), null, null);
-        }
-
-        return saved;
+        return userInfoRepo.save(userInfo);
     }
 
     private Object coercePatchValue(Field field, Object value) {
