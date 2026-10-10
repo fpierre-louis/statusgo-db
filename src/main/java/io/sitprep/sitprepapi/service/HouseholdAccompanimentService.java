@@ -1,7 +1,9 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdAccompaniment;
 import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
+import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.HouseholdAccompanimentRepo;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import jakarta.transaction.Transactional;
@@ -11,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,18 +36,24 @@ public class HouseholdAccompanimentService {
     private final HouseholdAccompanimentRepo repo;
     private final WebSocketMessageSender ws;
     private final HouseholdEventService events;
+    private final GroupRepo groupRepo;
 
     public HouseholdAccompanimentService(HouseholdAccompanimentRepo repo,
                                          WebSocketMessageSender ws,
-                                         HouseholdEventService events) {
+                                         HouseholdEventService events,
+                                         GroupRepo groupRepo) {
         this.repo = repo;
         this.ws = ws;
         this.events = events;
+        this.groupRepo = groupRepo;
     }
 
     public List<HouseholdAccompanimentDto> list(String householdId) {
         if (householdId == null || householdId.isBlank()) return List.of();
-        return repo.findByHouseholdId(householdId).stream().map(this::toDto).toList();
+        List<HouseholdAccompaniment> rows = repo.findByHouseholdId(householdId);
+        if (rows.isEmpty()) return List.of();
+        CheckInLine line = lineFor(householdId);
+        return rows.stream().map(a -> toDto(a, line)).toList();
     }
 
     /**
@@ -82,9 +91,13 @@ public class HouseholdAccompanimentService {
         // unless caller asserts a crisis override.
         boolean pending = "user".equals(accompanied.kind()) && !crisisOverride;
         row.setPending(pending);
+        // A claim is "with me NOW": re-claiming someone already on the row
+        // (same supervisor or a new one) restarts it. Without this a re-claim
+        // during a check-in kept the pre-check-in `since` and stayed stale.
+        row.setSince(Instant.now());
 
         HouseholdAccompaniment saved = repo.save(row);
-        HouseholdAccompanimentDto dto = toDto(saved);
+        HouseholdAccompanimentDto dto = toDto(saved, lineFor(householdId));
         broadcastAfterCommit(householdId, dto);
         events.recordWithClaim(
                 householdId, actorEmail,
@@ -103,7 +116,7 @@ public class HouseholdAccompanimentService {
                         "accompaniment not found"));
         if (!row.isPending()) return toDto(row);
         row.setPending(false);
-        HouseholdAccompanimentDto dto = toDto(repo.save(row));
+        HouseholdAccompanimentDto dto = toDto(repo.save(row), lineFor(householdId));
         broadcastAfterCommit(householdId, dto);
         return dto;
     }
@@ -182,13 +195,24 @@ public class HouseholdAccompanimentService {
         return "user".equals(kind) ? id.trim().toLowerCase(Locale.ROOT) : id.trim();
     }
 
-    private HouseholdAccompanimentDto toDto(HouseholdAccompaniment a) {
+    /** Whether a check-in is running in this household, and where it starts. */
+    private record CheckInLine(boolean active, Instant anchor) {}
+
+    private CheckInLine lineFor(String householdId) {
+        Group g = groupRepo == null || householdId == null ? null
+                : groupRepo.findById(householdId).orElse(null);
+        if (g == null) return new CheckInLine(false, null);
+        return new CheckInLine("Active".equalsIgnoreCase(g.getAlert()), StatusRollups.anchorFor(g));
+    }
+
+    private HouseholdAccompanimentDto toDto(HouseholdAccompaniment a, CheckInLine line) {
         return new HouseholdAccompanimentDto(
                 a.getId(),
                 refDto(a.getSupervisorKind(), a.getSupervisorId()),
                 refDto(a.getAccompaniedKind(), a.getAccompaniedId()),
                 a.getSince(),
-                a.isPending()
+                a.isPending(),
+                !StatusRollups.accompanimentCounts(a.getSince(), line.active(), line.anchor())
         );
     }
 

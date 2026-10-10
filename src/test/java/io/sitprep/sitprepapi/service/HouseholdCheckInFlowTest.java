@@ -8,7 +8,10 @@ import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto;
 import io.sitprep.sitprepapi.dto.GroupMemberViewDto.CheckIn;
 import io.sitprep.sitprepapi.dto.HouseholdManualMemberDto;
+import io.sitprep.sitprepapi.dto.CheckInRollupDto;
+import io.sitprep.sitprepapi.dto.HouseholdAccompanimentDto;
 import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.HouseholdAccompanimentRepo;
 import io.sitprep.sitprepapi.repo.HouseholdEventRepo;
 import io.sitprep.sitprepapi.repo.HouseholdManualMemberRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
@@ -50,6 +53,8 @@ class HouseholdCheckInFlowTest {
     @Autowired UserInfoRepo users;
     @Autowired HouseholdManualMemberRepo manualRepo;
     @Autowired HouseholdEventRepo eventRepo;
+    @Autowired HouseholdAccompanimentService accompaniments;
+    @Autowired HouseholdAccompanimentRepo accompanimentRepo;
 
     private String a;
     private String b;
@@ -182,6 +187,61 @@ class HouseholdCheckInFlowTest {
 
         // app.groupAlert.decayHours — the same end an account's row gets.
         assertThat(dto.status().showUntil()).isEqualTo(activated.plus(Duration.ofHours(48)));
+    }
+
+    // ── Q6: a "with me" from before the check-in accounts for nobody ─────
+
+    @Test
+    void checkIn_withMeClaimedBeforeItStarted_isNoResponse_andAReclaimMakesItSafe() {
+        Instant activated = Instant.now().minus(Duration.ofHours(1));
+        Group hh = group("Household", "Active", activated, a);
+        HouseholdManualMember ava = manual(hh.getGroupId(), "Ava", null, null);
+        HouseholdAccompanimentService.Ref me = new HouseholdAccompanimentService.Ref("user", a, a);
+        HouseholdAccompanimentService.Ref kid = new HouseholdAccompanimentService.Ref("manual", ava.getId(), null);
+        accompaniments.claim(hh.getGroupId(), a, me, kid, false);
+        // Backdate the claim to before the check-in began: the stale case.
+        var row = accompanimentRepo.findByHouseholdId(hh.getGroupId()).get(0);
+        row.setSince(activated.minus(Duration.ofDays(2)));
+        accompanimentRepo.save(row);
+
+        GroupMemberViewDto stale = groupView.buildMemberView(hh.getGroupId(), a).orElseThrow();
+        CheckInRollupDto staleRollup = groupService.getCheckInRollup(hh.getGroupId());
+        assertThat(stale.rollup().safe()).isZero();
+        assertThat(stale.rollup().noResponse()).isEqualTo(2);   // Ava, and Dione has not answered
+        assertThat(staleRollup.safe()).isZero();
+        assertThat(onlyAccompaniment(stale).stale()).isTrue();
+
+        // Claimed again during the check-in: "with me NOW" restarts `since`.
+        accompaniments.claim(hh.getGroupId(), a, me, kid, false);
+
+        GroupMemberViewDto fresh = groupView.buildMemberView(hh.getGroupId(), a).orElseThrow();
+        CheckInRollupDto freshRollup = groupService.getCheckInRollup(hh.getGroupId());
+        assertThat(fresh.rollup().safe()).isEqualTo(1);
+        assertThat(freshRollup.safe()).isEqualTo(1);
+        assertThat(freshRollup.accounted()).isEqualTo(fresh.rollup().accounted());
+        assertThat(onlyAccompaniment(fresh).stale()).isFalse();
+        assertThat(onlyAccompaniment(fresh).since()).isAfterOrEqualTo(activated);
+    }
+
+    @Test
+    void calm_anOldWithMeStillCountsAndIsNotStale() {
+        Group hh = group("Household", "Not Active", null, a);
+        HouseholdManualMember ava = manual(hh.getGroupId(), "Ava", null, null);
+        accompaniments.claim(hh.getGroupId(), a,
+                new HouseholdAccompanimentService.Ref("user", a, a),
+                new HouseholdAccompanimentService.Ref("manual", ava.getId(), null), false);
+        var row = accompanimentRepo.findByHouseholdId(hh.getGroupId()).get(0);
+        row.setSince(Instant.now().minus(Duration.ofDays(30)));
+        accompanimentRepo.save(row);
+
+        GroupMemberViewDto view = groupView.buildMemberView(hh.getGroupId(), a).orElseThrow();
+        assertThat(view.rollup().safe()).isEqualTo(1);
+        assertThat(onlyAccompaniment(view).stale()).isFalse();
+    }
+
+    private static HouseholdAccompanimentDto onlyAccompaniment(GroupMemberViewDto view) {
+        assertThat(view.accompaniments()).hasSize(1);
+        return view.accompaniments().get(0);
     }
 
     // ── fixtures ─────────────────────────────────────────────────────────

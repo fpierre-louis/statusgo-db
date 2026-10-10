@@ -82,10 +82,14 @@ class StatusRollupsTest {
     }
 
     private static HouseholdAccompanimentDto withMe(String manualId) {
+        return withMeSince(manualId, NOW.minus(Duration.ofDays(20)));
+    }
+
+    private static HouseholdAccompanimentDto withMeSince(String manualId, Instant since) {
         return new HouseholdAccompanimentDto(1L,
                 new HouseholdAccompanimentDto.Ref("user", "dione@x.com", "dione@x.com"),
                 new HouseholdAccompanimentDto.Ref("manual", manualId, null),
-                NOW.minus(Duration.ofDays(20)), false);
+                since, false);
     }
 
     private static StatusRollup manualOnly(List<HouseholdManualMemberDto> manual,
@@ -158,6 +162,54 @@ class StatusRollupsTest {
                 List.of(withMe("m1")), true, started)).isNull();
     }
 
+    // ── Q6: a "with me" during a check-in counts only if claimed after it began ──
+
+    @Test
+    void manual_duringACheckIn_aWithMeClaimedBeforeItStartedIsNoResponse() {
+        Instant started = NOW.minus(Duration.ofHours(2));
+        StatusRollup r = manualOnly(List.of(manual("m1", null, null)),
+                List.of(withMeSince("m1", started.minus(Duration.ofMinutes(1)))), true, started);
+        assertThat(r.safe()).isZero();
+        assertThat(r.noResponse()).isEqualTo(1);
+    }
+
+    @Test
+    void manual_duringACheckIn_aWithMeClaimedAtOrAfterTheStartIsSafe() {
+        Instant started = NOW.minus(Duration.ofHours(2));
+        StatusRollup atStart = manualOnly(List.of(manual("m1", null, null)),
+                List.of(withMeSince("m1", started)), true, started);
+        StatusRollup after = manualOnly(List.of(manual("m1", null, null)),
+                List.of(withMeSince("m1", started.plus(Duration.ofMinutes(5)))), true, started);
+        assertThat(atStart.safe()).isEqualTo(1);
+        assertThat(after.safe()).isEqualTo(1);
+    }
+
+    @Test
+    void manual_inCalm_anOldWithMeStillCounts() {
+        StatusRollup r = manualOnly(List.of(manual("m1", null, null)),
+                List.of(withMeSince("m1", NOW.minus(Duration.ofDays(60)))), false, NOW.minus(Duration.ofDays(1)));
+        assertThat(r.safe()).isEqualTo(1);
+    }
+
+    @Test
+    void manual_duringACheckIn_aFreshWithMeNeverOutranksHelp() {
+        Instant started = NOW.minus(Duration.ofHours(2));
+        StatusRollup r = manualOnly(List.of(manual("m1", "HELP", started.plus(Duration.ofMinutes(1)))),
+                List.of(withMeSince("m1", started.plus(Duration.ofMinutes(5)))), true, started);
+        assertThat(r.help()).isEqualTo(1);
+        assertThat(r.safe()).isZero();
+    }
+
+    @Test
+    void accompanimentCounts_isTheOneLine() {
+        Instant anchor = NOW.minus(Duration.ofHours(1));
+        assertThat(StatusRollups.accompanimentCounts(anchor.minusSeconds(1), true, anchor)).isFalse();
+        assertThat(StatusRollups.accompanimentCounts(anchor, true, anchor)).isTrue();
+        assertThat(StatusRollups.accompanimentCounts(null, true, anchor)).isFalse();
+        assertThat(StatusRollups.accompanimentCounts(anchor.minusSeconds(1), false, anchor)).isTrue();
+        assertThat(StatusRollups.accompanimentCounts(null, true, null)).isTrue();
+    }
+
     @Test
     void theCheckInRollupAndTheMemberViewRollupAgree() {
         Instant started = NOW.minus(Duration.ofHours(2));
@@ -180,7 +232,11 @@ class StatusRollupsTest {
                 manual("m1", "HELP", started.plus(Duration.ofMinutes(10))),
                 manual("m2", null, null),
                 manual("m3", null, null));
-        List<HouseholdAccompanimentDto> acc = List.of(withMe("m2"));
+        // m2 was claimed after the check-in began (counts); m3's "with me" is
+        // from before it (Q6: does not count). Both rollups must agree.
+        List<HouseholdAccompanimentDto> acc = List.of(
+                withMeSince("m2", started.plus(Duration.ofMinutes(15))),
+                withMeSince("m3", started.minus(Duration.ofDays(3))));
 
         GroupRepo groupRepo = mock(GroupRepo.class);
         UserInfoRepo userRepo = mock(UserInfoRepo.class);

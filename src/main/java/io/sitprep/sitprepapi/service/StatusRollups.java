@@ -25,7 +25,8 @@ import java.util.Map;
  *   <li><b>Manual members</b> (dependents without accounts) — see
  *       {@link #manualBucket}: a fresh status an admin set for them buckets
  *       to SAFE / HELP / INJURED (V103); otherwise a "with me" accompaniment
- *       counts them safe; otherwise noResponse. An unmarked, unaccompanied
+ *       counts them safe — during a check-in only one claimed at or after it
+ *       started ({@link #accompanimentCounts}); otherwise noResponse. An unmarked, unaccompanied
  *       dependent stays noResponse — nobody has accounted for them.</li>
  * </ul>
  */
@@ -95,7 +96,9 @@ public final class StatusRollups {
      *       same clamp an account's status gets.</li>
      *   <li>So HELP / INJURED outrank the SAFE an accompaniment implies —
      *       even a stale one: it counts as noResponse, never SAFE.</li>
-     *   <li>Otherwise a "with me" accompaniment counts them safe.</li>
+     *   <li>Otherwise a "with me" accompaniment counts them safe — during a
+     *       check-in only one claimed at or after the anchor
+     *       ({@link #accompanimentCounts}, gameplan Q6).</li>
      *   <li>Otherwise null: nobody has accounted for them.</li>
      * </ol>
      */
@@ -119,8 +122,25 @@ public final class StatusRollups {
                 a.accompaniedRef() != null
                         && "manual".equals(a.accompaniedRef().kind())
                         && m.id() != null
-                        && m.id().equals(a.accompaniedRef().id()));
+                        && m.id().equals(a.accompaniedRef().id())
+                        && accompanimentCounts(a.since(), alertActive, anchor));
         return claimed ? "SAFE" : null;
+    }
+
+    /**
+     * Whether a "with me" claimed at {@code since} still accounts for someone
+     * (household drawer gameplan §5.5 / Q6, 2026-10-09). In calm, always. While
+     * a check-in runs, only when it was claimed at or after the check-in's
+     * anchor — the same line an account's own status must cross. A weeks-old
+     * "with you" from before the emergency is not an answer to it.
+     *
+     * <p>The ONE rule: the rollups ({@link #manualBucket}, so the member view,
+     * /check-in-rollup, ping-missing and the reminder tally) and the
+     * accompaniment DTO's {@code stale} flag all read it.</p>
+     */
+    public static boolean accompanimentCounts(Instant since, boolean alertActive, Instant anchor) {
+        if (!alertActive || anchor == null) return true;
+        return since != null && !since.isBefore(anchor);
     }
 
     /**
