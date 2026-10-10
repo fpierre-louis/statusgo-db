@@ -283,11 +283,19 @@ public class AlertDispatchService {
                 // post. Remote-only alerts still skip.
                 double[] coord = null;
                 String zipBucket = null;
-                for (double[] candidate : dispatchCoordCandidates(a)) {
+                List<double[]> candidates = dispatchCoordCandidates(a);
+                for (double[] candidate : candidates) {
                     String zb = lookupZipBucket(candidate[1], candidate[0]); // lat, lng
                     if (zb != null && !zb.isBlank()) { coord = candidate; zipBucket = zb; break; }
                 }
-                if (coord == null) continue;
+                if (coord == null) {
+                    // Was silent, which hid why a whole watch never reached the
+                    // feed (2026-10-09). Says which step failed: no zone centre
+                    // at all, or centres that never geocoded to a zip.
+                    log.info("AlertDispatch: no post for {} ({}): {} candidate point(s), none in a zip bucket",
+                            alertId, a.event(), candidates.size());
+                    continue;
+                }
 
                 // Application-side dedup ahead of the unique-index
                 // safety net. Cheap (one indexed lookup) and avoids a
