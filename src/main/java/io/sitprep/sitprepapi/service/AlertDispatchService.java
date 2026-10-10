@@ -488,7 +488,7 @@ public class AlertDispatchService {
         t.setKind("alert-update");
         boolean sitprepGuidance = decision != null && decision.allowsSitPrepGuidance();
         t.setTitle(sitprepGuidance ? tpl.headline : officialTitle(a, tpl));
-        t.setDescription(sitprepGuidance ? fillBody(tpl, a) : officialBody(a));
+        t.setDescription(fitDescription(sitprepGuidance ? fillBody(tpl, a) : officialBody(a)));
         t.setPriority(PostPriority.URGENT);
         t.setStatus(PostStatus.OPEN);
         // DERIVED, NOT CAPTURED (V60). The alert's own end time has been on the
@@ -1123,6 +1123,34 @@ public class AlertDispatchService {
         if (a.description() != null && !a.description().isBlank()) return a.description();
         if (a.headline() != null && !a.headline().isBlank()) return a.headline();
         return "Open the official alert for details.";
+    }
+
+    /** Appended when an official text had to be cut to fit a post. */
+    static final String CONTINUED = "\n\n… The full wording is in the official alert.";
+
+    /**
+     * The post body, within the feed's description limit (2026-10-09). An
+     * issuer's instruction or description can run past
+     * {@link PostService#MAX_DESCRIPTION_CHARS}; create() then refuses the post
+     * and the alert never reaches anyone's feed — measured on prod: hundreds of
+     * "This post is too long" skips per hour. Cut at the last paragraph or
+     * sentence that fits, never mid-word, and say where the rest is. Nothing is
+     * reworded; the alert itself keeps every word.
+     */
+    static String fitDescription(String body) {
+        if (body == null) return null;
+        int max = PostService.MAX_DESCRIPTION_CHARS;
+        if (body.length() <= max) return body;
+        int room = max - CONTINUED.length();
+        String head = body.substring(0, room);
+        int cut = head.lastIndexOf("\n\n");                                    // a paragraph
+        if (cut < room / 2) {
+            int sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf(".\n"));
+            cut = sentence < 0 ? -1 : sentence + 1;                            // keep the full stop
+        }
+        if (cut < room / 2) cut = head.lastIndexOf(' ');                       // a word
+        if (cut <= 0) cut = room;
+        return head.substring(0, cut).stripTrailing() + CONTINUED;
     }
 
     private static String truncate(String s, int max) {
