@@ -4,6 +4,7 @@ package io.sitprep.sitprepapi.config;
 import io.sitprep.sitprepapi.security.FirebaseAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
@@ -188,6 +189,13 @@ public class SecurityConfig {
 
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
+        // A cross-origin response only shows the page the CORS-safelisted
+        // headers; anything else must be exposed by name. Retry-After rides
+        // on the household ask-everyone 429 (GroupResource) and the map
+        // confirmation 429, and the FE reads it to say when asking is open
+        // again — without this line it was invisible in the browser and the
+        // iOS WebView, and the FE fell back to requestedAt + 10m.
+        cfg.setExposedHeaders(List.of(HttpHeaders.RETRY_AFTER));
 
         // *** THE CRITICAL CHANGE ***
         cfg.setAllowCredentials(true); // <-- MUST BE TRUE to fix SockJS CORS error
