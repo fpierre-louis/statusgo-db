@@ -18,9 +18,12 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.DayOfWeek;
 import java.time.Instant;
@@ -42,6 +45,17 @@ import java.util.stream.Collectors;
  * services after their primary mutation completes — wiring is "fire and
  * forget" from the caller's POV (failures are logged, not rethrown, so an
  * event recorder bug never breaks a status update).</p>
+ *
+ * <p><b>ISOLATED FROM THE CALLER'S TRANSACTION (2026-10-09).</b> A catch is
+ * not enough: the repository joins the caller's transaction, and a failed
+ * save marks THAT transaction rollback-only before the catch ever runs — so a
+ * swallowed event failure still rolled back the user's SAFE, with
+ * UnexpectedRollbackException at commit. Inside a transaction the fire-and-
+ * forget recorders now run after it commits, in their own REQUIRES_NEW
+ * transaction ({@link #runIsolated}); with none they run at once. Pinned by
+ * {@code HouseholdEventIsolationTest}. The two recorders that ARE the user's
+ * action ({@link #recordMemberConfirmation}, {@link #recordWeeklyCheckIn})
+ * still save in the caller's transaction — their failure is the request's.</p>
  */
 @Service
 public class HouseholdEventService {
@@ -103,6 +117,8 @@ public class HouseholdEventService {
     private final WebSocketMessageSender ws;
     private final ObjectMapper objectMapper;
     private final CheckInRequestService checkInRequestService;
+    /** Null only in unit tests that build the service by hand (no transactions there). */
+    private final TransactionTemplate isolatedTx;
 
     /** Fallback tz when neither ritual nor household supplies one. */
     private static final ZoneId FALLBACK_TZ = ZoneId.of("America/Denver");
@@ -113,7 +129,8 @@ public class HouseholdEventService {
                                  HouseholdRitualRepo ritualRepo,
                                  WebSocketMessageSender ws,
                                  ObjectMapper objectMapper,
-                                 CheckInRequestService checkInRequestService) {
+                                 CheckInRequestService checkInRequestService,
+                                 PlatformTransactionManager txManager) {
         this.eventRepo = eventRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -121,6 +138,12 @@ public class HouseholdEventService {
         this.ws = ws;
         this.objectMapper = objectMapper;
         this.checkInRequestService = checkInRequestService;
+        if (txManager == null) {
+            this.isolatedTx = null;
+        } else {
+            this.isolatedTx = new TransactionTemplate(txManager);
+            this.isolatedTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -182,6 +205,14 @@ public class HouseholdEventService {
     public void recordSelfStatusWrite(String actorEmail, String newStatus,
                                       boolean valueChanged, Instant previousStatusAt) {
         if (actorEmail == null || actorEmail.isBlank() || newStatus == null) return;
+        // The READS are deferred too: a failed query inside the caller's
+        // transaction poisons it exactly as a failed save does.
+        runIsolated("status write by " + actorEmail, () ->
+                writeSelfStatusEvents(actorEmail, newStatus, valueChanged, previousStatusAt));
+    }
+
+    private void writeSelfStatusEvents(String actorEmail, String newStatus,
+                                       boolean valueChanged, Instant previousStatusAt) {
         List<Group> households = householdGroupsForMember(actorEmail);
         if (households.isEmpty()) return;
         Map<String, Object> payload = Map.of("status", newStatus);
@@ -196,7 +227,7 @@ public class HouseholdEventService {
             String kind = (answersAsk || checkInRunning)
                     ? KIND_CHECKIN_REPLIED
                     : KIND_STATUS_CHANGED;
-            recordSafely(hh.getGroupId(), kind, actorEmail, payload);
+            writeEvent(hh.getGroupId(), kind, actorEmail, payload, Instant.now());
         }
     }
 
@@ -232,6 +263,12 @@ public class HouseholdEventService {
     public void recordStatusSetForMember(String actorEmail, String subjectEmail, String newStatus,
                                          boolean valueChanged, Instant previousStatusAt) {
         if (actorEmail == null || subjectEmail == null || newStatus == null) return;
+        runIsolated("status set for " + subjectEmail, () ->
+                writeStatusSetForEvents(actorEmail, subjectEmail, newStatus, valueChanged, previousStatusAt));
+    }
+
+    private void writeStatusSetForEvents(String actorEmail, String subjectEmail, String newStatus,
+                                         boolean valueChanged, Instant previousStatusAt) {
         List<Group> households = householdGroupsForMember(subjectEmail);
         if (households.isEmpty()) return;
         // The NAME resolved at write time, once, rather than left for the
@@ -252,7 +289,7 @@ public class HouseholdEventService {
         if (subjectName != null) payload.put("subjectName", subjectName);
         for (Group hh : households) {
             if (!valueChanged && !askOpen(hh, subjectEmail, previousStatusAt)) continue;
-            recordSafely(hh.getGroupId(), KIND_STATUS_SET_FOR, actorEmail, payload);
+            writeEvent(hh.getGroupId(), KIND_STATUS_SET_FOR, actorEmail, payload, Instant.now());
         }
     }
 
@@ -874,14 +911,57 @@ public class HouseholdEventService {
     // Internals
     // ---------------------------------------------------------------------
 
+    /**
+     * A fire-and-forget event. The timestamp is taken NOW — when the thing
+     * happened — even though the row may be written a moment later, after the
+     * caller commits (the ask-everyone cooldown is anchored on it).
+     */
     private void recordSafely(String householdId, String kind,
                               String actorEmail, Map<String, Object> payload) {
+        if (householdId == null || householdId.isBlank() || kind == null) return;
+        Instant at = Instant.now();
+        runIsolated(kind + " in " + householdId,
+                () -> writeEvent(householdId, kind, actorEmail, payload, at));
+    }
+
+    /**
+     * Runs {@code work} where its failure cannot reach the caller.
+     *
+     * <p>In a transaction: after it COMMITS, in a new REQUIRES_NEW one — Spring
+     * requires a new transaction for data access from {@code afterCommit}, the
+     * original's resources are still bound. A rolled-back caller records
+     * nothing, which is right: the event described a write that did not
+     * happen. Outside a transaction (schedulers, hand-built unit tests): now.
+     * Either way an exception is logged and dropped.</p>
+     */
+    private void runIsolated(String what, Runnable work) {
+        Runnable guarded = () -> {
+            try {
+                if (isolatedTx == null) work.run();
+                else isolatedTx.executeWithoutResult(status -> work.run());
+            } catch (Exception ex) {
+                log.warn("Failed to record household event ({}): {}", what, ex.getMessage());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { guarded.run(); }
+            });
+        } else {
+            guarded.run();
+        }
+    }
+
+    /** The write itself. Callers reach it only through {@link #runIsolated}. */
+    private void writeEvent(String householdId, String kind, String actorEmail,
+                            Map<String, Object> payload, Instant at) {
         if (householdId == null || householdId.isBlank() || kind == null) return;
         try {
             HouseholdEvent e = new HouseholdEvent();
             e.setHouseholdId(householdId);
             e.setKind(kind);
-            e.setAt(Instant.now());
+            e.setAt(at);
             e.setActorEmail(actorEmail == null ? null : actorEmail.toLowerCase(Locale.ROOT));
             e.setPayloadJson(payload == null || payload.isEmpty()
                     ? null : objectMapper.writeValueAsString(payload));

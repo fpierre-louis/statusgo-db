@@ -121,7 +121,7 @@ class UserInfoServiceStatusBroadcastTest {
         when(eventRepo.save(any(HouseholdEvent.class))).thenAnswer(inv -> inv.getArgument(0));
         recorder = new HouseholdEventService(eventRepo, mock(UserInfoRepo.class), groupRepo,
                 mock(HouseholdRitualRepo.class), mock(WebSocketMessageSender.class),
-                new ObjectMapper(), asks);
+                new ObjectMapper(), asks, null);
     }
 
     private String savedKind() {
