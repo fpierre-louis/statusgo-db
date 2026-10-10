@@ -114,7 +114,7 @@ public class HouseholdAccompanimentService {
                         householdId, accompaniedKind, normalizeId(accompaniedKind, accompaniedId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "accompaniment not found"));
-        if (!row.isPending()) return toDto(row);
+        if (!row.isPending()) return toDto(row, lineFor(householdId));
         row.setPending(false);
         HouseholdAccompanimentDto dto = toDto(repo.save(row), lineFor(householdId));
         broadcastAfterCommit(householdId, dto);
