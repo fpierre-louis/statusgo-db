@@ -101,6 +101,19 @@ public class PostService {
     public void setDailyBriefService(DailyBriefService briefs) {
         this.briefs = briefs;
     }
+
+    /**
+     * The live alert snapshot, for the feed's alert pin (2026-10-09). Optional
+     * for the same reason as the brief: the many unit tests that build this
+     * service by hand do not need it, and without it the pin falls back to the
+     * older newest-alert-post rule.
+     */
+    private AlertIngestService alertIngest;
+
+    @Autowired(required = false)
+    public void setAlertIngestService(AlertIngestService alertIngest) {
+        this.alertIngest = alertIngest;
+    }
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
     private final AlertPostRepo alertPostRepo;
@@ -1754,6 +1767,89 @@ public class PostService {
         return discoverCommunity(lat, lng, radiusKm, statuses, viewerEmail, 0, 50);
     }
 
+    /** Radius for "does an alert cover this viewer" — the same 50 mi Home uses (RiskProfileService). */
+    private static final double PIN_COVERAGE_RADIUS_MI = 50.0;
+
+    /**
+     * The dispatcher's post for the most pressing alert that COVERS the viewer
+     * right now, or empty. Covering is the snapshot's own test
+     * ({@code getSnapshotForPoint}: polygons by distance, zone-only alerts by
+     * UGC/SAME containment). In effect means the post is still open, its
+     * {@code effectiveUntil} has not passed and the dispatcher has not
+     * resolved it. Most pressing: a Warning before a Watch before anything
+     * else, then severity, then the copy nearest the viewer, then the newest.
+     */
+    Optional<PostDto> coveringAlertPin(double lat, double lng, Set<PostStatus> wanted) {
+        if (alertIngest == null) return Optional.empty();
+        AlertIngestService.Snapshot snap;
+        try {
+            snap = alertIngest.getSnapshotForPoint(lat, lng, PIN_COVERAGE_RADIUS_MI);
+        } catch (RuntimeException e) {
+            log.warn("Alert pin: snapshot lookup failed: {}", e.toString());
+            return Optional.empty();
+        }
+        if (snap == null || snap.alerts() == null || snap.alerts().isEmpty()) return Optional.empty();
+        Map<String, AlertIngestService.NormalizedAlert> covering = new HashMap<>();
+        for (AlertIngestService.NormalizedAlert a : snap.alerts()) {
+            if (a == null || a.id() == null || "FEMA".equalsIgnoreCase(a.source())) continue;
+            covering.putIfAbsent(a.id(), a);
+        }
+        if (covering.isEmpty()) return Optional.empty();
+
+        List<AlertPost> rows = alertPostRepo.findActiveByAlertIdIn(covering.keySet());
+        if (rows == null || rows.isEmpty()) return Optional.empty();
+        Map<Long, String> alertByPost = new HashMap<>();
+        for (AlertPost r : rows) alertByPost.putIfAbsent(r.getPostId(), r.getAlertId());
+
+        Instant now = Instant.now();
+        Post best = null;
+        double bestKm = Double.MAX_VALUE;
+        int[] bestRank = null;
+        for (Post p : taskRepo.findAllById(alertByPost.keySet())) {
+            if (p == null || !"alert-update".equals(p.getKind())) continue;
+            if (!SystemAccounts.SITPREP_EMAIL.equalsIgnoreCase(p.getRequesterEmail())) continue;
+            if (p.getGroupId() != null) continue;
+            if (p.getStatus() == null || !wanted.contains(p.getStatus())) continue;
+            if (p.getEffectiveUntil() != null && !p.getEffectiveUntil().isAfter(now)) continue;
+            AlertIngestService.NormalizedAlert a = covering.get(alertByPost.get(p.getId()));
+            if (a == null) continue;
+            int[] rank = { alertTierRank(a.event()), severityRankOf(a.severity()) };
+            double km = (p.getLatitude() == null || p.getLongitude() == null)
+                    ? Double.MAX_VALUE : haversineKm(lat, lng, p.getLatitude(), p.getLongitude());
+            boolean better;
+            if (best == null) better = true;
+            else if (rank[0] != bestRank[0]) better = rank[0] > bestRank[0];
+            else if (rank[1] != bestRank[1]) better = rank[1] > bestRank[1];
+            else if (km != bestKm) better = km < bestKm;
+            else better = p.getCreatedAt() != null && best.getCreatedAt() != null
+                    && p.getCreatedAt().isAfter(best.getCreatedAt());
+            if (better) { best = p; bestKm = km; bestRank = rank; }
+        }
+        if (best == null) return Optional.empty();
+        return Optional.of(PostDto.fromEntity(best, bestKm == Double.MAX_VALUE ? null : roundKm(bestKm)));
+    }
+
+    /** Warning 3, Emergency/Evacuation 3, Watch 2, Advisory 1, anything else 0 — from the NWS product name. */
+    static int alertTierRank(String event) {
+        if (event == null) return 0;
+        String e = event.trim().toLowerCase(Locale.ROOT);
+        if (e.endsWith("warning") || e.contains("emergency") || e.startsWith("evacuation")) return 3;
+        if (e.endsWith("watch")) return 2;
+        if (e.endsWith("advisory")) return 1;
+        return 0;
+    }
+
+    static int severityRankOf(String severity) {
+        if (severity == null) return 0;
+        switch (severity.trim().toLowerCase(Locale.ROOT)) {
+            case "extreme": return 4;
+            case "severe": return 3;
+            case "moderate": return 2;
+            case "minor": return 1;
+            default: return 0;
+        }
+    }
+
     /**
      * Paged variant — tier ranking (official &gt; civic &gt; news &gt;
      * neighbor &gt; sponsored, layered on the relevance score) + offset/limit
@@ -1906,11 +2002,20 @@ public class PostService {
         // write an alert-update follow-up, and the newest one used to take the
         // pin above all organic content. A neighbour's follow-up now ranks
         // like any other post; the dispatcher's own alerts keep the pin.
-        Optional<PostDto> pinned = merged.stream()
-                .filter(d -> "alert-update".equals(d.kind()))
-                .filter(d -> SystemAccounts.SITPREP_EMAIL.equalsIgnoreCase(d.requesterEmail()))
-                .filter(d -> d.createdAt() != null && d.createdAt().isAfter(pinCutoff))
-                .max(Comparator.comparing(PostDto::createdAt));
+        // COVERAGE FIRST (owner, 2026-10-09: "there should be a pinned alert
+        // post"). The rule below only sees alert posts whose OWN point falls
+        // inside the radius, and that point is the centroid of the alert's
+        // area — for a zone-wide Flood Watch it can sit far outside a viewer
+        // standing inside the zone, so nothing pinned. Ask the snapshot which
+        // alerts cover THIS viewer (the same polygon/zone test Home's alerts
+        // use) and pin that alert's post, for as long as the alert is in
+        // effect. The older rule stays as the fallback.
+        Optional<PostDto> pinned = coveringAlertPin(lat, lng, wanted)
+                .or(() -> merged.stream()
+                        .filter(d -> "alert-update".equals(d.kind()))
+                        .filter(d -> SystemAccounts.SITPREP_EMAIL.equalsIgnoreCase(d.requesterEmail()))
+                        .filter(d -> d.createdAt() != null && d.createdAt().isAfter(pinCutoff))
+                        .max(Comparator.comparing(PostDto::createdAt)));
         if (pinned.isPresent()) {
             PostDto raw = pinned.get();
             // Flag it pinned so the FE renders the "Pinned by your area"

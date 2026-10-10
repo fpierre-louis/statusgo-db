@@ -31,6 +31,19 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
     List<AlertPost> findByPostIdIn(Collection<Long> postIds);
 
     /**
+     * Live (unresolved) posts for any of these alerts, across every geocell.
+     * The community feed's alert pin uses it to find the post for an alert
+     * that COVERS the viewer, wherever that post's own point happens to sit.
+     */
+    @Query("""
+           SELECT ap FROM AlertPost ap
+            WHERE ap.alertId IN :alertIds
+              AND ap.resolvedAt IS NULL
+              AND ap.postId IS NOT NULL
+           """)
+    List<AlertPost> findActiveByAlertIdIn(@Param("alertIds") Collection<String> alertIds);
+
+    /**
      * Active (unresolved) AlertPosts for one alertId. Resolve tick
      * iterates this when the upstream alert ends, marking each row's
      * {@code resolvedAt} + cascading visual demotion to the parent
