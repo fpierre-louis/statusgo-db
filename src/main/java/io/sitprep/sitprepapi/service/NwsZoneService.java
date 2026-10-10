@@ -4,7 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.sitprep.sitprepapi.domain.NwsZoneCentroid;
+import io.sitprep.sitprepapi.repo.NwsZoneCentroidRepo;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PreDestroy;
@@ -13,6 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -146,6 +152,38 @@ public class NwsZoneService {
 
     /** UGC codes already attempted (success or failure) so warm() doesn't retry in a loop. */
     private final Set<String> centroidAttempted = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Durable copy of {@link #zoneCentroids} (V105, 2026-10-09). Without it every
+     * deploy emptied the cache, and zone-only alerts could not be placed — so
+     * never posted — until the 100-per-tick warm caught up, up to an hour.
+     * Optional so the many tests that build this service by hand need no DB.
+     */
+    private NwsZoneCentroidRepo store;
+
+    @Autowired(required = false)
+    public void setStore(NwsZoneCentroidRepo store) {
+        this.store = store;
+    }
+
+    /** Refill the cache from the table before the first dispatch tick needs it. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void loadStoredCentroids() {
+        if (store == null) return;
+        try {
+            int n = 0;
+            for (NwsZoneCentroid row : store.findAll()) {
+                if (row.getUgc() == null || zoneCentroids.size() >= MAX_CACHE_ENTRIES) continue;
+                String ugc = row.getUgc().toUpperCase(Locale.ROOT);
+                zoneCentroids.put(ugc, new double[] { row.getLatitude(), row.getLongitude() });
+                centroidAttempted.add(ugc);
+                n++;
+            }
+            log.info("NwsZone: loaded {} stored zone centroid(s)", n);
+        } catch (RuntimeException e) {
+            log.warn("NwsZone: could not load stored centroids: {}", e.toString());
+        }
+    }
 
     /**
      * Single-threaded so zone warming can never fan out into a burst against
@@ -370,6 +408,7 @@ public class NwsZoneService {
             if (centroid == null) return;
             if (zoneCentroids.size() < MAX_CACHE_ENTRIES) {
                 zoneCentroids.put(ugc, centroid);
+                persist(ugc, centroid);
             }
         } catch (Exception e) {
             // A zone we can't resolve simply has no auto-post coordinate. It
@@ -382,6 +421,16 @@ public class NwsZoneService {
             // what keeps the retry from becoming a hot loop.
             centroidAttempted.remove(ugc);
             log.debug("NwsZone: centroid resolve failed for {}: {}", ugc, e.getMessage());
+        }
+    }
+
+    /** Best-effort write-through to V105; a DB hiccup never blocks resolution. */
+    private void persist(String ugc, double[] latLng) {
+        if (store == null) return;
+        try {
+            store.save(new NwsZoneCentroid(ugc.toUpperCase(Locale.ROOT), latLng[0], latLng[1], Instant.now()));
+        } catch (RuntimeException e) {
+            log.debug("NwsZone: could not store centroid for {}: {}", ugc, e.toString());
         }
     }
 
