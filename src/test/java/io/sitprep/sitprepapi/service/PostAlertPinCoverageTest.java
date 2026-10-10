@@ -105,9 +105,10 @@ class PostAlertPinCoverageTest {
         return p;
     }
 
+    /** The dispatcher stores `source + "-" + id` (AlertDispatchService), e.g. "NWS-urn:oid:…". */
     private static AlertPost link(String alertId, long postId) {
         AlertPost ap = new AlertPost();
-        ap.setAlertId(alertId);
+        ap.setAlertId("NWS-" + alertId);
         ap.setPostId(postId);
         return ap;
     }
@@ -169,6 +170,24 @@ class PostAlertPinCoverageTest {
         List<PostDto> feed = service.discoverCommunity(LEHI_LAT, LEHI_LNG, 16, null, "viewer@x.com");
 
         assertEquals(7L, feed.get(0).id());
+        assertTrue(feed.get(0).community().pinned());
+    }
+
+    @Test
+    void aBareIdNeverMatchesTheDispatchersKey() {
+        covering(alert("nws-FA-1", "Flood Watch", "Severe"));
+        AlertPost bare = new AlertPost();
+        bare.setAlertId("nws-FA-1"); // what the first version looked up, and missed
+        bare.setPostId(7L);
+        when(alertPostRepo.findActiveByAlertIdIn(any())).thenAnswer(inv -> {
+            java.util.Collection<String> keys = inv.getArgument(0);
+            assertTrue(keys.contains("NWS-nws-FA-1"), "looks up the dispatcher's key");
+            return List.of(link("nws-FA-1", 7L));
+        });
+        when(taskRepo.findAllById(any())).thenReturn(List.of(alertPost(7L, null)));
+
+        List<PostDto> feed = service.discoverCommunity(LEHI_LAT, LEHI_LNG, 16, null, "viewer@x.com");
+
         assertTrue(feed.get(0).community().pinned());
     }
 

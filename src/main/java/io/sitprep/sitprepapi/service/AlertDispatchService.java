@@ -272,14 +272,22 @@ public class AlertDispatchService {
                 // FEMA rows still fall through here and that is correct: they
                 // carry county NAMES, not codes, so there is genuinely nothing
                 // to resolve. Their state-keyed flow is separate work.
-                double[] coord = resolveDispatchCoord(a);
+                //
+                // TRY THE ZONES IN ORDER (2026-10-09). The first zone alone used
+                // to decide: if its centre reverse-geocoded to no zip the WHOLE
+                // alert was skipped. Measured on prod: the Flood Watch over the
+                // Wasatch Front (UTZ101–UTZ115, incl. Lehi's UTZ106) listed
+                // "Great Salt Lake Desert and Mountains" first, found no zip
+                // there, and was never posted — so the feed had nothing to pin.
+                // Now the first candidate that lands in a zip bucket places the
+                // post. Remote-only alerts still skip.
+                double[] coord = null;
+                String zipBucket = null;
+                for (double[] candidate : dispatchCoordCandidates(a)) {
+                    String zb = lookupZipBucket(candidate[1], candidate[0]); // lat, lng
+                    if (zb != null && !zb.isBlank()) { coord = candidate; zipBucket = zb; break; }
+                }
                 if (coord == null) continue;
-
-                // Reverse-geocode → zipBucket. Skip silently when the
-                // geocoder fails or doesn't have a zip — alerts in
-                // remote ocean / desert areas don't get auto-posts.
-                String zipBucket = lookupZipBucket(coord[1], coord[0]); // lat, lng
-                if (zipBucket == null || zipBucket.isBlank()) continue;
 
                 // Application-side dedup ahead of the unique-index
                 // safety net. Cheap (one indexed lookup) and avoids a
@@ -1141,19 +1149,26 @@ public class AlertDispatchService {
      * alert dispatches on a later tick, which is a bounded delay on a 5-minute
      * cron rather than a 200 ms upstream call inside this transaction.</p>
      */
-    private double[] resolveDispatchCoord(NormalizedAlert a) {
-        double[] fromGeometry = centroidOfGeometry(a.geometry());
-        if (fromGeometry != null) return fromGeometry;
+    /** How many zone centres to try for a zip before giving up (each is one reverse geocode). */
+    static final int MAX_DISPATCH_COORD_CANDIDATES = 6;
 
-        if (a.ugc() == null) return null;
-        for (String ugc : a.ugc()) {
-            Optional<double[]> centroid = zoneService.centroidForZone(ugc);
-            if (centroid.isPresent()) {
-                double[] latLng = centroid.get();
-                return new double[] { latLng[1], latLng[0] };   // -> [lon, lat]
+    /**
+     * Representative {@code [lon, lat]} candidates, in order: the polygon's
+     * centroid when there is one, then each targeted UGC zone's centroid —
+     * capped at {@link #MAX_DISPATCH_COORD_CANDIDATES}. The dispatcher uses the
+     * first that reverse-geocodes to a zip bucket.
+     */
+    List<double[]> dispatchCoordCandidates(NormalizedAlert a) {
+        List<double[]> out = new ArrayList<>();
+        double[] fromGeometry = centroidOfGeometry(a.geometry());
+        if (fromGeometry != null) out.add(fromGeometry);
+        if (a.ugc() != null) {
+            for (String ugc : a.ugc()) {
+                if (out.size() >= MAX_DISPATCH_COORD_CANDIDATES) break;
+                zoneService.centroidForZone(ugc).ifPresent(latLng -> out.add(new double[] { latLng[1], latLng[0] }));
             }
         }
-        return null;
+        return out;
     }
 
     /**

@@ -1795,13 +1795,17 @@ public class PostService {
         // Measured on prod 2026-10-09: the Flood Watch over Lehi was post 25276
         // (…e4f6ed06…), while the snapshot carried the update (…fc1404fb…),
         // so an id-only match pinned nothing.
+        //
+        // KEYED THE DISPATCHER'S WAY: AlertPost.alertId is `source + "-" + id`
+        // (AlertDispatchService), e.g. "NWS-urn:oid:…". A bare id matches no row
+        // — that was the second reason prod pinned nothing (2026-10-09).
         Map<String, AlertIngestService.NormalizedAlert> covering = new HashMap<>();
         for (AlertIngestService.NormalizedAlert a : snap.alerts()) {
             if (a == null || a.id() == null || "FEMA".equalsIgnoreCase(a.source())) continue;
-            covering.putIfAbsent(a.id(), a);
+            covering.putIfAbsent(dispatchKey(a.source(), a.id()), a);
             if (a.references() != null) {
                 for (String ref : a.references()) {
-                    if (ref != null && !ref.isBlank()) covering.putIfAbsent(ref, a);
+                    if (ref != null && !ref.isBlank()) covering.putIfAbsent(dispatchKey(a.source(), ref), a);
                 }
             }
         }
@@ -1838,6 +1842,11 @@ public class PostService {
         }
         if (best == null) return Optional.empty();
         return Optional.of(PostDto.fromEntity(best, bestKm == Double.MAX_VALUE ? null : roundKm(bestKm)));
+    }
+
+    /** The key AlertDispatchService stores on AlertPost.alertId: {@code source + "-" + id}. */
+    static String dispatchKey(String source, String id) {
+        return source + "-" + id;
     }
 
     /** Warning 3, Emergency/Evacuation 3, Watch 2, Advisory 1, anything else 0 — from the NWS product name. */
