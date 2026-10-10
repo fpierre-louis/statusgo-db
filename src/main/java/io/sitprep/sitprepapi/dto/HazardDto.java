@@ -15,6 +15,10 @@ import java.time.Instant;
  *                        action that ended it)
  * @param confirmations   distinct people who said "still there" in the last 60 min
  * @param viewerVote      the signed-in viewer's own vote, else null
+ * @param photoUrl        the report's first photo as a public CDN URL, else null.
+ *                        The map draws it on the report's card (map pins v2,
+ *                        2026-10-10). The post's photos are already public on
+ *                        the feed card; the URL carries no reporter identity.
  */
 public record HazardDto(
         Long id,
@@ -31,5 +35,6 @@ public record HazardDto(
         Instant expiresAt,
         boolean hasPhoto,
         String note,
-        String viewerVote
+        String viewerVote,
+        String photoUrl
 ) {}

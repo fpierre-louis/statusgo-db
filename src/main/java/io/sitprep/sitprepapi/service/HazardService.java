@@ -17,6 +17,7 @@ import io.sitprep.sitprepapi.repo.HazardVoteRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -315,7 +316,14 @@ public class HazardService {
                 h.getRadiusM(), stateOf(h, all, now),
                 recent(all, HazardVote.STILL, now.minus(VOTE_WINDOW)), lastStill,
                 h.getReportedAt(), h.getExpiresAt(), h.isHasPhoto(),
-                p == null ? null : p.getDescription(), viewerVote);
+                p == null ? null : p.getDescription(), viewerVote, firstPhotoUrl(p));
+    }
+
+    /** The post's first photo as a public URL, or null — what the map's report card shows. */
+    private static String firstPhotoUrl(Post p) {
+        if (p == null || p.getImageKeys() == null) return null;
+        return p.getImageKeys().stream().filter(k -> k != null && !k.isBlank()).findFirst()
+                .map(PublicCdn::toPublicUrl).orElse(null);
     }
 
     /** The post goes through the ordinary create path. A seam so tests need not build a PostDto. */

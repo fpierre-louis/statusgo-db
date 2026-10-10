@@ -59,7 +59,10 @@ class HazardServiceTest {
             Long createPost(Post incoming, String me) {
                 createdPosts.add(incoming);
                 if (nextPostId == null) throw new AssertionError("no post expected");
-                post(nextPostId, incoming.getLatitude(), incoming.getLongitude()).setDescription(incoming.getDescription());
+                Post stored = post(nextPostId, incoming.getLatitude(), incoming.getLongitude());
+                stored.setDescription(incoming.getDescription());
+                stored.setImageKeys(incoming.getImageKeys()); // the create path keeps them
+
                 return nextPostId;
             }
         };
@@ -152,7 +155,16 @@ class HazardServiceTest {
     @Test
     void oneReportWithAPhotoIsConfirmed() {
         createReturns(43L);
-        assertThat(service.report(req("road_closed", List.of("img/1.jpg"), LAT), "a@x.com").state()).isEqualTo("confirmed");
+        HazardDto dto = service.report(req("road_closed", List.of("img/1.jpg"), LAT), "a@x.com");
+        assertThat(dto.state()).isEqualTo("confirmed");
+        // The map's report card draws this photo (map pins v2).
+        assertThat(dto.photoUrl()).endsWith("img/1.jpg").startsWith("http");
+    }
+
+    @Test
+    void aReportWithoutAPhotoHasNoPhotoUrl() {
+        createReturns(45L);
+        assertThat(service.report(req("flood", null, LAT), "a@x.com").photoUrl()).isNull();
     }
 
     @Test
