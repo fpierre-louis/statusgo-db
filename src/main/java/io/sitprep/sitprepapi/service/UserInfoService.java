@@ -451,7 +451,8 @@ public class UserInfoService {
             throw new IllegalArgumentException("email is required");
         }
         final String normalizedStatus = normalizeSelfStatus(status);
-        final Instant effectiveUpdatedAt = updatedAt == null ? Instant.now() : updatedAt;
+        final Instant now = Instant.now();
+        final Instant effectiveUpdatedAt = clampToNow(updatedAt, now);
         final String effectiveColor = color == null || color.isBlank()
                 ? defaultStatusColor(normalizedStatus)
                 : color.trim();
@@ -461,6 +462,22 @@ public class UserInfoService {
 
         final String oldStatus = normalizeStatusOrNull(userInfo.getUserStatus());
         final Instant previousStatusAt = userInfo.getUserStatusLastUpdated();
+
+        // STALE REPLAY GUARD (instant_roster D10 / B1). The offline outbox
+        // replays a queued PATCH minutes or hours later; if a newer status was
+        // written meanwhile (another device, the Watch, an admin), applying the
+        // replay would revert it: an old HELP over a newer SAFE, or the
+        // reverse. A strictly older write is NOT applied: nothing is saved and
+        // no frame or event fires (nothing changed). The stored status is
+        // returned as a 200 so the caller reconciles to the truth. A 4xx would
+        // also end the outbox job, but it would log as a failure, and a 5xx
+        // would retry it five times.
+        if (isStaleStatusWrite(updatedAt, effectiveUpdatedAt, previousStatusAt, now)) {
+            org.slf4j.LoggerFactory.getLogger(UserInfoService.class).info(
+                    "status: ignored a stale write for {} (incoming {} < stored {})",
+                    userInfo.getId(), effectiveUpdatedAt, previousStatusAt);
+            return storedStatusFrame(userInfo);
+        }
 
         userInfo.setUserStatus(normalizedStatus);
         userInfo.setStatusColor(effectiveColor);
@@ -540,6 +557,65 @@ public class UserInfoService {
         }
 
         return frame;
+    }
+
+    /**
+     * A client stamp, clamped to server time. A null stamp is "now", as it has
+     * always been (the native Watch/push action and every proxy write send none).
+     *
+     * <p>A FUTURE stamp is clamped to {@code now} before it is compared or
+     * stored. A device whose clock runs fast would otherwise store a stamp
+     * ahead of real time. Under the stale guard, that row would then reject
+     * every honest write from every other device until real time caught up.</p>
+     */
+    static Instant clampToNow(Instant clientUpdatedAt, Instant now) {
+        if (clientUpdatedAt == null) return now;
+        return clientUpdatedAt.isAfter(now) ? now : clientUpdatedAt;
+    }
+
+    /**
+     * Whether a status write is older than the stored one and must not overwrite it.
+     *
+     * <ul>
+     *   <li><b>No client stamp:</b> applied, as before. It is a live write
+     *       stamped by the server.</li>
+     *   <li><b>Nothing stored, or a stored stamp ahead of server now:</b>
+     *       applied. A future stored stamp comes from a fast clock before the
+     *       clamp existed, so it is not trusted for ordering.</li>
+     *   <li><b>Equal stamps:</b> applied. The usual case is an outbox retry of
+     *       a write that committed but lost its response. Re-applying it is
+     *       idempotent (same status, same stamp). This also matches the FE's
+     *       {@code newerSelfStatus}, which lets an equal stamp through.</li>
+     *   <li><b>Strictly older:</b> stale, not applied.</li>
+     * </ul>
+     *
+     * <p>Known limit: client clocks that run SLOW. Stamps from different
+     * clocks are compared. A device whose clock is X seconds behind can lose
+     * an honest write made within X seconds of another source's write. It is
+     * not lost silently: the stored status comes back and the UI shows it.
+     * This is accepted because phone clocks are network-synced, and a tolerance
+     * window would let a replay through by the same margin.</p>
+     */
+    static boolean isStaleStatusWrite(Instant clientUpdatedAt, Instant effectiveUpdatedAt,
+                                      Instant storedUpdatedAt, Instant now) {
+        if (clientUpdatedAt == null || storedUpdatedAt == null) return false;
+        if (storedUpdatedAt.isAfter(now)) return false;
+        return effectiveUpdatedAt.isBefore(storedUpdatedAt);
+    }
+
+    /**
+     * The row's current status as a frame. This is what an ignored stale write
+     * returns, carrying the proxy name if an admin set it.
+     */
+    private MemberStatusFrame storedStatusFrame(UserInfo userInfo) {
+        final String setBy = userInfo.getStatusSetByEmail();
+        return new MemberStatusFrame(
+                userInfo.getUserEmail() == null ? null : userInfo.getUserEmail().trim().toLowerCase(Locale.ROOT),
+                userInfo.getUserStatus(),
+                userInfo.getStatusColor(),
+                userInfo.getUserStatusLastUpdated(),
+                setBy == null || setBy.isBlank() ? null : firstNameOf(setBy)
+        );
     }
 
     /** A display first name for a proxy frame, or null — never an email local-part. */
