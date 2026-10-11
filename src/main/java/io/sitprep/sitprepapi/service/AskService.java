@@ -370,10 +370,11 @@ public class AskService {
      * value updates and adjusts the parent's denormalized vote score by
      * the delta.
      *
-     * @return the new vote score on the parent after the change
+     * @return the parent's new score and the viewer's vote as it now stands
+     *         ({@code 0} when the tap cleared it), never the requested value
      */
     @Transactional
-    public int vote(String targetType, Long targetId, String voterEmail, int value) {
+    public VoteResult vote(String targetType, Long targetId, String voterEmail, int value) {
         if (value != 1 && value != -1) bad("Vote value must be +1 or -1");
         String tt = normalizeTargetType(targetType, /*allowGuide=*/ false);
         String voter = normalize(voterEmail);
@@ -381,12 +382,14 @@ public class AskService {
         Optional<AskVote> existing = voteRepo.findByTargetTypeAndTargetIdAndVoterEmail(tt, targetId, voter);
 
         int delta;
+        int resulting = value;
         if (existing.isPresent()) {
             AskVote v = existing.get();
             if (v.getValue() == value) {
                 // Same direction → un-vote (toggle off).
                 voteRepo.delete(v);
                 delta = -value;
+                resulting = 0;
             } else {
                 // Flip — delta is double, e.g. -1 → +1 = +2.
                 delta = value - v.getValue();
@@ -405,8 +408,16 @@ public class AskService {
         if (value == 1 && ("answer".equals(tt) || "tip".equals(tt))) {
             tokenEvents.publishAfterCommit(TokenEvent.user(TokenEventType.ASK_VOTE_CAST, voter, tt + ":" + targetId));
         }
-        return bumpScore(tt, targetId, delta);
+        return new VoteResult(bumpScore(tt, targetId, delta), resulting);
     }
+
+    /**
+     * Outcome of a vote tap. {@code viewerVote} is the vote as persisted after
+     * the toggle: {@code 1} / {@code -1}, or {@code 0} when the tap cleared it,
+     * matching how the read DTOs report "no vote" to a signed-in viewer
+     * ({@code myVotes.getOrDefault(id, 0)}).
+     */
+    public record VoteResult(int voteScore, int viewerVote) {}
 
     private int bumpScore(String targetType, Long targetId, int delta) {
         switch (targetType) {

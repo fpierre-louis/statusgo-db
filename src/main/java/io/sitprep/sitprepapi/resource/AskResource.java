@@ -165,8 +165,9 @@ public class AskResource {
     // -----------------------------------------------------------------
 
     /**
-     * Body: {@code { "value": +1 | -1 }}. Returns the new score on the parent.
-     * Re-applying the same value un-votes; switching value flips.
+     * Body: {@code { "value": +1 | -1 }}. Returns the new score on the parent
+     * and the viewer's resulting vote. Re-applying the same value un-votes
+     * ({@code viewerVote: 0}); switching value flips.
      */
     @PostMapping("/{targetType}/{targetId}/vote")
     public Map<String, Object> vote(
@@ -175,12 +176,12 @@ public class AskResource {
             @RequestBody Map<String, Object> body) {
         String actor = AuthUtils.requireAuthenticatedEmail();
         int value = parseValue(body);
-        int newScore = service.vote(targetType, targetId, actor, value);
+        AskService.VoteResult result = service.vote(targetType, targetId, actor, value);
         return Map.of(
                 "targetType", targetType,
                 "targetId", targetId,
-                "voteScore", newScore,
-                "viewerVote", value);
+                "voteScore", result.voteScore(),
+                "viewerVote", result.viewerVote());
     }
 
     private static int parseValue(Map<String, Object> body) {
