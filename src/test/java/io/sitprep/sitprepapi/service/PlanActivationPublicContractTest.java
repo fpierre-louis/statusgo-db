@@ -220,9 +220,12 @@ class PlanActivationPublicContractTest {
             assertThat(json).doesNotContain("subjectId");
             assertThat(json).doesNotContain("subjectType");
             assertThat(json).doesNotContain("ada@example.com");
-            // Row ids for the household's own plan records.
-            assertThat(json).doesNotContain("4242");
-            assertThat(json).doesNotContain("9191");
+            // Row ids for the household's own plan records, as whole numbers
+            // only. A bare substring check also matched the epoch timestamps
+            // in the payload (1791910931 contains "9191"), so the test failed
+            // in some time windows and blamed whichever change ran then.
+            assertThat(json).doesNotContainPattern("(?<![0-9])4242(?![0-9])");
+            assertThat(json).doesNotContainPattern("(?<![0-9])9191(?![0-9])");
         }
 
         @Test
