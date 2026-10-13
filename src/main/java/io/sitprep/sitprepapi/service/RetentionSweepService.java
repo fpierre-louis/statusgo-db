@@ -65,6 +65,16 @@ public class RetentionSweepService {
     @Value("${app.retention.sweepBatchSize:1000}")
     private int sweepBatchSize;
 
+    /**
+     * Ceiling on batches one tick may delete (default 50 = 50,000 rows at the
+     * default batch size). A drain normally stops on its first short batch;
+     * this only bites on a first run against a large unreaped backlog, and
+     * keeps that run from holding a connection for an unbounded stretch. The
+     * remainder waits for tomorrow's tick, and the log says so.
+     */
+    @Value("${app.retention.maxBatchesPerTick:50}")
+    private int maxBatchesPerTick;
+
     public RetentionSweepService(
             NotificationLogRepo notificationLogRepo,
             HouseholdEventRepo householdEventRepo,
@@ -155,10 +165,11 @@ public class RetentionSweepService {
 
     /**
      * Public entry points so an admin/devops endpoint or a test can
-     * force a sweep without waiting for the cron tick. Returns the
+     * force ONE batch without waiting for the cron tick. Returns the
      * number of rows deleted in this batch (0 when nothing was
-     * eligible). One tick = one batch — successive ticks drain a
-     * backlog at the configured rate.
+     * eligible). The scheduled ticks call these repeatedly through
+     * {@link #drain} until a short batch, so a backlog clears in one
+     * tick rather than at one batch a day.
      */
     @Transactional
     public int sweepNotificationLogOnce() {
@@ -191,22 +202,59 @@ public class RetentionSweepService {
     }
 
     private void runSweep(String jobName, int retentionDays, SweepFn fn) {
+        drain(jobName, retentionDays, fn);
+    }
+
+    /**
+     * Run {@code fn} batch after batch until one comes back short (fewer than
+     * {@code sweepBatchSize} rows: nothing older is left) or the per-tick cap
+     * is reached.
+     *
+     * <p><b>Why drain, not one batch per tick:</b> one 1,000-row batch a day
+     * can't keep up with a table that adds more than that. {@code alert_history}
+     * alone takes ~1,510 NWS rows a day, so a single daily batch fell ~500 rows
+     * further behind every day and the 30-day window was never actually
+     * enforced; {@code notification_log} can outgrow it the same way. Each
+     * batch is its own transaction (its own {@code @Transactional} call or the
+     * repo's {@code @Modifying} delete), so a failure part-way keeps the
+     * batches already committed and ends the tick.</p>
+     *
+     * @return the rows deleted across every batch of this tick
+     */
+    int drain(String jobName, int retentionDays, SweepFn fn) {
+        int cap = Math.max(1, maxBatchesPerTick);
+        int total = 0;
+        int batches = 0;
         try {
-            int deleted = fn.run();
-            if (deleted > 0) {
-                log.info("{}: deleted {} rows (retention={}d, batch={})",
-                        jobName, deleted, retentionDays, sweepBatchSize);
+            boolean drained = false;
+            while (batches < cap) {
+                int deleted = fn.run();
+                batches++;
+                total += deleted;
+                if (deleted < sweepBatchSize) {
+                    drained = true;
+                    break;
+                }
+            }
+            if (!drained) {
+                log.warn("{}: hit the per-tick cap ({} batches, {} rows); the rest waits for the next tick",
+                        jobName, cap, total);
+            }
+            if (total > 0) {
+                log.info("{}: deleted {} rows in {} batch(es) (retention={}d, batch={})",
+                        jobName, total, batches, retentionDays, sweepBatchSize);
             } else {
                 log.debug("{}: nothing to delete", jobName);
             }
         } catch (Exception e) {
-            log.warn("{}: tick failed: {}", jobName, e.getMessage(), e);
+            log.warn("{}: tick failed after {} rows: {}", jobName, total, e.getMessage(), e);
             try { Sentry.captureException(e); } catch (Throwable ignored) {}
         }
+        return total;
     }
 
     @FunctionalInterface
-    private interface SweepFn {
+    interface SweepFn {
         int run();
     }
 }

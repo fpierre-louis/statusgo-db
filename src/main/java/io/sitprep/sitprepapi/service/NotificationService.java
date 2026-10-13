@@ -107,6 +107,9 @@ public class NotificationService {
     /** Error marker on a Lane B row: written to the inbox, deliberately not pushed. */
     static final String LANE_B_SILENT_INBOX = "Lane B (silent inbox)";
 
+    /** Error recorded on a hazard row whose recipient had no device token. */
+    static final String HAZARD_NO_TOKEN = "No token";
+
     /**
      * Decide push lane for an outgoing notification by mapping the
      * legacy free-form {@code notificationType} string onto a structured
@@ -1163,7 +1166,17 @@ public class NotificationService {
      * so a Lane A send still breaks through Focus modes (see
      * {@link #applyIosLockScreenAffordances}).</p>
      */
-    public record HazardBatchResult(int attempted, int delivered, int failed, String lastError) {}
+    public record HazardBatchResult(int attempted, int delivered, int failed, String lastError, int noToken) {
+        /**
+         * {@code noToken} counts the failures that were "no device token" —
+         * already inside {@code failed}. Kept apart because a retry can't fix
+         * them: the recipient has no device to push to, and the row written
+         * for them is already in their inbox.
+         */
+        public HazardBatchResult(int attempted, int delivered, int failed, String lastError) {
+            this(attempted, delivered, failed, lastError, 0);
+        }
+    }
 
     public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
                                                   String title,
@@ -1196,9 +1209,29 @@ public class NotificationService {
                                                   String targetUrl,
                                                   String additionalData,
                                                   boolean concealmentSensitive) {
+        return sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl,
+                additionalData, concealmentSensitive, Set.of());
+    }
+
+    /**
+     * Retry form ({@code AgencyAlertDispatchService}). {@code alreadyLogged}
+     * holds the lower-cased emails that already have this alert's inbox row
+     * from an earlier attempt: they are pushed again, counted the same, but
+     * no second row is written for them — a retry must not leave a recipient
+     * two unread copies of one emergency.
+     */
+    public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
+                                                  String title,
+                                                  String body,
+                                                  String referenceId,
+                                                  String targetUrl,
+                                                  String additionalData,
+                                                  boolean concealmentSensitive,
+                                                  Set<String> alreadyLogged) {
         if (recipients == null || recipients.isEmpty()) {
             return new HazardBatchResult(0, 0, 0, null);
         }
+        Set<String> logged = alreadyLogged == null ? Set.of() : alreadyLogged;
 
         final String type = TYPE_HAZARD_ALERT;
         // Identical for every recipient (no actor, no group), so built once.
@@ -1210,6 +1243,7 @@ public class NotificationService {
         int attempted = 0;
         int delivered = 0;
         int failed = 0;
+        int noToken = 0;
         String lastError = null;
 
         for (UserInfo u : recipients) {
@@ -1236,10 +1270,13 @@ public class NotificationService {
 
             String token = u.getFcmtoken();
             if (token == null || token.isEmpty()) {
-                saveLogRow(email, type, null, title, body, referenceId, targetUrl,
-                        additionalData, false, "No token", null, null, null, presentation);
+                if (!logged.contains(lowerEmail(email))) {
+                    saveLogRow(email, type, null, title, body, referenceId, targetUrl,
+                            additionalData, false, HAZARD_NO_TOKEN, null, null, null, presentation);
+                }
                 failed++;
-                lastError = "No token";
+                noToken++;
+                lastError = HAZARD_NO_TOKEN;
                 continue;
             }
             batchTokens.add(token);
@@ -1278,17 +1315,22 @@ public class NotificationService {
                     UserInfo u = users.get(i);
                     String token = tokens.get(i);
                     SendResponse response = i < responses.size() ? responses.get(i) : null;
+                    boolean writeRow = !logged.contains(lowerEmail(u.getUserEmail()));
                     if (response != null && response.isSuccessful()) {
                         delivered++;
-                        saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                additionalData, true, null, null, null, null, presentation);
+                        if (writeRow) {
+                            saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                                    additionalData, true, null, null, null, null, presentation);
+                        }
                     } else {
                         failed++;
                         FirebaseMessagingException ex = response == null ? null : response.getException();
                         String err = ex != null ? ex.getMessage() : "Unknown FCM error";
                         lastError = err;
-                        saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                additionalData, false, err, null, null, null, presentation);
+                        if (writeRow) {
+                            saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
+                                    additionalData, false, err, null, null, null, presentation);
+                        }
                         handleFcmDeliveryError(ex, u.getUserEmail(), token);
                     }
                 }
@@ -1300,13 +1342,18 @@ public class NotificationService {
                 logger.error("❌ Hazard-alert multicast send failed for {} chunk {}-{}: {}",
                         referenceId, start, end, e.getMessage(), e);
                 for (int i = 0; i < users.size(); i++) {
+                    if (logged.contains(lowerEmail(users.get(i).getUserEmail()))) continue;
                     saveLogRow(users.get(i).getUserEmail(), type, tokens.get(i),
                             title, body, referenceId, targetUrl, additionalData,
                             false, e.getMessage(), null, null, null, presentation);
                 }
             }
         }
-        return new HazardBatchResult(attempted, delivered, failed, lastError);
+        return new HazardBatchResult(attempted, delivered, failed, lastError, noToken);
+    }
+
+    private static String lowerEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
     }
 
     /**

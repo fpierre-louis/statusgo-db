@@ -1,10 +1,12 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.domain.AgencyAlert;
+import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.UserAlertPreference;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.repo.AgencyAlertRepo;
 import io.sitprep.sitprepapi.repo.AgencyAlertDispatchAttemptRepo;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserAlertPreferenceRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.PushPolicyService.Category;
@@ -40,6 +42,7 @@ class AgencyAlertDispatchServiceTest {
     @Mock TransactionStatus transactionStatus;
     @Mock UserAlertPreferenceRepo prefRepo;
     @Mock RateLimiterService rateLimiter;
+    @Mock NotificationLogRepo logRepo;
 
     AgencyAlertDispatchService service;
     /** Real policy over mocked preferences: the lane decision is under test. */
@@ -61,7 +64,7 @@ class AgencyAlertDispatchServiceTest {
         lenient().when(rateLimiter.tryConsume(any(), any())).thenReturn(true);
         PushPolicyService policy = new PushPolicyService(prefRepo, rateLimiter);
         service = new AgencyAlertDispatchService(alertRepo, attemptRepo, userInfoRepo, notifications,
-                transactions, policy);
+                transactions, policy, logRepo);
     }
 
     @Test
@@ -72,6 +75,7 @@ class AgencyAlertDispatchServiceTest {
         service.dispatchNow(alert.getId());
 
         verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString());
+        verifyNoInteractions(logRepo);   // a first attempt has no earlier rows to look up
 
         assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.SENT);
         assertThat(alert.getDeliveredCount()).isZero();
@@ -193,6 +197,126 @@ class AgencyAlertDispatchServiceTest {
         verify(notifications).logHazardAlertInboxOnly(anyList(), anyString(), anyString(), anyString(),
                 anyString(), isNull(), eq(Category.AGENCY_ALERT), eq(Set.of()));
         assertThat(alert.getDeliveredCount()).isEqualTo(1);
+    }
+
+    // ── D10: a retry never writes a second row; "no token" is not retried ──
+
+    @Test
+    void allNoTokenFailure_isFinal_notRetried() {
+        AgencyAlert alert = alert(List.of("a@example.com", "b@example.com"), 1);
+        prepareClaim(alert);
+        when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
+                .thenReturn(List.of(user("a@example.com"), user("b@example.com")));
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new NotificationService.HazardBatchResult(2, 0, 2, "No token", 2));
+
+        service.dispatchNow(alert.getId());
+
+        // Nothing a retry could change: both already hold their inbox row.
+        assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.FAILED);
+        assertThat(alert.getNextAttemptAt()).isNull();
+        assertThat(alert.getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void aMissingAccountAloneIsFinal_notRetried() {
+        AgencyAlert alert = alert(List.of("gone@example.com"), 1);
+        prepareClaim(alert);
+        when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails())).thenReturn(List.of());
+
+        service.dispatchNow(alert.getId());
+
+        assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.FAILED);
+        assertThat(alert.getNextAttemptAt()).isNull();
+        assertThat(alert.getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void aTransientFailureBesideANoTokenOneIsStillRetried() {
+        AgencyAlert alert = alert(List.of("a@example.com", "b@example.com"), 1);
+        prepareClaim(alert);
+        when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
+                .thenReturn(List.of(user("a@example.com"), user("b@example.com")));
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new NotificationService.HazardBatchResult(2, 0, 2, "provider unavailable", 1));
+
+        service.dispatchNow(alert.getId());
+
+        assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.FAILED);
+        assertThat(alert.getNextAttemptAt()).isNotNull();
+        assertThat(alert.getCompletedAt()).isNull();
+    }
+
+    @Test
+    void aRetryPushesOnlyWhoCanStillBeReached_andWritesNoSecondRow() {
+        // a: push failed last time (transient)  -> pushed again, no new row
+        // b: push delivered last time           -> left alone
+        // c: had no token last time             -> left alone (a retry can't fix it)
+        // d: never reached (attempt crashed)    -> pushed, gets its first row
+        // e: push failed last time, now asleep  -> Lane B, but already holds its row
+        AgencyAlert alert = alert(List.of("a@example.com", "b@example.com", "c@example.com",
+                "d@example.com", "e@example.com"), 2);
+        alert.setOfficialTier("advisory");
+        alert.setQueuedAt(java.time.Instant.parse("2026-10-13T12:00:00Z"));
+        prepareClaim(alert);
+        quietNow("e@example.com");
+        when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
+                .thenReturn(List.of(user("e@example.com"), user("d@example.com"), user("c@example.com"),
+                        user("b@example.com"), user("a@example.com")));
+        when(logRepo.findByTypeAndReferenceIdAndTimestampGreaterThanEqual(
+                eq(NotificationService.TYPE_HAZARD_ALERT), eq("agency-alert:17"),
+                eq(java.time.Instant.parse("2026-10-13T12:00:00Z"))))
+                .thenReturn(List.of(
+                        row("A@example.com", false, "provider unavailable", null),
+                        row("b@example.com", true, null, null),
+                        row("c@example.com", false, "No token", null),
+                        row("e@example.com", false, "provider unavailable", null)));
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(),
+                any(), anyBoolean(), any()))
+                .thenReturn(new NotificationService.HazardBatchResult(2, 2, 0, null, 0));
+
+        service.dispatchNow(alert.getId());
+
+        verify(notifications).sendHazardAlertBatch(
+                argThat(l -> l.size() == 2
+                        && "a@example.com".equals(l.get(0).getUserEmail())
+                        && "d@example.com".equals(l.get(1).getUserEmail())),
+                eq("Water advisory"), anyString(), eq("agency-alert:17"), eq("/community/posts/17"),
+                isNull(), eq(false), eq(Set.of("a@example.com")));
+        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString());
+        verify(notifications, never()).logHazardAlertInboxOnly(anyList(), anyString(), anyString(),
+                anyString(), anyString(), any(), any(), any());
+        // Whole-alert view: a, d pushed now; b, e reached earlier; c unreachable.
+        assertThat(alert.getAttemptedCount()).isEqualTo(5);
+        assertThat(alert.getDeliveredCount()).isEqualTo(4);
+        assertThat(alert.getFailedCount()).isEqualTo(1);
+        assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.PARTIAL);
+        assertThat(alert.getNextAttemptAt()).isNull();
+    }
+
+    @Test
+    void aRetryWithNobodyLeftToTryEndsWithoutAnotherRetry() {
+        AgencyAlert alert = alert(List.of("c@example.com"), 2);
+        prepareClaim(alert);
+        when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
+                .thenReturn(List.of(user("c@example.com")));
+        when(logRepo.findByTypeAndReferenceIdAndTimestampGreaterThanEqual(anyString(), anyString(), any()))
+                .thenReturn(List.of(row("c@example.com", false, "No token", null)));
+
+        service.dispatchNow(alert.getId());
+
+        verifyNoInteractions(notifications);
+        assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.FAILED);
+        assertThat(alert.getNextAttemptAt()).isNull();
+        assertThat(alert.getCompletedAt()).isNotNull();
+    }
+
+    private static NotificationLog row(String email, boolean success, String error, String lane) {
+        NotificationLog n = new NotificationLog(email, NotificationService.TYPE_HAZARD_ALERT, null,
+                "Water advisory", "Use bottled water", "agency-alert:17", "/community/posts/17", null,
+                java.time.Instant.parse("2026-10-13T12:01:00Z"), success, error);
+        n.setLane(lane);
+        return n;
     }
 
     private void quietNow(String email) {

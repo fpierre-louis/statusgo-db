@@ -61,6 +61,18 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
            """)
     List<Long> findArchivedOlderThan(@Param("cutoff") Instant cutoff, Pageable page);
 
+    /**
+     * Every row already written for one notification since {@code since} —
+     * an agency alert's earlier attempts, read by
+     * {@code AgencyAlertDispatchService} before a retry so nobody gets a
+     * second row for the same alert. {@code since} (the alert's queue time)
+     * lets {@code idx_notif_type_ts} bound the scan. Runs only on a retry,
+     * and returns at most recipients x attempts rows.
+     */
+    List<NotificationLog> findByTypeAndReferenceIdAndTimestampGreaterThanEqual(String type,
+                                                                              String referenceId,
+                                                                              Instant since);
+
     @Transactional
     @Modifying
     @Query("DELETE FROM NotificationLog n WHERE n.id IN :ids")
