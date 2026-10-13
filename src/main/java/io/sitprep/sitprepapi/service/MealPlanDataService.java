@@ -92,6 +92,41 @@ public class MealPlanDataService {
         return repository.save(incoming);
     }
 
+    /**
+     * Set ONLY the household's "supplies gathered" confirmation.
+     *
+     * <p>Narrow replacement for the gather toggle's old wire shape, which
+     * re-sent the whole plan through {@link #upsert} / {@link #updateByOwnerEmail}
+     * — both of which clear and re-insert every menu and overwrite
+     * {@code selectedItemsJson} with whatever the client last saw. A one-flag
+     * change must not be able to rewrite the menus.</p>
+     *
+     * <p>Targets exactly the row {@link #upsert} would write, so the write rule
+     * is the same rule: the {@code X-Household-Id} household when the caller
+     * may write it (owner / admin), else the caller's base household, else the
+     * legacy by-owner row. Never creates a row: there is nothing to confirm on a
+     * plan that doesn't exist.</p>
+     *
+     * @return the updated row, or empty when the caller has no plan to mark.
+     */
+    @Transactional
+    public Optional<MealPlanData> setSuppliesGathered(String callerEmail, boolean gathered) {
+        final String email = norm(callerEmail);
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("caller is required");
+        }
+        String targetHh = householdResolver.writableTargetHousehold(email);
+        String hh = targetHh != null ? targetHh : householdResolver.baseHouseholdIdFor(email);
+
+        MealPlanData existing = null;
+        if (hh != null) existing = repository.findFirstByHouseholdId(hh).orElse(null);
+        if (existing == null) existing = repository.findFirstByOwnerEmailIgnoreCase(email).orElse(null);
+        if (existing == null) return Optional.empty();
+
+        existing.setSuppliesGathered(gathered);
+        return Optional.of(repository.save(existing));
+    }
+
     /** Update by route ownerEmail; throw to signal 404 to controller */
     @Transactional
     public MealPlanData updateByOwnerEmail(String ownerEmail, MealPlanData payload) {

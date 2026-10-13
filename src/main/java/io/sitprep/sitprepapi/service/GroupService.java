@@ -1646,6 +1646,137 @@ public class GroupService {
         return groupRepo.save(g);
     }
 
+    /**
+     * Longest group name the {@code group_name} column holds (VARCHAR(255),
+     * V1 baseline). Past it the insert fails as a 500; checked here so it is
+     * a 400 with a reason instead.
+     */
+    public static final int GROUP_NAME_MAX = 255;
+
+    /**
+     * Rename a group, and nothing else.
+     *
+     * <p>Narrow for the same reason as {@link #setAlert} and {@link #setCover}:
+     * the rename used to be a fetch of the whole group followed by a PUT of the
+     * whole group, so it replayed every field the client had read — rosters
+     * included — over anything another admin changed in between, and rode the
+     * offline outbox while doing it.</p>
+     *
+     * <p>Gate: admin or owner, the same gate as the whole-group PUT it replaces
+     * ({@code GroupResource#requireAdminOf}). Name rule: the create flows'
+     * rule (trimmed, not blank) plus the column width.</p>
+     *
+     * <p>No broadcast: the whole-group PUT broadcasts only an alert transition
+     * and resyncs household counts after a roster change, and a rename causes
+     * neither. {@code lastUpdatedBy} is deliberately left alone — the alert
+     * frame reads it as "who started the check-in".</p>
+     *
+     * @throws ResponseStatusException 403 when the caller isn't admin / owner,
+     *         400 when the name is blank or too long
+     */
+    @Transactional
+    public Group renameGroup(String groupId, String rawName, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        String name = normalizeGroupName(rawName);
+        if (name.equals(g.getGroupName())) return g; // idempotent: nothing to write
+        g.setGroupName(name);
+        g.setUpdatedAt(Instant.now());
+        return groupRepo.save(g);
+    }
+
+    /** Trim; reject blank and over-width names with a 400. */
+    static String normalizeGroupName(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group name is required");
+        }
+        if (name.length() > GROUP_NAME_MAX) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Group name is too long (max " + GROUP_NAME_MAX + " characters)");
+        }
+        return name;
+    }
+
+    /**
+     * Link {@code childGroupId} under {@code parentGroupId}: the parent's
+     * {@code subGroupIDs} gains the child and the child's
+     * {@code parentGroupIDs} gains the parent, in ONE transaction.
+     *
+     * <p>Replaces two read-modify-write PUTs of two whole groups, queued
+     * through the offline outbox, which could replay stale rosters much later
+     * and could land one side of the link without the other
+     * ({@code GroupOwnerContactService} only honours a link both sides agree
+     * on). Here both sides commit or neither does.</p>
+     *
+     * <p>Gate: admin or owner of BOTH groups — exactly what the two whole-group
+     * PUTs required between them. Idempotent: linking an existing link writes
+     * nothing and returns the same lists.</p>
+     *
+     * @throws ResponseStatusException 400 for a self-link, 403 when the caller
+     *         isn't admin / owner of either group
+     */
+    @Transactional
+    public io.sitprep.sitprepapi.dto.SubGroupLinkDto linkSubGroup(String parentGroupId, String childGroupId, String caller) {
+        return setSubGroupLink(parentGroupId, childGroupId, caller, true);
+    }
+
+    /**
+     * Undo {@link #linkSubGroup}: both sides lose each other, in one
+     * transaction. Same gate. Idempotent, and it also clears a half-link left
+     * by the old two-PUT path (one side listing the other, not both).
+     */
+    @Transactional
+    public io.sitprep.sitprepapi.dto.SubGroupLinkDto unlinkSubGroup(String parentGroupId, String childGroupId, String caller) {
+        return setSubGroupLink(parentGroupId, childGroupId, caller, false);
+    }
+
+    private io.sitprep.sitprepapi.dto.SubGroupLinkDto setSubGroupLink(
+            String parentGroupId, String childGroupId, String caller, boolean link) {
+        if (parentGroupId == null || childGroupId == null || parentGroupId.equals(childGroupId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A group can't be its own subgroup");
+        }
+        Group parent = getGroupByPublicId(parentGroupId);
+        Group child = getGroupByPublicId(childGroupId);
+        requireAtLeastAdmin(parent, caller);
+        requireAtLeastAdmin(child, caller);
+
+        List<String> subs = safeList(parent.getSubGroupIDs());
+        List<String> parents = safeList(child.getParentGroupIDs());
+        final String childId = child.getGroupId();
+        final String parentId = parent.getGroupId();
+
+        boolean parentChanged = link ? addIfAbsent(subs, childId) : subs.removeIf(childId::equals);
+        boolean childChanged = link ? addIfAbsent(parents, parentId) : parents.removeIf(parentId::equals);
+
+        Instant now = Instant.now();
+        if (parentChanged) {
+            parent.setSubGroupIDs(subs);
+            parent.setUpdatedAt(now);
+            groupRepo.save(parent);
+        }
+        if (childChanged) {
+            child.setParentGroupIDs(parents);
+            child.setUpdatedAt(now);
+            groupRepo.save(child);
+        }
+        return new io.sitprep.sitprepapi.dto.SubGroupLinkDto(
+                parentId, childId, link, List.copyOf(subs), List.copyOf(parents));
+    }
+
+    private static boolean addIfAbsent(List<String> list, String id) {
+        if (list.contains(id)) return false;
+        list.add(id);
+        return true;
+    }
+
+    /** 403 unless {@code caller} is admin or owner of {@code g}. */
+    private static void requireAtLeastAdmin(Group g, String caller) {
+        if (caller == null || !GroupRole.fromGroup(g, caller).isAtLeastAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group admin or owner role required");
+        }
+    }
+
     @Transactional
     public Group removeAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);

@@ -629,6 +629,42 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.setCover(groupId, url));
     }
 
+    /**
+     * Rename the group, and nothing else. Admin or owner only (the same gate as
+     * the whole-group PUT). Body: {@code {"groupName": "…"}}; trimmed, 400 when
+     * blank or wider than the column. See {@code GroupService#renameGroup}.
+     */
+    @PatchMapping("/{groupId}/name")
+    public ResponseEntity<Group> renameGroup(@PathVariable String groupId,
+                                             @RequestBody Map<String, String> body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        String name = body == null ? null : body.get("groupName");
+        return ResponseEntity.ok(notFoundIfMissing(() -> groupService.renameGroup(groupId, name, caller)));
+    }
+
+    /**
+     * Link {@code childGroupId} as a subgroup of {@code parentGroupId}: both
+     * sides written in one transaction. Caller must be admin or owner of BOTH.
+     * Idempotent. Returns the two id lists as stored. See
+     * {@code GroupService#linkSubGroup}.
+     */
+    @PutMapping("/{parentGroupId}/subgroups/{childGroupId}")
+    public ResponseEntity<io.sitprep.sitprepapi.dto.SubGroupLinkDto> linkSubGroup(
+            @PathVariable String parentGroupId, @PathVariable String childGroupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(notFoundIfMissing(
+                () -> groupService.linkSubGroup(parentGroupId, childGroupId, caller)));
+    }
+
+    /** Undo {@link #linkSubGroup}. Same gate, same response, idempotent. */
+    @DeleteMapping("/{parentGroupId}/subgroups/{childGroupId}")
+    public ResponseEntity<io.sitprep.sitprepapi.dto.SubGroupLinkDto> unlinkSubGroup(
+            @PathVariable String parentGroupId, @PathVariable String childGroupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(notFoundIfMissing(
+                () -> groupService.unlinkSubGroup(parentGroupId, childGroupId, caller)));
+    }
+
     // ---------- Authorization helpers ----------
     //
     // All three resolve the caller's GroupRole once (constant/GroupRole)

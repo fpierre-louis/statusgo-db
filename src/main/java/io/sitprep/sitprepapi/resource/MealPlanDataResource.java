@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.MealPlanData;
 import io.sitprep.sitprepapi.dto.MealPlanDto;
+import io.sitprep.sitprepapi.dto.MealPlanGatheredDto;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.service.MealPlanDataService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -58,6 +59,29 @@ public class MealPlanDataResource {
             return ResponseEntity.badRequest().build();
         }
     }
+
+    /**
+     * Set ONLY the "supplies gathered" flag on the caller's household plan.
+     * Body: {@code {"suppliesGathered": true|false}}. Same target-row rule as
+     * {@link #save} (see {@code MealPlanDataService#setSuppliesGathered}); the
+     * menus and shopping-list picks are never in the payload, so this cannot
+     * replay a stale copy of them. 400 when the flag is missing, 404 when the
+     * caller has no plan. Idempotent.
+     */
+    @PatchMapping("/supplies-gathered")
+    public ResponseEntity<MealPlanGatheredDto> setSuppliesGathered(@RequestBody SuppliesGatheredRequest body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        if (body == null || body.suppliesGathered() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "suppliesGathered is required");
+        }
+        return service.setSuppliesGathered(caller, body.suppliesGathered())
+                .map(MealPlanGatheredDto::from)
+                .map(ResponseEntity::ok)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No meal plan to update"));
+    }
+
+    /** Body of {@link #setSuppliesGathered}. Nullable so a missing flag is a 400, not a silent false. */
+    public record SuppliesGatheredRequest(Boolean suppliesGathered) {}
 
     /** Update by route email; must match the verified caller. 404 if none exists. */
     @PutMapping("/{ownerEmail}")
