@@ -395,7 +395,8 @@ public class GroupViewService {
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
-                statusSetByName(u)
+                statusSetByName(u),
+                StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated())
         );
         CheckIn checkIn = CheckInState.of(checkInRequestedAt,
                 status.value(), status.updatedAt(), status.setByName(),

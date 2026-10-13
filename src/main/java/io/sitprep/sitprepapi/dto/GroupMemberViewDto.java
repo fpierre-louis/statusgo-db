@@ -294,7 +294,14 @@ public record GroupMemberViewDto(
              * the write path clears it on every self write so a fresh reply
              * never sits under a stale proxy's name.</p>
              */
-            String setByName
+            String setByName,
+            /**
+             * Until when {@code value} is this person's CURRENT status; past it,
+             * {@code value} is only the last-known answer. SAFE lapses 24h after
+             * {@code updatedAt}; HELP / INJURED never do (null); no status is
+             * {@code 1970-01-01}. See {@code StatusFreshness}.
+             */
+            Instant freshUntil
     ) {}
 
     /**
