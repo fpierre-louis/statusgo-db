@@ -22,6 +22,8 @@ public record ProfileSummaryDto(
         String userStatus,
         String statusColor,
         Instant userStatusLastUpdated,
+        /** Until when {@code userStatus} is CURRENT (see {@code StatusFreshness}); past it, last-known only. */
+        Instant userStatusFreshUntil,
         /** Last time this user hit any authenticated endpoint. Null if never. */
         Instant lastActiveAt,
         /**

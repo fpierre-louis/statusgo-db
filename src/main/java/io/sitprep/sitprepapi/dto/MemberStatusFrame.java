@@ -25,5 +25,16 @@ public record MemberStatusFrame(
          * self-report. Same meaning as {@code SelfStatus.setByName}, so a live
          * proxy write keeps its attribution. Appended: positional record.
          */
-        String setByName
-) {}
+        String setByName,
+        /**
+         * Until when {@code status} is CURRENT; past it, last-known only.
+         * {@code StatusFreshness} decides it. Appended: positional record.
+         */
+        Instant freshUntil
+) {
+    /** Every write path builds the frame from the stored row; freshness follows from it. */
+    public MemberStatusFrame(String email, String status, String color, Instant updatedAt, String setByName) {
+        this(email, status, color, updatedAt, setByName,
+                io.sitprep.sitprepapi.service.StatusFreshness.freshUntil(status, updatedAt));
+    }
+}

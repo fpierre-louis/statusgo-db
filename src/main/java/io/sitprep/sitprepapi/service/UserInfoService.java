@@ -345,6 +345,7 @@ public class UserInfoService {
                         u.getUserStatus(),
                         u.getStatusColor(),
                         u.getUserStatusLastUpdated(),
+                        StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated()),
                         u.getLastActiveAt(),
                         u.isVerifiedPublisher(),
                         u.getVerifiedPublisherKind()

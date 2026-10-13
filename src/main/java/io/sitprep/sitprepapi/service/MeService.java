@@ -800,7 +800,8 @@ public class MeService {
         }
         SelfStatusDto status = new SelfStatusDto(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
-                statusSetByName
+                statusSetByName,
+                StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated())
         );
         String rawAvatar = u.getProfileImageUrl();
         String rawCover = u.getCoverImageUrl();
