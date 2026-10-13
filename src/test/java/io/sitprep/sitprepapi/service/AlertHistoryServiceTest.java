@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.constant.LocationFreshness;
 import io.sitprep.sitprepapi.domain.AlertHistory;
+import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.dto.AlertHistoryResponse;
 import io.sitprep.sitprepapi.repo.AlertHistoryRepo;
@@ -16,7 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -511,6 +514,237 @@ class AlertHistoryServiceTest {
         var meta = history.historyFor(LAT, LNG, 30, Instant.now().minus(2, ChronoUnit.MINUTES)).meta();
         assertThat(meta.locationAge()).isNotNull();
         assertThat(meta.locationAge().isStale()).isFalse();
+    }
+
+    // ------------------------------------------------------------------
+    // History cards are RECORDS (Phase 3 safety batch, U2)
+    // ------------------------------------------------------------------
+
+    private static final String FUTURE = "2099-01-01T00:00:00Z";
+    private static final String PAST = "2020-01-01T00:00:00Z";
+    /** The read side's clock, pinned. Every sighting below is relative to it. */
+    private static final Instant NOW = Instant.parse("2026-10-13T12:00:00Z");
+
+    /** History over a hand-built table and a hand-built live snapshot, at {@link #NOW}. */
+    private AlertHistoryService recordsOver(Snapshot live) {
+        AlertIngestService liveIngest = mock(AlertIngestService.class);
+        when(liveIngest.getSnapshot()).thenReturn(live);
+        when(liveIngest.zoneCodesForPoint(anyDouble(), anyDouble())).thenReturn(SAN_CARLOS);
+        AlertHistoryService records = new AlertHistoryService(repo, liveIngest, dispatch, feed);
+        records.clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        return records;
+    }
+
+    /** A stored row, as record() would have written it, last seen at {@code seen}. */
+    private void store(NormalizedAlert a, Instant seen) {
+        AlertHistory row = history.toRow(a, seen);
+        table.put(row.getAlertId(), row);
+    }
+
+    private static JsonNode json(Object card) {
+        return MAPPER.valueToTree(card);
+    }
+
+    private static AlertCardDto only(List<AlertCardDto> cards, String id) {
+        return cards.stream().filter(c -> id.equals(c.id())).findFirst().orElseThrow(
+                () -> new AssertionError("no card for " + id + " in "
+                        + cards.stream().map(AlertCardDto::id).toList()));
+    }
+
+    @Test
+    void aStillListedAlertInHistoryIsARecord_noGuidanceAndNoCurrentDirective() {
+        Instant now = NOW;
+        NormalizedAlert live = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:LIVE").endsAt(FUTURE).responseTypes(List.of("Evacuate")).build();
+        store(live, now.minusSeconds(60));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(live), now, now));
+        AlertCardDto card = only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:LIVE");
+
+        // Still listed and not ended: its lifecycle is the alert's own.
+        assertThat(card.lifecycleState()).isEqualTo("active");
+        assertThat(card.headline()).isNull();
+        assertThat(card.whatToDo()).isNull();
+        assertThat(card.precautions()).isNull();
+        assertThat(card.precautionsSource()).isNull();
+        assertThat(card.isLifeThreatening()).isFalse();
+        // The FE's Recent list titles a row from eventLabel; a record still has one.
+        assertThat(card.eventLabel()).isEqualTo("Flood Warning");
+
+        JsonNode safety = json(card).path("safety");
+        assertThat(safety.path("movementDirective").asText()).isEqualTo("none");
+        assertThat(safety.path("asIssuedMovementDirective").asText()).isEqualTo("evacuate");
+        assertThat(safety.path("protectiveActions").size()).isZero();
+        assertThat(safety.path("guidanceMode").asText()).isNotEqualTo("supplement_official");
+    }
+
+    @Test
+    void aStoredCancelReferencingAnAlertMakesItCancelled_evenWithAFutureEnd() {
+        // The early-cancelled original: endsAt is still in the future, so the
+        // alert's own fields say "active". Only the stored Cancel knows better.
+        Instant now = NOW;
+        NormalizedAlert original = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:X").endsAt(FUTURE).responseTypes(List.of("Evacuate")).build();
+        NormalizedAlert cancel = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:X-CANCEL").messageType("Cancel").response("AllClear")
+                .references(List.of("urn:oid:X")).endsAt(FUTURE).build();
+        store(original, now.minusSeconds(3_600));
+        store(cancel, now.minusSeconds(1_800));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        List<AlertCardDto> cards = records.historyFor(LAT, LNG, 30).alerts();
+
+        AlertCardDto card = only(cards, "urn:oid:X");
+        assertThat(card.lifecycleState()).isEqualTo("cancelled");
+        assertThat(card.whatToDo()).isNull();
+        assertThat(json(card).path("safety").path("movementDirective").asText()).isEqualTo("none");
+        assertThat(json(card).path("safety").path("asIssuedMovementDirective").asText()).isEqualTo("evacuate");
+        // The retraction is an edge, not a row.
+        assertThat(cards).extracting(AlertCardDto::id).doesNotContain("urn:oid:X-CANCEL");
+    }
+
+    @Test
+    void aStoredUpdateReferencingAnAlertMakesItSuperseded() {
+        Instant now = NOW;
+        NormalizedAlert original = TestAlerts.nws("Flood Warning").id("urn:oid:Y").endsAt(FUTURE).build();
+        NormalizedAlert update = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:Y2").messageType("Update")
+                .references(List.of("urn:oid:Y")).endsAt(FUTURE).build();
+        store(original, now.minusSeconds(3_600));
+        store(update, now.minusSeconds(60));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(update), now, now));
+        List<AlertCardDto> cards = records.historyFor(LAT, LNG, 30).alerts();
+
+        assertThat(only(cards, "urn:oid:Y").lifecycleState()).isEqualTo("superseded");
+        // The replacement is still listed, so it is its own CAP self: an Update.
+        assertThat(only(cards, "urn:oid:Y2").lifecycleState()).isEqualTo("updated");
+    }
+
+    @Test
+    void anAlertReplacedByOneThatIsOnlyLiveIsStillSuperseded() {
+        // The Update has not been recorded yet (or targets another area), but it
+        // is in the live snapshot — the in-memory half of the edge index.
+        Instant now = NOW;
+        NormalizedAlert original = TestAlerts.nws("Flood Warning").id("urn:oid:Z").endsAt(FUTURE).build();
+        NormalizedAlert update = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:Z2").messageType("Update").ugc(List.of("ORZ691")).same(List.of())
+                .references(List.of("urn:oid:Z")).endsAt(FUTURE).build();
+        store(original, now.minusSeconds(600));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(update), now, now));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:Z").lifecycleState())
+                .isEqualTo("superseded");
+    }
+
+    @Test
+    void anAlertPastItsEndIsExpired() {
+        Instant now = NOW;
+        NormalizedAlert ended = TestAlerts.nws("Flood Warning").id("urn:oid:E").endsAt(PAST).build();
+        store(ended, now.minusSeconds(3_600));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:E").lifecycleState())
+                .isEqualTo("expired");
+    }
+
+    @Test
+    void anAlertDroppedFromASuccessfulPollIsNoLongerListed_neverCancelled() {
+        Instant now = NOW;
+        NormalizedAlert gone = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:GONE").endsAt(FUTURE).responseTypes(List.of("Evacuate")).build();
+        // Last sighting an hour before the latest successful poll: many polls
+        // have since come back without it.
+        store(gone, now.minusSeconds(3_600));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        AlertCardDto card = only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:GONE");
+        assertThat(card.lifecycleState()).isEqualTo("no_longer_listed");
+        assertThat(json(card).path("safety").path("movementDirective").asText()).isEqualTo("none");
+    }
+
+    @Test
+    void aRecentLastSightingIsNotEnoughToClaimDelisting() {
+        // Inside one poll cycle of the latest success, a missing alert may only
+        // mean the recorder has not caught up. "Clearly older" or nothing.
+        Instant now = NOW;
+        NormalizedAlert recent = TestAlerts.nws("Flood Warning").id("urn:oid:RECENT").endsAt(FUTURE).build();
+        store(recent, now.minusSeconds(120));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:RECENT").lifecycleState())
+                .isEqualTo("active");
+    }
+
+    @Test
+    void aStaleIngestNeverMakesAnAlertLookDelisted() {
+        // No successful poll since the alert was last seen: absence proves nothing.
+        Instant now = NOW;
+        NormalizedAlert a = TestAlerts.nws("Flood Warning").id("urn:oid:STALE").endsAt(FUTURE).build();
+        store(a, now.minusSeconds(3_600));
+
+        AlertHistoryService records = recordsOver(
+                new Snapshot(List.of(), now, now.minusSeconds(7_200)));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:STALE").lifecycleState())
+                .isEqualTo("active");
+
+        AlertHistoryService neverPolled = recordsOver(new Snapshot(List.of(), now, null));
+        assertThat(only(neverPolled.historyFor(LAT, LNG, 30).alerts(), "urn:oid:STALE").lifecycleState())
+                .isEqualTo("active");
+    }
+
+    @Test
+    void aFemaDeclarationIsNeverJudgedAgainstTheNwsAndUsgsPollTime() {
+        // lastSuccessAt() is the NWS/USGS clock. FEMA can fail while those
+        // succeed, so until the snapshot times FEMA on its own its absence
+        // proves nothing — unknown, and unknown labels nothing.
+        Instant now = NOW;
+        NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
+                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+        store(fema, now.minusSeconds(3_600));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "FEMA-GONE").lifecycleState())
+                .isNotEqualTo("no_longer_listed");
+    }
+
+    @Test
+    void aStillListedAlertIsNeverDelisted_evenWithAnOldLastSighting() {
+        // Carried forward from a failed source, or a recorder that fell behind:
+        // if the live snapshot holds it, it is listed.
+        Instant now = NOW;
+        NormalizedAlert a = TestAlerts.nws("Flood Warning").id("urn:oid:HELD").endsAt(FUTURE).build();
+        store(a, now.minusSeconds(3_600));
+
+        AlertHistoryService records = recordsOver(new Snapshot(List.of(a), now, now));
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "urn:oid:HELD").lifecycleState())
+                .isEqualTo("active");
+    }
+
+    @Test
+    void theReverseEdgeLookupIsBatched_oneCandidateQueryAndNoPerRowLookups() {
+        Instant now = NOW;
+        List<NormalizedAlert> live = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            NormalizedAlert original = TestAlerts.nws("Flood Warning").id("urn:oid:B" + i).endsAt(FUTURE).build();
+            NormalizedAlert update = TestAlerts.nws("Flood Warning").id("urn:oid:B" + i + "-u")
+                    .messageType("Update").references(List.of("urn:oid:B" + i)).endsAt(FUTURE).build();
+            store(original, now.minusSeconds(3_600));
+            store(update, now.minusSeconds(60));
+            live.add(update);
+        }
+        AlertHistoryService records = recordsOver(new Snapshot(live, now, now));
+        org.mockito.Mockito.clearInvocations(repo);
+
+        List<AlertCardDto> cards = records.historyFor(LAT, LNG, 30).alerts();
+        assertThat(cards).filteredOn(c -> !c.id().endsWith("-u"))
+                .hasSize(12)
+                .allSatisfy(c -> assertThat(c.lifecycleState()).isEqualTo("superseded"));
+
+        org.mockito.Mockito.verify(repo, org.mockito.Mockito.times(1))
+                .findCandidates(any(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), any(), any());
+        org.mockito.Mockito.verify(repo, org.mockito.Mockito.times(1)).findRecordingSince();
+        org.mockito.Mockito.verifyNoMoreInteractions(repo);
     }
 
     // ------------------------------------------------------------------

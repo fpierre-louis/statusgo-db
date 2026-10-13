@@ -19,11 +19,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -107,6 +109,16 @@ public class AlertHistoryService {
 
     @Value("${alerts.history.enabled:true}")
     private boolean enabled = true;
+
+    /**
+     * The ingest poll cadence — the same property {@link AlertIngestService}
+     * schedules on. "No longer listed" is measured in polls, not minutes.
+     */
+    @Value("${alerts.ingest.intervalMs:300000}")
+    private long ingestIntervalMs = 300_000L;
+
+    /** Serve-time clock for the read side. A field so a test can pin it. */
+    Clock clock = Clock.systemUTC();
 
     public AlertHistoryService(AlertHistoryRepo repo,
                                AlertIngestService ingest,
@@ -280,13 +292,13 @@ public class AlertHistoryService {
      *       {@link AlertIngestService#matchTypeFor}, the same call
      *       {@link AlertFeedService#feedFor} makes, over a payload that
      *       rehydrates into the same record type;</li>
-     *   <li>what the card says — {@link AlertFeedService#toCard}, so a history
-     *       row gets the same plain-language template, tier and safety
-     *       treatment as a live one. History gets <b>no</b> raw-wire-text
-     *       shortcut. Most history rows will be advisory-tier, which is exactly
-     *       the tier with the thinnest template coverage — that is an argument
-     *       for closing the template gap, not for routing around the pipeline
-     *       built to keep wire text away from a reader.</li>
+     *   <li>what the card says — {@link AlertFeedService#toRecordCard}, the
+     *       same mapper, tier and policy as a live card, in its RECORD form: no
+     *       SitPrep guidance and no current directive on any history card, live
+     *       or not (D3). History gets <b>no</b> raw-wire-text shortcut either;
+     *       the wire text stays in {@code official}, where it always was.</li>
+     *   <li>where the alert got to — {@link #recordLifecycle}, from the stored
+     *       reverse edges and the last successful poll.</li>
      * </ul>
      */
     @Transactional(readOnly = true)
@@ -306,7 +318,8 @@ public class AlertHistoryService {
     @Transactional(readOnly = true)
     public AlertHistoryResponse historyFor(double lat, double lng, int requestedDays, Instant fixedAt) {
         int days = clampDays(requestedDays);
-        Instant since = Instant.now().minus(Duration.ofDays(days));
+        Instant now = clock.instant();
+        Instant since = now.minus(Duration.ofDays(days));
 
         int radiusMi = AppConfigResource.alertsRadiusMi();
         double radiusKm = radiusMi * 1.609344;
@@ -314,16 +327,42 @@ public class AlertHistoryService {
         Set<String> userZones = ingest.zoneCodesForPoint(lat, lng);
         Set<String> userStates = AlertIngestService.statePrefixesOf(userZones);
 
-        List<AlertCardDto> cards = new ArrayList<>();
-        for (AlertHistory row : repo.findCandidates(
+        List<AlertHistory> rows = repo.findCandidates(
                 since,
                 latMin(lat, radiusKm), latMax(lat, radiusKm),
                 lngMin(lat, lng, radiusKm), lngMax(lat, lng, radiusKm),
                 candidateTokens(userZones, userStates),
-                PageRequest.of(0, MAX_ROWS_PER_QUERY))) {
+                PageRequest.of(0, MAX_ROWS_PER_QUERY));
 
+        // Rehydrate once; the edge index and the cards both read these.
+        List<Map.Entry<AlertHistory, NormalizedAlert>> loaded = new ArrayList<>(rows.size());
+        List<NormalizedAlert> evidence = new ArrayList<>(rows.size());
+        for (AlertHistory row : rows) {
             NormalizedAlert a = rehydrate(row);
             if (a == null) continue;
+            loaded.add(Map.entry(row, a));
+            evidence.add(a);
+        }
+
+        // The REVERSE edge, batched: every message already in memory that names
+        // an earlier alert — the rows just loaded (Cancels included: they are
+        // filtered from the cards below, not from the evidence) plus the live
+        // snapshot, which holds the newest Updates even before the recorder has
+        // written them. No query per row; no query at all.
+        Snapshot live = ingest.getSnapshot();
+        List<NormalizedAlert> liveAlerts = live == null || live.alerts() == null
+                ? List.of() : live.alerts();
+        evidence.addAll(liveAlerts);
+        Map<String, String> endedBy = AlertDerivations.reverseEdgeIndex(evidence);
+        Set<String> listedNow = new HashSet<>();
+        for (NormalizedAlert a : liveAlerts) {
+            if (a != null && a.id() != null) listedNow.add(a.id());
+        }
+
+        List<AlertCardDto> cards = new ArrayList<>();
+        for (Map.Entry<AlertHistory, NormalizedAlert> e : loaded) {
+            AlertHistory row = e.getKey();
+            NormalizedAlert a = e.getValue();
 
             // PUBLISHABILITY, not lifecycle. The live feed drops anything
             // AlertSafetyPolicy calls SUPPRESS, and that set includes
@@ -332,22 +371,23 @@ public class AlertHistoryService {
             // have ended. This drops only what must never be rendered at all:
             // drills, private-scope messages, retractions, protocol acks.
             //
-            // The full policy still runs, inside toCard. That is what keeps an
-            // ended alert's present-tense "what to do" suppressed while the
-            // record of it survives — the same rule the frontend already holds
-            // by refusing to expand an ended row, moved to the side of the wire
-            // that owns it.
+            // The full policy still runs, inside toRecordCard, and a record
+            // never carries its present-tense "what to do" while the record of
+            // it survives — the same rule the frontend already holds by refusing
+            // to expand an ended row, moved to the side of the wire that owns
+            // it.
             if (AlertSafetyPolicy.publishabilityBlockReason(a) != null) continue;
 
             MatchType match = AlertIngestService.matchTypeFor(
                     a, lat, lng, radiusKm, userZones, userStates);
             if (match == null) continue;
 
-            // No supersession edge: /alerts/active drops a replaced alert, so
-            // the replacement is a separate row seen at a separate time rather
-            // than a sibling in one snapshot. The forward `references` edge on
-            // the card still carries the chain.
-            cards.add(feedService.toCard(a, match, radiusMi));
+            // `supersededBy` (the {id, title} link) stays null here: the index
+            // above knows THAT this alert was replaced, which is what lifecycle
+            // needs, and a linked title is a separate surface decision. The
+            // forward `references` edge on the card still carries the chain.
+            String lifecycle = recordLifecycle(a, row, endedBy, listedNow, live, now);
+            cards.add(feedService.toRecordCard(a, match, radiusMi, lifecycle));
         }
 
         Instant recordingSince = repo.findRecordingSince();
@@ -358,6 +398,86 @@ public class AlertHistoryService {
                         days,
                         AlertFeedResponse.COVERAGE_CAVEAT,
                         AlertFeedService.locationAgeFor(fixedAt)));
+    }
+
+    /**
+     * Where a recorded alert got to, strongest evidence first.
+     *
+     * <ol>
+     *   <li><b>A stored or live message naming it</b> — {@code cancelled} for a
+     *       Cancel or all-clear, {@code superseded} for any other replacement.
+     *       This outranks the alert's own {@code expires}: an order called off
+     *       at noon that was due to run until midnight was cancelled, and saying
+     *       "expired" would lose that.</li>
+     *   <li><b>Its own fields</b> — {@link AlertDerivations#lifecycleState}:
+     *       past {@code expires} is {@code expired}.</li>
+     *   <li><b>Gone from a successful poll</b> — {@code no_longer_listed}, for
+     *       an alert that by its own fields is still on. Never
+     *       {@code cancelled}: absence is not an issuer statement.</li>
+     * </ol>
+     */
+    String recordLifecycle(NormalizedAlert a, AlertHistory row, Map<String, String> endedBy,
+                           Set<String> listedNow, Snapshot live, Instant now) {
+        String edge = a.id() == null ? null : endedBy.get(a.id());
+        if (edge != null) return edge;
+
+        String own = AlertDerivations.lifecycleState(a, now);
+        boolean stillOn = AlertDerivations.LIFECYCLE_ACTIVE.equals(own)
+                || AlertDerivations.LIFECYCLE_UPDATED.equals(own);
+        if (stillOn && noLongerListed(a, row, listedNow, live)) {
+            return AlertDerivations.LIFECYCLE_NO_LONGER_LISTED;
+        }
+        return own;
+    }
+
+    /**
+     * True only when a successful poll CLEARLY postdates the alert's last
+     * sighting and the live snapshot does not hold it.
+     *
+     * <p>"Clearly" is two poll intervals. {@code record} stamps
+     * {@code lastSeenAt} at or after the snapshot it reads, so an alert still
+     * listed trails {@code lastSuccessAt} by at most one interval plus that
+     * poll's own run time — the recorder simply has not caught up. Two
+     * intervals cannot be that.</p>
+     *
+     * <p>The live-snapshot check comes first and is not redundant: an alert
+     * carried forward from a source that failed this tick, or seen by a
+     * recorder that has fallen behind, is in the snapshot with an old
+     * {@code lastSeenAt}. It is listed; it must not be called gone.</p>
+     *
+     * <p>The poll that counts is the alert's OWN source's. When that time is
+     * unknown — no success yet, an outage, or a source this snapshot cannot
+     * time separately — the answer is "unknown", and unknown labels nothing.</p>
+     */
+    boolean noLongerListed(NormalizedAlert a, AlertHistory row, Set<String> listedNow, Snapshot live) {
+        if (row == null || row.getLastSeenAt() == null) return false;
+        if (a.id() != null && listedNow.contains(a.id())) return false;
+        Instant sourceSuccess = sourceLastSuccessAt(live, a);
+        if (sourceSuccess == null) return false;
+        Duration grace = Duration.ofMillis(Math.max(0L, ingestIntervalMs) * 2);
+        return row.getLastSeenAt().plus(grace).isBefore(sourceSuccess);
+    }
+
+    /**
+     * When this alert's source last polled successfully, or null when that is
+     * not known.
+     *
+     * <p>Only NWS and USGS are timed today, by the snapshot-wide
+     * {@code lastSuccessAt()} — the oldest success among the two life-safety
+     * sources, so it never runs ahead of either. FEMA is deliberately NOT
+     * judged against that time: a FEMA poll can fail while NWS succeeds, and a
+     * declaration would then read as gone when FEMA was simply not asked.
+     * Every other source is unknown for the same reason.</p>
+     */
+    private static Instant sourceLastSuccessAt(Snapshot live, NormalizedAlert a) {
+        if (live == null || a == null || a.source() == null) return null;
+        // TODO(integration, U4): swap to the per-source time —
+        //   live.sourceLastSuccessAt().get(source) — which also times FEMA
+        //   on its own clock and is absent (null) for a source that never
+        //   succeeded. Until then FEMA, and anything else, stays unknown.
+        String source = a.source().trim().toUpperCase(Locale.ROOT);
+        if (!"NWS".equals(source) && !"USGS".equals(source)) return null;
+        return live.lastSuccessAt();
     }
 
     /**

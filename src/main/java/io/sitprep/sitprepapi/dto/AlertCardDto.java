@@ -101,13 +101,25 @@ public record AlertCardDto(
         String precautionsSource,
 
         /**
-         * {@code active} | {@code updated} | {@code superseded} | {@code expired},
-         * derived at serve time from CAP {@code messageType}, {@code response}
-         * and {@code expires}.
+         * {@code active} | {@code updated} | {@code superseded} | {@code expired}
+         * | {@code cancelled} | {@code no_longer_listed}, derived at serve time.
          *
-         * <p><b>{@code active} is the absence of a chip</b> on the surface. Four
-         * values, three chips — a chip on every card spends the slot that makes
-         * the three exceptional states readable.</p>
+         * <p>The first four come from the alert itself — CAP {@code messageType},
+         * {@code response} and {@code expires} (see
+         * {@code AlertDerivations.lifecycleState}). The live feed also says
+         * {@code superseded} or {@code cancelled} when the message replacing
+         * this one is in the same snapshot. History adds what only a record can
+         * know: a stored Update or Cancel naming this alert, and
+         * {@code no_longer_listed} for an alert a later successful poll no longer
+         * carried — which is never claimed as {@code cancelled}, because the
+         * issuer never said so.</p>
+         *
+         * <p>Only {@code active} and {@code updated} are in force. Every other
+         * value is a record: no SitPrep guidance, no current directive.</p>
+         *
+         * <p><b>{@code active} is the absence of a chip</b> on the surface — a
+         * chip on every card spends the slot that makes the exceptional states
+         * readable.</p>
          */
         String lifecycleState,
 
@@ -271,6 +283,27 @@ public record AlertCardDto(
              * issuer or product semantics support that stronger claim.
              */
             String movementDirective,
-            String reason
-    ) {}
+            String reason,
+            /**
+             * What the alert said while it was live — the record of the order,
+             * never the instruction in force. Equal to {@link #movementDirective}
+             * on a live card. On a record (ended, cancelled, superseded, no
+             * longer listed, or any history card) {@code movementDirective} is
+             * {@code none} and this keeps what was issued, so a surface can say
+             * "an evacuation order was issued" without presenting one. Null only
+             * on a Safety built without a policy decision.
+             */
+            String asIssuedMovementDirective
+    ) {
+        /** Without an as-issued record — for callers that build a Safety by hand. */
+        public Safety(String dispatchMode,
+                      String guidanceMode,
+                      String compatibility,
+                      List<String> protectiveActions,
+                      String movementDirective,
+                      String reason) {
+            this(dispatchMode, guidanceMode, compatibility, protectiveActions,
+                    movementDirective, reason, null);
+        }
+    }
 }

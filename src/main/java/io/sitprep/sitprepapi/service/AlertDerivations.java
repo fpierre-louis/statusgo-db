@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -20,7 +21,9 @@ import java.util.Map;
  * columns landed. <b>There is no alerts table.</b> Alerts are fetched live from
  * NWS, USGS and NIFC every session and never persisted — only the
  * {@code alert_post} junction record is, and that tracks auto-posts rather than
- * alerts.</p>
+ * alerts. ({@code alert_history}, added later, records each message's payload
+ * for the history page; it is a log of what the wire said, not a home for these
+ * derived values, which are still computed at serve time from that payload.)</p>
  *
  * <p>So the columns could never have landed as designed, and every one of the
  * four is computable from a field {@link NormalizedAlert} <em>already carries</em>.
@@ -50,6 +53,18 @@ public final class AlertDerivations {
     public static final String LIFECYCLE_UPDATED = "updated";
     public static final String LIFECYCLE_SUPERSEDED = "superseded";
     public static final String LIFECYCLE_EXPIRED = "expired";
+    /**
+     * {@code cancelled} — a Cancel (or an all-clear) naming this alert exists.
+     * Read off the replacing message, never off this one; see
+     * {@link #endingStateOf}.
+     */
+    public static final String LIFECYCLE_CANCELLED = "cancelled";
+    /**
+     * {@code no_longer_listed} — history only: a successful poll since this
+     * alert was last seen no longer carried it. The issuer did not say it was
+     * cancelled, so neither do we.
+     */
+    public static final String LIFECYCLE_NO_LONGER_LISTED = "no_longer_listed";
 
     /**
      * How precisely this alert knows where it applies.
@@ -114,7 +129,7 @@ public final class AlertDerivations {
     }
 
     /**
-     * Where this alert is in its own life.
+     * Where this alert is in its own life, judged from <b>its own fields only</b>.
      *
      * <p>Four values, and <b>{@code active} is the absence of a chip</b> on the
      * surface — a chip on every card spends the slot that makes the three
@@ -126,12 +141,14 @@ public final class AlertDerivations {
      * original, {@code response: AllClear} and {@code messageType: Cancel} both
      * mean called off, and {@code expires} in the past means over.</p>
      *
-     * <p><b>Supersession is only as good as the wire.</b> CAP carries a
-     * {@code references} field naming the message this one replaces, and ingest
-     * does not currently keep it — so a superseded alert is recognised by its
-     * own cancellation, never by the arrival of its replacement. That means the
-     * "Replaced by …" link the design draws <b>cannot be built yet</b>, and the
-     * honest thing is that this method never returns a title for it.</p>
+     * <p><b>This is not the whole answer for a card.</b> An alert cannot see its
+     * own replacement: CAP {@code references} live on the NEW message, naming
+     * the old one. Ingest keeps that edge, and the callers that hold both ends
+     * apply it on top of this — the live feed through {@link #supersessionIndex}
+     * when the replacement shares the snapshot, history through
+     * {@link #reverseEdgeIndex} over stored rows. Either one outranks this
+     * method's {@code active}, and both read the replacing message through
+     * {@link #endingStateOf}.</p>
      */
     public static String lifecycleState(NormalizedAlert a, Instant now) {
         if (a == null) return LIFECYCLE_ACTIVE;
@@ -206,6 +223,72 @@ public final class AlertDerivations {
             }
         }
         return Map.copyOf(out);
+    }
+
+    /**
+     * What a message that names an earlier alert in its {@code references} does
+     * to that alert: {@code cancelled} when the naming message is a Cancel or
+     * carries an all-clear, {@code superseded} otherwise.
+     *
+     * <p>Read off structured CAP fields only. A Cancel is the issuer calling the
+     * alert off; any other replacement is the issuer saying "this is the current
+     * version" — over, but not called off.</p>
+     */
+    public static String endingStateOf(NormalizedAlert replacedBy) {
+        if (replacedBy == null) return LIFECYCLE_SUPERSEDED;
+        if ("cancel".equals(lower(replacedBy.messageType()))) return LIFECYCLE_CANCELLED;
+        if ("allclear".equals(lower(replacedBy.response()))) return LIFECYCLE_CANCELLED;
+        if (replacedBy.responseTypes() != null) {
+            for (String r : replacedBy.responseTypes()) {
+                if ("allclear".equals(lower(r))) return LIFECYCLE_CANCELLED;
+            }
+        }
+        return LIFECYCLE_SUPERSEDED;
+    }
+
+    /**
+     * The reverse edge over a set of messages that need not share a snapshot.
+     *
+     * <p>The live index above can only join what one {@code /alerts/active}
+     * response holds, which is almost nothing. History holds every message it
+     * recorded, so there the edge is real: an Update recorded on Tuesday names
+     * the Monday alert it replaced. This reads that edge from messages already
+     * in memory — the caller's loaded rows plus the live snapshot — so it costs
+     * no query at all.</p>
+     *
+     * <p>Only a real, public message may end another one. A drill naming a live
+     * warning must not mark it cancelled; neither may an {@code Ack} or
+     * {@code Error}, which are protocol, not issuer statements. When several
+     * messages name the same alert, {@code cancelled} wins: once called off it
+     * stays called off, whatever the order the rows came back in.</p>
+     *
+     * @return replaced-alert id -&gt; {@link #LIFECYCLE_CANCELLED} or
+     *         {@link #LIFECYCLE_SUPERSEDED}
+     */
+    public static Map<String, String> reverseEdgeIndex(Collection<NormalizedAlert> messages) {
+        if (messages == null || messages.isEmpty()) return Map.of();
+        Map<String, String> out = new HashMap<>();
+        for (NormalizedAlert m : messages) {
+            if (m == null || m.references() == null || m.references().isEmpty()) continue;
+            if (!mayEndAnother(m)) continue;
+            String state = endingStateOf(m);
+            for (String replacedId : m.references()) {
+                if (replacedId == null || replacedId.isBlank()) continue;
+                if (replacedId.equals(m.id())) continue;
+                out.merge(replacedId, state,
+                        (was, now) -> LIFECYCLE_CANCELLED.equals(was) ? was : now);
+            }
+        }
+        return Map.copyOf(out);
+    }
+
+    private static boolean mayEndAnother(NormalizedAlert m) {
+        String status = lower(m.status());
+        if (status != null && !status.isEmpty() && !"actual".equals(status)) return false;
+        String scope = lower(m.scope());
+        if (scope != null && !scope.isEmpty() && !"public".equals(scope)) return false;
+        String type = lower(m.messageType());
+        return !"ack".equals(type) && !"error".equals(type);
     }
 
     /**

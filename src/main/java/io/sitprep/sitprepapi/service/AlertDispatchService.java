@@ -866,10 +866,16 @@ public class AlertDispatchService {
      */
     static final Duration MAJOR_QUAKE_PUSH_MAX_AGE = Duration.ofHours(2);
 
-    static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl) {
-        if (a == null || a.source() == null || tpl == null) return false;
+    /**
+     * NWS only, and the policy's critical-push verdict. Takes the decision rather
+     * than re-evaluating: the feed computes one per alert and must not ask the
+     * policy a second time (D4).
+     */
+    static boolean isLifeThreatening(NormalizedAlert a, DispatchTemplate tpl,
+                                     AlertSafetyPolicy.Decision decision) {
+        if (a == null || a.source() == null || tpl == null || decision == null) return false;
         if (!"NWS".equalsIgnoreCase(a.source())) return false;
-        return AlertSafetyPolicy.evaluate(a, tpl).criticalPush();
+        return decision.criticalPush();
     }
 
     /**
