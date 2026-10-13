@@ -1713,8 +1713,13 @@ public class GroupService {
      * PUTs required between them. Idempotent: linking an existing link writes
      * nothing and returns the same lists.</p>
      *
+     * <p>No loops (owner ruling 2026-10-13): once A is under B, B can't be put
+     * under A, nor under anything below A. A link that would close a loop is
+     * refused with 409.</p>
+     *
      * @throws ResponseStatusException 400 for a self-link, 403 when the caller
-     *         isn't admin / owner of either group
+     *         isn't admin / owner of either group, 409 when the link would make
+     *         a group its own ancestor
      */
     @Transactional
     public io.sitprep.sitprepapi.dto.SubGroupLinkDto linkSubGroup(String parentGroupId, String childGroupId, String caller) {
@@ -1746,6 +1751,15 @@ public class GroupService {
         final String childId = child.getGroupId();
         final String parentId = parent.getGroupId();
 
+        // A NEW link must not close a loop. An existing link is left alone, so
+        // re-linking stays an idempotent no-op even for a legacy row.
+        if (link && !(subs.contains(childId) && parents.contains(parentId))
+                && wouldCreateCycle(parent, child)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That would put a group under one of its own subgroups. "
+                            + child.getGroupName() + " already contains " + parent.getGroupName() + ".");
+        }
+
         boolean parentChanged = link ? addIfAbsent(subs, childId) : subs.removeIf(childId::equals);
         boolean childChanged = link ? addIfAbsent(parents, parentId) : parents.removeIf(parentId::equals);
 
@@ -1762,6 +1776,46 @@ public class GroupService {
         }
         return new io.sitprep.sitprepapi.dto.SubGroupLinkDto(
                 parentId, childId, link, List.copyOf(subs), List.copyOf(parents));
+    }
+
+    /** How far the loop check walks before giving up (a real hierarchy is shallow). */
+    private static final int SUBGROUP_WALK_LIMIT = 500;
+
+    /**
+     * Would putting {@code child} under {@code parent} make a loop? True when
+     * {@code child} is already {@code parent} or one of its ancestors.
+     *
+     * <p>Walks BOTH directions, because the old two-PUT path could leave
+     * half-links (one side lists the other, the other side doesn't): up from
+     * {@code parent} through {@code parentGroupIDs}, and down from
+     * {@code child} through {@code subGroupIDs}. Ids that no longer resolve
+     * are skipped. Bounded by {@link #SUBGROUP_WALK_LIMIT} visits, so a
+     * corrupt graph can't hang the request; hitting the bound refuses the link
+     * rather than risk a loop.</p>
+     */
+    private boolean wouldCreateCycle(Group parent, Group child) {
+        final String target = child.getGroupId();
+        final String start = parent.getGroupId();
+        if (reaches(parent, target, true)) return true;   // child is above parent
+        return reaches(child, start, false);              // parent is below child
+    }
+
+    private boolean reaches(Group from, String targetId, boolean upward) {
+        java.util.ArrayDeque<Group> queue = new java.util.ArrayDeque<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        queue.add(from);
+        seen.add(from.getGroupId());
+        while (!queue.isEmpty()) {
+            if (seen.size() > SUBGROUP_WALK_LIMIT) return true;
+            Group g = queue.poll();
+            List<String> next = safeList(upward ? g.getParentGroupIDs() : g.getSubGroupIDs());
+            for (String id : next) {
+                if (id == null) continue;
+                if (id.equals(targetId)) return true;
+                if (seen.add(id)) groupRepo.findByGroupId(id).ifPresent(queue::add);
+            }
+        }
+        return false;
     }
 
     private static boolean addIfAbsent(List<String> list, String id) {

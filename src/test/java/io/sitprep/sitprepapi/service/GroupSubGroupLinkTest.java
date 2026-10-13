@@ -120,6 +120,33 @@ class GroupSubGroupLinkTest {
     }
 
     @Test
+    void reverseLink_isRefused_once_A_is_under_B() {
+        // School under District…
+        service.linkSubGroup("g-district", "g-school", "both@probe.app");
+        // …so District can't go under School.
+        assertStatus(() -> service.linkSubGroup("g-school", "g-district", "both@probe.app"), HttpStatus.CONFLICT);
+        assertThat(child.getSubGroupIDs() == null || !child.getSubGroupIDs().contains("g-district")).isTrue();
+    }
+
+    @Test
+    void longerLoop_isRefused() {
+        // District > School > Class; Class can't take District as a subgroup.
+        Group klass = group("g-class", "Room 4", "teacher@probe.app", List.of("teacher@probe.app", "both@probe.app"));
+        klass.setParentGroupIDs(new ArrayList<>());
+        service.linkSubGroup("g-district", "g-school", "both@probe.app");
+        service.linkSubGroup("g-school", "g-class", "both@probe.app");
+        assertStatus(() -> service.linkSubGroup("g-class", "g-district", "both@probe.app"), HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void halfLink_stillCountsForTheLoopCheck() {
+        // A legacy half-link: District lists School, School doesn't list District.
+        parent.setSubGroupIDs(new ArrayList<>(List.of("g-school")));
+        child.setParentGroupIDs(new ArrayList<>());
+        assertStatus(() -> service.linkSubGroup("g-school", "g-district", "both@probe.app"), HttpStatus.CONFLICT);
+    }
+
+    @Test
     void link_isIdempotent() {
         service.linkSubGroup("g-district", "g-school", "both@probe.app");
         SubGroupLinkDto again = service.linkSubGroup("g-district", "g-school", "both@probe.app");
