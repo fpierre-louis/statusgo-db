@@ -940,6 +940,199 @@ class AlertSafetyPolicyTest {
     }
 
 
+    // ---- Phase 3 safety batch (U1): approval, lifecycle, tier, precedence ----
+
+    /**
+     * D1 — the approval gate covers the directive, not just the copy.
+     *
+     * <p>Before this, {@code template_not_safety_approved} withheld SitPrep's
+     * guidance but still let the template's declared directive drive Active
+     * Situation. A directive is the strongest thing a template says; an
+     * unreviewed one must not name a protective action. With step 2 skipped,
+     * only the issuer's own CAP can answer — and this alert carries none.</p>
+     */
+    @Test
+    void anUnapprovedTemplatesDeclaredEvacuateIsNotHonoured() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Directive Test Warning")
+                .response(null)
+                .instruction("Official instruction.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                templateWithDirective("EVACUATE", List.of("Evacuate"), List.of(), "evacuate", "warning", "source_verified"));
+
+        assertThat(decision.reason()).isEqualTo("template_not_safety_approved");
+        assertThat(decision.movementDirective())
+                .as("an unapproved template must not source a movement directive")
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.NONE);
+    }
+
+    /**
+     * D1, the CAP path. A blocked template declaring shelter-in-place, on an
+     * alert whose issuer said {@code Shelter}: the answer is what an unreviewed
+     * Shelter always gets (step 3), never the template's formal order.
+     */
+    @Test
+    void aBlockedTemplatesDeclaredShelterInPlaceFallsBackToTheCapReading() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Directive Test Warning")
+                .responseTypes(List.of("Shelter"))
+                .instruction("Official instruction.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(
+                alert,
+                templateWithDirective("SHELTER", List.of("Shelter"), List.of(), "shelter_in_place", "warning", "blocked"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    /**
+     * D1's one carve-out, pinned against the production file. The four blocked
+     * civil/law rows declare {@code follow_official_instruction}, which names no
+     * protective action — it is the refusal to name one, and it still keeps a
+     * saved meeting place from reading as the current instruction during a
+     * Civil Danger Warning. Dropping it to NONE would be the RC-1 P0.
+     */
+    @Test
+    void aBlockedTemplateMayStillDeclineToNameAnAction() throws Exception {
+        AlertDispatchService.DispatchTemplate civil = productionTemplate("Civil Danger Warning");
+        NormalizedAlert alert = TestAlerts.nws("Civil Danger Warning")
+                .responseTypes(List.of("Monitor"))
+                .instruction("Official instruction.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(alert, civil);
+
+        assertThat(civil.isSafetyApproved()).isFalse();
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    /**
+     * D2 — an ended record carries no live directive. A /history card for an
+     * expired Evacuation Immediate used to serialize
+     * {@code movementDirective: "evacuate"} next to {@code dispatchMode: suppress}:
+     * an order that is over, presented in the field every consumer reads as
+     * "what to do now".
+     */
+    @Test
+    void anExpiredEvacuationCarriesNoLiveDirective() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Evacuation Immediate")
+                .responseTypes(List.of("Evacuate"))
+                .instruction("Leave now.")
+                .endsAt("2026-01-01T00:00:00Z")
+                .build();
+
+        AlertSafetyPolicy.Decision decision =
+                AlertSafetyPolicy.evaluate(alert, productionTemplate("Evacuation Immediate"));
+
+        assertThat(decision.reason()).isEqualTo("alert_expired");
+        assertThat(decision.movementDirective()).isEqualTo(AlertSafetyPolicy.MovementDirective.NONE);
+        assertThat(decision.capActions()).isEmpty();
+        assertThat(decision.asIssuedMovementDirective())
+                .as("the record still says what the order was while it was live")
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.EVACUATE);
+    }
+
+    /**
+     * R3 — a watch or advisory is not a movement instruction, even when its CAP
+     * says {@code Avoid}. Tsunami Advisory lists Avoid as compatible, so before
+     * this the CAP fallback produced {@code avoid_area} and Active Situation's
+     * "Avoid the affected area" CTA on an advisory.
+     */
+    @Test
+    void anAdvisoryWithCapAvoidResolvesToFollowOfficialInstruction() throws Exception {
+        NormalizedAlert alert = TestAlerts.nwsWatch("Tsunami Advisory")
+                .responseTypes(List.of("Avoid"))
+                .instruction("Stay out of the water.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision =
+                AlertSafetyPolicy.evaluate(alert, productionTemplate("Tsunami Advisory"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    @Test
+    void aWatchWithCapAvoidResolvesToFollowOfficialInstruction() throws Exception {
+        NormalizedAlert alert = TestAlerts.nwsWatch("Winter Storm Watch")
+                .responseTypes(List.of("Avoid"))
+                .instruction("Avoid travel if possible.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision =
+                AlertSafetyPolicy.evaluate(alert, productionTemplate("Winter Storm Watch"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    /**
+     * R3 with no template: the tier comes from the same helper the card's
+     * {@code tier} field does, so the decision and the badge cannot disagree.
+     */
+    @Test
+    void anUncoveredAdvisoryWithCapAvoidResolvesToFollowOfficialInstruction() {
+        NormalizedAlert alert = TestAlerts.nwsWatch("Small Craft Advisory")
+                .responseTypes(List.of("Avoid"))
+                .build();
+
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(alert, null);
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION);
+    }
+
+    /**
+     * R3's boundary. An issuer evacuation order is the issuer's own word and is
+     * honoured on every tier — the tier rule stops SitPrep re-deriving a
+     * movement instruction, it does not overrule the authority.
+     */
+    @Test
+    void aWatchWithCapEvacuateStillResolvesToEvacuate() throws Exception {
+        NormalizedAlert alert = TestAlerts.nwsWatch("Winter Storm Watch")
+                .responseTypes(List.of("Evacuate"))
+                .instruction("Leave now.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision =
+                AlertSafetyPolicy.evaluate(alert, productionTemplate("Winter Storm Watch"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.EVACUATE);
+    }
+
+    /**
+     * R6 — pins the precedence the javadoc used to contradict. The approved
+     * Flash Flood Warning template declares {@code avoid_area} and lists
+     * {@code Shelter} incompatible (sheltering in place is the wrong answer to
+     * rising water), so a stray CAP Shelter yields avoid_area, not
+     * shelter-in-place and not follow-official.
+     */
+    @Test
+    void anApprovedTemplateOutranksACapResponseItListsIncompatible() throws Exception {
+        NormalizedAlert alert = TestAlerts.nws("Flash Flood Warning")
+                .responseTypes(List.of("Shelter"))
+                .instruction("Move to higher ground.")
+                .build();
+
+        AlertSafetyPolicy.Decision decision =
+                AlertSafetyPolicy.evaluate(alert, productionTemplate("Flash Flood Warning"));
+
+        assertThat(decision.movementDirective())
+                .isEqualTo(AlertSafetyPolicy.MovementDirective.AVOID_AREA);
+    }
+
+    private static AlertDispatchService.DispatchTemplate productionTemplate(String event) throws Exception {
+        return productionTemplates().stream()
+                .filter(t -> t.eventAny != null && t.eventAny.contains(event))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no production template for " + event));
+    }
+
     /**
      * An approved template that DECLARES a movement directive. The shared
      * {@link #reviewedTemplate} helper hardcodes {@code "none"}, which is what the
@@ -951,11 +1144,22 @@ class AlertSafetyPolicyTest {
             List<String> compatible,
             List<String> incompatible,
             String movementDirective) throws Exception {
+        return templateWithDirective(protectiveAction, compatible, incompatible,
+                movementDirective, "warning", "approved");
+    }
+
+    private static AlertDispatchService.DispatchTemplate templateWithDirective(
+            String protectiveAction,
+            List<String> compatible,
+            List<String> incompatible,
+            String movementDirective,
+            String tier,
+            String reviewStatus) throws Exception {
         String json = """
                 {
                   "source": "NWS",
                   "eventAny": ["Directive Test Warning"],
-                  "tier": "warning",
+                  "tier": "%s",
                   "hazardType": "test",
                   "headline": "Directive test",
                   "body": "Use the reviewed action.",
@@ -977,17 +1181,20 @@ class AlertSafetyPolicyTest {
                     "supports": ["body", "steps[0]"]
                   }],
                   "safetyReview": {
-                    "status": "approved",
+                    "status": "%s",
                     "version": 1,
                     "sourceVerifiedAt": "2026-08-27",
-                    "approvedAt": "2026-08-27"
+                    "approvedAt": %s
                   }
                 }
                 """.formatted(
+                tier,
                 protectiveAction,
                 MAPPER.writeValueAsString(new ArrayList<>(compatible)),
                 MAPPER.writeValueAsString(new ArrayList<>(incompatible)),
-                movementDirective);
+                movementDirective,
+                reviewStatus,
+                "approved".equals(reviewStatus) ? "\"2026-08-27\"" : "null");
         return AlertDispatchService.DispatchTemplate.fromJson(MAPPER.readTree(json));
     }
 

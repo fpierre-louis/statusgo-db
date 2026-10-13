@@ -99,14 +99,37 @@ public final class AlertSafetyPolicy {
         public String wire() { return wire; }
     }
 
+    /**
+     * The policy's answer for one alert.
+     *
+     * <p>{@code movementDirective} and {@code capActions} are what is in force
+     * <b>now</b>: a lifecycle-blocked alert (ended, all-clear, cancelled) carries
+     * {@link MovementDirective#NONE} and no actions, because every consumer reads
+     * those fields as the current instruction. {@code asIssuedMovementDirective}
+     * is what the alert said while it was live — the record of the order, for a
+     * history surface that needs to say "an evacuation order was issued" without
+     * presenting it as one. On a live alert the two are the same value.</p>
+     */
     public record Decision(
             DispatchMode dispatchMode,
             GuidanceMode guidanceMode,
             Compatibility compatibility,
             Set<ProtectiveAction> capActions,
             MovementDirective movementDirective,
-            String reason
+            String reason,
+            MovementDirective asIssuedMovementDirective
     ) {
+        /** A live decision: what was issued is what is in force. */
+        public Decision(DispatchMode dispatchMode,
+                        GuidanceMode guidanceMode,
+                        Compatibility compatibility,
+                        Set<ProtectiveAction> capActions,
+                        MovementDirective movementDirective,
+                        String reason) {
+            this(dispatchMode, guidanceMode, compatibility, capActions,
+                    movementDirective, reason, movementDirective);
+        }
+
         public boolean allowsSitPrepGuidance() {
             return guidanceMode == GuidanceMode.SUPPLEMENT_OFFICIAL
                     && compatibility == Compatibility.COMPATIBLE;
@@ -122,13 +145,16 @@ public final class AlertSafetyPolicy {
         MovementDirective movementDirective = movementDirectiveFor(alert, template, capActions);
         String lifecycleBlock = lifecycleBlockReason(alert);
         if (lifecycleBlock != null) {
+            // Over is over: nothing here may read as a current instruction. The
+            // directive the alert carried survives only as the as-issued record.
             return new Decision(
                     DispatchMode.SUPPRESS,
                     GuidanceMode.NO_GUIDANCE,
                     Compatibility.INCOMPATIBLE,
-                    capActions,
-                    movementDirective,
-                    lifecycleBlock);
+                    Set.of(),
+                    MovementDirective.NONE,
+                    lifecycleBlock,
+                    movementDirective);
         }
 
         DispatchMode dispatchMode = dispatchModeFor(alert, template, capActions);
@@ -231,12 +257,22 @@ public final class AlertSafetyPolicy {
      * household's saved meeting place or evacuation destination in favour of the
      * protective action actually in force.
      *
-     * <p><b>Resolution order, and why.</b> The issuer's own CAP {@code responseType}
-     * comes first, because it is the authority's statement about what to do. The
-     * template's declared directive is the fallback for alerts that carry no
-     * response type. Nothing else is consulted — in particular there is no matching
-     * on event <i>names</i> or on wording, which would be a heuristic standing in
-     * for a structured field and is the class of thing this file exists to avoid.</p>
+     * <p><b>Resolution order, and why.</b></p>
+     * <ol>
+     *   <li><b>CAP {@code Evacuate}</b>, on every tier. An evacuation order is the
+     *       issuer's own word; nothing SitPrep reviewed outranks it.</li>
+     *   <li><b>The template's declared directive</b>, only when the template is
+     *       safety-approved. For {@code Shelter} and {@code Avoid} a reviewed
+     *       classification outranks a re-derivation from CAP — including a CAP
+     *       response the template lists incompatible (Flash Flood Warning + CAP
+     *       {@code Shelter} is {@code avoid_area}). An unapproved template is
+     *       still heard when it declares {@code follow_official_instruction},
+     *       because that names no action — it is the refusal to name one.</li>
+     *   <li><b>The tier-aware CAP fallback</b> — see {@link #movementDirectiveFromCap}.</li>
+     * </ol>
+     * <p>Nothing else is consulted — in particular there is no matching on event
+     * <i>names</i> or on wording, which would be a heuristic standing in for a
+     * structured field and is the class of thing this file exists to avoid.</p>
      *
      * <p><b>RC-1 (2026-09-09).</b> This method previously read CAP for
      * {@code Evacuate} only. {@code Shelter} was honoured for the single literal
@@ -250,7 +286,7 @@ public final class AlertSafetyPolicy {
     private static MovementDirective movementDirectiveFor(NormalizedAlert alert,
                                                           DispatchTemplate template,
                                                           Set<ProtectiveAction> capActions) {
-        // 1. An evacuation order from the issuer outranks everything.
+        // 1. An evacuation order from the issuer outranks everything, on any tier.
         if (capActions != null && capActions.contains(ProtectiveAction.EVACUATE)) {
             return MovementDirective.EVACUATE;
         }
@@ -261,29 +297,38 @@ public final class AlertSafetyPolicy {
         //    guidance is a formal shelter-in-place order or graduated indoor-safety
         //    advice is a judgment somebody made in safety review, and a reviewed
         //    judgment outranks a re-derivation.
+        //
+        //    "Reviewed" is load-bearing (D1, 2026-10-13): the approval gate used to
+        //    withhold an unapproved template's copy while still letting its
+        //    directive — the strongest thing it says — drive Active Situation.
         MovementDirective declared = MovementDirective.parse(
                 template == null || template.sitprep == null ? null : template.sitprep.movementDirective,
                 MovementDirective.NONE);
-        if (declared != MovementDirective.NONE) {
+        if (declared != MovementDirective.NONE
+                && (template.isSafetyApproved() || declared == MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION)) {
+            // An unapproved template may still decline to name an action.
+            // follow_official_instruction is that refusal, not a protective
+            // action, and it is what keeps a saved meeting place from reading as
+            // the instruction during a blocked Civil Danger Warning.
             return declared;
         }
 
         // 3. No reviewed classification. Fall back to what the issuer's own
         //    response type supports — see movementDirectiveFromCap.
-        return movementDirectiveFromCap(template, capActions);
+        return movementDirectiveFromCap(alert, template, capActions);
     }
 
     /**
      * The directive an unreviewed alert's CAP {@code responseType} can support.
      *
-     * <p>Reached only when the template declares no directive of its own, so this
-     * is the answer for an alert SitPrep has no reviewed classification for.</p>
+     * <p>Reached only when no approved template declares a directive, so this is
+     * the answer for an alert SitPrep has no reviewed classification for.</p>
      *
-     * <p><b>{@code Avoid} becomes {@link MovementDirective#AVOID_AREA}.</b> "Avoid
-     * the area" is not a term of art — it means what it says, so reading it
-     * directly invents nothing. Before RC-1 this branch did not exist at all and
-     * {@code AVOID_AREA} was unreachable in production, which is why a dust-storm
-     * warning left a saved destination standing as the primary action.</p>
+     * <p><b>{@code Avoid} becomes {@link MovementDirective#AVOID_AREA}</b> on a
+     * warning. "Avoid the area" is not a term of art — it means what it says, so
+     * reading it directly invents nothing. Before RC-1 this branch did not exist
+     * at all and {@code AVOID_AREA} was unreachable in production, which is why a
+     * dust-storm warning left a saved destination standing as the primary action.</p>
      *
      * <p><b>{@code Shelter} becomes {@link MovementDirective#FOLLOW_OFFICIAL_INSTRUCTION},
      * NOT shelter-in-place.</b> This preserves a ruling this codebase already made
@@ -297,24 +342,40 @@ public final class AlertSafetyPolicy {
      * prepared destination read as the current instruction. A hazard whose
      * sheltering guidance IS a formal order says so in its template.</p>
      *
+     * <p><b>A watch or advisory never gets a named action here (R3).</b> A watch
+     * says "be ready", not "do this now", so below warning tier both {@code Avoid}
+     * and {@code Shelter} resolve to follow-official: the issuer's text still
+     * outranks the saved plan, but SitPrep does not turn it into an avoid-area
+     * instruction. The tier is {@link AlertFeedService#tierOf} — the template's
+     * declared tier, or the NWS product suffix for an uncovered product — so this
+     * decision and the card's tier badge are one answer. CAP {@code Evacuate} is
+     * handled before this method and is not tier-gated.</p>
+     *
      * <p><b>Both respect the template's {@code incompatibleResponseTypes}.</b>
      * Mapping blindly is the failure mode to avoid: a flash-flood template declares
      * {@code Shelter} incompatible precisely because sheltering in place is the
      * wrong answer to rising water.</p>
      */
-    private static MovementDirective movementDirectiveFromCap(DispatchTemplate template,
+    private static MovementDirective movementDirectiveFromCap(NormalizedAlert alert,
+                                                              DispatchTemplate template,
                                                               Set<ProtectiveAction> capActions) {
         if (capActions == null || capActions.isEmpty()) return MovementDirective.NONE;
 
         if (capActions.contains(ProtectiveAction.AVOID)
                 && !responseTypeIsIncompatible(template, "Avoid")) {
-            return MovementDirective.AVOID_AREA;
+            return isWarningTier(alert, template)
+                    ? MovementDirective.AVOID_AREA
+                    : MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION;
         }
         if (capActions.contains(ProtectiveAction.SHELTER)
                 && !responseTypeIsIncompatible(template, "Shelter")) {
             return MovementDirective.FOLLOW_OFFICIAL_INSTRUCTION;
         }
         return MovementDirective.NONE;
+    }
+
+    private static boolean isWarningTier(NormalizedAlert alert, DispatchTemplate template) {
+        return alert != null && "warning".equalsIgnoreCase(AlertFeedService.tierOf(alert, template));
     }
 
     /** Has this template declared {@code responseType} incompatible with its hazard? */
