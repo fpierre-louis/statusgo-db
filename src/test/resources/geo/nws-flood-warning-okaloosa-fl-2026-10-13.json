@@ -1,0 +1,116 @@
+{
+  "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.83e8512db1b8fc55b3d8b421a208ce7f1598dd5b.001.1",
+  "type": "Feature",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -86.5,
+          30.78
+        ],
+        [
+          -86.49,
+          30.78
+        ],
+        [
+          -86.53,
+          30.69
+        ],
+        [
+          -86.63,
+          30.69
+        ],
+        [
+          -86.63,
+          30.7
+        ],
+        [
+          -86.55,
+          30.7
+        ],
+        [
+          -86.5,
+          30.78
+        ]
+      ]
+    ]
+  },
+  "properties": {
+    "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.83e8512db1b8fc55b3d8b421a208ce7f1598dd5b.001.1",
+    "@type": "wx:Alert",
+    "id": "urn:oid:2.49.0.1.840.0.83e8512db1b8fc55b3d8b421a208ce7f1598dd5b.001.1",
+    "areaDesc": "Okaloosa, FL",
+    "geocode": {
+      "SAME": [
+        "012091"
+      ],
+      "UGC": [
+        "FLC091"
+      ]
+    },
+    "affectedZones": [
+      "https://api.weather.gov/zones/county/FLC091"
+    ],
+    "references": [],
+    "sent": "2026-10-12T22:33:00-05:00",
+    "effective": "2026-10-12T22:33:00-05:00",
+    "onset": "2026-10-12T22:33:00-05:00",
+    "expires": "2026-10-13T10:45:00-05:00",
+    "ends": "2026-10-13T23:00:00-05:00",
+    "status": "Actual",
+    "messageType": "Alert",
+    "category": "Met",
+    "severity": "Severe",
+    "certainty": "Observed",
+    "urgency": "Immediate",
+    "event": "Flood Warning",
+    "sender": "w-nws.webmaster@noaa.gov",
+    "senderName": "NWS Mobile AL",
+    "headline": "Flood Warning issued October 12 at 10:33PM CDT until October 13 at 11:00PM CDT by NWS Mobile AL",
+    "description": "...The Flood Warning is extended for the following rivers in\nFlorida...\n\nShoal River Near Crestview affecting Okaloosa County.\n\nFor the Shoal River...including Crestview...Minor flooding is\nforecast.\n\n* WHAT...Minor flooding is occurring.\n\n* WHERE...Shoal River near Crestview.\n\n* WHEN...Until Tuesday evening.\n\n* IMPACTS...At 10.0 feet, Some flooding of trailers north of the\nOkaloosa Correctional Institute. Water surrounds home on Sowel\nRoad.\n\n* ADDITIONAL DETAILS...\n- At 9:15 PM CDT Monday the stage was 9.3 feet.\n- Forecast...The river is expected to fall below flood stage\nTuesday afternoon and continue falling to 6.8 feet Saturday\nevening.\n- Flood stage is 8.0 feet.\n- http://www.weather.gov/safety/flood",
+    "instruction": "Turn around, don't drown when encountering flooded roads. Most flood\ndeaths occur in vehicles.\n\nAdditional information is available at www.weather.gov/mob. Click on\nthe Rivers and Lakes menu for forecasts and observations.\n\nThe next statement will be issued when updates occur.",
+    "response": "Avoid",
+    "note": null,
+    "parameters": {
+      "AWIPSidentifier": [
+        "FLSMOB"
+      ],
+      "WMOidentifier": [
+        "WGUS84 KMOB 130333"
+      ],
+      "NWSheadline": [
+        "FLOOD WARNING NOW IN EFFECT UNTIL TUESDAY EVENING"
+      ],
+      "BLOCKCHANNEL": [
+        "EAS",
+        "NWEM",
+        "CMAS"
+      ],
+      "EAS-ORG": [
+        "WXR"
+      ],
+      "VTEC": [
+        "/O.EXT.KMOB.FL.W.0048.000000T0000Z-261014T0400Z/"
+      ],
+      "eventEndingTime": [
+        "2026-10-13T23:00:00-05:00"
+      ],
+      "expiredReferences": [
+        "w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.44b929ce954530f851084c0fa99b6fd743f243cf.001.1,2026-10-12T07:58:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.2e0f763c4a43c80c8d3d59bee87ccb5bc24fc578.001.1,2026-10-11T20:42:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.5b20df7677ae257204c245c06da5f08702ddbeb2.001.1,2026-10-11T08:55:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.d2fe30d00195d8a92ab5fd52f791213138f3d088.001.1,2026-10-11T04:47:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.9d640a7de0f591f69ed47b938dcf5aa412012e71.001.1,2026-10-10T20:41:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.a519de814aaeac91013b5464bb4e4e66dc5c7cf6.001.1,2026-10-10T09:47:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.b35f4371a930d682115bfacce2c8f1fd4a60c596.001.1,2026-10-10T00:46:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.86658255771cabced6a8d66b36a36aeac5f9d3c0.001.1,2026-10-09T21:00:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.db0ee09963865ffdf0ebfdd854335cdca59315da.001.1,2026-10-09T09:12:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.a9ae69686cb7ff24464b7fdf8a7e2e164d554aba.001.1,2026-10-08T20:21:00-05:00 w-nws.webmaster@noaa.gov,urn:oid:2.49.0.1.840.0.7a2b1e0a3897bb508f4d6ca35041fe8182a0e6b3.001.1,2026-10-08T08:38:00-05:00"
+      ]
+    },
+    "scope": "Public",
+    "code": "IPAWSv1.0",
+    "language": "en-US",
+    "web": "http://www.weather.gov",
+    "eventCode": {
+      "SAME": [
+        "FLS"
+      ],
+      "NationalWeatherService": [
+        "FLW"
+      ]
+    }
+  }
+}
