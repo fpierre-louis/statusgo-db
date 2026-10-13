@@ -166,16 +166,27 @@ public final class PlanActivationDtos {
              * NOW; these say where that answer came from and whether it differs
              * from what the household activated under.
              *
-             * `directiveStatus` is one of CURRENT (a live alert carries it),
-             * UNVERIFIED (we could not check — treat as possibly stale) or
-             * SUPERSEDED_UNRESOLVED (we checked and nothing is in force, so the
-             * directive has been narrowed to follow_official_instruction).
+             * `directiveStatus` is one of CURRENT (checked just now: a live
+             * alert that governs this point carries it, or — with directive
+             * `none` and no governingAlert — a plain activation nothing
+             * directs), UNVERIFIED (we could not check — treat as possibly
+             * stale) or SUPERSEDED_UNRESOLVED (we checked and the alert it was
+             * activated against is no longer in force; a stored directive is
+             * narrowed to follow_official_instruction, a stored `none` stays
+             * `none`). Only a containment-quality match governs: an exact
+             * zone, or a polygon that contains the point.
+             *
+             * `directiveConflicting` is true when more than one alert governs
+             * this point and they disagree; `currentDirective` is then the
+             * strongest (evacuate > shelter_in_place > avoid_area >
+             * follow_official_instruction).
              */
             String currentDirective,
             String directiveAsActivated,
             String directiveStatus,
             boolean directiveChanged,
-            Instant directiveResolvedAt
+            Instant directiveResolvedAt,
+            boolean directiveConflicting
     ) {}
 
     public record GoverningAlertDto(

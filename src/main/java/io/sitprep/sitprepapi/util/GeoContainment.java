@@ -24,11 +24,12 @@ import java.util.Map;
  * must <i>contain</i> the household's point. This class is that containment
  * test, built and tested on its own so the wiring can be reviewed separately.
  *
- * <p><b>It is deliberately not wired in.</b> Nothing calls it yet — not
- * {@code matchTypeFor}, not {@code ActivationDirectiveResolver}, not the feed.
- * Plugging it in is the Alerts lane's step under the R4 ruling
+ * <p><b>One caller, by design.</b> {@code ActivationDirectiveResolver} uses it
+ * to decide whether a {@code polygon}-matched alert may govern an activation's
+ * movement directive (only INSIDE may). {@code matchTypeFor} and the feed are
+ * unchanged: what an alert surface SHOWS still uses the proximity match
  * ({@code SitPrep FE/docs/epics/alerts/alerts_and_warnings/map_lane_handoff.md}
- * §B1). Until then the feed's behaviour is unchanged.</p>
+ * §B1).</p>
  *
  * <h2>Why three answers and not a boolean</h2>
  * {@link GeoJsonArea#contains} (used by {@code MemberAlertAreaService}) answers

@@ -1457,7 +1457,8 @@ public class PlanActivationService {
                 full.suppressedReason(),
                 full.directiveStatus(),
                 full.directiveChanged(),
-                full.directiveResolvedAt()
+                full.directiveResolvedAt(),
+                full.directiveConflicting()
         );
 
         return new PublicActivationDto(
@@ -1523,14 +1524,20 @@ public class PlanActivationService {
         // holder, who has no live alert layer of their own, had no way to know.
         //
         // The resolver underclaims on purpose: it carries the stored directive
-        // only when it could not look, and declines to name one at all when it
-        // looked and found nothing in force.
+        // only when it could not look, and declines to name one when the
+        // instruction the household activated under has lapsed. A plain
+        // activation that never had one stays "none" (D6), and only an alert
+        // that contains this point may govern (R4).
         ActivationDirectiveResolver.Resolved resolved = directiveResolver == null
                 ? ActivationDirectiveResolver.unverifiedFrom(a)
                 : java.util.Optional.ofNullable(resolveWithOwnerFallback(a))
                         .orElseGet(() -> ActivationDirectiveResolver.unverifiedFrom(a));
         GoverningAlertDto governingAlert = governingAlertFor(a, resolved);
-        String movement = governingAlert == null && resolved.status() != ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED
+        // A resolver that LOOKED (CURRENT, SUPERSEDED_UNRESOLVED) has already
+        // decided the directive, including "none" for a plain activation (D6),
+        // so its answer is used as-is. Only a carried, unverified directive
+        // still needs a live stored alert behind it before it can steer.
+        String movement = resolved.status() == ActivationDirectiveResolver.Status.UNVERIFIED && governingAlert == null
                 ? "none"
                 : normalizeMovementDirective(resolved.directive());
         String effective = resolveEffectiveMode(requested, movement);
@@ -1613,7 +1620,8 @@ public class PlanActivationService {
                 resolved.asActivated(),
                 resolved.status().name(),
                 resolved.changed(),
-                resolved.resolvedAt()
+                resolved.resolvedAt(),
+                resolved.conflicting()
         );
     }
 
@@ -1660,11 +1668,15 @@ public class PlanActivationService {
     /**
      * The governing alert to SHOW: the one currently in force when we could
      * resolve one, otherwise the stored record labelled by the resolver's
-     * status. Never a live directive attributed to a stale alert.
+     * status. Never a live directive attributed to a stale alert, and never an
+     * empty alert for a plain activation: CURRENT with nothing attributed
+     * means no alert is behind it, and a blank record would render as
+     * "Official alert" on a plan no official spoke to (D6).
      */
     private GoverningAlertDto governingAlertFor(PlanActivation a,
                                                 ActivationDirectiveResolver.Resolved r) {
         if (r.status() == ActivationDirectiveResolver.Status.CURRENT) {
+            if (r.alertId() == null && r.event() == null && r.headline() == null) return null;
             return new GoverningAlertDto(r.source(), r.alertId(), r.event(), r.headline(), r.lifecycleState());
         }
         if (r.status() == ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED) {

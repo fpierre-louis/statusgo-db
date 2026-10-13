@@ -140,20 +140,26 @@ public final class PublicActivationDtos {
             /**
              * P0-A. A link holder has no live alert layer of their own, so the
              * server has to tell them how much weight the directive carries:
-             * CURRENT, UNVERIFIED (could not check — may be stale) or
-             * SUPERSEDED_UNRESOLVED (nothing in force; narrowed to
-             * follow_official_instruction). Without this the recipient cannot
+             * CURRENT (checked just now; with `none` and no governingAlert, a
+             * plain activation nothing directs), UNVERIFIED (could not check —
+             * may be stale) or SUPERSEDED_UNRESOLVED (the alert it was
+             * activated against lapsed; a stored directive is narrowed to
+             * follow_official_instruction, a stored `none` stays `none`).
+             * Without this the recipient cannot
              * distinguish "shelter in place, confirmed a moment ago" from
              * "shelter in place, decided an hour ago and never rechecked" —
              * which is exactly the confusion Scenario 24 is about.
              *
              * `directiveChanged` says the guidance is no longer what the sender
              * activated under, so the surface can say the instruction changed.
+             * `directiveConflicting` says the officials in force for this
+             * point disagree; the directive shown is the strongest of them.
              * No household PII is added: these are safety facts about the alert.
              */
             String directiveStatus,
             boolean directiveChanged,
-            Instant directiveResolvedAt
+            Instant directiveResolvedAt,
+            boolean directiveConflicting
     ) {}
 
     /**
