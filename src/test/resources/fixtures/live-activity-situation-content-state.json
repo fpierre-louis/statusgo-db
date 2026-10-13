@@ -1,0 +1,13 @@
+{
+  "phase": "active",
+  "plan": true,
+  "total": 6,
+  "accounted": 4,
+  "safe": 3,
+  "help": 1,
+  "injured": 0,
+  "pickup": 1,
+  "expiresAtEpoch": 1760572800,
+  "asOfEpoch": 1760400000,
+  "note": null
+}

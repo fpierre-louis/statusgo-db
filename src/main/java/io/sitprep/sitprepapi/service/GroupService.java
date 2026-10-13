@@ -105,6 +105,16 @@ public class GroupService {
 
     private EmergencySupportService supportService;
 
+    // Live Activity pushes (live_activities P1). Setter-injected so every test
+    // that builds this service by hand stays unchanged; null there, and every
+    // hook below is a no-op without it.
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setSupportService(EmergencySupportService supportService) {
         this.supportService = supportService;
@@ -428,6 +438,8 @@ public class GroupService {
         // written — the same frame a start or an end sends, so open rosters
         // re-read instead of lapsing members at the old end.
         broadcastAlertFrame(saved, "continue");
+        // The card's "ends by itself" time moved (live_activities P1).
+        afterCommitOrNow(() -> { if (liveActivities != null) liveActivities.situationChanged(saved.getGroupId()); });
         logger.info("Check-in continued for group {} by {} until {}", groupId, callerEmail, until);
         return until;
     }
@@ -507,6 +519,28 @@ public class GroupService {
     }
 
     private CheckInRollupDto buildCheckInRollup(Group group) {
+        boolean active = "Active".equalsIgnoreCase(group.getAlert());
+        Instant startedAt = group.getAlertActivatedAt() != null
+                ? group.getAlertActivatedAt()
+                : group.getUpdatedAt();
+        return buildCheckInRollup(group, active, startedAt);
+    }
+
+    /**
+     * The rollup of a check-in that started at {@code startedAt}, counted the
+     * way it was counted while it ran — even after it ended.
+     *
+     * <p>Once a check-in ends, {@code alertActivatedAt} is cleared and the
+     * plain rollup counts every stored status as fresh, so a status from last
+     * week would read as an answer. The Live Activity's final "ended" card
+     * must show the numbers the check-in actually closed on, so the end path
+     * captures the start before the clear and counts against it here.</p>
+     */
+    public CheckInRollupDto checkInRollupSince(Group group, Instant startedAt) {
+        return buildCheckInRollup(group, true, startedAt);
+    }
+
+    private CheckInRollupDto buildCheckInRollup(Group group, boolean active, Instant startedAt) {
         List<String> memberEmails = safeList(group.getMemberEmails());
         Map<String, UserInfo> byEmail = memberEmails.isEmpty()
                 ? Map.of()
@@ -517,11 +551,6 @@ public class GroupService {
                         u -> u,
                         (a, b) -> a,
                         LinkedHashMap::new));
-
-        boolean active = "Active".equalsIgnoreCase(group.getAlert());
-        Instant startedAt = group.getAlertActivatedAt() != null
-                ? group.getAlertActivatedAt()
-                : group.getUpdatedAt();
 
         int[] counts = new int[4]; // safe, help, injured, accounted
         List<CheckInRollupDto.Member> members = new ArrayList<>();
@@ -596,7 +625,8 @@ public class GroupService {
                 counts[1],
                 counts[2],
                 Math.max(0, total - counts[3]),
-                members
+                members,
+                active ? group.getAlertExpiresAt() : null
         );
     }
 
@@ -829,6 +859,10 @@ public class GroupService {
         boolean becameActive = "Active".equalsIgnoreCase(newAlert);
         boolean becameInactive = "Active".equalsIgnoreCase(previousAlert) && !becameActive;
 
+        // Captured BEFORE the clear below: the Live Activity's ended card counts
+        // against the start of the check-in that just ended (checkInRollupSince).
+        final Instant endedCheckInStart = group.getAlertActivatedAt();
+
         if (becameActive) {
             Instant start = Instant.now();
             group.setAlertActivatedAt(start);
@@ -854,6 +888,32 @@ public class GroupService {
             } else if (becameInactive) {
                 householdEventService.recordCheckinEnded(group.getGroupId(), actor);
             }
+        }
+
+        // Live Activities (P1). After commit, and the service hands the work to
+        // its own thread: nothing here can fail or slow the write. A new
+        // check-in retires tokens left over from an earlier one; an ended one
+        // gets its final card.
+        if (liveActivities != null && (becameActive || becameInactive)) {
+            final String gid = group.getGroupId();
+            final LiveActivityPushService la = liveActivities;
+            if (becameActive) {
+                afterCommitOrNow(() -> la.situationStarted(gid));
+            } else {
+                afterCommitOrNow(() -> la.situationEnded(gid, endedCheckInStart,
+                        LiveActivityStateBuilder.REASON_MANUAL, actor));
+            }
+        }
+    }
+
+    /** After the commit when there is one; immediately otherwise (registerSynchronization throws without one). */
+    private static void afterCommitOrNow(Runnable r) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { r.run(); }
+            });
+        } else {
+            r.run();
         }
     }
 
@@ -905,7 +965,8 @@ public class GroupService {
                 frameAlert(saved.getAlert()),
                 saved.getAlertActivatedAt(),
                 initiatedBy(saved),
-                reason
+                reason,
+                "Active".equalsIgnoreCase(saved.getAlert()) ? saved.getAlertExpiresAt() : null
         );
         // After the commit when there IS one to wait for; immediately otherwise.
         //

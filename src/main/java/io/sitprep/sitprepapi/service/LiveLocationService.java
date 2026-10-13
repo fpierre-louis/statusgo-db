@@ -376,8 +376,40 @@ public class LiveLocationService {
                 session.getStartedAt(),
                 session.getExpiresAt(),
                 session.getStoppedAt(),
-                uploadToken
+                uploadToken,
+                audienceLabel(session.getGroupIds())
         );
+    }
+
+    /**
+     * The sharer's own name for who sees the share (live_activities P1): one
+     * group's name, "A and B", or "A and N other groups". Group names only —
+     * never a person's. Falls back to "your household" / "your group" when a
+     * group has no name or no longer exists.
+     */
+    String audienceLabel(java.util.Collection<String> groupIds) {
+        if (groupIds == null || groupIds.isEmpty()) return null;
+        List<String> names = new ArrayList<>();
+        for (String id : groupIds) {
+            if (id == null || id.isBlank()) continue;
+            String name = groupRepo.findByGroupId(id)
+                    .map(g -> {
+                        String n = g.getGroupName() == null ? "" : g.getGroupName().trim();
+                        if (!n.isEmpty()) return n;
+                        return "Household".equalsIgnoreCase(g.getGroupType()) ? "your household" : "your group";
+                    })
+                    .orElse("your group");
+            names.add(name);
+        }
+        return joinAudience(names);
+    }
+
+    static String joinAudience(List<String> names) {
+        if (names == null || names.isEmpty()) return null;
+        if (names.size() == 1) return names.get(0);
+        if (names.size() == 2) return names.get(0) + " and " + names.get(1);
+        int others = names.size() - 1;
+        return names.get(0) + " and " + others + " other groups";
     }
 
     private LiveLocationMemberDto toMemberDto(LiveLocationSession session, LiveLocationPoint point) {

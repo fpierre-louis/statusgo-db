@@ -12,5 +12,6 @@ public record GroupAlertFrame(
         String alert,                // Active | Cleared
         Instant alertActivatedAt,
         String initiatedByEmail,
-        String reason                // manual | decay | continue (window moved, state unchanged)
+        String reason,               // manual | decay | continue (window moved, state unchanged)
+        Instant alertExpiresAt       // when an Active check-in ends by itself; null when Cleared
 ) {}

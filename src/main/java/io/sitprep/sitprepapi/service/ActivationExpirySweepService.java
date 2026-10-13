@@ -70,6 +70,23 @@ public class ActivationExpirySweepService {
     @Value("${app.activation.sweepBatchSize:200}")
     private int sweepBatchSize;
 
+    /**
+     * Live Activity token hygiene rides this hourly tick (live_activities
+     * GAMEPLAN §3.5: no new scheduler). Setter-injected so tests that build
+     * this service by hand stay unchanged; null there.
+     */
+    private io.sitprep.sitprepapi.repo.LiveActivityTokenRepo liveActivityTokens;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivityTokens(io.sitprep.sitprepapi.repo.LiveActivityTokenRepo liveActivityTokens) {
+        this.liveActivityTokens = liveActivityTokens;
+    }
+
+    /** Apple ends an activity 8 h after it starts and drops it from the lock screen by 12 h. */
+    static final Duration LIVE_ACTIVITY_MAX_LIFE = Duration.ofHours(12);
+    /** Ended token rows are kept a week for debugging, then deleted. */
+    static final Duration LIVE_ACTIVITY_RETENTION = Duration.ofDays(7);
+
     public ActivationExpirySweepService(
             PlanActivationRepo activationRepo,
             PlanActivationAckRepo ackRepo,
@@ -116,6 +133,31 @@ public class ActivationExpirySweepService {
             log.warn("ActivationExpirySweep: tick failed: {}", e.getMessage(), e);
             try { Sentry.captureException(e); } catch (Throwable ignored) {}
         }
+        // Its own try/catch, for the same reason as the two passes above.
+        try {
+            sweepLiveActivityTokens(Instant.now());
+        } catch (Exception e) {
+            log.warn("ActivationExpirySweep: live activity token sweep failed: {}", e.getMessage(), e);
+            try { Sentry.captureException(e); } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * Retire per-activity tokens no activity can still be using (untouched
+     * for {@link #LIVE_ACTIVITY_MAX_LIFE}; a rotation touches the row), and
+     * delete rows ended more than {@link #LIVE_ACTIVITY_RETENTION} ago.
+     * Push-to-start tokens are per device and stay until rotated or ended.
+     *
+     * @return {retired, deleted}
+     */
+    int[] sweepLiveActivityTokens(Instant now) {
+        if (liveActivityTokens == null) return new int[]{0, 0};
+        int retired = liveActivityTokens.endStaleUpdateTokens(now.minus(LIVE_ACTIVITY_MAX_LIFE), now);
+        int deleted = liveActivityTokens.deleteEndedBefore(now.minus(LIVE_ACTIVITY_RETENTION));
+        if (retired > 0 || deleted > 0) {
+            log.info("ActivationExpirySweep: live activity tokens retired={} deleted={}", retired, deleted);
+        }
+        return new int[]{retired, deleted};
     }
 
     /**

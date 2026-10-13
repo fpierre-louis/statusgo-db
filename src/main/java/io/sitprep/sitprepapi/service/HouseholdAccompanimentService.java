@@ -151,16 +151,34 @@ public class HouseholdAccompanimentService {
 
     private void broadcastAfterCommit(String householdId, HouseholdAccompanimentDto dto) {
         registerAfterCommit(() -> ws.sendHouseholdAccompanimentUpdate(householdId, dto));
+        touchLiveActivity(householdId);
     }
 
     private void broadcastDeletionAfterCommit(String householdId, String kind, String id) {
         registerAfterCommit(() -> ws.sendHouseholdAccompanimentRelease(
                 householdId, Map.of("accompaniedKind", kind, "accompaniedId", id)));
+        touchLiveActivity(householdId);
     }
 
     private void broadcastListAfterCommit(String householdId) {
         registerAfterCommit(() -> ws.sendHouseholdAccompanimentReplaceAll(
                 householdId, list(householdId)));
+        touchLiveActivity(householdId);
+    }
+
+    // Live Activity updates (live_activities P1): "with me" accounts for a
+    // manual member, so it moves the household card's counts. Setter-injected;
+    // null in hand-built tests.
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
+    private void touchLiveActivity(String householdId) {
+        final LiveActivityPushService la = liveActivities;
+        if (la != null) registerAfterCommit(() -> la.situationChanged(householdId));
     }
 
     private static void registerAfterCommit(Runnable r) {

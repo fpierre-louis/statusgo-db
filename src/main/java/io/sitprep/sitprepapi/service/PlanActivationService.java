@@ -97,6 +97,37 @@ public class PlanActivationService {
         this.groupService = groupService;
     }
 
+    // Live Activity updates (live_activities P1): the plan flag and the pickup
+    // count ride on the household's situation card. Setter-injected so the
+    // tests that build this service by hand stay unchanged; null there.
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
+    /**
+     * Ask for one coalesced update of the household card(s) this activation
+     * touches: the household the check-in was started on ({@link #householdOf},
+     * which is what {@link #alsoStartCheckIn} used) and the one the row names,
+     * when they differ. The push service skips a household with no running
+     * check-in or no card. Never throws.
+     */
+    private void touchLiveActivity(PlanActivation a) {
+        if (liveActivities == null || a == null) return;
+        try {
+            Set<String> ids = new LinkedHashSet<>();
+            Group hh = householdOf(a.getOwnerEmail());
+            if (hh != null && hh.getGroupId() != null) ids.add(hh.getGroupId());
+            String stamped = resolveHouseholdIdFor(a);
+            if (stamped != null) ids.add(stamped);
+            ids.forEach(liveActivities::situationChanged);
+        } catch (Exception e) {
+            log.warn("Live Activity update could not be queued for activation {}: {}", a.getId(), e.getMessage());
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Create
     // ---------------------------------------------------------------------
@@ -295,6 +326,8 @@ public class PlanActivationService {
         } catch (Exception e) {
             log.error("Activation event log failed id={} state={}", a.getId(), state, e);
         }
+        // Started, ended or timed out: the card's plan flag may have flipped.
+        touchLiveActivity(a);
     }
 
     /** The frame, the log row, and the push that the end never had. */
@@ -1175,6 +1208,8 @@ public class PlanActivationService {
                     log.error("WS broadcast failed for ack activationId={} recipient={}",
                             activationId, recipientEmail, e);
                 }
+                // A pickup ack moves the card's "N asked for pickup" line.
+                touchLiveActivity(activation);
             }
         });
 

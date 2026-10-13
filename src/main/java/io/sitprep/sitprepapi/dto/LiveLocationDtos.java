@@ -22,7 +22,14 @@ public final class LiveLocationDtos {
             Instant startedAt,
             Instant expiresAt,
             Instant stoppedAt,
-            String uploadToken
+            String uploadToken,
+            /**
+             * Who sees this share, as the sharer's own words for it: the
+             * group's name ("Plouis household"), "A and B", or "A and 2 other
+             * groups". Drawn on the sharer's own Live Activity; never a
+             * person's name.
+             */
+            String audienceLabel
     ) {}
 
     public record LiveLocationPointRequest(

@@ -99,6 +99,15 @@ public class UserInfoService {
     private final LocationPresenceService presence;
     private final HouseholdProvisioningService householdProvisioning;
 
+    // Live Activity updates (live_activities P1). Setter-injected so the tests
+    // that build this service by hand stay unchanged; null there.
+    private LiveActivityPushService liveActivities;
+
+    @Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
@@ -539,12 +548,27 @@ public class UserInfoService {
             // reachable from two paths instead of one. Same shape as
             // `HouseholdEventService.broadcastAfterCommit` and
             // `PlanActivationService.endActivation`.
+            // Groups whose check-in is running: their Live Activity cards count
+            // this answer. Reached only by an APPLIED write: the stale-replay
+            // guard above returns before this point. A same-value answer still
+            // counts (SAFE again after the start makes the member accounted).
+            final List<String> activeCheckInGroupIds = groups.stream()
+                    .filter(g -> "Active".equalsIgnoreCase(g.getAlert()))
+                    .map(Group::getGroupId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            final LiveActivityPushService la = liveActivities;
             Runnable broadcast = () -> {
                 for (String householdId : householdIds) {
                     ws.sendHouseholdMemberStatus(householdId, frame);
                 }
                 for (String groupId : groupIds) {
                     ws.sendGroupMemberStatus(groupId, frame);
+                }
+                if (la != null) {
+                    // Coalesced and asynchronous; never throws.
+                    activeCheckInGroupIds.forEach(la::situationChanged);
                 }
             };
             if (TransactionSynchronizationManager.isSynchronizationActive()) {

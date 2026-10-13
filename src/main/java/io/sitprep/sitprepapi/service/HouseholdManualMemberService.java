@@ -208,6 +208,20 @@ public class HouseholdManualMemberService {
      * 403 for anyone else in the household, 404 when the member is not in it,
      * 400 for any other value.
      */
+    // Live Activity updates (live_activities P1): a manual member's status
+    // moves the household card's counts. Setter-injected; null in hand-built tests.
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
+    private void touchLiveActivity(String householdId) {
+        final LiveActivityPushService la = liveActivities;
+        if (la != null) broadcastAfterCommit(() -> la.situationChanged(householdId));
+    }
+
     @Transactional
     public HouseholdManualMemberDto setStatus(String householdId, String id, String status, String actorEmail) {
         Group g = requireCanSetStatus(householdId, actorEmail);
@@ -226,6 +240,7 @@ public class HouseholdManualMemberService {
         events.recordStatusSetForManualMember(householdId, actor, saved.getId(), saved.getName(), value);
         HouseholdManualMemberDto dto = toDto(saved, statusContext(g));
         broadcastAfterCommit(() -> ws.sendHouseholdManualMemberUpdate(householdId, dto));
+        touchLiveActivity(householdId);
         return dto;
     }
 
@@ -246,6 +261,7 @@ public class HouseholdManualMemberService {
         }
         HouseholdManualMemberDto dto = toDto(saved, statusContext(g));
         broadcastAfterCommit(() -> ws.sendHouseholdManualMemberUpdate(householdId, dto));
+        if (had) touchLiveActivity(householdId);
         return dto;
     }
 

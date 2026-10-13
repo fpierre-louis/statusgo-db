@@ -14,7 +14,9 @@ public record CheckInRollupDto(
         int help,
         int injured,
         int missing,
-        List<Member> members
+        List<Member> members,
+        /** When the running check-in ends by itself (the decay window); null when none is running. */
+        Instant alertExpiresAt
 ) {
     public record Member(
             String email,

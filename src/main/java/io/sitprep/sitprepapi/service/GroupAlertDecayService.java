@@ -86,6 +86,15 @@ public class GroupAlertDecayService {
     @Value("${app.groupAlert.sweepBatchSize:100}")
     private int sweepBatchSize;
 
+    // Live Activity end pushes (live_activities P1). Setter-injected so tests
+    // that build this service by hand stay unchanged; null there.
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiveActivities(LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
     public GroupAlertDecayService(GroupRepo groupRepo,
                                   HouseholdEventService householdEventService,
                                   UserInfoRepo userInfoRepo,
@@ -133,7 +142,11 @@ public class GroupAlertDecayService {
 
         Instant now = Instant.now();
         List<GroupAlertFrame> frames = new ArrayList<>();
+        // groupId → the start of the check-in being decayed, captured before the
+        // clear so the Live Activity's ended card counts against it.
+        java.util.Map<String, Instant> endedStarts = new java.util.LinkedHashMap<>();
         for (Group g : stale) {
+            endedStarts.put(g.getGroupId(), g.getAlertActivatedAt());
             g.setAlert(null);
             g.setActiveHazardType(null);
             g.setAlertActivatedAt(null);
@@ -145,7 +158,8 @@ public class GroupAlertDecayService {
                     "Cleared",
                     null,
                     "system",
-                    "decay"
+                    "decay",
+                    null
             ));
 
             if (HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) {
@@ -178,6 +192,12 @@ public class GroupAlertDecayService {
             @Override public void afterCommit() {
                 for (GroupAlertFrame frame : frames) {
                     webSocketMessageSender.sendGroupAlertStatus(frame.groupId(), frame);
+                }
+                // Each decayed check-in's card gets its final state ("Ended
+                // automatically after 48 h"). Asynchronous; never throws.
+                if (liveActivities != null) {
+                    endedStarts.forEach((gid, startedAt) -> liveActivities.situationEnded(
+                            gid, startedAt, LiveActivityStateBuilder.REASON_DECAY, null));
                 }
             }
         });
