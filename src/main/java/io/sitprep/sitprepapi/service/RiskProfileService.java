@@ -53,27 +53,30 @@ public class RiskProfileService {
     private static final double ALERT_RADIUS_MI = 50.0;
     private static final int MAX_ACTIVE_ALERTS = 5;
 
-    /** Backend-authored, hazard-specific life-safety action for an ACTIVE alert. */
-    private static final Map<String, String> ALERT_ACTION = Map.of(
-            "tornado", "Take cover now in an interior room on the lowest floor, away from windows.",
-            "hurricane", "Follow evacuation orders now. If sheltering, move to an interior room away from windows.",
-            "flood", "Move to higher ground immediately. Never drive or walk through flood water.",
-            "wildfire", "Be ready to leave now — evacuate immediately if you feel unsafe or are told to go.",
-            "blizzard", "Stay indoors and off the roads. Keep heat and a backup source ready.",
-            "extreme_heat", "Move to a cool space, drink water, and check on vulnerable household members.",
-            "earthquake", "Drop, cover, and hold on. Move away from windows and expect aftershocks.",
-            "other", "Follow official guidance and monitor local alerts.");
+    /**
+     * The act-now row's text when SitPrep has no reviewed guidance for the
+     * alert. It sends the reader to the issuer's words instead of restating
+     * them: an "act now" row is the wrong place to truncate or paraphrase an
+     * official instruction, and the wrong place for us to fill a gap with our own.
+     */
+    static final String OPEN_OFFICIAL_INSTRUCTIONS = "Open the alert for the official instructions.";
+
+    /** The only tier that is "act now". A watch is a prepare message. */
+    private static final String TIER_WARNING = "warning";
 
     private final UserSavedLocationService savedLocationService;
     private final UserInfoRepo userInfoRepo;
     private final AlertIngestService alertIngestService;
+    private final AlertDispatchService alertDispatchService;
 
     public RiskProfileService(UserSavedLocationService savedLocationService,
                               UserInfoRepo userInfoRepo,
-                              AlertIngestService alertIngestService) {
+                              AlertIngestService alertIngestService,
+                              AlertDispatchService alertDispatchService) {
         this.savedLocationService = savedLocationService;
         this.userInfoRepo = userInfoRepo;
         this.alertIngestService = alertIngestService;
+        this.alertDispatchService = alertDispatchService;
     }
 
     // ---------------------------------------------------------------------
@@ -153,16 +156,23 @@ public class RiskProfileService {
                     }
                 });
 
-        // Live active alerts (NWS/USGS) near this location → priority-0 "act now"
+        // Live WARNING-tier alerts near this location → priority-0 "act now"
         // upgrades that float above every recurring risk_added item after the sort.
+        // Watches and advisories stay in activeAlerts but never upgrade: telling
+        // someone to act now on a "this could happen" message is the watch acquiring
+        // warning-level tone, which is the one thing the tier exists to prevent.
         List<ActiveAlertDto> activeAlerts = activeAlertsFor(coords);
         for (ActiveAlertDto a : activeAlerts) {
+            if (!TIER_WARNING.equals(a.tier())) continue;
             String key = "active_alert_" + a.hazard();
             if (!seenReqKeys.add(key)) continue; // one upgrade per hazard type
+            boolean reviewed = a.whatToDo() != null;
             reqs.add(new RiskAdjustedRequirementDto(
                     key, a.hazard(),
-                    HAZARD_LABEL.getOrDefault(a.hazard(), "Hazard") + " alert in effect — act now",
-                    a.instruction(), 0, "Safety steps", homeHazardDetailRoute(a), "active_alert_upgraded"));
+                    actNowName(a) + " in effect — act now",
+                    reviewed ? a.whatToDo() : OPEN_OFFICIAL_INSTRUCTIONS,
+                    0, reviewed ? "Safety steps" : "Open alert",
+                    homeHazardDetailRoute(a), "active_alert_upgraded"));
         }
 
         reqs.sort(Comparator.comparingInt(RiskAdjustedRequirementDto::priority));
@@ -201,6 +211,13 @@ public class RiskProfileService {
      * Active Severe/Extreme hazard alerts currently in effect at the
      * household's coordinates, from the in-memory ingest cache.
      *
+     * <p><b>In force only.</b> Rows go through {@link AlertSafetyPolicy} the
+     * way the feed's rows do: a SUPPRESS decision (cancelled, all-clear, past,
+     * expired, test/exercise) is not an active alert, and neither is a message
+     * whose replacement is in the snapshot. Both used to ship here — a
+     * cancelled Tornado Warning inside its {@code endsAt} window carried
+     * "Take cover now" as a current instruction.</p>
+     *
      * <p><b>Location-verified only</b> — an alert somewhere else must never
      * upgrade this household's readiness to "act now". The definition of
      * "verified" changed with audit P0-4: it used to mean
@@ -222,11 +239,18 @@ public class RiskProfileService {
         AlertIngestService.Snapshot snap =
                 alertIngestService.getSnapshotForPoint(coords[0], coords[1], ALERT_RADIUS_MI);
         if (snap == null || snap.alerts() == null) return List.of();
+        // Built from the WHOLE snapshot, as the feed does: a replacement need not
+        // match this point for the message it replaces to be over.
+        AlertIngestService.Snapshot whole = alertIngestService.getSnapshot();
+        Map<String, AlertIngestService.NormalizedAlert> supersededBy = AlertDerivations.supersessionIndex(
+                whole != null && whole.alerts() != null ? whole.alerts() : snap.alerts());
         return snap.alerts().stream()
                 .filter(a -> !"FEMA".equalsIgnoreCase(a.source()))   // recovery context, not an active threat
                 .filter(a -> isSevereOrExtreme(a.severity()))
-                .limit(MAX_ACTIVE_ALERTS)
-                .map(RiskProfileService::toActiveAlert)
+                .filter(a -> a.id() == null || !supersededBy.containsKey(a.id()))
+                .map(this::toActiveAlert)
+                .flatMap(Optional::stream)
+                .limit(MAX_ACTIVE_ALERTS)                            // after the gate, so a cancelled row can't take a slot
                 .collect(Collectors.toList());
     }
 
@@ -234,12 +258,38 @@ public class RiskProfileService {
         return "Severe".equalsIgnoreCase(severity) || "Extreme".equalsIgnoreCase(severity);
     }
 
-    private static ActiveAlertDto toActiveAlert(AlertIngestService.NormalizedAlert a) {
-        String hazard = inferHazard(a);
-        return new ActiveAlertDto(a.id(), a.source(), a.severity(), hazard,
+    /**
+     * One alert, with its text decided by the same template + policy path as
+     * the feed card ({@code AlertFeedService.toCard}): {@code whatToDo} only
+     * when the decision allows SitPrep guidance, and the issuer's instruction
+     * passed through untouched. Empty when the policy suppresses the alert.
+     */
+    private Optional<ActiveAlertDto> toActiveAlert(AlertIngestService.NormalizedAlert a) {
+        AlertDispatchService.DispatchTemplate tpl = alertDispatchService.matchForAlert(a).orElse(null);
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(a, tpl);
+        if (decision.dispatchMode() == AlertSafetyPolicy.DispatchMode.SUPPRESS) return Optional.empty();
+        String whatToDo = decision.allowsSitPrepGuidance()
+                ? blankToNull(AlertDispatchService.fillBody(tpl, a))
+                : null;
+        return Optional.of(new ActiveAlertDto(a.id(), a.source(), a.severity(), inferHazard(a),
                 a.headline(), a.area(),
-                ALERT_ACTION.getOrDefault(hazard, ALERT_ACTION.get("other")),
-                a.startedAt(), a.endsAt(), a.event());
+                blankToNull(a.instruction()),
+                a.startedAt(), a.endsAt(), a.event(),
+                whatToDo,
+                AlertFeedService.tierOf(a, tpl),
+                decision.guidanceMode().wire(),
+                AlertDerivations.issuerOf(a)));
+    }
+
+    /**
+     * The act-now row's name: the issuer's product name ("Tornado Warning")
+     * when there is one, so the row names the alert rather than our guess at
+     * its hazard. USGS sends no product name; its hazard key comes from the
+     * source, not from keywords.
+     */
+    private static String actNowName(ActiveAlertDto a) {
+        if (notBlank(a.event())) return a.event().trim();
+        return HAZARD_LABEL.getOrDefault(a.hazard(), "Hazard") + " alert";
     }
 
     private static String homeHazardDetailRoute(ActiveAlertDto alert) {
@@ -251,7 +301,15 @@ public class RiskProfileService {
                 + URLEncoder.encode(key, StandardCharsets.UTF_8);
     }
 
-    /** Map an alert to a hazard key — USGS ⇒ earthquake, else headline keywords. */
+    /**
+     * Map an alert to a hazard key — USGS ⇒ earthquake, else headline keywords.
+     *
+     * <p>For the icon, the requirement key and its one-per-hazard dedupe ONLY.
+     * It used to select a hand-written life-safety sentence, which is how a
+     * Flood Watch got "Move to higher ground immediately": a keyword guess is
+     * fine for picking a glyph and never fine for deciding what to tell
+     * someone to do.</p>
+     */
     private static String inferHazard(AlertIngestService.NormalizedAlert a) {
         if ("USGS".equalsIgnoreCase(a.source())) return "earthquake";
         String h = a.headline() == null ? "" : a.headline().toLowerCase(Locale.ROOT);
@@ -315,6 +373,10 @@ public class RiskProfileService {
 
     private static boolean notBlank(String s) {
         return s != null && !s.trim().isEmpty();
+    }
+
+    private static String blankToNull(String s) {
+        return notBlank(s) ? s : null;
     }
 
     // ---------------------------------------------------------------------

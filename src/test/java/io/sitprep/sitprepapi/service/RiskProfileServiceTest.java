@@ -3,16 +3,21 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.domain.UserSavedLocation;
+import io.sitprep.sitprepapi.dto.AlertCardDto;
+import io.sitprep.sitprepapi.dto.RiskProfileDtos.ActiveAlertDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskAdjustedRequirementDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Field;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +31,11 @@ import static org.mockito.Mockito.when;
  * Location-Based Risk Engine (Phase 1 MVP) guards: the exact resolution
  * precedence (saved_home → household_zip → last_known_zip → unknown), the
  * static hazard rule engine, and the pure zip/state resolvers.
+ *
+ * <p>The live-alert half runs against the REAL dispatch templates and the real
+ * {@link AlertSafetyPolicy}, not a mock: owner ruling R2 (2026-10-13) is that
+ * Home's alert text comes from the same policy-gated path as the feed card, and
+ * a mocked template would only prove the wiring, not the gate.</p>
  */
 @ExtendWith(MockitoExtension.class)
 class RiskProfileServiceTest {
@@ -34,8 +44,27 @@ class RiskProfileServiceTest {
     @Mock UserInfoRepo userInfoRepo;
     @Mock AlertIngestService alertIngestService;
 
+    private static AlertDispatchService dispatch;
+    private static AlertFeedService feed;
+
+    /** Far future, so the lifecycle gate never ages a fixture out under a real clock. */
+    private static final String IN_FORCE_UNTIL = "2099-01-01T00:00:00Z";
+
+    /** The strings the deleted ALERT_ACTION map authored. None may reappear anywhere. */
+    private static final List<String> RETIRED_DIRECTIVES = List.of(
+            "Take cover now", "Follow evacuation orders now", "Move to higher ground immediately",
+            "evacuate immediately", "Stay indoors and off the roads", "Drop, cover, and hold on",
+            "Follow official guidance and monitor local alerts");
+
+    @BeforeAll
+    static void loadTemplates() {
+        dispatch = new AlertDispatchService(null, null, null, null, null, null, null, null);
+        dispatch.loadTemplates();
+        feed = new AlertFeedService(null, dispatch);
+    }
+
     private RiskProfileService service() {
-        return new RiskProfileService(savedLocationService, userInfoRepo, alertIngestService);
+        return new RiskProfileService(savedLocationService, userInfoRepo, alertIngestService, dispatch);
     }
 
     private static Group group(String zip) {
@@ -80,37 +109,209 @@ class RiskProfileServiceTest {
 
     // --- Live active-alert upgrade -------------------------------------
 
-    @Test
-    void activeSevereAlert_addsActiveAlert_andPriorityZeroUpgrade() {
+    /** Home in Oklahoma City with the given alerts in the point snapshot. */
+    private void homeWithAlerts(AlertIngestService.NormalizedAlert... alerts) {
         UserSavedLocation home = savedHome("Oklahoma", "730");
         home.setLatitude(35.46);
         home.setLongitude(-97.51);
         when(savedLocationService.homeFor("owner@x.com")).thenReturn(Optional.of(home));
-        AlertIngestService.NormalizedAlert alert = TestAlerts.nws("Tornado Warning")
-                .id("X1")
-                .headline("Tornado Warning for Oklahoma County")
-                .description("A tornado warning is in effect.")
-                .area("Oklahoma County, OK")
-                .startedAt("2026-07-09T21:00:00Z").endsAt("2026-07-09T21:30:00Z")
-                .geometry(Map.of("type", "Polygon"))
-                .ugc(List.of("OKC109")).same(List.of("040109"))
-                .build();
+        AlertIngestService.Snapshot snap =
+                new AlertIngestService.Snapshot(List.of(alerts), Instant.EPOCH, Instant.EPOCH);
         when(alertIngestService.getSnapshotForPoint(anyDouble(), anyDouble(), anyDouble()))
-                .thenReturn(new AlertIngestService.Snapshot(List.of(alert), Instant.EPOCH, Instant.EPOCH));
+                .thenReturn(snap);
+        lenient().when(alertIngestService.getSnapshot()).thenReturn(snap);
+    }
+
+    private static List<RiskAdjustedRequirementDto> actNow(RiskProfileDto p) {
+        return p.riskAdjustedRequirements().stream()
+                .filter(r -> "active_alert_upgraded".equals(r.origin()))
+                .toList();
+    }
+
+    /** Every string the profile ships, so a retired directive cannot hide in any field. */
+    private static String allText(RiskProfileDto p) {
+        StringBuilder sb = new StringBuilder();
+        for (ActiveAlertDto a : p.activeAlerts()) {
+            sb.append(a.headline()).append('|').append(a.instruction()).append('|')
+                    .append(a.whatToDo()).append('|');
+        }
+        for (RiskAdjustedRequirementDto r : p.riskAdjustedRequirements()) {
+            sb.append(r.label()).append('|').append(r.detail()).append('|').append(r.cta()).append('|');
+        }
+        return sb.toString();
+    }
+
+    private static AlertCardDto cardFor(AlertIngestService.NormalizedAlert a) {
+        return feed.toCard(a, AlertIngestService.MatchType.ZONE, 50);
+    }
+
+    @Test
+    void alertActionMap_isGone() {
+        // R2(a): the hand-written hazard→directive map is deleted, not just unused.
+        assertThat(Arrays.stream(RiskProfileService.class.getDeclaredFields()).map(Field::getName))
+                .doesNotContain("ALERT_ACTION");
+    }
+
+    @Test
+    void severeFloodWatch_noActNow_noAuthoredDirective_instructionVerbatim() {
+        // Flood Watch ships at Severe (it passes the Severe/Extreme filter, which
+        // is how it used to get "Move to higher ground immediately" as its
+        // `instruction` and an "act now" row). A watch is a prepare message.
+        String verbatim = "You should monitor later forecasts and be alert for possible "
+                + "Flood Warnings.";
+        AlertIngestService.NormalizedAlert withText = TestAlerts.nwsWatch("Flood Watch")
+                .id("FW1").instruction(verbatim).endsAt(IN_FORCE_UNTIL)
+                .ugc(List.of("OKZ025")).build();
+        AlertIngestService.NormalizedAlert noText = TestAlerts.nwsWatch("Flood Watch")
+                .id("FW2").instruction(null).endsAt(IN_FORCE_UNTIL)
+                .ugc(List.of("OKZ026")).build();
+        homeWithAlerts(withText, noText);
 
         RiskProfileDto p = service().resolveFor(group(null));
 
-        // Live alert surfaced, hazard inferred, backend-authored action attached.
+        assertThat(p.activeAlerts()).hasSize(2);
+        ActiveAlertDto a = p.activeAlerts().get(0);
+        assertThat(a.tier()).isEqualTo("watch");
+        assertThat(a.instruction()).isEqualTo(verbatim);
+        assertThat(p.activeAlerts().get(1).instruction()).isNull();
+        // Whatever SitPrep says is the reviewed watch copy the feed card says —
+        // the same policy path, not a second opinion — and nothing else.
+        assertThat(a.whatToDo()).isEqualTo(cardFor(withText).whatToDo());
+        assertThat(a.issuer()).isEqualTo("the National Weather Service (NOAA)");
+        assertThat(actNow(p)).as("a watch never produces an act-now row").isEmpty();
+        assertThat(allText(p)).doesNotContain(RETIRED_DIRECTIVES.toArray(String[]::new));
+    }
+
+    @Test
+    void officialOnlyWarning_verbatimInstruction_noWhatToDo_neutralActNow() {
+        // Fire Warning is approved as official_only: the issuer's words, never ours.
+        String verbatim = "Evacuate now via Highway 9 eastbound. Do not return until "
+                + "authorities say it is safe.";
+        AlertIngestService.NormalizedAlert a = TestAlerts.nws("Fire Warning")
+                .id("FIRE1").severity("Extreme").response("Evacuate")
+                .instruction(verbatim).endsAt(IN_FORCE_UNTIL).build();
+        homeWithAlerts(a);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        ActiveAlertDto dto = p.activeAlerts().get(0);
+        assertThat(dto.instruction()).isEqualTo(verbatim);
+        assertThat(dto.whatToDo()).isNull();
+        assertThat(dto.guidanceMode()).isEqualTo("official_only");
+        assertThat(dto.tier()).isEqualTo("warning");
+        assertThat(dto.issuer()).isEqualTo("the National Weather Service (NOAA)");
+
+        // Still a warning, so it is still act-now — but the row points at the
+        // issuer's instructions rather than restating or inventing them.
+        assertThat(actNow(p)).hasSize(1);
+        RiskAdjustedRequirementDto row = actNow(p).get(0);
+        assertThat(row.detail()).isEqualTo("Open the alert for the official instructions.");
+        assertThat(row.label()).isEqualTo("Fire Warning in effect — act now");
+        assertThat(row.route()).isEqualTo("/hazards?scope=home&alert=NWS%3AFIRE1");
+        assertThat(allText(p)).doesNotContain(RETIRED_DIRECTIVES.toArray(String[]::new));
+    }
+
+    @Test
+    void hurricaneWarningWithEvacInstruction_reviewedWhatToDo_separateFromVerbatim() {
+        String verbatim = "Evacuate now if you are in zones A or B. Follow the routes "
+                + "given by Miami-Dade Emergency Management.";
+        AlertIngestService.NormalizedAlert a = TestAlerts.nws("Hurricane Warning")
+                .id("HU1").severity("Extreme").response("Evacuate")
+                .instruction(verbatim).endsAt(IN_FORCE_UNTIL).build();
+        homeWithAlerts(a);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        ActiveAlertDto dto = p.activeAlerts().get(0);
+        String reviewed = cardFor(a).whatToDo();
+        assertThat(reviewed).as("the approved Hurricane Warning template covers Evacuate").isNotBlank();
+        assertThat(dto.whatToDo()).isEqualTo(reviewed);
+        assertThat(dto.instruction()).isEqualTo(verbatim);
+        assertThat(dto.whatToDo()).isNotEqualTo(dto.instruction());
+        assertThat(dto.guidanceMode()).isEqualTo("supplement_official");
+        assertThat(dto.tier()).isEqualTo("warning");
+        assertThat(dto.hazard()).isEqualTo("hurricane");
+
+        RiskAdjustedRequirementDto row = actNow(p).get(0);
+        assertThat(row.detail()).isEqualTo(reviewed);
+        assertThat(row.priority()).isZero();
+        assertThat(allText(p)).doesNotContain(RETIRED_DIRECTIVES.toArray(String[]::new));
+    }
+
+    /*
+     * Replaces activeSevereAlert_addsActiveAlert_andPriorityZeroUpgrade, which
+     * asserted `instruction` contained "Take cover" — i.e. it locked in the
+     * SitPrep-authored ALERT_ACTION text that R2 removes, under the CAP field
+     * name. What it pinned that is still true is kept: the alert surfaces, the
+     * hazard key, the priority-0 row on top, the source-qualified deep link.
+     */
+    @Test
+    void tornadoWarning_addsActiveAlert_andPriorityZeroUpgrade_fromReviewedCopy() {
+        String verbatim = "TAKE COVER NOW! Move to a basement or an interior room on the "
+                + "lowest floor of a sturdy building.";
+        AlertIngestService.NormalizedAlert alert = TestAlerts.nws("Tornado Warning")
+                .id("X1").response("Shelter")
+                .headline("Tornado Warning for Oklahoma County")
+                .description("A tornado warning is in effect.")
+                .instruction(verbatim)
+                .area("Oklahoma County, OK")
+                .startedAt("2026-07-09T21:00:00Z").endsAt(IN_FORCE_UNTIL)
+                .geometry(Map.of("type", "Polygon"))
+                .ugc(List.of("OKC109")).same(List.of("040109"))
+                .build();
+        homeWithAlerts(alert);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
         assertThat(p.activeAlerts()).hasSize(1);
-        assertThat(p.activeAlerts().get(0).hazard()).isEqualTo("tornado");
-        assertThat(p.activeAlerts().get(0).severity()).isEqualTo("Severe");
-        assertThat(p.activeAlerts().get(0).instruction()).contains("Take cover");
+        ActiveAlertDto dto = p.activeAlerts().get(0);
+        assertThat(dto.hazard()).isEqualTo("tornado");
+        assertThat(dto.severity()).isEqualTo("Severe");
+        assertThat(dto.instruction()).isEqualTo(verbatim);
+        assertThat(dto.whatToDo()).isEqualTo(cardFor(alert).whatToDo()).isNotBlank();
         // Priority-0 active_alert_upgraded requirement floats above every risk_added item.
         RiskAdjustedRequirementDto top = p.riskAdjustedRequirements().get(0);
         assertThat(top.origin()).isEqualTo("active_alert_upgraded");
         assertThat(top.priority()).isZero();
         assertThat(top.hazard()).isEqualTo("tornado");
+        assertThat(top.detail()).isEqualTo(dto.whatToDo());
         assertThat(top.route()).isEqualTo("/hazards?scope=home&alert=NWS%3AX1");
+    }
+
+    @Test
+    void cancelledWarningInsideItsWindow_isNotAnActiveAlert() {
+        // A CAP Cancel still inside its endsAt window used to ship as an active
+        // alert with "Take cover now". It is a retraction, not a hazard.
+        AlertIngestService.NormalizedAlert cancelled = TestAlerts.nws("Tornado Warning")
+                .id("X9").messageType("Cancel").response("Shelter")
+                .instruction("The tornado warning has been cancelled.")
+                .endsAt(IN_FORCE_UNTIL).build();
+        homeWithAlerts(cancelled);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        assertThat(p.activeAlerts()).isEmpty();
+        assertThat(actNow(p)).isEmpty();
+    }
+
+    @Test
+    void replacedAlert_isDropped_whileItsReplacementShows() {
+        // Both ends of a CAP `references` edge in one snapshot: the old message is
+        // no longer in force, so it must not present its instruction as current.
+        AlertIngestService.NormalizedAlert old = TestAlerts.nws("Tornado Warning")
+                .id("OLD").response("Shelter").instruction("Old wording.")
+                .endsAt(IN_FORCE_UNTIL).build();
+        AlertIngestService.NormalizedAlert replacement = TestAlerts.nws("Tornado Warning")
+                .id("NEW").messageType("Update").response("Shelter").instruction("New wording.")
+                .references(List.of("OLD")).endsAt(IN_FORCE_UNTIL).build();
+        homeWithAlerts(old, replacement);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        assertThat(p.activeAlerts()).extracting(ActiveAlertDto::id).containsExactly("NEW");
+        assertThat(actNow(p)).singleElement()
+                .extracting(RiskAdjustedRequirementDto::route)
+                .isEqualTo("/hazards?scope=home&alert=NWS%3ANEW");
     }
 
     @Test
