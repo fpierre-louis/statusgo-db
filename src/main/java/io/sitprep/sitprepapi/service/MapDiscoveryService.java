@@ -2,6 +2,7 @@ package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.AgencyCapability;
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -136,28 +137,25 @@ public class MapDiscoveryService {
             Boolean canSendAreaAlerts = agency
                     ? AgencyAuthorizationService.hasCapability(g, AgencyCapability.SEND_AREA_ALERTS)
                     : null;
-            pois.add(new MapPoiDto(
-                    "group:" + g.getGroupId(),
-                    agency ? "agency" : "group",
-                    "proprietary:group",
-                    g.getGroupName(),
-                    lat, lng, round1(dist),
-                    verified, verifiedKind, memberCount,
-                    viewerRoleOf(g, viewer),
-                    agency && owner != null ? owner.getId() : null,
-                    g.getGroupType(),         // so the layer knows WHICH circle it is drawing
-                    null, null, null, null,   // aid fields
-                    null, null, null, null,   // external fields
+            pois.add(MapPoiDto.builder()
+                    .id("group:" + g.getGroupId())
+                    .family(agency ? "agency" : "group")
+                    .source("proprietary:group")
+                    .name(g.getGroupName())
+                    .lat(lat).lng(lng).distanceKm(round1(dist))
+                    .verified(verified)
+                    .verifiedKind(verifiedKind)
+                    .memberCount(memberCount)
+                    .viewerRole(viewerRoleOf(g, viewer))
+                    .ownerUserId(agency && owner != null ? owner.getId() : null)
+                    .groupType(g.getGroupType())   // so the layer knows WHICH circle it is drawing
                     // The circle's own uploaded logo, when it has one. Blank is
                     // normalised to null here rather than at the client: an
                     // empty string is a value, and a value means "draw it".
-                    blankToNull(g.getLogoImageUrl()),
-                    null,                     // priorityReason — posts only
-                    g.getCreatedAt(),
-                    null,                     // authorDisplayName — posts only
-                    canSendAreaAlerts,
-                    null                      // confirmations — not a "still here" target
-            ));
+                    .logoImageUrl(blankToNull(g.getLogoImageUrl()))
+                    .createdAt(g.getCreatedAt())
+                    .canSendAreaAlerts(canSendAreaAlerts)
+                    .build());
         }
 
         // ── Proprietary: mutual-aid Posts (z≥13 / neighborhood band) ──
@@ -173,23 +171,30 @@ public class MapDiscoveryService {
                 Double lng = p.getLongitude();
                 if (lat == null || lng == null) continue;
                 double dist = haversineKm(centerLat, centerLng, lat, lng);
-                pois.add(new MapPoiDto(
-                        "post:" + p.getId(),
-                        "aid",
-                        "proprietary:post",
-                        aidName(p),
-                        lat, lng, round1(dist),
-                        null, null, null, null, null,   // group/agency fields
-                        null,                           // groupType — aid posts are not circles
-                        p.getId(), p.getKind(), p.getDescription(), p.getPlaceLabel(),
-                        null, null, null, null,         // external fields
-                        null,                           // an aid post is not a circle
-                        p.getPriority() == Post.PostPriority.URGENT ? PRIORITY_POSTER_URGENT : null,
-                        p.getCreatedAt(),
-                        signedIn ? authorNames.get(authorKey(p)) : null,
-                        null,                           // canSendAreaAlerts — agencies only
-                        null                            // confirmations — attached after the cap
-                ));
+                // HR6: a hidden author is never named. Only HazardService sets
+                // the flag and "hazard" is not an aid kind, so no aid row has it
+                // today; this keeps the rule if that changes. The photo stays:
+                // it is not identity.
+                String author = signedIn && !PostService.authorHiddenFrom(p, viewer)
+                        ? authorNames.get(authorKey(p)) : null;
+                pois.add(MapPoiDto.builder()
+                        .id("post:" + p.getId())
+                        .family("aid")
+                        .source("proprietary:post")
+                        .name(aidName(p))
+                        .lat(lat).lng(lng).distanceKm(round1(dist))
+                        .postId(p.getId())
+                        .kind(p.getKind())
+                        .description(p.getDescription())
+                        .placeLabel(p.getPlaceLabel())
+                        .priorityReason(p.getPriority() == Post.PostPriority.URGENT ? PRIORITY_POSTER_URGENT : null)
+                        .createdAt(p.getCreatedAt())
+                        .authorDisplayName(author)
+                        // Signed-in only: the feed card that already shows
+                        // this photo is signed-in only. Confirmations are
+                        // attached after the cap.
+                        .imageUrl(signedIn ? firstImageUrl(p) : null)
+                        .build());
             }
         }
 
@@ -374,16 +379,26 @@ public class MapDiscoveryService {
 
     /** Copy a MapPoi with distanceKm filled in (records are immutable). */
     private static MapPoiDto withDistance(MapPoiDto p, Double distanceKm) {
-        return new MapPoiDto(
-                p.id(), p.family(), p.source(), p.name(),
-                p.lat(), p.lng(), distanceKm,
-                p.verified(), p.verifiedKind(), p.memberCount(), p.viewerRole(), p.ownerUserId(),
-                p.groupType(),
-                p.postId(), p.kind(), p.description(), p.placeLabel(),
-                p.category(), p.website(), p.externalMapUrl(), p.attribution(),
-                p.logoImageUrl(),
-                p.priorityReason(), p.createdAt(), p.authorDisplayName(), p.canSendAreaAlerts(),
-                p.confirmations());
+        return p.toBuilder().distanceKm(distanceKm).build();
+    }
+
+    /**
+     * The post's first photo as a public CDN URL, or null: the same key, through
+     * the same {@link PublicCdn#toPublicUrl}, that the feed card renders
+     * ({@code PostDto.fromEntity}). Only an http(s) result is sent; a
+     * {@code data:} or {@code blob:} key would be a megabyte in a map payload,
+     * and the feed would not load it either.
+     */
+    static String firstImageUrl(Post p) {
+        if (p == null || p.getImageKeys() == null) return null;
+        for (String k : p.getImageKeys()) {
+            if (k == null || k.isBlank()) continue;
+            String url = PublicCdn.toPublicUrl(k);
+            if (url == null) return null;
+            String lower = url.toLowerCase(java.util.Locale.ROOT);
+            return lower.startsWith("https://") || lower.startsWith("http://") ? url : null;
+        }
+        return null;
     }
 
     /** An empty string is a value, and a value means "draw it". Null means don't. */

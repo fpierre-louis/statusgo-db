@@ -142,16 +142,12 @@ public class OverpassService {
             String id = "overpass:" + el.path("type").asText("node") + "/" + el.path("id").asLong();
             String mapUrl = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
 
-            out.add(new MapPoiDto(
-                    id, family, "overpass", name,
-                    lat, lng, null,                 // distanceKm recomputed on read
-                    null, null, null, null, null,   // group/agency fields
-                    null,                           // groupType — OSM amenities are not circles
-                    null, null, null, null,         // aid fields
-                    category, website, mapUrl,
-                    "© OpenStreetMap contributors", // attribution — REQUIRED for external
-                    null                            // an OSM amenity has no SitPrep logo
-            ));
+            out.add(MapPoiDto.builder()
+                    .id(id).family(family).source("overpass").name(name)
+                    .lat(lat).lng(lng)                       // distanceKm recomputed on read
+                    .category(category).website(website).externalMapUrl(mapUrl)
+                    .attribution("© OpenStreetMap contributors") // REQUIRED for external
+                    .build());
         }
         return out;
     }

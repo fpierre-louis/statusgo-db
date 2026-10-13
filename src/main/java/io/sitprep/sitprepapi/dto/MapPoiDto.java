@@ -124,9 +124,60 @@ public record MapPoiDto(
          * Null when nobody has, and for every other family. Unrelated to the
          * post's "Me too" count.
          */
-        MapConfirmationDtos.ConfirmationSummary confirmations
+        MapConfirmationDtos.ConfirmationSummary confirmations,
+
+        // ── P2b (2026-10-13) — appended ──────────────────────────────────
+
+        /**
+         * Aid posts only: the post's first photo as a public CDN URL
+         * ({@code PublicCdn.toPublicUrl}), else null. The map draws it as the
+         * report card's photo (map pins v2). Signed-in viewers only, because
+         * the feed card that already shows this photo is signed-in only. It
+         * carries no author identity, so a hidden-author post may still have
+         * one. Null renders NO frame: the client draws the post's usual pin.
+         */
+        String imageUrl
 ) {
-    /** The pre-BE-5 shape: every appended field null. */
+    /*
+     * HOW TO BUILD ONE: {@code MapPoiDto.builder().id(..).family(..)...build()}.
+     *
+     * The canonical constructor stays public because Java requires it for a
+     * public record (and Jackson binds it when ExternalPoiCacheService reads a
+     * cached tile). Do NOT call it from service code: 28 positional arguments,
+     * twelve of them String, is how {@code ownerUserId:"Business"} shipped.
+     * MapPoiDtoJsonShapeTest has a source guard that fails the build on a new
+     * {@code new MapPoiDto(} outside this file.
+     */
+
+    /** A builder with every field null. */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /** A builder pre-filled with this row's fields (records are immutable). */
+    public Builder toBuilder() {
+        Builder b = new Builder();
+        b.id = id; b.family = family; b.source = source; b.name = name;
+        b.lat = lat; b.lng = lng; b.distanceKm = distanceKm;
+        b.verified = verified; b.verifiedKind = verifiedKind; b.memberCount = memberCount;
+        b.viewerRole = viewerRole; b.ownerUserId = ownerUserId; b.groupType = groupType;
+        b.postId = postId; b.kind = kind; b.description = description; b.placeLabel = placeLabel;
+        b.category = category; b.website = website; b.externalMapUrl = externalMapUrl;
+        b.attribution = attribution; b.logoImageUrl = logoImageUrl;
+        b.priorityReason = priorityReason; b.createdAt = createdAt;
+        b.authorDisplayName = authorDisplayName; b.canSendAreaAlerts = canSendAreaAlerts;
+        b.confirmations = confirmations; b.imageUrl = imageUrl;
+        return b;
+    }
+
+    /**
+     * The pre-BE-5 shape: every appended field null.
+     *
+     * @deprecated positional; use {@link #builder()}. Its one remaining caller
+     * is {@code PlanActivationService.planPoi}, left alone on 2026-10-13
+     * because another lane owned that file. Migrate it, then delete this.
+     */
+    @Deprecated
     public MapPoiDto(String id, String family, String source, String name,
                      Double lat, Double lng, Double distanceKm,
                      Boolean verified, String verifiedKind, Integer memberCount,
@@ -139,15 +190,73 @@ public record MapPoiDto(
                 postId, kind, description, placeLabel,
                 category, website, externalMapUrl, attribution,
                 logoImageUrl,
-                null, null, null, null, null);
+                null, null, null, null, null,
+                null);
     }
 
-    /** Copy with {@link #confirmations} set (records are immutable). */
+    /** Copy with {@link #confirmations} set. */
     public MapPoiDto withConfirmations(MapConfirmationDtos.ConfirmationSummary c) {
-        return new MapPoiDto(id, family, source, name, lat, lng, distanceKm,
-                verified, verifiedKind, memberCount, viewerRole, ownerUserId, groupType,
-                postId, kind, description, placeLabel,
-                category, website, externalMapUrl, attribution,
-                logoImageUrl, priorityReason, createdAt, authorDisplayName, canSendAreaAlerts, c);
+        return toBuilder().confirmations(c).build();
+    }
+
+    /** Named setters, one per component, so no two same-typed fields can swap. */
+    public static final class Builder {
+        private String id, family, source, name;
+        private Double lat, lng, distanceKm;
+        private Boolean verified;
+        private String verifiedKind;
+        private Integer memberCount;
+        private String viewerRole, ownerUserId, groupType;
+        private Long postId;
+        private String kind, description, placeLabel;
+        private String category, website, externalMapUrl, attribution;
+        private String logoImageUrl;
+        private String priorityReason;
+        private java.time.Instant createdAt;
+        private String authorDisplayName;
+        private Boolean canSendAreaAlerts;
+        private MapConfirmationDtos.ConfirmationSummary confirmations;
+        private String imageUrl;
+
+        private Builder() {}
+
+        public Builder id(String v) { id = v; return this; }
+        public Builder family(String v) { family = v; return this; }
+        public Builder source(String v) { source = v; return this; }
+        public Builder name(String v) { name = v; return this; }
+        public Builder lat(Double v) { lat = v; return this; }
+        public Builder lng(Double v) { lng = v; return this; }
+        public Builder distanceKm(Double v) { distanceKm = v; return this; }
+        public Builder verified(Boolean v) { verified = v; return this; }
+        public Builder verifiedKind(String v) { verifiedKind = v; return this; }
+        public Builder memberCount(Integer v) { memberCount = v; return this; }
+        public Builder viewerRole(String v) { viewerRole = v; return this; }
+        public Builder ownerUserId(String v) { ownerUserId = v; return this; }
+        public Builder groupType(String v) { groupType = v; return this; }
+        public Builder postId(Long v) { postId = v; return this; }
+        public Builder kind(String v) { kind = v; return this; }
+        public Builder description(String v) { description = v; return this; }
+        public Builder placeLabel(String v) { placeLabel = v; return this; }
+        public Builder category(String v) { category = v; return this; }
+        public Builder website(String v) { website = v; return this; }
+        public Builder externalMapUrl(String v) { externalMapUrl = v; return this; }
+        public Builder attribution(String v) { attribution = v; return this; }
+        public Builder logoImageUrl(String v) { logoImageUrl = v; return this; }
+        public Builder priorityReason(String v) { priorityReason = v; return this; }
+        public Builder createdAt(java.time.Instant v) { createdAt = v; return this; }
+        public Builder authorDisplayName(String v) { authorDisplayName = v; return this; }
+        public Builder canSendAreaAlerts(Boolean v) { canSendAreaAlerts = v; return this; }
+        public Builder confirmations(MapConfirmationDtos.ConfirmationSummary v) { confirmations = v; return this; }
+        public Builder imageUrl(String v) { imageUrl = v; return this; }
+
+        /** The ONE place the canonical constructor is called in order. */
+        public MapPoiDto build() {
+            return new MapPoiDto(id, family, source, name, lat, lng, distanceKm,
+                    verified, verifiedKind, memberCount, viewerRole, ownerUserId, groupType,
+                    postId, kind, description, placeLabel,
+                    category, website, externalMapUrl, attribution,
+                    logoImageUrl, priorityReason, createdAt, authorDisplayName, canSendAreaAlerts,
+                    confirmations, imageUrl);
+        }
     }
 }
