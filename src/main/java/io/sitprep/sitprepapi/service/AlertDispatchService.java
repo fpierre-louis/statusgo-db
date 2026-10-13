@@ -405,11 +405,20 @@ public class AlertDispatchService {
      *
      * <p><b>Resolution criteria</b> (any one triggers):</p>
      * <ul>
-     *   <li>Upstream alert no longer in {@code ingest.getSnapshot()}.</li>
+     *   <li>Upstream alert no longer in {@code ingest.getSnapshot()} <b>and
+     *       its source answered on the tick that built it</b>
+     *       ({@link AlertIngestService.Snapshot#freshlyPolled}).</li>
      *   <li>{@code AlertPost.expiresAt} has passed (defense in depth —
      *       guards against an upstream that keeps a stale alert active
-     *       past its declared {@code endsAt}).</li>
+     *       past its declared {@code endsAt}). This one needs no fresh poll:
+     *       it is the issuer's own end time, not an inference from the feed.</li>
      * </ul>
+     *
+     * <p><b>Why absence needs a fresh source</b> (Phase 3 D5). "Not in the
+     * snapshot" used to be read as "ended". A failed or malformed poll, or the
+     * empty snapshot a just-booted server holds before its first poll, then
+     * cancelled every live warning post it tracked — the feed un-pinned a
+     * Tornado Warning because NWS had a bad five minutes.</p>
      */
     @Transactional
     public int resolveOnce() {
@@ -444,7 +453,9 @@ public class AlertDispatchService {
                 boolean inActiveSet = activeIds.contains(alertId);
                 boolean expired = first.getExpiresAt() != null
                         && first.getExpiresAt().isBefore(now);
-                if (inActiveSet && !expired) continue;
+                boolean confirmedGone = !inActiveSet
+                        && snap != null && snap.freshlyPolled(sourceOfAlertId(alertId));
+                if (!confirmedGone && !expired) continue;
 
                 for (AlertPost ap : rows) {
                     try {
@@ -472,6 +483,13 @@ public class AlertDispatchService {
         return resolvedCount;
     }
 
+    /** {@code "NWS"} from {@code "NWS-urn:oid:..."} — the inverse of the {@code source + "-" + id} key. */
+    static String sourceOfAlertId(String alertId) {
+        if (alertId == null) return null;
+        int dash = alertId.indexOf('-');
+        return dash <= 0 ? null : alertId.substring(0, dash);
+    }
+
     // ---------------------------------------------------------------
     // Private helpers
     // ---------------------------------------------------------------
@@ -487,9 +505,9 @@ public class AlertDispatchService {
         // strip — replacing the old sticky top alert band.
         t.setKind("alert-update");
         boolean sitprepGuidance = decision != null && decision.allowsSitPrepGuidance();
-        t.setTitle(sitprepGuidance ? tpl.headline : officialTitle(a, tpl));
+        t.setTitle(sitprepGuidance ? tpl.headline : officialTitle(a));
         t.setDescription(fitDescription(sitprepGuidance ? fillBody(tpl, a) : officialBody(a)));
-        t.setPriority(PostPriority.URGENT);
+        t.setPriority(autoPostPriority(a, tpl));
         t.setStatus(PostStatus.OPEN);
         // DERIVED, NOT CAPTURED (V60). The alert's own end time has been on the
         // wire and stored on AlertPost.expiresAt all along — it was simply never
@@ -520,6 +538,27 @@ public class AlertDispatchService {
         // by `sourceKey` being non-null and machine-owned. A separate boolean
         // would be a third way to say the same thing.
         return t;
+    }
+
+    /**
+     * A dispatched post's priority, from its tier (Phase 3 R9): warning
+     * URGENT, watch MEDIUM, everything else LOW.
+     *
+     * <p>Every dispatched post used to be URGENT, so a Flood Watch ("flooding
+     * is possible") ranked with a Tornado Warning ("take cover now") — the
+     * Watch borrowed warning-level weight from a constant. Tier comes from the
+     * template, else from the product name via the one structured helper the
+     * feed card uses ({@link AlertFeedService#tierOf}), so the post and the
+     * card cannot disagree.</p>
+     */
+    static PostPriority autoPostPriority(NormalizedAlert a, DispatchTemplate tpl) {
+        if (a == null && tpl == null) return PostPriority.LOW;
+        String tier = tpl != null && tpl.tier != null
+                ? tpl.tier
+                : (a == null ? null : AlertFeedService.tierOf(a, null));
+        if (TIER_WARNING.equalsIgnoreCase(tier)) return PostPriority.URGENT;
+        if ("watch".equalsIgnoreCase(tier)) return PostPriority.MEDIUM;
+        return PostPriority.LOW;
     }
 
     /** Fill a missing area on an already-dispatched row (V89). Best-effort. */
@@ -960,7 +999,7 @@ public class AlertDispatchService {
         String title = sitprepGuidance
                 ? (tpl != null && tpl.headline != null && !tpl.headline.isBlank()
                     ? tpl.headline : "Severe weather alert nearby")
-                : officialTitle(a, tpl);
+                : officialTitle(a);
         String body = truncate(buildPushBody(a, tpl, decision), 160);
         String referenceId = a.source() + "-" + a.id();
         String data = hazardNotificationData(a, decision);
@@ -1116,10 +1155,16 @@ public class AlertDispatchService {
         return officialBody(a);
     }
 
-    private static String officialTitle(NormalizedAlert a, DispatchTemplate tpl) {
+    /**
+     * The title when SitPrep guidance is withheld: the issuer's own words or a
+     * neutral label. Never {@code tpl.headline} — that is SitPrep copy, and
+     * this is the path that exists because SitPrep copy is not allowed here.
+     * (It used to be the third fallback; unreachable in practice, wrong in
+     * principle.)
+     */
+    static String officialTitle(NormalizedAlert a) {
         if (a != null && a.event() != null && !a.event().isBlank()) return a.event();
         if (a != null && a.headline() != null && !a.headline().isBlank()) return a.headline();
-        if (tpl != null && tpl.headline != null && !tpl.headline.isBlank()) return tpl.headline;
         return "Alert nearby";
     }
 

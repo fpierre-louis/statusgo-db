@@ -207,6 +207,11 @@ public class AlertHistoryService {
             if (a.id() == null || a.id().isBlank()) continue;
             AlertHistory row = existing.get(a.id());
             if (row != null) {
+                // Only a source that answered this tick has re-listed the alert.
+                // A failed source's alerts ride forward in the snapshot, and
+                // stamping them made an outage read as a run of sightings
+                // (Phase 3 D5) — they keep the time they were last really seen.
+                if (!snapshot.freshlyPolled(a.source())) continue;
                 row.setLastSeenAt(now);       // still in force — that is the whole update
                 toSave.add(row);
                 continue;

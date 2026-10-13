@@ -13,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,10 +45,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * frontend traffic, and the cache is shared across all users.</p>
  *
  * <p><b>Failure mode:</b> on poll error (network, NWS 5xx, JSON shape
- * change), we keep serving the previous snapshot. The {@link Snapshot}
- * carries {@code lastSuccessAt} so the FE can render a "last updated"
- * affordance and decide whether to fall back to its own direct NWS call
- * if the server-side data is stale.</p>
+ * change — including a 200 without the expected array), we keep serving
+ * that source's previous alerts. The {@link Snapshot} carries an honest
+ * {@code lastSuccessAt} (and one per source) so the FE can render a "last
+ * updated" affordance and decide whether to fall back to its own direct NWS
+ * call if the server-side data is stale.</p>
  */
 @Service
 public class AlertIngestService {
@@ -142,6 +144,12 @@ public class AlertIngestService {
 
     private final ObjectMapper json = new ObjectMapper();
 
+    /** The upstream call. A field only so tests can swap it — production never does. */
+    private JsonFetcher fetcher = this::fetchJson;
+
+    /** Stamps snapshot and per-source success times. A field for the same reason. */
+    private Clock clock = Clock.systemUTC();
+
     /**
      * Resolves UGC zone codes for the 82% of alerts that ship no polygon
      * (audit P0-4). Read path uses it to answer "does this zone contain the
@@ -216,40 +224,29 @@ public class AlertIngestService {
     }
 
     /**
-     * Run both upstream polls and merge results into a single snapshot.
+     * Run the three upstream polls and merge results into a single snapshot.
      * Each source is independent — if NWS fails but USGS succeeds we
      * still update with the USGS half (and vice versa), preserving the
      * other source's last-good data.
+     *
+     * <p><b>Carrying data forward is not the same as having it fresh</b>
+     * (Phase 3 D5). This used to stamp {@code lastSuccessAt = now} whatever
+     * happened, so a feed whose every upstream was down still read "updated
+     * just now" and {@code meta.isStale} could never trip. Each source now
+     * keeps its own last-success time, the snapshot says which sources
+     * actually answered on this tick, and {@code lastSuccessAt} is the oldest
+     * of the life-safety sources — see {@link #LIFE_SAFETY_SOURCES}.</p>
      */
     private void pollAll() {
         // Each source updates the snapshot independently so a failure in
         // one doesn't drop the other.
         Snapshot prev = latest.get();
+        Map<String, Instant> lastOk = new LinkedHashMap<>(prev.sourceLastSuccessAt());
+        Set<String> fresh = new LinkedHashSet<>();
 
-        List<NormalizedAlert> nws;
-        try {
-            nws = pollNws();
-        } catch (Exception e) {
-            log.warn("AlertIngest: NWS poll failed: {}", e.getMessage());
-            // Keep previous NWS data
-            nws = prev.alerts.stream().filter(a -> "NWS".equals(a.source())).toList();
-        }
-
-        List<NormalizedAlert> usgs;
-        try {
-            usgs = pollUsgs();
-        } catch (Exception e) {
-            log.warn("AlertIngest: USGS poll failed: {}", e.getMessage());
-            usgs = prev.alerts.stream().filter(a -> "USGS".equals(a.source())).toList();
-        }
-
-        List<NormalizedAlert> fema;
-        try {
-            fema = pollFema();
-        } catch (Exception e) {
-            log.warn("AlertIngest: FEMA poll failed: {}", e.getMessage());
-            fema = prev.alerts.stream().filter(a -> "FEMA".equals(a.source())).toList();
-        }
+        List<NormalizedAlert> nws = pollSource("NWS", this::pollNws, prev, lastOk, fresh);
+        List<NormalizedAlert> usgs = pollSource("USGS", this::pollUsgs, prev, lastOk, fresh);
+        List<NormalizedAlert> fema = pollSource("FEMA", this::pollFema, prev, lastOk, fresh);
 
         List<NormalizedAlert> merged = new ArrayList<>(nws.size() + usgs.size() + fema.size());
         merged.addAll(nws);
@@ -258,8 +255,10 @@ public class AlertIngestService {
 
         Snapshot next = new Snapshot(
                 List.copyOf(merged),
-                Instant.now(),
-                Instant.now()
+                clock.instant(),
+                oldestLifeSafetySuccess(lastOk),
+                lastOk,
+                fresh
         );
         latest.set(next);
 
@@ -287,9 +286,52 @@ public class AlertIngestService {
         zoneService.warmZones(zones);
     }
 
+    /** One source's poll: the new alerts on success, its previous alerts on any failure. */
+    private List<NormalizedAlert> pollSource(String source, SourcePoll poll, Snapshot prev,
+                                             Map<String, Instant> lastOk, Set<String> fresh) {
+        try {
+            List<NormalizedAlert> polled = poll.run();
+            lastOk.put(source, clock.instant());
+            fresh.add(source);
+            return polled;
+        } catch (Exception e) {
+            log.warn("AlertIngest: {} poll failed: {}", source, e.getMessage());
+            // Keep the previous data, and the previous success time with it.
+            return prev.alerts.stream().filter(a -> source.equals(a.source())).toList();
+        }
+    }
+
+    @FunctionalInterface
+    private interface SourcePoll {
+        List<NormalizedAlert> run() throws Exception;
+    }
+
+    /**
+     * Sources whose silence is a safety gap: NWS (every warning) and USGS
+     * (earthquakes). FEMA declarations are recovery context, published days
+     * after the event, so a FEMA outage must not mark the whole feed stale —
+     * its own time stays visible in {@link Snapshot#sourceLastSuccessAt()}.
+     */
+    static final List<String> LIFE_SAFETY_SOURCES = List.of("NWS", "USGS");
+
+    /**
+     * The feed is as fresh as its stalest life-safety source, and has no
+     * success at all until every one of them has answered once — a feed that
+     * has never heard from NWS has not "succeeded", however healthy USGS is.
+     */
+    static Instant oldestLifeSafetySuccess(Map<String, Instant> lastOk) {
+        Instant oldest = null;
+        for (String source : LIFE_SAFETY_SOURCES) {
+            Instant at = lastOk.get(source);
+            if (at == null) return null;
+            if (oldest == null || at.isBefore(oldest)) oldest = at;
+        }
+        return oldest;
+    }
+
     private List<NormalizedAlert> pollNws() throws Exception {
         long started = System.currentTimeMillis();
-        List<NormalizedAlert> normalized = parseNwsFeed(fetchJson(NWS_ACTIVE_URL, "application/geo+json"));
+        List<NormalizedAlert> normalized = parseNwsFeed(fetcher.fetch(NWS_ACTIVE_URL, "application/geo+json"));
         log.info("AlertIngest: NWS poll OK — {} alerts ingested in {}ms",
                 normalized.size(), System.currentTimeMillis() - started);
         return normalized;
@@ -303,11 +345,14 @@ public class AlertIngestService {
      * we measured", which a hand-built fixture cannot answer.
      */
     List<NormalizedAlert> parseNwsFeed(JsonNode root) {
+        // A 200 without the array is a FAILED poll, not an empty feed (Phase 3
+        // D5). Read as "nothing active", it wiped every NWS alert from the
+        // snapshot, and the resolve tick then cancelled their live posts.
+        // Throwing sends it down the same carry-forward path as a 5xx. A
+        // present-but-empty array is still a legitimate quiet feed.
         JsonNode features = root == null ? null : root.path("features");
         if (features == null || !features.isArray()) {
-            log.warn("AlertIngest: NWS response had no 'features' array; " +
-                    "treating as empty for this tick.");
-            return List.of();
+            throw new IllegalStateException("NWS response had no 'features' array");
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(features.size());
@@ -348,6 +393,22 @@ public class AlertIngestService {
         return normalized;
     }
 
+    /** Upstream GET + JSON parse; see {@link #setUpstreamForTest}. */
+    @FunctionalInterface
+    interface JsonFetcher {
+        JsonNode fetch(String url, String accept) throws Exception;
+    }
+
+    /**
+     * Replace the network and the clock (tests only), so a whole poll tick —
+     * including a source failing on a 200 — can be replayed against captured
+     * bodies at a pinned time.
+     */
+    void setUpstreamForTest(JsonFetcher fetcher, Clock clock) {
+        this.fetcher = fetcher;
+        this.clock = clock;
+    }
+
     /** Install a snapshot directly, bypassing the network (tests only). */
     void setSnapshotForTest(List<NormalizedAlert> alerts) {
         latest.set(new Snapshot(List.copyOf(alerts), Instant.now(), Instant.now()));
@@ -381,11 +442,14 @@ public class AlertIngestService {
         int totalRows = 0, skippedStale = 0;
 
         for (int page = 0; page < FEMA_MAX_PAGES; page++) {
-            JsonNode root = fetchJson(femaPageUrl(page), "application/json");
-            JsonNode rows = root.path("DisasterDeclarationsSummaries");
-            if (!rows.isArray()) {
-                log.warn("AlertIngest: FEMA response had no 'DisasterDeclarationsSummaries' array.");
-                break;
+            JsonNode root = fetcher.fetch(femaPageUrl(page), "application/json");
+            JsonNode rows = root == null ? null : root.path("DisasterDeclarationsSummaries");
+            if (rows == null || !rows.isArray()) {
+                // Failed, not empty — see parseNwsFeed. On a later page too: a
+                // half-read declaration list is not the current one, so the
+                // whole last-good set is kept rather than a partial one.
+                throw new IllegalStateException(
+                        "FEMA response had no 'DisasterDeclarationsSummaries' array (page " + page + ")");
             }
             if (rows.isEmpty()) break;
             totalRows += rows.size();
@@ -395,7 +459,7 @@ public class AlertIngestService {
                 JsonNode r = it.next();
                 String key = textOrNull(r, "femaDeclarationString");
                 if (key == null) continue;
-                if (!byDecl.containsKey(key) && !isActiveRecovery(r)) {
+                if (!byDecl.containsKey(key) && !isActiveRecovery(r, clock.instant())) {
                     skippedStale++;
                     continue;
                 }
@@ -486,11 +550,10 @@ public class AlertIngestService {
 
     private List<NormalizedAlert> pollUsgs() throws Exception {
         long started = System.currentTimeMillis();
-        JsonNode root = fetchJson(USGS_RECENT_URL, "application/geo+json");
-        JsonNode features = root.path("features");
-        if (!features.isArray()) {
-            log.warn("AlertIngest: USGS response had no 'features' array.");
-            return List.of();
+        JsonNode root = fetcher.fetch(USGS_RECENT_URL, "application/geo+json");
+        JsonNode features = root == null ? null : root.path("features");
+        if (features == null || !features.isArray()) {
+            throw new IllegalStateException("USGS response had no 'features' array");   // see parseNwsFeed
         }
 
         List<NormalizedAlert> normalized = new ArrayList<>(features.size());
@@ -894,7 +957,8 @@ public class AlertIngestService {
         for (NormalizedAlert a : s.alerts) {
             if (matchesPoint(a, lat, lng, radiusKm, userZones, userStates)) filtered.add(a);
         }
-        return new Snapshot(List.copyOf(filtered), Instant.now(), s.lastSuccessAt);
+        return new Snapshot(List.copyOf(filtered), Instant.now(), s.lastSuccessAt,
+                s.sourceLastSuccessAt, s.freshSources);
     }
 
     /**
@@ -1118,16 +1182,64 @@ public class AlertIngestService {
     // DTOs returned to the resource layer
     // -------------------------------------------------------------------
 
-    /** Cached alert payload + freshness markers. */
+    /** Every upstream this service polls, in poll order. */
+    static final List<String> SOURCES = List.of("NWS", "USGS", "FEMA");
+
+    /**
+     * Cached alert payload + freshness markers.
+     *
+     * <p>A source that failed this tick still has its last-good alerts here, so
+     * "in the snapshot" does not mean "upstream listed it just now". Anything
+     * that acts on absence or presence — resolving a post, stamping history's
+     * {@code lastSeenAt} — asks {@link #freshlyPolled(String)} first.</p>
+     */
     public record Snapshot(
             List<NormalizedAlert> alerts,
             /** When this snapshot was assembled (always non-null). */
             Instant generatedAt,
-            /** When the last successful upstream poll completed (null until first success). */
-            Instant lastSuccessAt
+            /**
+             * The OLDEST last success among the life-safety sources (NWS, USGS);
+             * null until each has succeeded once. FEMA is deliberately left out
+             * — see {@link AlertIngestService#LIFE_SAFETY_SOURCES}.
+             */
+            Instant lastSuccessAt,
+            /** Last successful poll per source ({@code NWS}, {@code USGS}, {@code FEMA}); a source never polled OK is absent. */
+            Map<String, Instant> sourceLastSuccessAt,
+            /** Sources whose poll succeeded on the tick that built this snapshot. */
+            Set<String> freshSources
     ) {
+        public Snapshot {
+            alerts = alerts == null ? List.of() : alerts;
+            sourceLastSuccessAt = sourceLastSuccessAt == null
+                    ? Map.of()
+                    : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(sourceLastSuccessAt));
+            freshSources = freshSources == null ? Set.of() : Set.copyOf(freshSources);
+        }
+
+        /**
+         * A snapshot in which every source was polled successfully at
+         * {@code lastSuccessAt} — what a fixture or a mock means.
+         */
+        public Snapshot(List<NormalizedAlert> alerts, Instant generatedAt, Instant lastSuccessAt) {
+            this(alerts, generatedAt, lastSuccessAt, allAt(lastSuccessAt),
+                    lastSuccessAt == null ? Set.of() : Set.copyOf(SOURCES));
+        }
+
+        private static Map<String, Instant> allAt(Instant at) {
+            Map<String, Instant> m = new LinkedHashMap<>();
+            if (at != null) for (String s : SOURCES) m.put(s, at);
+            return m;
+        }
+
+        /** Was {@code source} polled successfully on the tick that built this snapshot? */
+        public boolean freshlyPolled(String source) {
+            if (source == null) return false;
+            for (String s : freshSources) if (s.equalsIgnoreCase(source)) return true;
+            return false;
+        }
+
         public static Snapshot empty() {
-            return new Snapshot(List.of(), Instant.now(), null);
+            return new Snapshot(List.of(), Instant.now(), null, Map.of(), Set.of());
         }
     }
 
