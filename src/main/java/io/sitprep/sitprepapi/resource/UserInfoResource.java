@@ -295,7 +295,7 @@ public class UserInfoResource {
     public ApiResponse<List<ProfileSummaryDto>> myFollowing() {
         String me = AuthUtils.requireAuthenticatedEmail();
         return ApiResponse.ok(
-                userInfoService.getProfileSummariesByEmails(followService.followingEmails(me)),
+                userInfoService.getProfileSummariesByEmails(followService.followingEmails(me), me),
                 ApiMeta.now());
     }
 
@@ -303,7 +303,7 @@ public class UserInfoResource {
     public ApiResponse<List<ProfileSummaryDto>> myFollowers() {
         String me = AuthUtils.requireAuthenticatedEmail();
         return ApiResponse.ok(
-                userInfoService.getProfileSummariesByEmails(followService.followerEmails(me)),
+                userInfoService.getProfileSummariesByEmails(followService.followerEmails(me), me),
                 ApiMeta.now());
     }
 
@@ -311,7 +311,7 @@ public class UserInfoResource {
     public ApiResponse<List<ProfileSummaryDto>> myBlocked() {
         String me = AuthUtils.requireAuthenticatedEmail();
         return ApiResponse.ok(
-                userInfoService.getProfileSummariesByEmails(blockService.blockedEmails(me)),
+                userInfoService.getProfileSummariesByEmails(blockService.blockedEmails(me), me),
                 ApiMeta.now());
     }
 
@@ -348,13 +348,14 @@ public class UserInfoResource {
      */
     @PostMapping("/profiles/batch")
     public ResponseEntity<List<ProfileSummaryDto>> getProfilesBatch(@RequestBody BatchProfilesRequest request) {
-        AuthUtils.requireAuthenticatedEmail();
+        String viewer = AuthUtils.requireAuthenticatedEmail();
         List<String> emails = request == null || request.emails() == null ? List.of() : request.emails();
         if (emails.size() > MAX_BATCH_EMAILS) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "At most " + MAX_BATCH_EMAILS + " emails per batch");
         }
-        return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails));
+        // Status and last-active go only to the viewer and their co-members.
+        return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails, viewer));
     }
 
     public record BatchProfilesRequest(List<String> emails) {}
