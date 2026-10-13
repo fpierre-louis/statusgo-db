@@ -1680,11 +1680,15 @@ public class PlanActivationService {
             return new GoverningAlertDto(r.source(), r.alertId(), r.event(), r.headline(), r.lifecycleState());
         }
         if (r.status() == ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED) {
-            // Nothing is in force. Report the alert that STARTED this, marked
-            // expired, so the reader can see what lapsed rather than nothing.
+            // Nothing in force governs. Report the alert that STARTED this,
+            // so the reader can see what lapsed rather than nothing. Its
+            // lifecycle is the resolver's live reading when the alert is still
+            // listed (it just no longer governs this point) — only a truly
+            // lapsed alert is labelled expired.
             if (a.getGoverningAlertId() == null && a.getGoverningAlertEvent() == null) return null;
+            String lifecycle = r.lifecycleState() != null ? r.lifecycleState() : "expired";
             return new GoverningAlertDto(a.getGoverningAlertSource(), a.getGoverningAlertId(),
-                    a.getGoverningAlertEvent(), a.getGoverningAlertHeadline(), "expired");
+                    a.getGoverningAlertEvent(), a.getGoverningAlertHeadline(), lifecycle);
         }
         return activeGoverningAlert(a);
     }

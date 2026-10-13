@@ -695,17 +695,36 @@ class AlertHistoryServiceTest {
 
     @Test
     void aFemaDeclarationIsNeverJudgedAgainstTheNwsAndUsgsPollTime() {
-        // lastSuccessAt() is the NWS/USGS clock. FEMA can fail while those
-        // succeed, so until the snapshot times FEMA on its own its absence
-        // proves nothing — unknown, and unknown labels nothing.
+        // FEMA can fail while NWS and USGS succeed. Judged by their clock, a
+        // declaration would read as gone when FEMA was simply not asked. With
+        // FEMA absent from the per-source map (it has not polled OK), its
+        // absence proves nothing — unknown, and unknown labels nothing.
         Instant now = NOW;
         NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
                 .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
         store(fema, now.minusSeconds(3_600));
 
-        AlertHistoryService records = recordsOver(new Snapshot(List.of(), now, now));
+        Snapshot femaNeverOk = new Snapshot(List.of(), now, now,
+                Map.of("NWS", now, "USGS", now), Set.of("NWS", "USGS"));
+        AlertHistoryService records = recordsOver(femaNeverOk);
         assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "FEMA-GONE").lifecycleState())
                 .isNotEqualTo("no_longer_listed");
+    }
+
+    @Test
+    void aFemaDeclarationIsJudgedByFemasOwnPollTime() {
+        // FEMA on its own clock: a declaration last seen well before FEMA's
+        // own last success, and not in the live snapshot, is no longer listed.
+        Instant now = NOW;
+        NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
+                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+        store(fema, now.minusSeconds(3_600));
+
+        Snapshot femaOk = new Snapshot(List.of(), now, now,
+                Map.of("NWS", now, "USGS", now, "FEMA", now), Set.of("NWS", "USGS", "FEMA"));
+        AlertHistoryService records = recordsOver(femaOk);
+        assertThat(only(records.historyFor(LAT, LNG, 30).alerts(), "FEMA-GONE").lifecycleState())
+                .isEqualTo("no_longer_listed");
     }
 
     @Test

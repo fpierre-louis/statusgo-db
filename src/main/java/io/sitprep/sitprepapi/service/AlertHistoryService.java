@@ -467,22 +467,19 @@ public class AlertHistoryService {
      * When this alert's source last polled successfully, or null when that is
      * not known.
      *
-     * <p>Only NWS and USGS are timed today, by the snapshot-wide
-     * {@code lastSuccessAt()} — the oldest success among the two life-safety
-     * sources, so it never runs ahead of either. FEMA is deliberately NOT
-     * judged against that time: a FEMA poll can fail while NWS succeeds, and a
-     * declaration would then read as gone when FEMA was simply not asked.
-     * Every other source is unknown for the same reason.</p>
+     * <p>Each source is judged by its own last success
+     * ({@link Snapshot#sourceLastSuccessAt()}), never by the snapshot-wide
+     * {@code lastSuccessAt()}: a FEMA poll can fail while NWS succeeds, and a
+     * declaration must not read as gone when FEMA was simply not asked.</p>
      */
     private static Instant sourceLastSuccessAt(Snapshot live, NormalizedAlert a) {
         if (live == null || a == null || a.source() == null) return null;
-        // TODO(integration, U4): swap to the per-source time —
-        //   live.sourceLastSuccessAt().get(source) — which also times FEMA
-        //   on its own clock and is absent (null) for a source that never
-        //   succeeded. Until then FEMA, and anything else, stays unknown.
-        String source = a.source().trim().toUpperCase(Locale.ROOT);
-        if (!"NWS".equals(source) && !"USGS".equals(source)) return null;
-        return live.lastSuccessAt();
+        // Each source on its own clock: FEMA is timed by FEMA's last success,
+        // never by NWS/USGS. A source that has never succeeded is absent from
+        // the map, so it reads unknown and nothing gets labelled.
+        Map<String, Instant> bySource = live.sourceLastSuccessAt();
+        if (bySource == null) return null;
+        return bySource.get(a.source().trim().toUpperCase(Locale.ROOT));
     }
 
     /**

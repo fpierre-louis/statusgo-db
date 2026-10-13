@@ -278,13 +278,24 @@ public class ActivationDirectiveResolver {
                     conflicting);
         }
 
+        // The alert the household activated under may still be listed even
+        // though it cannot govern here (its polygon no longer contains the
+        // point, say). Carry its REAL lifecycle so the stored record is never
+        // labelled "expired" — "no longer in force" — while it is in force.
+        String storedLifecycle = storedAlertId == null ? null : live.stream()
+                .filter(c -> storedAlertId.equals(c.id()))
+                .map(AlertCardDto::lifecycleState)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+
         if (!NONE.equals(stored)) {
             // The household activated under an instruction and nothing in
             // force carries one now. Do not keep asserting it; decline to name
             // one instead.
             boolean changed = !FOLLOW_OFFICIAL.equals(stored);
             return new Resolved(FOLLOW_OFFICIAL, Status.SUPERSEDED_UNRESOLVED, changed,
-                    stored, null, null, null, null, null, now);
+                    stored, null, null, null, null, storedLifecycle, now);
         }
 
         // ── D6: STORED NONE, NOTHING DIRECTING ─────────────────────────────
@@ -303,9 +314,10 @@ public class ActivationDirectiveResolver {
                     stillInForce.headline(), stillInForce.lifecycleState(), now);
         }
         if (storedAlertId != null || blankToNull(a.getGoverningAlertEvent()) != null) {
-            // Activated under an alert that has since lapsed.
+            // Activated under an alert that has since lapsed (or, when
+            // storedLifecycle is set, one still listed that no longer governs).
             return new Resolved(NONE, Status.SUPERSEDED_UNRESOLVED, false,
-                    stored, null, null, null, null, null, now);
+                    stored, null, null, null, null, storedLifecycle, now);
         }
         // A plain activation: no alert behind it then, none directing it now.
         return new Resolved(NONE, Status.CURRENT, false, stored, null, null, null, null, null, now);

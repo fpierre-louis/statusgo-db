@@ -550,6 +550,32 @@ class ActivationDirectiveTruthTest {
     }
 
     @Test
+    @DisplayName("R4: the activating alert, still listed but no longer containing the point, is not labelled lapsed")
+    void stillListedOriginalKeepsItsLiveLifecycle() {
+        // The household activated under ORIGINAL-1; it is still in the feed,
+        // but its polygon no longer contains the point, so it cannot govern.
+        snapshotHolds(alertWithGeometry("ORIGINAL-1", "Evacuation Immediate", polygonFortyMilesAway()));
+        feedReturns(matched("ORIGINAL-1", "Evacuation Immediate", "evacuate", "active", soon(), "polygon"));
+
+        var r = resolver.resolve(activation("evacuate"));
+
+        assertThat(r.status()).isEqualTo(ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED);
+        assertThat(r.directive()).isEqualTo("follow_official_instruction");
+        assertThat(r.lifecycleState())
+                .as("a still-listed alert must not be reported as lapsed ('no longer in force')")
+                .isEqualTo("active");
+    }
+
+    @Test
+    @DisplayName("R4: a lapsed activating alert carries no live lifecycle")
+    void lapsedOriginalHasNoLiveLifecycle() {
+        feedReturns();
+        var r = resolver.resolve(activation("evacuate"));
+        assertThat(r.status()).isEqualTo(ActivationDirectiveResolver.Status.SUPERSEDED_UNRESOLVED);
+        assertThat(r.lifecycleState()).isNull();
+    }
+
+    @Test
     @DisplayName("R4: a polygon that contains the point governs")
     void containingPolygonGoverns() {
         snapshotHolds(alertWithGeometry("NEAR-EVAC", "Evacuation Immediate", containingPolygon()));
