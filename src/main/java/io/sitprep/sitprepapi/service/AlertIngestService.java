@@ -1211,7 +1211,7 @@ public class AlertIngestService {
              * (docs/audits/2026-08-22-alert-source-audit.md); Extreme Heat
              * opens on a tautology and closes citing OSHA. What the promotion
              * refuses to promote is an open product decision — see
-             * docs/epics/map-view-revamp/PHASE-2-2026-08-25.md §3.</p>
+             * docs/epics/map/map-view-revamp/PHASE-2-2026-08-25.md §3.</p>
              *
              * <p>Null for USGS and FEMA, which have no equivalent.</p>
              */

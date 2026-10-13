@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 /**
  * Registers the ActivityKit push tokens the native reporter sends
  * (live_activities GAMEPLAN §2.5, §3.5). The contract is written at the top of
- * {@code docs/epics/live_activities/EXEC-P1-backend.md}.
+ * {@code docs/epics/notifications-and-native/live_activities/EXEC-P1-backend.md}.
  *
  * <p><b>The owner is always the verified caller.</b> The body cannot name one.
  * A token row is the right to receive pushes about a group's check-in, so a

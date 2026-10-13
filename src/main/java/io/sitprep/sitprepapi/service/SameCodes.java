@@ -19,7 +19,7 @@ import java.util.Map;
  * AMBER Alert on 2026-10-04 shipped four SAME counties, no UGC and no polygon,
  * and the matcher — which read only geometry and UGC — treated it as having no
  * location and showed it to every user in the country
- * (docs/epics/alert-targeting/EXEC-A1-same-codes.md in the FE repo).</p>
+ * (docs/epics/alerts/alert-targeting/EXEC-A1-same-codes.md in the FE repo).</p>
  */
 public final class SameCodes {
 

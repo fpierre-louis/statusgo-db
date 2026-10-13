@@ -246,7 +246,7 @@ public class AlertFeedService {
         // describes. Lifting it to the top level needs a rule for what it
         // REFUSES to lift — live reading grade runs 5.8 to 12.2 — and that is
         // an open product decision, not an implementation detail. See
-        // docs/epics/map-view-revamp/PHASE-2-2026-08-25.md §3.
+        // docs/epics/map/map-view-revamp/PHASE-2-2026-08-25.md §3.
         return new AlertCardDto.Official(
                 a.headline(), a.description(), a.instruction(), issuedByOf(a.headline()));
     }

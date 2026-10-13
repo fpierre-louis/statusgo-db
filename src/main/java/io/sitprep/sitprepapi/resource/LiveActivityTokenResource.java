@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Live Activity push-token registration, called by the native
  * {@code LiveActivityTokenReporter} (live_activities GAMEPLAN §2.5, §3.5).
- * Contract: {@code docs/epics/live_activities/EXEC-P1-backend.md}.
+ * Contract: {@code docs/epics/notifications-and-native/live_activities/EXEC-P1-backend.md}.
  *
  * <ul>
  *   <li>{@code PUT /api/live-activities/tokens} — register or rotate a token (200 + the row, no token echoed).</li>

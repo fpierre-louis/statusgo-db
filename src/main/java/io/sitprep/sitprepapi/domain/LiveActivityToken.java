@@ -17,7 +17,7 @@ import java.util.Set;
 
 /**
  * One ActivityKit push token, paired with the FCM registration token of the
- * device that owns it (V106; docs/epics/live_activities/GAMEPLAN.md §3.5).
+ * device that owns it (V106; docs/epics/notifications-and-native/live_activities/GAMEPLAN.md §3.5).
  *
  * <p>FCM delivers a Live Activity push only with BOTH: {@code message.token}
  * (the device) and {@code apns.live_activity_token} (the activity). The single

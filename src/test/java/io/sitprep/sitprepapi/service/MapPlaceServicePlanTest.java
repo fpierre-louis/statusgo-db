@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * The map shows the PLAN, not everything saved (owner rulings Q-1..Q-4,
- * docs/epics/map_and_slate/PLAN-LOCATIONS-AUDIT-2026-09-29.md).
+ * docs/epics/map/map_and_slate/PLAN-LOCATIONS-AUDIT-2026-09-29.md).
  */
 class MapPlaceServicePlanTest {
 

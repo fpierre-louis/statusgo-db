@@ -2,7 +2,7 @@ package io.sitprep.sitprepapi.constant;
 
 /**
  * The three local-time windows a daily brief can post in
- * (docs/epics/daily_summary_gameplan.md §3.2, owner-approved 2026-10-01).
+ * (docs/epics/community/daily_brief/daily_summary_gameplan.md §3.2, owner-approved 2026-10-01).
  *
  * <p>The slot changes what a reading looks AHEAD at: morning and midday weigh
  * today's high, evening weighs tonight's low. See {@link ConditionTiers}.</p>

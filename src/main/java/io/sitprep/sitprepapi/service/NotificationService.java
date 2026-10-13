@@ -55,7 +55,7 @@ public class NotificationService {
     private ConcealmentSafetyService concealmentSafetyService;
 
     /**
-     * Builds the inbox presentation contract (docs/epics/notification-ecosystem-completed).
+     * Builds the inbox presentation contract (docs/epics/notifications-and-native/notification-ecosystem-completed).
      * Field-injected and optional so hand-built test instances keep working;
      * when absent, rows are written without one and normalized on read.
      */
@@ -1749,7 +1749,7 @@ public class NotificationService {
         return concealmentSensitive ? SOUND_SILENT : iosSoundFor(type);
     }
 
-    // SitPrep sonic identity v1 (FE docs/epics/haptics_and_sound/SOUND_CREATION_BRIEF.md).
+    // SitPrep sonic identity v1 (FE docs/epics/notifications-and-native/haptics_and_sound/SOUND_CREATION_BRIEF.md).
     // File names must match ios/App/App/*.caf in the FE repo; a missing file
     // plays the system default.
     static final String SOUND_NOTE = "sitprep-note.caf";

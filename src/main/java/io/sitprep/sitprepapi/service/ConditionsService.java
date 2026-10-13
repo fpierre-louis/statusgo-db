@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 
 /**
  * Weather and air quality for a point, from US government sources
- * (docs/epics/daily_summary_gameplan.md §3.3; EXEC-3A, re-sourced in
+ * (docs/epics/community/daily_brief/daily_summary_gameplan.md §3.3; EXEC-3A, re-sourced in
  * EXEC-3A.1 on 2026-10-02).
  *
  * <ul>

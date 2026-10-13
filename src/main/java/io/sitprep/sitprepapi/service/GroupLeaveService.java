@@ -16,7 +16,7 @@ import java.util.Collection;
  * <p>There was no way to do this (2026-09-28): the app PUT the whole group
  * minus the caller, and {@code PUT /groups/{id}} is admin-only, so a plain
  * member got a 403 — and My Groups' long-press "Leave group" only closed its
- * sheet. docs/epics/groups-admin-fixes/EXEC.md in the frontend repo.</p>
+ * sheet. docs/epics/groups/groups-admin-fixes/EXEC.md in the frontend repo.</p>
  *
  * <ul>
  *   <li>The owner cannot leave (409): transfer ownership or delete first — a

@@ -4,7 +4,7 @@ import io.sitprep.sitprepapi.dto.ConditionsReading;
 
 /**
  * THE one table of weather and air-quality thresholds
- * (docs/epics/daily_summary_gameplan.md §3.4).
+ * (docs/epics/community/daily_brief/daily_summary_gameplan.md §3.4).
  *
  * <p>Before this, the thresholds lived only in the frontend, in three copies
  * that disagreed: ConditionsBar, HazardsPage and ActiveNearbyStrip. A backend

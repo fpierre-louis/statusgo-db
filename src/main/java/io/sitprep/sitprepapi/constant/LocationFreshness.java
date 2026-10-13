@@ -24,7 +24,7 @@ import java.time.Instant;
  * query parameters, so the frontend sent a coordinate with no age attached and
  * the server had nothing to apply a rule to. That was not a forgotten threshold;
  * the wire shape made the check impossible (audit finding F-5,
- * {@code docs/epics/hazards-page/AUDIT-location-freshness-2026-09-07.md}).</p>
+ * {@code docs/epics/alerts/hazards-page/AUDIT-location-freshness-2026-09-07.md}).</p>
  *
  * <p>The two failed in opposite directions and the union was silence. Inside the
  * window both aimed at the stale coordinate. Past it, push correctly went quiet

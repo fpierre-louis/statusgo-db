@@ -22,7 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** POST /api/groups/{id}/leave — docs/epics/groups-admin-fixes/EXEC.md (FE repo). */
+/** POST /api/groups/{id}/leave — docs/epics/groups/groups-admin-fixes/EXEC.md (FE repo). */
 class GroupLeaveServiceTest {
 
     private GroupRepo groups;

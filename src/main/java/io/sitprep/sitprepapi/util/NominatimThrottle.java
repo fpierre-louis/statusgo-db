@@ -5,7 +5,7 @@ import java.util.function.LongSupplier;
 
 /**
  * The process-wide 1-request-per-second gate for OpenStreetMap Nominatim
- * (docs/epics/infrastructure_license_audit.md §1 #6).
+ * (docs/epics/platform/infrastructure_license/infrastructure_license_audit.md §1 #6).
  *
  * <p>Nominatim's usage policy sets an <b>absolute maximum of one request per
  * second</b> for the whole application, not per caller. Every Nominatim call

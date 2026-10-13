@@ -4,7 +4,7 @@ import java.time.Instant;
 
 /**
  * One weather and air-quality reading for a point, as the backend shapes it
- * (docs/epics/daily_summary_gameplan.md §3.3). The frontend displays this; it
+ * (docs/epics/community/daily_brief/daily_summary_gameplan.md §3.3). The frontend displays this; it
  * does no thresholding of its own.
  *
  * <p>{@code lat}/{@code lng} are the point the reading was TAKEN at, snapped to

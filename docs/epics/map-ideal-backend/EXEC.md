@@ -4,8 +4,8 @@
 the core features that don't have data feeding … like whether someone is at
 school or work. We will eventually implement the app on watches.")
 
-**Wire contract (authoritative):** `Status Now/docs/epics/map_and_slate/EXEC-3.5-backend.md`
-(frontend repo — read-only from here). Background: `Status Now/docs/epics/map_and_slate_audit.md` §6,
+**Wire contract (authoritative):** `Status Now/docs/epics/map/map_and_slate/EXEC-3.5-backend.md`
+(frontend repo — read-only from here). Background: `Status Now/docs/epics/map/map_and_slate/map_and_slate_audit.md` §6,
 `docs/audits/2026-09-26-map-ideal-contract.md`.
 
 **Branch:** `main` — auto-deploys on push. **Commit only. Never push. Never deploy.**

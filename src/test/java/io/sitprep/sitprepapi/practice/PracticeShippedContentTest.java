@@ -55,7 +55,7 @@ class PracticeShippedContentTest {
 
     /**
      * The hash the v2 review packet (SitPrep FE
-     * docs/epics/scenarios-and-youth/EXEC-D2-content-v2-review-packet.md)
+     * docs/epics/readiness/scenarios-and-youth/EXEC-D2-content-v2-review-packet.md)
      * shows the owner. Any edit to v2 fails here first: regenerate the packet
      * with the new hash before asking for review again.
      */
