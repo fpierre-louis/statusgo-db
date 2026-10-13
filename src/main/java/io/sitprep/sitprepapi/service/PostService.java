@@ -39,6 +39,7 @@ import io.sitprep.sitprepapi.util.AuthUtils;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -114,6 +115,28 @@ public class PostService {
     public void setAlertIngestService(AlertIngestService alertIngest) {
         this.alertIngest = alertIngest;
     }
+
+    /**
+     * Where an alert post's tier comes from (R9): the dispatcher's templates,
+     * and the alert history for an alert that has left the live snapshot.
+     * Providers, not beans: AlertDispatchService builds its posts through this
+     * service (and AlertHistoryService depends on the dispatcher), so a
+     * direct reference is a constructor cycle. Optional like the two above —
+     * without them an alert post simply carries no tier.
+     */
+    private ObjectProvider<AlertDispatchService> alertDispatch;
+    private ObjectProvider<AlertHistoryService> alertHistory;
+    private io.sitprep.sitprepapi.repo.AlertHistoryRepo alertHistoryRepo;
+
+    @Autowired(required = false)
+    public void setAlertTierSources(ObjectProvider<AlertDispatchService> alertDispatch,
+                                    ObjectProvider<AlertHistoryService> alertHistory,
+                                    io.sitprep.sitprepapi.repo.AlertHistoryRepo alertHistoryRepo) {
+        this.alertDispatch = alertDispatch;
+        this.alertHistory = alertHistory;
+        this.alertHistoryRepo = alertHistoryRepo;
+    }
+
     /** @-mentions in posts (Composer V2 C9f): name resolution + notices. */
     private final PostMentionService mentions;
     private final AlertPostRepo alertPostRepo;
@@ -596,20 +619,98 @@ public class PostService {
         // what lets "Open map" on an alert post open that alert, framed, on the
         // map — and it is known even for a zone-only alert with no area.
         Map<Long, String> alertIds = new HashMap<>();
+        Map<Long, String> dispatchKeys = new HashMap<>();
         for (AlertPost ap : alertPostRepo.findByPostIdIn(ids)) {
             if (ap.getAreaGeojson() != null) areas.putIfAbsent(ap.getPostId(), ap.getAreaGeojson());
             String feedId = feedAlertIdOf(ap.getAlertId());
             if (feedId != null) alertIds.putIfAbsent(ap.getPostId(), feedId);
+            if (ap.getAlertId() != null) dispatchKeys.putIfAbsent(ap.getPostId(), ap.getAlertId());
         }
         if (areas.isEmpty() && alertIds.isEmpty()) return dtos;
+        Map<Long, String> tiers = alertTiersOf(dispatchKeys);
         return dtos.stream()
                 .map(d -> {
                     PostDto.CommunityExtras c = d.community();
                     if (areas.containsKey(d.id())) c = c.withArea(areas.get(d.id()));
                     if (alertIds.containsKey(d.id())) c = c.withAlertId(alertIds.get(d.id()));
+                    if (tiers.containsKey(d.id())) c = c.withAlertTier(tiers.get(d.id()));
                     return c == d.community() ? d : d.withCommunity(c);
                 })
                 .collect(Collectors.toList());
+    }
+
+    /** The tiers a post may say. Anything else the helper returns is no tier. */
+    private static final Set<String> ALERT_POST_TIERS = Set.of("warning", "watch", "advisory");
+
+    /**
+     * Each dispatched post's product tier (R9), keyed by post id; a post whose
+     * alert cannot be found is absent.
+     *
+     * <p>The tier is the one the dispatcher acted on: the alert is found by the
+     * exact key the post was made from, then matched to its template and read
+     * through {@link AlertFeedService#tierOf} — the template's reviewed tier,
+     * else the product name for the few products with no template. Exact key
+     * only, never the CAP {@code references} chain the pin follows: an update
+     * can be a different product, and the post's words are the original's.</p>
+     *
+     * <p>Two reads at most, whatever the page size. The live snapshot is in
+     * memory; whatever has left it is looked up in alert history in ONE
+     * batched read. A dispatched alert post outlives its alert in the feed by
+     * days, so the snapshot alone would leave most of them without a tier.</p>
+     */
+    private Map<Long, String> alertTiersOf(Map<Long, String> dispatchKeyByPost) {
+        AlertDispatchService dispatch = alertDispatch == null ? null : alertDispatch.getIfAvailable();
+        if (dispatchKeyByPost.isEmpty() || dispatch == null) return Map.of();
+        Set<String> wanted = new HashSet<>(dispatchKeyByPost.values());
+        Map<String, AlertIngestService.NormalizedAlert> byKey = new HashMap<>();
+
+        if (alertIngest != null) {
+            try {
+                AlertIngestService.Snapshot snap = alertIngest.getSnapshot();
+                if (snap != null && snap.alerts() != null) {
+                    for (AlertIngestService.NormalizedAlert a : snap.alerts()) {
+                        if (a == null || a.id() == null) continue;
+                        String key = dispatchKey(a.source(), a.id());
+                        if (wanted.contains(key)) byKey.putIfAbsent(key, a);
+                    }
+                }
+            } catch (RuntimeException e) {
+                log.warn("Alert tier: snapshot lookup failed: {}", e.toString());
+            }
+        }
+
+        AlertHistoryService history = alertHistory == null ? null : alertHistory.getIfAvailable();
+        if (byKey.size() < wanted.size() && history != null && alertHistoryRepo != null) {
+            // alert_history is keyed on the bare id; the post on source + id.
+            Set<String> bareIds = wanted.stream()
+                    .filter(k -> !byKey.containsKey(k))
+                    .map(PostService::feedAlertIdOf)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            try {
+                for (io.sitprep.sitprepapi.domain.AlertHistory row : alertHistoryRepo.findAllById(bareIds)) {
+                    AlertIngestService.NormalizedAlert a = history.rehydrate(row);
+                    if (a == null || a.id() == null) continue;
+                    // Re-keyed from the stored alert itself, so a bare id that
+                    // two sources happen to share cannot answer for the other.
+                    String key = dispatchKey(a.source(), a.id());
+                    if (wanted.contains(key)) byKey.putIfAbsent(key, a);
+                }
+            } catch (RuntimeException e) {
+                log.warn("Alert tier: history lookup failed: {}", e.toString());
+            }
+        }
+
+        Map<Long, String> tiers = new HashMap<>();
+        for (Map.Entry<Long, String> e : dispatchKeyByPost.entrySet()) {
+            AlertIngestService.NormalizedAlert a = byKey.get(e.getValue());
+            if (a == null) continue;
+            String tier = AlertFeedService.tierOf(a, dispatch.matchForAlert(a).orElse(null));
+            if (tier == null) continue;
+            tier = tier.trim().toLowerCase(Locale.ROOT);
+            if (ALERT_POST_TIERS.contains(tier)) tiers.put(e.getKey(), tier);
+        }
+        return tiers;
     }
 
     /**
@@ -1293,9 +1394,42 @@ public class PostService {
     /** Result of a confirm toggle — the fresh count + the viewer's new state. */
     public record ConfirmResult(int confirmsCount, boolean viewerConfirmed) {}
 
+    /**
+     * The statuses after which a post takes no new confirm: it has ended, so
+     * "I see it too" would be a claim about a thing no longer happening.
+     */
+    private static final Set<PostStatus> CONFIRM_CLOSED_STATUSES =
+            EnumSet.of(PostStatus.CANCELLED, PostStatus.CLOSED, PostStatus.DONE, PostStatus.ARCHIVED);
+
+    /**
+     * Add the viewer's "I see it too" (D8, owner ruling R7, 2026-10-13).
+     *
+     * <p>A confirm is a neighbour saying a claim is true on the street right
+     * now, so only two kinds take one: a civic report, and an alert-update a
+     * NEIGHBOUR wrote. SitPrep's own dispatched alert posts do not — the alert
+     * is the issuer's, and there is no observation flow behind the control yet
+     * — and neither do official posts, watches (they only reach the feed as
+     * dispatched posts) or anything else. The client mirrors this rule
+     * (community/threadPost.js); this is the one that holds.</p>
+     *
+     * <p>Unknown and unreadable both answer 404, for the reason
+     * {@link #findDtoById} gives: the count comes back in the response, so a
+     * 403 would confirm the row and leak it.</p>
+     *
+     * @throws ResponseStatusException 404 unknown/unreadable; 400 not a
+     *         confirmable post; 409 the post has ended
+     */
     @Transactional
     public ConfirmResult addConfirm(Long postId, String email) {
-        if (!taskRepo.existsById(postId)) throw new IllegalArgumentException("unknown post");
+        Post post = readableForConfirm(postId, email);
+        if (!isConfirmable(post)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This post doesn't take \"I see it too\"");
+        }
+        if (hasEnded(post, Instant.now())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This post has ended, so it no longer takes \"I see it too\"");
+        }
         String e = email.trim().toLowerCase();
         if (postConfirmRepo.findByPostIdAndUserEmailIgnoreCase(postId, e).isEmpty()) {
             try {
@@ -1313,10 +1447,43 @@ public class PostService {
         return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), true);
     }
 
+    /**
+     * Take back the viewer's own confirm. Allowed on any post they can read,
+     * whatever it has become since — ended, or one the gate above now refuses —
+     * because the confirm is theirs to withdraw. Same 404 as {@link #addConfirm}.
+     */
     @Transactional
     public ConfirmResult removeConfirm(Long postId, String email) {
+        readableForConfirm(postId, email);
         postConfirmRepo.deleteByPostAndUser(postId, email.trim().toLowerCase());
         return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), false);
+    }
+
+    private Post readableForConfirm(Long postId, String email) {
+        return (postId == null ? Optional.<Post>empty() : taskRepo.findById(postId))
+                .filter(p -> readAuthorizer.canRead(p, email))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
+    }
+
+    /**
+     * Civic reports, and alert-updates a neighbour wrote. A dispatched alert
+     * post is recognised two ways, either enough: SitPrep is its author, or the
+     * dispatcher's AlertPost row tracks it (the row community.alertId is folded
+     * from, which is what the client reads).
+     */
+    private boolean isConfirmable(Post post) {
+        String kind = post.getKind();
+        if (PostKind.CIVIC_REPORT.wire().equals(kind)) return true;
+        if (!PostKind.ALERT_UPDATE.wire().equals(kind)) return false;
+        if (SystemAccounts.isSitPrep(post.getRequesterEmail())) return false;
+        return alertPostRepo == null || post.getId() == null
+                || alertPostRepo.findByPostIdIn(List.of(post.getId())).isEmpty();
+    }
+
+    /** Cancelled/closed/done/archived, or past its own effective-until. */
+    private static boolean hasEnded(Post post, Instant now) {
+        if (post.getStatus() != null && CONFIRM_CLOSED_STATUSES.contains(post.getStatus())) return true;
+        return post.getEffectiveUntil() != null && !post.getEffectiveUntil().isAfter(now);
     }
 
     /** Toggle a feed-post bookmark, reusing the generic AskBookmark table (target_type="post"). */

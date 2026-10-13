@@ -31,6 +31,7 @@ class AlertAreaTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired AlertDispatchService dispatchService;
     @Autowired HazardService hazardService;
+    @Autowired AlertIngestService ingest;
     @MockBean NominatimGeocodeService geocode;
 
     private static final Map<String, Object> POLYGON = Map.of(
@@ -50,6 +51,35 @@ class AlertAreaTest {
         assertThat(h.path("category").asText()).isEqualTo("flood");
         assertThat(h.path("state").asText()).isEqualTo("reported");
         assertThat(h.path("radiusM").asInt()).isEqualTo(dto.radiusM());
+    }
+
+    @Test
+    void theRealContextWiresTheAlertTierFold() throws Exception {
+        // PostService reaches the dispatcher through a provider (the two build
+        // each other); this is the one check that the wiring holds in a booted
+        // context, not just with hand-built mocks (PostAlertTierTest).
+        when(geocode.reverse(anyDouble(), anyDouble())).thenReturn(null);
+        ingest.setSnapshotForTest(List.of(TestAlerts.nwsWatch("Flood Watch").id("urn:oid:wired-watch").build()));
+        try {
+            Post alert = new Post();
+            alert.setKind("alert-update");
+            alert.setTitle("Flood watch");
+            alert.setDescription("Official text.");
+            alert.setLatitude(40.75);
+            alert.setLongitude(-111.85);
+            PostDto created = postService.create(alert, "system@sitprep.app");
+            AlertPost ap = new AlertPost();
+            ap.setAlertId("NWS-urn:oid:wired-watch");
+            ap.setGeocellId("841");
+            ap.setPostId(created.id());
+            alertPostRepo.save(ap);
+
+            PostDto read = postService.findDtoById(created.id(), "viewer@example.com").orElseThrow();
+            assertThat(objectMapper.readTree(objectMapper.writeValueAsString(read)).path("community").path("alertTier").asText())
+                    .isEqualTo("watch");
+        } finally {
+            ingest.setSnapshotForTest(List.of());
+        }
     }
 
     @Test
