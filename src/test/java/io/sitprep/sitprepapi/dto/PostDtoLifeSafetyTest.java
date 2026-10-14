@@ -63,4 +63,16 @@ class PostDtoLifeSafetyTest {
         assertThat(hot.lifeSafety()).isTrue();
         assertThat(calm.lifeSafety()).isFalse();
     }
+
+    @Test
+    void projectWithoutItsRollup_leavesLifeSafetyOffTheWire() throws Exception {
+        // Mutation responses and STOMP frames carry no rollup. Sending false
+        // there would knock a life-safety project out of triage rank 0 on the
+        // client's shallow merge; leaving the key out keeps what it shows.
+        Post p = task(null);
+        p.setKind("project");
+        PostDto frame = PostDto.fromEntity(p);
+        assertThat(frame.lifeSafety()).isNull();
+        assertThat(wire(frame).has("lifeSafety")).isFalse();
+    }
 }

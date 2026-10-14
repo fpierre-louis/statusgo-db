@@ -1301,11 +1301,17 @@ public record PostDto(
      * <p>Derived from the record's own components and serialized as the
      * top-level {@code lifeSafety} property, so the canonical constructor is
      * unchanged. Rule: {@link io.sitprep.sitprepapi.constant.WorkOrderLifeSafety}.</p>
+     *
+     * <p>A project's answer lives in its rollup. A project DTO built without
+     * one (mutation responses and STOMP frames) returns null and the property
+     * is left out, so a client's shallow merge keeps the value it already
+     * shows instead of reading an untrue {@code false} (B6 review).</p>
      */
     @com.fasterxml.jackson.annotation.JsonProperty(value = "lifeSafety",
             access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
-    public boolean lifeSafety() {
-        if ("project".equals(kind)) return projectRollup != null && projectRollup.anyOpenLifeSafety();
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public Boolean lifeSafety() {
+        if ("project".equals(kind)) return projectRollup == null ? null : projectRollup.anyOpenLifeSafety();
         return io.sitprep.sitprepapi.constant.WorkOrderLifeSafety.isLifeSafety(workDetails);
     }
 

@@ -49,6 +49,7 @@ class GroupContentReportTest {
     private GroupPostRepo groupPostRepo;
     private GroupPostCommentRepo groupCommentRepo;
     private GroupPostService groupPostService;
+    private AdminAuditLogService audit;
     private CommunityReportService service;
     private GroupPost post;
 
@@ -58,8 +59,9 @@ class GroupContentReportTest {
         groupPostRepo = mock(GroupPostRepo.class);
         groupCommentRepo = mock(GroupPostCommentRepo.class);
         groupPostService = mock(GroupPostService.class);
+        audit = mock(AdminAuditLogService.class);
         service = new CommunityReportService(reportRepo, mock(PostRepo.class), mock(PostCommentRepo.class),
-                mock(AdminAuditLogService.class), groupPostRepo, groupCommentRepo, groupPostService);
+                audit, groupPostRepo, groupCommentRepo, groupPostService);
 
         post = new GroupPost();
         post.setId(7L);
@@ -181,11 +183,80 @@ class GroupContentReportTest {
                 new ReviewCommunityReportRequest("ACTIONED", "removed"), ADMIN);
         assertThat(out.status()).isEqualTo(CommunityReport.ReviewStatus.ACTIONED);
         assertThat(out.reporterEmail()).isNull();
+        assertThat(out.reviewerNotes()).isEqualTo("removed");
+        // The group's decision is its own audit row; the platform's status is untouched.
+        assertThat(row.getStatus()).isEqualTo(CommunityReport.ReviewStatus.PENDING);
+        verify(reportRepo, never()).save(any());
+        verify(audit).record(eq(ADMIN), eq("GROUP_REVIEWED_REPORT"), eq("group_report"), eq("502"),
+                eq("ACTIONED\nremoved"));
 
         when(groupPostService.isGroupAdminOrOwner("grp-2", ADMIN)).thenReturn(true);
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
                 service.reviewGroupReport("grp-2", 502L, new ReviewCommunityReportRequest("DISMISSED", null), ADMIN));
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
         verify(groupPostService, atLeastOnce()).isGroupAdminOrOwner(anyString(), anyString());
+    }
+
+    @Test
+    void coAdminDismiss_leavesTheReportInThePlatformPendingQueue_andTheGroupQueueShowsTheDecision() {
+        // B6 review: a member reports a co-admin's post; another admin dismisses
+        // it in the group queue. The platform MODERATE_REPORTS queue must still
+        // see it as PENDING, or the reported side could close its own escalation.
+        CommunityReport row = new CommunityReport();
+        row.setId(503L);
+        row.setTargetType(CommunityReport.TargetType.GROUP_POST);
+        row.setPostId(7L);
+        row.setTargetAuthorEmail("coadmin@x.com");
+        row.setReporterEmail(MEMBER);
+        row.setReason(CommunityReport.Reason.HARASSMENT);
+        row.setStatus(CommunityReport.ReviewStatus.PENDING);
+        when(reportRepo.findById(503L)).thenReturn(Optional.of(row));
+
+        service.reviewGroupReport(GROUP, 503L, new ReviewCommunityReportRequest("DISMISSED", null), ADMIN);
+
+        when(reportRepo.findByStatusOrderByCreatedAtDesc(CommunityReport.ReviewStatus.PENDING))
+                .thenReturn(List.of(row));
+        assertThat(service.listReports("PENDING")).extracting(CommunityReportDto::id).containsExactly(503L);
+
+        // The group's queue folds its own decision: DISMISSED, out of its PENDING view.
+        io.sitprep.sitprepapi.domain.AdminAuditLog decision = new io.sitprep.sitprepapi.domain.AdminAuditLog();
+        decision.setId(1L);
+        decision.setActorEmail(ADMIN);
+        decision.setAction("GROUP_REVIEWED_REPORT");
+        decision.setTargetType("group_report");
+        decision.setTargetId("503");
+        decision.setSummary("DISMISSED");
+        decision.setAt(java.time.Instant.parse("2026-10-14T12:00:00Z"));
+        when(audit.findForTargets(eq("group_report"), eq("GROUP_REVIEWED_REPORT"), anyCollection()))
+                .thenReturn(List.of(decision));
+        when(reportRepo.findGroupQueueByStatus(eq(GROUP), anyCollection(),
+                eq(CommunityReport.ReviewStatus.PENDING), any())).thenReturn(List.of(row));
+        when(reportRepo.findGroupQueue(eq(GROUP), anyCollection(), any())).thenReturn(List.of(row));
+
+        assertThat(service.listGroupReports(GROUP, "PENDING", ADMIN)).isEmpty();
+        List<CommunityReportDto> dismissed = service.listGroupReports(GROUP, "DISMISSED", ADMIN);
+        assertThat(dismissed).hasSize(1);
+        assertThat(dismissed.get(0).status()).isEqualTo(CommunityReport.ReviewStatus.DISMISSED);
+        assertThat(dismissed.get(0).reviewerEmail()).isEqualTo(ADMIN);
+        assertThat(dismissed.get(0).reporterEmail()).isNull();
+    }
+
+    @Test
+    void reviewWithoutAStatus_is400_notA500() {
+        CommunityReport row = new CommunityReport();
+        row.setId(504L);
+        row.setTargetType(CommunityReport.TargetType.GROUP_POST);
+        row.setPostId(7L);
+        row.setTargetAuthorEmail(AUTHOR);
+        row.setStatus(CommunityReport.ReviewStatus.PENDING);
+        when(reportRepo.findById(504L)).thenReturn(Optional.of(row));
+
+        ResponseStatusException group = assertThrows(ResponseStatusException.class,
+                () -> service.reviewGroupReport(GROUP, 504L, new ReviewCommunityReportRequest(null, "x"), ADMIN));
+        assertEquals(HttpStatus.BAD_REQUEST, group.getStatusCode());
+        ResponseStatusException platform = assertThrows(ResponseStatusException.class,
+                () -> service.review(504L, null, "mod@x.com"));
+        assertEquals(HttpStatus.BAD_REQUEST, platform.getStatusCode());
+        verify(reportRepo, never()).save(any());
     }
 }
