@@ -14,7 +14,9 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -44,6 +46,7 @@ public class GroupPostCommentService {
     private final GroupPostService postService;
     private final MentionService mentionService;
     private final BlockService blockService;
+    private final GroupContentRemovals removals;
 
     public GroupPostCommentService(
             GroupPostCommentRepo commentRepo,
@@ -54,7 +57,8 @@ public class GroupPostCommentService {
             GroupPostCommentReactionService reactionService,
             GroupPostService postService,
             MentionService mentionService,
-            BlockService blockService
+            BlockService blockService,
+            GroupContentRemovals removals
     ) {
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
@@ -65,6 +69,7 @@ public class GroupPostCommentService {
         this.postService = postService;
         this.blockService = blockService;
         this.mentionService = mentionService;
+        this.removals = removals;
     }
 
     /**
@@ -160,6 +165,11 @@ public class GroupPostCommentService {
             }
         }
 
+        if (removals.isCommentRemoved(existing.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This comment was removed by a group admin");
+        }
+
         // Captured BEFORE the overwrite -- the edit notification is a diff.
         final String previousContent = existing.getContent();
         if (dto.getContent() != null && !dto.getContent().trim().isEmpty()) {
@@ -243,6 +253,55 @@ public class GroupPostCommentService {
                     ws.sendGroupPostCommentDeletion(postId, id);
                 } catch (Exception e) {
                     log.error("WS broadcast failed for delete comment id={}", id, e);
+                }
+            }
+        });
+    }
+
+    /**
+     * {@code DELETE /api/group-post-comments/{id}} (audit FD-06, D24). The
+     * author hard-deletes (unchanged). The owner or an admin of the post's
+     * group soft-removes someone else's comment: the row stays, its text is
+     * cleared, an {@code admin_audit_log} row holds who/when/preview, and the
+     * frame that goes out carries {@code removedByAdmin=true} so open threads
+     * show "Removed by an admin" in place. Unknown id → 404; anyone else → 403.
+     */
+    @Transactional
+    public void deleteOrRemoveAsCaller(Long id, String callerEmail) {
+        GroupPostComment c = id == null ? null : commentRepo.findById(id).orElse(null);
+        if (c == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        if (callerEmail != null && c.getAuthor() != null
+                && c.getAuthor().equalsIgnoreCase(callerEmail.trim())) {
+            deleteCommentByIdAndBroadcast(id);
+            return;
+        }
+        String groupId = postRepo.findById(c.getPostId()).map(p -> p.getGroupId()).orElse(null);
+        if (!postService.isGroupAdminOrOwner(groupId, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the author or a group admin can remove this comment");
+        }
+        if (removals.isCommentRemoved(c.getId())) return; // already a tombstone
+
+        String preview = c.getContent() == null ? "" : c.getContent().trim();
+        if (preview.length() > 300) preview = preview.substring(0, 300);
+        removals.recordComment(callerEmail, c.getId(),
+                "group=" + groupId + " post=" + c.getPostId() + " author=" + c.getAuthor()
+                        + " text: " + preview);
+        c.setContent("");
+        c.setMentionedUserIds(new ArrayList<>());
+        GroupPostComment saved = commentRepo.save(c);
+
+        GroupPostCommentDto out = toDto(saved);
+        enrichAuthor(out);
+        out.setRemovedByAdmin(true);
+        out.setRemovedAt(Instant.now());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    ws.sendNewGroupPostComment(saved.getPostId(), out);
+                } catch (Exception e) {
+                    log.error("WS broadcast failed for removed comment id={}", saved.getId(), e);
                 }
             }
         });
@@ -398,6 +457,7 @@ public class GroupPostCommentService {
             GroupPostCommentDto d = toDto(c);
             enrichAuthor(d);
             d.setReactions(reactionService.loadByGroupPostCommentId(d.getId()));
+            applyRemovals(List.of(d));
             return d;
         });
     }
@@ -424,7 +484,23 @@ public class GroupPostCommentService {
             d.setThanksCount(summary.countFor(d.getId()));
             d.setViewerThanked(summary.viewerThankedComment(d.getId()));
         }
+        applyRemovals(dtos);
         return dtos;
+    }
+
+    /** Fold the admin-removal tombstone (FD-06) onto a page: one batched audit read. */
+    private void applyRemovals(List<GroupPostCommentDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return;
+        Map<Long, Instant> removed = removals.removedComments(
+                dtos.stream().map(GroupPostCommentDto::getId).filter(Objects::nonNull).toList());
+        if (removed.isEmpty()) return;
+        for (GroupPostCommentDto d : dtos) {
+            Instant at = removed.get(d.getId());
+            if (at != null) {
+                d.setRemovedByAdmin(true);
+                d.setRemovedAt(at);
+            }
+        }
     }
 
     // --------------------------------------------------------------------------------------------

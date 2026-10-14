@@ -1307,6 +1307,30 @@ public record PostDto(
     ) {}
 
     /**
+     * The <b>work-order</b> life-safety flag (audit TK-11): true when a
+     * universal life-safety flag is set in {@code workDetails} or the derived
+     * site status is do-not-enter; for a project container, when its hottest
+     * still-open child is life-safety. Not an official-alert classification
+     * (alert cards carry {@code presentation.priority='life_safety'}).
+     *
+     * <p>Derived from the record's own components and serialized as the
+     * top-level {@code lifeSafety} property, so the canonical constructor is
+     * unchanged. Rule: {@link io.sitprep.sitprepapi.constant.WorkOrderLifeSafety}.</p>
+     *
+     * <p>A project's answer lives in its rollup. A project DTO built without
+     * one (mutation responses and STOMP frames) returns null and the property
+     * is left out, so a client's shallow merge keeps the value it already
+     * shows instead of reading an untrue {@code false} (B6 review).</p>
+     */
+    @com.fasterxml.jackson.annotation.JsonProperty(value = "lifeSafety",
+            access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public Boolean lifeSafety() {
+        if ("project".equals(kind)) return projectRollup == null ? null : projectRollup.anyOpenLifeSafety();
+        return io.sitprep.sitprepapi.constant.WorkOrderLifeSafety.isLifeSafety(workDetails);
+    }
+
+    /**
      * Parse the {@code payment_methods_json} column into a Map for
      * the FE. Bad/empty JSON returns an empty map rather than null
      * so consumers can safely call {@code .get("venmo")} without a

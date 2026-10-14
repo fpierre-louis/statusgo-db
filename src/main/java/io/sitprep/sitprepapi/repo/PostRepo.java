@@ -292,6 +292,57 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                                       Pageable page);
 
     /**
+     * The cross-group board for a manager (audit TK-09): top-level rows of
+     * every group in {@code groupIds}, newest first, ARCHIVED left out. The
+     * service triages a bounded window of these in memory (life-safety lives
+     * in the work_details JSON, which JPQL can't order by portably).
+     */
+    @Query("""
+           SELECT p FROM Post p
+            WHERE p.groupId IN :groupIds
+              AND p.projectId IS NULL
+              AND p.status <> :archived
+            ORDER BY p.createdAt DESC, p.id DESC
+           """)
+    List<Post> findManagedBoard(@Param("groupIds") Collection<String> groupIds,
+                                @Param("archived") PostStatus archived,
+                                Pageable page);
+
+    /** {@link #findManagedBoard} for one status (ARCHIVED included when asked). */
+    @Query("""
+           SELECT p FROM Post p
+            WHERE p.groupId IN :groupIds
+              AND p.projectId IS NULL
+              AND p.status = :status
+            ORDER BY p.createdAt DESC, p.id DESC
+           """)
+    List<Post> findManagedBoardByStatus(@Param("groupIds") Collection<String> groupIds,
+                                        @Param("status") PostStatus status,
+                                        Pageable page);
+
+    /**
+     * Work-order counts by status for one group (audit TK-11): real tasks
+     * only, so a project's children count and its container does not.
+     */
+    @Query("""
+           SELECT p.status, COUNT(p) FROM Post p
+            WHERE p.groupId = :groupId
+              AND p.kind = 'task'
+            GROUP BY p.status
+           """)
+    List<Object[]> countGroupTasksByStatus(@Param("groupId") String groupId);
+
+    /** A group's still-open tasks (non-terminal), for the life-safety / urgent counts. */
+    @Query("""
+           SELECT p FROM Post p
+            WHERE p.groupId = :groupId
+              AND p.kind = 'task'
+              AND p.status NOT IN :terminal
+           """)
+    List<Post> findOpenGroupTasks(@Param("groupId") String groupId,
+                                  @Param("terminal") Collection<PostStatus> terminal);
+
+    /**
      * Personal preparedness tasks whose due date has passed and which
      * haven't had a reminder sent yet. Drives the daily supply-reminder
      * sweep ({@code PersonalTaskReminderService}).

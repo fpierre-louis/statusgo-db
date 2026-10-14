@@ -66,6 +66,25 @@ public class GroupPostDto {
     private String authorProfileImageUrl;
 
     /**
+     * The author's {@code UserInfo} id, for tap-to-profile (audit FD-08). The
+     * FE routes {@code /profile/:authorUserId} instead of putting the email in
+     * the URL. Null when the author has no profile row. Same field the comment
+     * DTO already carries.
+     */
+    private String authorUserId;
+
+    /**
+     * True when the group's owner or an admin removed this post (audit FD-06,
+     * D24). The row stays so the feed can show a "Removed by an admin"
+     * tombstone in its place; its text, image, place and tags are already
+     * cleared server-side. The removal itself is an {@code admin_audit_log} row.
+     */
+    private boolean removedByAdmin;
+
+    /** When it was removed; null unless {@link #removedByAdmin}. */
+    private Instant removedAt;
+
+    /**
      * When non-null, this post is pinned to the top of its group's feed.
      * Posts with {@code pinnedAt != null} render above timestamp-ordered
      * rows on the FE. Admins toggle it via the pin/unpin endpoints.

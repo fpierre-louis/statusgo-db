@@ -25,7 +25,10 @@ class CommunityReportServiceTest {
             reportRepo,
             postRepo,
             commentRepo,
-            mock(AdminAuditLogService.class)
+            mock(AdminAuditLogService.class),
+            mock(io.sitprep.sitprepapi.repo.GroupPostRepo.class),
+            mock(io.sitprep.sitprepapi.repo.GroupPostCommentRepo.class),
+            mock(GroupPostService.class)
     );
 
     @ParameterizedTest

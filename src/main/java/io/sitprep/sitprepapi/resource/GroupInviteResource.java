@@ -123,7 +123,9 @@ public class GroupInviteResource {
      */
     @GetMapping("/api/invites/{inviteId}/resolve")
     public ResponseEntity<Map<String, Object>> resolve(@PathVariable String inviteId) {
-        var result = inviteService.validate(inviteId);
+        // validateGroupInvite: a household token is NOT_FOUND here (JN-17);
+        // households resolve at /household-invites/{token}/resolve.
+        var result = inviteService.validateGroupInvite(inviteId);
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("state", result.state().name());
         if (result.invite() != null && result.isOk()) {
@@ -169,7 +171,10 @@ public class GroupInviteResource {
             body.put("groupId", result.group().getGroupId());
         }
         if (result.group() != null) {
-            body.put("group", result.group());
+            // The outcome, never the entity (JN-02): a private group's
+            // redeemer is still only a requester, and the raw group carried
+            // its roster, requesters, code and billing ids.
+            body.put("outcome", io.sitprep.sitprepapi.dto.JoinOutcomeDto.of(result.group(), caller));
         }
 
         if (result.state() == GroupInviteService.InviteState.NOT_FOUND) {

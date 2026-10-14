@@ -56,6 +56,10 @@ public class GroupResource {
     @Autowired
     private io.sitprep.sitprepapi.service.GroupMuteService groupMuteService;
 
+    /** The membership read gate ({@code canReadGroup}) for read / mute / quiet (BE-07). */
+    @Autowired
+    private io.sitprep.sitprepapi.service.GroupPostService groupPostService;
+
     /**
      * The Spring-managed mapper, deliberately — the same instance the HTTP
      * message converter uses, so a scoped read is byte-for-byte the old entity
@@ -202,7 +206,28 @@ public class GroupResource {
             "subscriptionOverrideTier", "officialContactEmail",
             // The resolved tier names an active override tier, and the plan
             // badge is a member surface (B1 review).
-            "effectivePlanTier", "planUnlocks"
+            "effectivePlanTier", "planUnlocks",
+            // B2 / BE-05 (2026-10-14). Measured on prod: a non-member GET of
+            // groups 100, 68 and 601 each returned one email, at
+            // lastUpdatedBy (the admin who last flipped the alert), plus the
+            // subgroup graph and the outreach and reminder counters.
+            "lastUpdatedBy",
+            // Platform staff's override: their email and a free-text note.
+            "subscriptionOverrideExpiresAt", "subscriptionOverrideReason",
+            "subscriptionOverrideBy", "subscriptionOverrideAt",
+            "maxSeats", "smsAllowanceMonthly",
+            // Internal outreach state for unclaimed groups.
+            "ghostDemandSignal", "outreachOptOut", "lastOutreachDate", "outreachCount",
+            // The subgroup graph and the optimistic-lock counter.
+            "subGroupIDs", "parentGroupIDs", "version",
+            // Whether a check-in is running, since when, until when, for what
+            // hazard, and how many reminders went out. The check-in banner is
+            // for members (SH-06 addendum); a stranger learns none of it.
+            "alert", "alertActivatedAt", "alertExpiresAt", "activeHazardType",
+            "checkInRemindersFired",
+            // A household's readiness record. A readiness gap is never visible
+            // to anyone outside the household (T-27).
+            "challengeProgress", "drillLog", "planLastConfirmedAt", "challengeLastShownWeek"
     );
 
     @GetMapping("/{groupId}")
@@ -222,22 +247,30 @@ public class GroupResource {
         node.set("planUnlocks", objectMapper.valueToTree(effective.unlocks()));
         if (!hasRelationshipTo(group, caller)) {
             RELATIONSHIP_ONLY_FIELDS.forEach(node::remove);
+            if (containsCaseInsensitive(group.getPendingMemberEmails(), caller)) {
+                // A requester sees their own pending state and the preview
+                // projection, nothing more (D3). Their own row only, so the
+                // frontend's roleOf still answers PENDING ("Request sent")
+                // without learning who else asked.
+                node.putArray("pendingMemberEmails").add(caller.trim().toLowerCase(java.util.Locale.ROOT));
+                node.put("viewerStatus", io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING);
+            }
         }
         return node;
     }
 
     /**
-     * Owner, admin, member — or pending.
+     * Owner, admin or member. <b>Not pending</b> (B2 / JN-02, 2026-10-14).
      *
-     * <p>Pending is included deliberately, and is the part that is easy to get
-     * wrong: {@link GroupRole#fromGroup} resolves a pending request to
-     * {@code NONE}, so relying on it alone would strip the pending list from the
-     * one person who needs it, and the frontend's {@code roleOf} would render
-     * "Join" to someone whose request is already in.</p>
+     * <p>Until then a pending request counted, so that the requester kept their
+     * own pending row. But a private group puts every self-joiner in pending,
+     * and anyone signed in can self-join any id: "pending" was a relationship
+     * anyone could grant themselves, and it unlocked the full entity, including
+     * a household's roster, home address and coordinate. The requester's own
+     * row is now added back on its own (see {@link #getGroupById}).</p>
      */
     private boolean hasRelationshipTo(Group group, String caller) {
-        if (GroupRole.fromGroup(group, caller) != GroupRole.NONE) return true;
-        return containsCaseInsensitive(group == null ? null : group.getPendingMemberEmails(), caller);
+        return GroupRole.fromGroup(group, caller) != GroupRole.NONE;
     }
 
     /**
@@ -309,7 +342,8 @@ public class GroupResource {
      * </ul>
      *
      * <p>Idempotent: a second call when already a member / pending is a
-     * no-op (returns the current group state).</p>
+     * no-op. Returns a {@link io.sitprep.sitprepapi.dto.JoinOutcomeDto}, never
+     * the group. A Household is a 404 (households join by their own invite).</p>
      *
      * <p>Replaces the previous pattern of having the FE call
      * {@code PUT /groups/{id}} with a hand-edited memberEmails array.
@@ -317,10 +351,13 @@ public class GroupResource {
      * flow has been broken at the auth layer.</p>
      */
     @PostMapping("/{groupId}/members/join")
-    public ResponseEntity<Group> selfJoin(@PathVariable String groupId) {
+    public ResponseEntity<io.sitprep.sitprepapi.dto.JoinOutcomeDto> selfJoin(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         try {
-            return ResponseEntity.ok(groupService.selfJoin(groupId, caller));
+            // The outcome, never the entity: a pending requester must not read
+            // back the roster they asked to join (JN-02).
+            return ResponseEntity.ok(io.sitprep.sitprepapi.dto.JoinOutcomeDto.of(
+                    groupService.selfJoin(groupId, caller), caller));
         } catch (RuntimeException e) {
             // GroupService.getGroupByPublicId throws RuntimeException on
             // missing-group; convert to a clean 404 so the FE can surface
@@ -494,7 +531,13 @@ public class GroupResource {
     @PostMapping("/{groupId}/read")
     public ResponseEntity<Void> markGroupRead(@PathVariable String groupId) {
         String email = AuthUtils.requireAuthenticatedEmail();
-        groupPostReadReceiptService.markGroupRead(groupId, email);
+        // Members only (BE-07). A non-member's call used to write a read row
+        // for any id, real or not, and broadcast their email to the group as a
+        // read receipt. Same 204 either way: the answer must not say whether
+        // the id exists or whether the caller belongs to it.
+        if (groupPostService.canReadGroup(groupId, email)) {
+            groupPostReadReceiptService.markGroupRead(groupId, email);
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -508,6 +551,10 @@ public class GroupResource {
     @GetMapping("/{groupId}/mute")
     public ResponseEntity<java.util.Map<String, Object>> getGroupMute(@PathVariable String groupId) {
         String email = AuthUtils.requireAuthenticatedEmail();
+        if (!groupPostService.canReadGroup(groupId, email)) {
+            // A non-member has no pref here (BE-07); same shape as "not muted".
+            return ResponseEntity.ok(java.util.Collections.singletonMap("mutedUntil", null));
+        }
         java.time.Instant until = groupMuteService.getMute(email, groupId)
                 .map(io.sitprep.sitprepapi.domain.GroupMutePref::getMutedUntil)
                 .orElse(null);
@@ -529,6 +576,9 @@ public class GroupResource {
             @RequestBody(required = false) java.util.Map<String, Object> body
     ) {
         String email = AuthUtils.requireAuthenticatedEmail();
+        // A non-member's mute is a no-op (BE-07): no row for an id they don't
+        // belong to, or for one that doesn't exist.
+        if (!groupPostService.canReadGroup(groupId, email)) return ResponseEntity.noContent().build();
         Object raw = body == null ? null : body.get("mutedUntil");
         java.time.Instant until = null;
         if (raw instanceof String s) {
@@ -566,6 +616,7 @@ public class GroupResource {
             @RequestBody(required = false) java.util.Map<String, Object> body
     ) {
         String email = AuthUtils.requireAuthenticatedEmail();
+        if (!groupPostService.canReadGroup(groupId, email)) return ResponseEntity.noContent().build(); // BE-07
         Integer start = readMinute(body, "start");
         Integer end = readMinute(body, "end");
         Object tzRaw = body == null ? null : body.get("timezone");

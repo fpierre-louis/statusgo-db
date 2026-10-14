@@ -69,6 +69,14 @@ public class AdminAuditLogService {
         repo.save(row);
     }
 
+    /** One batched read of the audit rows for a set of targets (B6: group report decisions). */
+    @Transactional(readOnly = true)
+    public List<AdminAuditLog> findForTargets(String targetType, String action, java.util.Collection<String> targetIds) {
+        if (targetIds == null || targetIds.isEmpty()) return List.of();
+        List<AdminAuditLog> rows = repo.findByTargetTypeAndActionAndTargetIdIn(targetType, action, targetIds);
+        return rows == null ? List.of() : rows;
+    }
+
     private static String normalizeActor(String actorEmail) {
         String value = trim(actorEmail, 320);
         if (value == null) return "unknown";

@@ -108,6 +108,16 @@ public class UserInfoService {
         this.liveActivities = liveActivities;
     }
 
+    // Agency staff rosters, for the profile batch's relationship set (B2 /
+    // BE-04). Setter-injected for the same reason as above; null in tests that
+    // build this service by hand, which then simply count no staff.
+    private io.sitprep.sitprepapi.repo.AgencyStaffRepo agencyStaffRepo;
+
+    @Autowired(required = false)
+    public void setAgencyStaffRepo(io.sitprep.sitprepapi.repo.AgencyStaffRepo agencyStaffRepo) {
+        this.agencyStaffRepo = agencyStaffRepo;
+    }
+
     @Autowired
     public UserInfoService(UserInfoRepo userInfoRepo,
                            HouseholdEventService householdEventService,
@@ -314,16 +324,45 @@ public class UserInfoService {
     }
 
     /**
-     * Batch lookup: returns a lightweight profile summary for each requested
-     * email. Unknown or blank emails are skipped. Emails are normalized to
-     * lowercase for the lookup; the returned {@code email} field preserves the
-     * DB value so callers can still key by it.
+     * Batch lookup for an arbitrary list of addresses: {@code POST
+     * /userinfo/profiles/batch}. Returns a summary only for people the viewer
+     * has a relationship with; anyone else is simply absent, as an unknown
+     * address always was (B2 / BE-04, owner decision D7, 2026-10-14).
      *
-     * Replaces the frontend pattern of fanning out N {@code fetchUserProfileByEmail}
-     * calls across a group roster (admin manage-members, status cards, etc.).
+     * <p>The relationship set is {@link #statusAudienceFor} (self, everyone
+     * they share a group or household with, and the subgroup walk below groups
+     * they run) plus the join requesters and agency staff of the groups they
+     * run, because the admin roster names both. Until this change the batch
+     * answered names and avatars for any 500 addresses to any signed-in
+     * account: an "is this address a SitPrep user, and who" oracle.</p>
+     *
+     * <p>{@code lastActiveAt} never ships. Status still ships to co-members
+     * only (ad4c56a): three live surfaces read it from here and have no
+     * member-view path yet (SubGroups, the map's subgroup rows, the household
+     * crisis timeline). D7's full removal lands when they move.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<ProfileSummaryDto> getRelatedProfileSummaries(List<String> emails, String viewerEmail) {
+        final Set<String> statusAudience = statusAudienceFor(viewerEmail);
+        final Set<String> related = new HashSet<>(statusAudience);
+        related.addAll(requestersAndStaffOfGroupsRunBy(viewerEmail));
+        return summarize(emails, related::contains, statusAudience);
+    }
+
+    /**
+     * Profile summaries for a list the SERVER chose (the follow, followers and
+     * blocked lists): identity for every row. Status only for co-members,
+     * {@code lastActiveAt} never. Not for caller-supplied address lists; that
+     * is {@link #getRelatedProfileSummaries}.
      */
     @Transactional(readOnly = true)
     public List<ProfileSummaryDto> getProfileSummariesByEmails(List<String> emails, String viewerEmail) {
+        return summarize(emails, e -> true, statusAudienceFor(viewerEmail));
+    }
+
+    private List<ProfileSummaryDto> summarize(List<String> emails,
+                                              java.util.function.Predicate<String> include,
+                                              Set<String> statusAudience) {
         if (emails == null || emails.isEmpty()) return List.of();
 
         List<String> normalized = emails.stream()
@@ -332,20 +371,16 @@ public class UserInfoService {
                 .filter(s -> !s.isEmpty())
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .distinct()
+                .filter(include)
                 .collect(Collectors.toList());
         if (normalized.isEmpty()) return List.of();
 
-        // WHO MAY SEE A STATUS (2026-10-13, group page audit FEED-MEMBERS-3).
-        // This endpoint resolves names and avatars for any thread or roster,
-        // and it also shipped every person's status, its time and their last
-        // activity to ANY signed-in caller for ANY address: a status oracle.
-        // Identity stays; welfare and presence go only to the person
-        // themselves and to people they share a group with.
-        final Set<String> audience = statusAudienceFor(viewerEmail);
+        // WHO MAY SEE A STATUS (2026-10-13, group page audit FEED-MEMBERS-3):
+        // the person themselves and people they share a group with.
         return userInfoRepo.findByUserEmailIn(normalized).stream()
                 .map(u -> {
                     String email = u.getUserEmail() == null ? "" : u.getUserEmail().trim().toLowerCase(Locale.ROOT);
-                    boolean mayView = audience.contains(email);
+                    boolean mayView = statusAudience.contains(email);
                     return new ProfileSummaryDto(
                             u.getId(),
                             u.getUserEmail(),
@@ -356,12 +391,36 @@ public class UserInfoService {
                             mayView ? u.getStatusColor() : null,
                             mayView ? u.getUserStatusLastUpdated() : null,
                             mayView ? StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated()) : null,
-                            mayView ? u.getLastActiveAt() : null,
+                            null, // lastActiveAt: never from a batch (D7)
                             u.isVerifiedPublisher(),
                             u.getVerifiedPublisherKind()
                     );
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Join requesters and agency staff of every group the viewer owns or
+     * admins, lower-cased. The admin's roster and staff card name them; a
+     * plain member's view does not include them.
+     */
+    private Set<String> requestersAndStaffOfGroupsRunBy(String viewerEmail) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return Set.of();
+        String v = viewerEmail.trim().toLowerCase(Locale.ROOT);
+        Map<String, Group> run = new HashMap<>();
+        for (List<Group> found : List.of(groupRepo.findByAdminEmail(v), groupRepo.findByOwnerEmailIgnoreCase(v))) {
+            if (found != null) for (Group g : found) if (g != null) run.putIfAbsent(g.getGroupId(), g);
+        }
+        Set<String> out = new HashSet<>();
+        for (Group g : run.values()) {
+            addAllLower(out, g.getPendingMemberEmails());
+            if (agencyStaffRepo != null && g.getGroupId() != null) {
+                for (var s : agencyStaffRepo.findByGroupIdOrderByAddedAtAsc(g.getGroupId())) {
+                    if (s != null && s.getUserEmail() != null) out.add(s.getUserEmail().trim().toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return out;
     }
 
     /**

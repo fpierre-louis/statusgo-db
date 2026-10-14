@@ -5,6 +5,8 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.GroupReadinessSummaryDto;
 import io.sitprep.sitprepapi.dto.HouseholdReadinessDto;
+import io.sitprep.sitprepapi.readiness.EssentialsReadinessService;
+import io.sitprep.sitprepapi.readiness.EssentialsReadinessService.EssentialsResult;
 import io.sitprep.sitprepapi.repo.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,17 +17,36 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * The org readiness rollup behind {@code GET /api/groups/{id}/readiness-summary}.
+ *
+ * <p><b>Audit ST-06, decision D15 (2026-10-13):</b> readiness is the four
+ * server essentials, evaluated per member's BASE household through
+ * {@link EssentialsReadinessService} (the rule Home and Ready for More use).
+ * It used to count plans by the member's own email (four legacy owner-email
+ * existence queries), so a spouse in a fully prepared household read "not
+ * ready" because the other spouse authored the plans. The legacy count field
+ * names stay (the admin dashboards read them) with this meaning; the DTO adds
+ * {@code essentials[]} (key, label, done, total), {@code readinessPercent} and
+ * {@code membersWithoutHousehold}.</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class GroupReadinessService {
 
+    /** Admin-facing labels for the four essentials, in Home's order. */
+    static final Map<String, String> ESSENTIAL_LABELS = Map.of(
+            "demographics", "Household details",
+            "mealPlan", "Meal plan",
+            "evacuation", "Evacuation plan",
+            "contacts", "Emergency contacts");
+
+    private static final EssentialsResult NOTHING_DONE = new EssentialsResult(false, false, false, false);
+
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
-    private final DemographicRepo demographicRepo;
-    private final MealPlanDataRepo mealPlanDataRepo;
-    private final EvacuationPlanRepo evacuationPlanRepo;
-    private final EmergencyContactGroupRepo emergencyContactGroupRepo;
     private final HouseholdReadinessService readinessEngine;
+    private final EssentialsReadinessService essentials;
 
     @Transactional(readOnly = true)
     public GroupReadinessSummaryDto buildReadinessSummary(String groupId) {
@@ -48,6 +69,9 @@ public class GroupReadinessService {
             dto.setMembersWithEvacuationPlan(0);
             dto.setMembersWithEmergencyContacts(0);
             dto.setFullyReadyMembers(0);
+            dto.setMembersWithoutHousehold(0);
+            dto.setEssentials(essentialCounts(new int[4], 0));
+            dto.setReadinessPercent(null); // nobody to measure: no number, not 0%
             dto.setMembersCurrentlySafe(0);
             dto.setMembersNeedingAssistance(0);
             dto.setStatusCounts(Collections.emptyMap());
@@ -68,20 +92,16 @@ public class GroupReadinessService {
                         (a, b) -> a
                 ));
 
-        // --- Batched readiness existence: 4 queries instead of 4×N. ---
-        // Each repo returns the lower-cased subset of memberEmails that have
-        // at least one row of the given type. memberEmails is already
-        // lower-cased + normalized in normalizeEmailList above.
-        Set<String> withDemo = demographicRepo.findOwnerEmailsIn(memberEmails);
-        Set<String> withMeal = mealPlanDataRepo.findOwnerEmailsIn(memberEmails);
-        Set<String> withEvac = evacuationPlanRepo.findOwnerEmailsIn(memberEmails);
-        Set<String> withContacts = emergencyContactGroupRepo.findOwnerEmailsIn(memberEmails);
+        // --- Essentials per member's base household (ST-06). One essentials
+        // evaluation per household; a member is evaluated on their own only
+        // when the household's rows don't already make it complete (Home's
+        // owner-email fallback can differ per member).
+        Map<String, Group> households = loadHouseholds(userInfoByEmail.values());
+        Map<String, EssentialsResult> byHousehold = new HashMap<>();
 
-        int membersWithDemographic = 0;
-        int membersWithMealPlan = 0;
-        int membersWithEvacuationPlan = 0;
-        int membersWithEmergencyContacts = 0;
+        int[] done = new int[4];
         int fullyReadyMembers = 0;
+        int membersWithoutHousehold = 0;
 
         int membersSafe = 0;
         int membersNeedsAssistance = 0;
@@ -89,21 +109,24 @@ public class GroupReadinessService {
         Map<String, Integer> statusCounts = new HashMap<>();
 
         for (String normEmail : memberEmails) {
-            boolean hasDemo = withDemo.contains(normEmail);
-            boolean hasMeal = withMeal.contains(normEmail);
-            boolean hasEvac = withEvac.contains(normEmail);
-            boolean hasContacts = withContacts.contains(normEmail);
-
-            if (hasDemo) membersWithDemographic++;
-            if (hasMeal) membersWithMealPlan++;
-            if (hasEvac) membersWithEvacuationPlan++;
-            if (hasContacts) membersWithEmergencyContacts++;
-
-            if (hasDemo && hasMeal && hasEvac && hasContacts) {
-                fullyReadyMembers++;
-            }
-
             UserInfo info = userInfoByEmail.get(normEmail);
+            String baseId = info == null ? null : info.getBaseHouseholdId();
+            Group household = baseId == null ? null : households.get(baseId);
+
+            EssentialsResult r;
+            if (household == null) {
+                membersWithoutHousehold++;
+                r = NOTHING_DONE;
+            } else {
+                EssentialsResult shared = byHousehold.computeIfAbsent(baseId,
+                        k -> essentials.evaluate(household, null, false));
+                r = shared.complete() ? shared : essentials.evaluate(household, normEmail, true);
+            }
+            for (int i = 0; i < 4; i++) {
+                if (r.isDone(EssentialsReadinessService.ESSENTIAL_KEYS.get(i))) done[i]++;
+            }
+            if (r.complete()) fullyReadyMembers++;
+
             String status = info != null ? safeString(info.getUserStatus()) : "UNKNOWN";
 
             String normalizedStatus = normalizeStatus(status);
@@ -116,11 +139,14 @@ public class GroupReadinessService {
             }
         }
 
-        dto.setMembersWithDemographic(membersWithDemographic);
-        dto.setMembersWithMealPlan(membersWithMealPlan);
-        dto.setMembersWithEvacuationPlan(membersWithEvacuationPlan);
-        dto.setMembersWithEmergencyContacts(membersWithEmergencyContacts);
+        dto.setMembersWithDemographic(done[0]);
+        dto.setMembersWithMealPlan(done[1]);
+        dto.setMembersWithEvacuationPlan(done[2]);
+        dto.setMembersWithEmergencyContacts(done[3]);
         dto.setFullyReadyMembers(fullyReadyMembers);
+        dto.setMembersWithoutHousehold(membersWithoutHousehold);
+        dto.setEssentials(essentialCounts(done, memberEmails.size()));
+        dto.setReadinessPercent(Math.round(100f * fullyReadyMembers / memberEmails.size()));
 
         dto.setMembersCurrentlySafe(membersSafe);
         dto.setMembersNeedingAssistance(membersNeedsAssistance);
@@ -192,39 +218,14 @@ public class GroupReadinessService {
             int memberCount = emails.size();
             totalHouseholdMembers += memberCount;
 
-            // Same 4-queries-per-household pattern as the parent group above.
-            // For groups with many households, this is still a big win — was
-            // 4×membersPerHousehold queries each.
-            Set<String> demoSet = emails.isEmpty() ? Collections.emptySet()
-                    : demographicRepo.findOwnerEmailsIn(emails);
-            Set<String> mealSet = emails.isEmpty() ? Collections.emptySet()
-                    : mealPlanDataRepo.findOwnerEmailsIn(emails);
-            Set<String> evacSet = emails.isEmpty() ? Collections.emptySet()
-                    : evacuationPlanRepo.findOwnerEmailsIn(emails);
-            Set<String> contactsSet = emails.isEmpty() ? Collections.emptySet()
-                    : emergencyContactGroupRepo.findOwnerEmailsIn(emails);
-
-            int withDemo = 0;
-            int withMeal = 0;
-            int withEvac = 0;
-            int withContacts = 0;
-            int fullyReady = 0;
-
-            for (String email : emails) {
-                boolean hasDemo = demoSet.contains(email);
-                boolean hasMeal = mealSet.contains(email);
-                boolean hasEvac = evacSet.contains(email);
-                boolean hasContacts = contactsSet.contains(email);
-
-                if (hasDemo) withDemo++;
-                if (hasMeal) withMeal++;
-                if (hasEvac) withEvac++;
-                if (hasContacts) withContacts++;
-
-                if (hasDemo && hasMeal && hasEvac && hasContacts) {
-                    fullyReady++;
-                }
-            }
+            // Essentials for THIS household (ST-06): one evaluation, applied
+            // to every member of it, the same rule Home shows them.
+            EssentialsResult hr = essentials.evaluate(hg, hg.getOwnerEmail());
+            int withDemo = hr.demographics() ? memberCount : 0;
+            int withMeal = hr.mealPlan() ? memberCount : 0;
+            int withEvac = hr.evacuation() ? memberCount : 0;
+            int withContacts = hr.contacts() ? memberCount : 0;
+            int fullyReady = hr.complete() ? memberCount : 0;
 
             HouseholdReadinessDto hDto = new HouseholdReadinessDto();
             hDto.setGroupId(hg.getGroupId());
@@ -257,6 +258,30 @@ public class GroupReadinessService {
     }
 
     // ----------------- helpers -----------------
+
+    /** The members' base households, one batched read. */
+    private Map<String, Group> loadHouseholds(Collection<UserInfo> members) {
+        List<String> ids = members.stream()
+                .map(UserInfo::getBaseHouseholdId)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) return Map.of();
+        return groupRepo.findAllById(ids).stream()
+                .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                .collect(Collectors.toMap(Group::getGroupId, Function.identity(), (a, b) -> a));
+    }
+
+    private static List<GroupReadinessSummaryDto.EssentialCount> essentialCounts(int[] done, int total) {
+        List<GroupReadinessSummaryDto.EssentialCount> out = new ArrayList<>(4);
+        for (int i = 0; i < 4; i++) {
+            String key = EssentialsReadinessService.ESSENTIAL_KEYS.get(i);
+            out.add(new GroupReadinessSummaryDto.EssentialCount(key, ESSENTIAL_LABELS.get(key), done[i], total));
+        }
+        return out;
+    }
 
     private List<String> normalizeEmailList(List<String> raw) {
         return Optional.ofNullable(raw)

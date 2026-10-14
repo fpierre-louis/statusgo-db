@@ -238,7 +238,8 @@ public class PostResource {
     // -----------------------------------------------------------------
 
     @PatchMapping("/api/posts/{id}")
-    public ResponseEntity<ApiResponse<PostDto>> patch(@PathVariable Long id, @RequestBody Post patch) {
+    public ResponseEntity<ApiResponse<PostDto>> patch(@PathVariable Long id, @RequestBody Post patch,
+            @RequestParam(value = "workDetails", required = false) String workDetailsMode) {
         // Broadened 2026-07-13: work orders (kind="task") may be edited by the
         // requester, the assigned lead, OR a group admin/owner — not just the
         // author. Community posts / personal tasks stay strictly author-only.
@@ -246,7 +247,10 @@ public class PostResource {
         // destructive, delete-equivalent action) stays author-only — a
         // broadened editor may change text/triage, never wipe the photos.
         String caller = ensureCanEditTask(id);
-        return ResponseEntity.ok(ApiResponse.ok(tasks.patch(id, patch, caller), ApiMeta.now()));
+        // ?workDetails=merge: only the work-order keys sent change (lane B6,
+        // for the edit modal's lost update). Absent: the bag is replaced.
+        boolean merge = "merge".equalsIgnoreCase(workDetailsMode == null ? "" : workDetailsMode.trim());
+        return ResponseEntity.ok(ApiResponse.ok(tasks.patch(id, patch, caller, merge), ApiMeta.now()));
     }
 
     @DeleteMapping("/api/posts/{id}")
