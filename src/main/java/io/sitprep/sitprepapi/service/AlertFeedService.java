@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.LocationFreshness;
+import io.sitprep.sitprepapi.constant.SystemAccounts;
 import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.resource.AppConfigResource;
@@ -8,15 +9,24 @@ import io.sitprep.sitprepapi.service.AlertDispatchService.DispatchTemplate;
 import io.sitprep.sitprepapi.service.AlertIngestService.MatchType;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
+import io.sitprep.sitprepapi.repo.AlertPostRepo;
+import io.sitprep.sitprepapi.util.AlertIdentity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Assembles {@link AlertFeedResponse} — the card-shaped feed for the hazard
@@ -31,7 +41,10 @@ import java.util.Set;
  *   <li>whether it is a warning or a watch — the template's {@code tier}
  *       (P0-2 / P0-3);</li>
  *   <li>what to say about it — the template body via {@code fillBody}
- *       (P0-5).</li>
+ *       (P0-5);</li>
+ *   <li>how to present it — {@link AlertInterpreter}, handed the one
+ *       {@link Assessment} per alert this class already made (S2 C2). It
+ *       never asks the policy again.</li>
  * </ul>
  *
  * <p>Re-deriving any of those here would create a fifth place that knows how to
@@ -40,6 +53,8 @@ import java.util.Set;
  */
 @Service
 public class AlertFeedService {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertFeedService.class);
 
     /** Beyond this, the snapshot is stale — poll cadence plus a tick of slack. */
     private static final Duration STALE_AFTER = Duration.ofMinutes(11);
@@ -72,10 +87,23 @@ public class AlertFeedService {
 
     private final AlertIngestService ingest;
     private final AlertDispatchService dispatch;
+    /** Null in unit tests that build the service by hand: no community threads then. */
+    private final AlertPostRepo alertPostRepo;
 
-    public AlertFeedService(AlertIngestService ingest, AlertDispatchService dispatch) {
+    /** Serve-time clock. A field so a test can pin it. */
+    Clock clock = Clock.systemUTC();
+
+    @Autowired
+    public AlertFeedService(AlertIngestService ingest, AlertDispatchService dispatch,
+                            AlertPostRepo alertPostRepo) {
         this.ingest = ingest;
         this.dispatch = dispatch;
+        this.alertPostRepo = alertPostRepo;
+    }
+
+    /** Without the community-thread lookup — for callers and tests with no repository. */
+    public AlertFeedService(AlertIngestService ingest, AlertDispatchService dispatch) {
+        this(ingest, dispatch, null);
     }
 
     /** The feed for a coordinate, with no claim about how old that coordinate is. */
@@ -91,8 +119,20 @@ public class AlertFeedService {
      * {@link AlertFeedResponse.LocationAge}.</p>
      */
     public AlertFeedResponse feedFor(double lat, double lng, Instant fixedAt) {
+        return feedFor(lat, lng, fixedAt, null);
+    }
+
+    /**
+     * As above, for whose coordinate this is: {@code current} (the default — the
+     * device's location) or {@code home} (the household's). It decides
+     * {@code viewerContext.role} on every card and is echoed in
+     * {@code meta.context}; it changes nothing about which alerts match.
+     */
+    public AlertFeedResponse feedFor(double lat, double lng, Instant fixedAt, String context) {
         int radiusMi = AppConfigResource.alertsRadiusMi();
         double radiusKm = radiusMi * 1.609344;
+        String ctx = AlertInterpreter.normalizeContext(context);
+        AlertInterpreter.Viewer viewer = new AlertInterpreter.Viewer(lat, lng, fixedAt, ctx);
 
         Snapshot snap = ingest.getSnapshot();
         Set<String> userZones = ingest.zoneCodesForPoint(lat, lng);
@@ -103,13 +143,18 @@ public class AlertFeedService {
         // the edge is a fact about the alert rather than about the reader.
         Map<String, NormalizedAlert> supersededBy =
                 AlertDerivations.supersessionIndex(snap.alerts());
-
-        List<AlertCardDto> cards = new ArrayList<>();
+        Set<String> knownIds = new HashSet<>();
         for (NormalizedAlert a : snap.alerts()) {
-            // One template lookup and one policy decision per alert, handed to
-            // everything below. The filter, the card and the life-threatening
-            // flag used to ask separately — three answers that only agreed
-            // because nothing had changed between the calls yet.
+            if (a != null && a.id() != null) knownIds.add(a.id());
+        }
+
+        // Pass 1 — decide and match. One template lookup and one policy decision
+        // per alert, handed to everything below. The filter, the card and the
+        // life-threatening flag used to ask separately — three answers that
+        // only agreed because nothing had changed between the calls yet.
+        record Matched(NormalizedAlert alert, MatchType match, Assessment assessed) {}
+        List<Matched> matched = new ArrayList<>();
+        for (NormalizedAlert a : snap.alerts()) {
             Assessment assessed = assess(a);
             if (assessed.decision().dispatchMode() == AlertSafetyPolicy.DispatchMode.SUPPRESS) {
                 continue;
@@ -117,10 +162,69 @@ public class AlertFeedService {
             MatchType match = AlertIngestService.matchTypeFor(
                     a, lat, lng, radiusKm, userZones, userStates);
             if (match == null) continue;
-            cards.add(toCard(a, match, radiusMi, supersededBy.get(a.id()), assessed));
+            matched.add(new Matched(a, match, assessed));
         }
 
-        return new AlertFeedResponse(List.copyOf(cards), metaFor(snap, fixedAt));
+        // Pass 2 — ONE batched lookup of the community threads for every card.
+        Map<String, List<Long>> threads = communityThreadsFor(
+                matched.stream().map(Matched::alert).toList());
+
+        List<AlertCardDto> cards = new ArrayList<>(matched.size());
+        for (Matched m : matched) {
+            NormalizedAlert a = m.alert();
+            cards.add(liveCard(a, m.match(), radiusMi, supersededBy.get(a.id()), m.assessed(),
+                    viewer, knownIds, threads.getOrDefault(a.id(), List.of())));
+        }
+
+        return new AlertFeedResponse(List.copyOf(cards), metaFor(snap, fixedAt, ctx));
+    }
+
+    /**
+     * Readable dispatched community posts per alert id, in ONE repository call.
+     *
+     * <p>Keyed the dispatcher's way: {@code alert_post.alert_id} stores the
+     * legacy {@code SOURCE-id} form ({@link AlertIdentity#toLegacyDispatchKey}),
+     * so a bare id or a {@code SOURCE:id} key finds nothing. Each alert asks
+     * for its own id and every id its CAP {@code references} name — the
+     * dispatcher's post keeps the id it was created from, and NWS replaces that
+     * message with a new one, so the discussion is usually filed under an
+     * earlier revision of the same chain.</p>
+     *
+     * <p>A failed lookup costs the threads, never the feed: this is enrichment
+     * on a life-safety surface.</p>
+     */
+    Map<String, List<Long>> communityThreadsFor(List<NormalizedAlert> alerts) {
+        if (alertPostRepo == null || alerts == null || alerts.isEmpty()) return Map.of();
+        Map<String, Set<String>> alertIdsByKey = new HashMap<>();
+        for (NormalizedAlert a : alerts) {
+            if (a == null || a.id() == null) continue;
+            List<String> chain = new ArrayList<>();
+            chain.add(a.id());
+            if (a.references() != null) chain.addAll(a.references());
+            for (String upstream : chain) {
+                String key = AlertIdentity.toLegacyDispatchKey(a.source(), upstream);
+                if (key != null) alertIdsByKey.computeIfAbsent(key, k -> new HashSet<>()).add(a.id());
+            }
+        }
+        if (alertIdsByKey.isEmpty()) return Map.of();
+
+        List<AlertPostRepo.ThreadPostRef> rows;
+        try {
+            rows = alertPostRepo.findReadableThreadPosts(alertIdsByKey.keySet(), SystemAccounts.SITPREP_EMAIL);
+        } catch (RuntimeException e) {
+            log.warn("AlertFeed: community thread lookup failed; serving cards without threads: {}", e.toString());
+            return Map.of();
+        }
+        Map<String, TreeSet<Long>> byAlert = new HashMap<>();
+        for (AlertPostRepo.ThreadPostRef r : rows == null ? List.<AlertPostRepo.ThreadPostRef>of() : rows) {
+            if (r == null || r.getPostId() == null) continue;
+            for (String alertId : alertIdsByKey.getOrDefault(r.getAlertId(), Set.of())) {
+                byAlert.computeIfAbsent(alertId, k -> new TreeSet<>()).add(r.getPostId());
+            }
+        }
+        Map<String, List<Long>> out = new HashMap<>();
+        byAlert.forEach((k, v) -> out.put(k, List.copyOf(v)));
+        return out;
     }
 
     AlertFeedResponse.Meta metaFor(Snapshot snap) {
@@ -128,13 +232,18 @@ public class AlertFeedService {
     }
 
     AlertFeedResponse.Meta metaFor(Snapshot snap, Instant fixedAt) {
+        return metaFor(snap, fixedAt, AlertInterpreter.CONTEXT_CURRENT);
+    }
+
+    AlertFeedResponse.Meta metaFor(Snapshot snap, Instant fixedAt, String context) {
         Instant last = snap == null ? null : snap.lastSuccessAt();
         boolean stale = last == null || last.isBefore(Instant.now().minus(STALE_AFTER));
         return new AlertFeedResponse.Meta(
                 last == null ? null : last.toString(),
                 stale,
                 AlertFeedResponse.COVERAGE_CAVEAT,
-                locationAgeFor(fixedAt));
+                locationAgeFor(fixedAt),
+                AlertInterpreter.normalizeContext(context));
     }
 
     /**
@@ -186,12 +295,31 @@ public class AlertFeedService {
      */
     AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi,
                         NormalizedAlert replacedBy, Assessment assessed) {
-        if (replacedBy != null) {
-            return card(a, match, radiusMi, replacedBy, assessed,
-                    AlertDerivations.endingStateOf(replacedBy), true);
-        }
-        return card(a, match, radiusMi, null, assessed,
-                AlertDerivations.lifecycleState(a, Instant.now()), false);
+        return liveCard(a, match, radiusMi, replacedBy, assessed, null, Set.of(), List.of());
+    }
+
+    /**
+     * A live card with everything the feed knows about its reader.
+     *
+     * <p>The lifecycle is decided FIRST ({@link AlertInterpreter#liveLifecycle}):
+     * an issuer edge — the replacing message's VTEC or CAP shape, the alert's
+     * own all-terminal VTEC, or its own end time — and the card's
+     * {@code lifecycleState} is that answer, so the two fields cannot disagree.
+     * Any card that answer leaves not in force is a RECORD: no SitPrep guidance,
+     * no current directive, whatever the decision would otherwise allow.</p>
+     */
+    private AlertCardDto liveCard(NormalizedAlert a, MatchType match, int radiusMi,
+                                  NormalizedAlert replacedBy, Assessment assessed,
+                                  AlertInterpreter.Viewer viewer, Set<String> knownIds,
+                                  List<Long> communityPostIds) {
+        Instant now = clock.instant();
+        AlertCardDto.LifecycleInfo lifecycle =
+                AlertInterpreter.liveLifecycle(a, replacedBy, knownIds, now);
+        boolean record = replacedBy != null || !lifecycle.current();
+        boolean allClear = AlertInterpreter.isAllClear(a)
+                || (replacedBy != null && AlertInterpreter.isAllClear(replacedBy));
+        return card(a, match, radiusMi, replacedBy, assessed, lifecycle, record, allClear,
+                viewer, communityPostIds, now);
     }
 
     /**
@@ -205,15 +333,28 @@ public class AlertFeedService {
      * caller's: it is the only one holding the stored edges that decide it.</p>
      */
     AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState) {
-        return card(a, match, radiusMi, null, assess(a), lifecycleState, true);
+        return toRecordCard(a, match, radiusMi, lifecycleState, null);
+    }
+
+    /** As above, with the reader's point for {@code viewerContext}. */
+    AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState,
+                              AlertInterpreter.Viewer viewer) {
+        Instant now = clock.instant();
+        AlertCardDto.LifecycleInfo lifecycle =
+                AlertInterpreter.recordLifecycle(a, lifecycleState, Set.of(), now);
+        return card(a, match, radiusMi, null, assess(a), lifecycle, true,
+                AlertInterpreter.isAllClear(a), viewer, List.of(), now);
     }
 
     private AlertCardDto card(NormalizedAlert a, MatchType match, int radiusMi,
                               NormalizedAlert replacedBy, Assessment assessed,
-                              String lifecycleState, boolean record) {
+                              AlertCardDto.LifecycleInfo lifecycle, boolean record, boolean allClear,
+                              AlertInterpreter.Viewer viewer, List<Long> communityPostIds,
+                              Instant now) {
         DispatchTemplate tpl = assessed.template();
         AlertSafetyPolicy.Decision decision = assessed.decision();
         boolean guidance = !record && decision.allowsSitPrepGuidance();
+        String lifecycleState = lifecycle.state();
 
         // Plain-language copy — ours, sanitised. Absent when no template covers
         // this product, which is honest: we would rather say nothing than
@@ -229,13 +370,19 @@ public class AlertFeedService {
                 ? AlertDerivations.orNull(tpl == null ? null : tpl.steps)
                 : null;
         String precautionsSource = precautions == null ? null : AlertDerivations.guidanceAttribution(a);
+        String tier = tierOf(a, tpl);
+        AlertCardDto.Safety safety = record ? recordSafetyOf(decision, lifecycleState) : safetyOf(decision);
+
+        AlertInterpreter.Output interp = AlertInterpreter.interpret(new AlertInterpreter.Input(
+                a, assessed, record, match, tier, headline, whatToDo, precautions, precautionsSource,
+                safety, lifecycle, allClear, viewer, communityPostIds, now));
 
         return new AlertCardDto(
                 a.id(),
                 a.source() == null ? null : a.source().toLowerCase(Locale.ROOT),
                 a.event(),
                 headline != null ? headline : a.event(),
-                tierOf(a, tpl),
+                tier,
                 !record && isLifeThreatening(a, tpl, decision),
                 a.event() != null && EVACUATION_PRODUCTS.contains(a.event()),
                 headline,
@@ -268,7 +415,20 @@ public class AlertFeedService {
                 a.endsAt(),                       // null stays null — see the DTO
                 ATTRIBUTION.get(a.source()),
                 detailOf(a),
-                record ? recordSafetyOf(decision, lifecycleState) : safetyOf(decision));
+                safety,
+                interp.dedupeKey(),
+                interp.sourceRevisionRef(),
+                null,                             // interpretationRef: C3's snapshot id
+                AlertInterpreter.VERSION,
+                interp.sourceIdentity(),
+                lifecycle,
+                interp.clusterKey(),
+                interp.interpreter(),
+                interp.presentation(),
+                interp.actions(),
+                interp.officialArea(),
+                interp.viewerContext(),
+                interp.communityThreads());
     }
 
     private static AlertCardDto.Safety safetyOf(AlertSafetyPolicy.Decision decision) {

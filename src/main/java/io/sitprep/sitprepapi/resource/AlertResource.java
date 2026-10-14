@@ -91,14 +91,22 @@ public class AlertResource {
      * official text, tier and life-threatening status passed through from the
      * dispatch pipeline, the match reason on every card, and the coverage
      * caveat on every response.</p>
+     *
+     * <p>{@code context} (S2 C2) says whose coordinate this is: {@code current}
+     * — the default — for the device's own location, {@code home} for the
+     * household's (Home sends it with household coordinates). It sets each
+     * card's {@code viewerContext.role} and is echoed in {@code meta.context}.
+     * Forgiving like {@code fixedAt}: an unknown value is {@code current}, not
+     * a 400.</p>
      */
     @GetMapping("/feed")
     public ResponseEntity<AlertFeedResponse> feed(
             @RequestParam("lat") double lat,
             @RequestParam("lng") double lng,
-            @RequestParam(value = "fixedAt", required = false) String fixedAt
+            @RequestParam(value = "fixedAt", required = false) String fixedAt,
+            @RequestParam(value = "context", required = false) String context
     ) {
-        return ResponseEntity.ok(feedService.feedFor(lat, lng, parseFixedAt(fixedAt)));
+        return ResponseEntity.ok(feedService.feedFor(lat, lng, parseFixedAt(fixedAt), context));
     }
 
     /**

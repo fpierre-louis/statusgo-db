@@ -65,4 +65,44 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
      */
     @Query("SELECT DISTINCT ap.alertId FROM AlertPost ap WHERE ap.resolvedAt IS NULL")
     List<String> findActiveAlertIds();
+
+    /** One (alertId, postId) pair from {@link #findReadableThreadPosts}. */
+    interface ThreadPostRef {
+        String getAlertId();
+        Long getPostId();
+    }
+
+    /**
+     * The community discussion posts for a batch of alerts — the feed card's
+     * {@code communityThreads} (S2 C2). ONE query for a whole feed response,
+     * however many cards it carries.
+     *
+     * <p><b>Resolved rows are included on purpose.</b> {@code resolvedAt} marks
+     * the dispatcher's post as no longer pinned, which happens the moment NWS
+     * replaces the message it was created from — but the post, and the
+     * neighbours' replies on it, are still the conversation about this hazard.
+     * Live-ness is the card's job ({@code lifecycleInfo}), not this list's.</p>
+     *
+     * <p><b>Readable means what {@code PostReadAuthorizer} already allows any
+     * viewer:</b> a groupless {@code alert-update} authored by the SitPrep
+     * system account. A group-scoped row, a row of any other kind, or one
+     * merged into another post is never listed, so the feed cannot point a
+     * stranger at something the post endpoint would refuse.</p>
+     *
+     * @param alertIds    legacy dispatch keys ({@code SOURCE-id}) — what
+     *                    {@code alert_post.alert_id} stores
+     * @param systemEmail {@code SystemAccounts.SITPREP_EMAIL}
+     */
+    @Query("""
+           SELECT ap.alertId AS alertId, ap.postId AS postId
+             FROM AlertPost ap, Post p
+            WHERE ap.alertId IN :alertIds
+              AND p.id = ap.postId
+              AND p.groupId IS NULL
+              AND p.kind = 'alert-update'
+              AND LOWER(p.requesterEmail) = LOWER(:systemEmail)
+              AND p.mergedIntoPostId IS NULL
+           """)
+    List<ThreadPostRef> findReadableThreadPosts(@Param("alertIds") Collection<String> alertIds,
+                                                @Param("systemEmail") String systemEmail);
 }

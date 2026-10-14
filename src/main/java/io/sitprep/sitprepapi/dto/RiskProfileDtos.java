@@ -131,7 +131,16 @@ public final class RiskProfileDtos {
              * Who issued the alert, for attributing {@code instruction} ("the National
              * Weather Service (NOAA)"); null for an unknown source.
              */
-            String issuer
+            String issuer,
+            /**
+             * The attribution line for {@code whatToDo} — the same string the
+             * feed card carries in {@code precautionsSource} (S2 C2, U5
+             * follow-up). Null exactly when {@code whatToDo} is null, so a caller
+             * cannot render SitPrep's guidance without saying whose it is.
+             */
+            String whatToDoSource,
+            /** {@code SOURCE:upstreamId} — the feed card's {@code dedupeKey}. Null for an unknown source. */
+            String dedupeKey
     ) {
         /**
          * Fixture shape for callers that hold no policy decision: no SitPrep
@@ -143,6 +152,15 @@ public final class RiskProfileDtos {
                               String startedAt, String endsAt, String event) {
             this(id, source, severity, hazard, headline, area, instruction,
                     startedAt, endsAt, event, null, null, null, null);
+        }
+
+        /** The pre-S2 shape: no guidance attribution, no dedupeKey. */
+        public ActiveAlertDto(String id, String source, String severity, String hazard,
+                              String headline, String area, String instruction,
+                              String startedAt, String endsAt, String event,
+                              String whatToDo, String tier, String guidanceMode, String issuer) {
+            this(id, source, severity, hazard, headline, area, instruction,
+                    startedAt, endsAt, event, whatToDo, tier, guidanceMode, issuer, null, null);
         }
     }
 }

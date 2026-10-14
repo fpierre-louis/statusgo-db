@@ -8,6 +8,7 @@ import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskAdjustedRequirementDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.util.AlertIdentity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -278,7 +279,11 @@ public class RiskProfileService {
                 whatToDo,
                 AlertFeedService.tierOf(a, tpl),
                 decision.guidanceMode().wire(),
-                AlertDerivations.issuerOf(a)));
+                AlertDerivations.issuerOf(a),
+                // Whose words whatToDo is — the feed card's precautionsSource line.
+                // Null with whatToDo, so the two cannot be shown apart.
+                whatToDo == null ? null : AlertDerivations.guidanceAttribution(a),
+                AlertIdentity.dedupeKey(a.source(), a.id())));
     }
 
     /**

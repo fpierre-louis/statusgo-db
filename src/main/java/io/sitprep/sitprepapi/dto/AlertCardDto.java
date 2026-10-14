@@ -108,7 +108,10 @@ public record AlertCardDto(
          * {@code response} and {@code expires} (see
          * {@code AlertDerivations.lifecycleState}). The live feed also says
          * {@code superseded} or {@code cancelled} when the message replacing
-         * this one is in the same snapshot. History adds what only a record can
+         * this one is in the same snapshot — or {@code expired}, when that
+         * message's NWS VTEC action for this event is {@code EXP}: the issuer
+         * let it lapse rather than calling it off (S2 C2, rule 8; see
+         * {@link #lifecycleInfo} for the evidence). History adds what only a record can
          * know: a stored Update or Cancel naming this alert, and
          * {@code no_longer_listed} for an alert a later successful poll no longer
          * carried — which is never claimed as {@code cancelled}, because the
@@ -185,8 +188,69 @@ public record AlertCardDto(
          * the end so the positional record does not silently shift existing
          * same-typed fields.
          */
-        Safety safety
+        Safety safety,
+
+        // ── S2 C2 additions (contract §3). Every one is nullable and NON_NULL,
+        //    appended so the positional record does not shift an existing
+        //    field; the 21-argument constructor below keeps every existing
+        //    caller compiling and leaves them all null. ──
+
+        /** {@code SOURCE:upstreamId} — {@code AlertIdentity.dedupeKey}, the FE's {@code alertRecordKey}. */
+        String dedupeKey,
+
+        /** {@code dedupeKey@fp12} — this exact source revision ({@code AlertSourceFingerprint}). */
+        String sourceRevisionRef,
+
+        /** The interpretation snapshot id. Null until persistence (C3) lands. */
+        String interpretationRef,
+
+        /** {@code AlertInterpreter.VERSION}: bumped by hand when the interpretation rules change. */
+        String presentationVersion,
+
+        SourceIdentity sourceIdentity,
+
+        LifecycleInfo lifecycleInfo,
+
+        /**
+         * PRESENTATION ONLY: a key a surface may use to sit related alerts
+         * together ("three Flood Watches for neighbouring zones"). It never
+         * suppresses, ends or replaces anything; lifecycle lives in
+         * {@link #lifecycleInfo} and nowhere else.
+         */
+        String clusterKey,
+
+        Interpreter interpreter,
+
+        Presentation presentation,
+
+        /** Semantic actions, each with a route an older client can follow. */
+        List<Action> actions,
+
+        OfficialArea officialArea,
+
+        ViewerContext viewerContext,
+
+        CommunityThreads communityThreads
 ) {
+
+    /**
+     * The pre-S2 shape: every C2 addition absent. Kept so callers that build a
+     * card by hand (tests, fixtures) compile unchanged.
+     */
+    public AlertCardDto(String id, String source, String eventType, String eventLabel,
+                        String tier, boolean isLifeThreatening, boolean evacuationRelated,
+                        String headline, String whatToDo, List<String> precautions,
+                        String precautionsSource, String lifecycleState,
+                        List<String> replacesAlertIds, SupersededBy supersededBy,
+                        Official official, Location location, int radiusMi,
+                        String effectiveAt, String expiresAt, String sourceAttribution,
+                        Detail detail, Safety safety) {
+        this(id, source, eventType, eventLabel, tier, isLifeThreatening, evacuationRelated,
+                headline, whatToDo, precautions, precautionsSource, lifecycleState,
+                replacesAlertIds, supersededBy, official, location, radiusMi,
+                effectiveAt, expiresAt, sourceAttribution, detail, safety,
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
 
     /**
      * The upstream text, verbatim and unprocessed.
@@ -312,4 +376,155 @@ public record AlertCardDto(
                     movementDirective, reason, null);
         }
     }
+
+    // ------------------------------------------------------------------
+    // S2 C2 nested records (contract §3)
+    // ------------------------------------------------------------------
+
+    /**
+     * Who the alert is from. {@code key}, {@code name} and {@code official}
+     * come from {@code TrustedSourceRegistry} — the adapter that fetched the
+     * alert, never a payload string. {@code issuedBy} is the issuing office as
+     * the issuer names itself ({@code senderName}), shown beside the verified
+     * name and never instead of it.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SourceIdentity(
+            String key,
+            String name,
+            boolean official,
+            String issuedBy,
+            /** warning | watch | advisory | statement | information | earthquake_information | disaster_declaration */
+            String recordType,
+            /** Always null until permission to show an agency mark is documented. */
+            String logoKey
+    ) {}
+
+    /**
+     * Where the alert is in its life, with the evidence for it.
+     *
+     * <p>{@code state} always equals the card's {@code lifecycleState}.
+     * {@code verified} says whether the issuer stated it — a VTEC action, a CAP
+     * reference, or the alert's own times — as opposed to SitPrep inferring it
+     * from a poll that no longer listed the alert, which is never claimed as
+     * verified.</p>
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record LifecycleInfo(
+            String state,
+            /** {@code state} is active or updated. A record card still says so; see {@link Presentation#current}. */
+            boolean current,
+            boolean verified,
+            /** vtec_&lt;action&gt; | cap_update | cap_cancel | all_clear | expired | replaced | not_listed, or null. */
+            String reason,
+            /** {@code VTEC:<event key>}, else {@code CAP:<root identifier>}, else the dedupeKey. */
+            String threadKey,
+            List<Reference> references,
+            /** The dedupeKey of the message that replaced this one, when it is in hand. */
+            String replacedBy,
+            String updatedAt,
+            String endedAt
+    ) {}
+
+    /** One CAP {@code references} entry; {@code resolved} when that message is in hand. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Reference(String sender, String identifier, String sent, boolean resolved) {}
+
+    /**
+     * What SitPrep says about the alert, decided once by the safety policy and
+     * shaped by {@code AlertInterpreter}. Never re-derived from the title,
+     * severity or wording.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Interpreter(
+            /** SitPrep's reviewed headline; null when guidance is not allowed. */
+            String summary,
+            /** Null on every non-current card, and when there is nothing to say. */
+            PrimaryAction primaryAction,
+            /** == {@code precautions}. */
+            List<String> steps,
+            /** == {@code precautionsSource}. */
+            String stepsSource,
+            /** sitprep | issuer | none */
+            String author,
+            String guidanceMode,
+            String compatibility,
+            String templateKey,
+            Integer templateReviewVersion,
+            String templateApprovedAt,
+            List<Evidence> evidence
+    ) {}
+
+    /**
+     * The one thing to do now. {@code reviewed_guidance} is SitPrep's
+     * {@code whatToDo}; {@code official_instruction} is the issuer's CAP
+     * instruction VERBATIM — never shortened here; a client clamps.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PrimaryAction(String text, String kind, String attribution) {}
+
+    /** A public source the reviewed template cites. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Evidence(String agency, String title, String url) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Presentation(
+            /** life_safety | urgent | prepare | info | record */
+            String priority,
+            /** danger | warning | attention | neutral | all_clear — never from severity. */
+            String tone,
+            String lifecycleLabel,
+            /**
+             * SAFETY eligibility for an interruptive surface: current and
+             * {@code critical_push}. {@code PushPolicyService} still decides
+             * delivery.
+             */
+            boolean interruptiveEligible,
+            /** In force AND not a record. A history card is never current. */
+            boolean current
+    ) {}
+
+    /**
+     * A semantic action. {@code fallbackRoute} is what a client that does not
+     * know {@code type} should open. Navigation only: none of these starts an
+     * activation.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Action(String type, java.util.Map<String, Object> params, String fallbackRoute) {}
+
+    /** The issuer's area, distinct from where the viewer is ({@link ViewerContext}). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record OfficialArea(
+            /** Always OFFICIAL_ALERT_AREA. */
+            String role,
+            /** polygon | zone | declared | none */
+            String geometryKind,
+            /** [south, west, north, east], or null when the alert carries no geometry. */
+            List<Double> bbox,
+            List<String> zones,
+            String areaDesc,
+            /** exact | region | none — the existing geometry confidence. */
+            String confidence,
+            String provenance
+    ) {}
+
+    /**
+     * Where the viewer stands relative to the alert. {@code matchType} is the
+     * relevance match (how the alert reached this feed) and is NOT
+     * containment; {@code containment} is the only "inside" answer.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ViewerContext(
+            /** CURRENT_LOCATION | HOUSEHOLD_LOCATION */
+            String role,
+            String matchType,
+            /** inside | outside | unknown | zone */
+            String containment,
+            String coordinateCapturedAt,
+            Boolean coordinateStale
+    ) {}
+
+    /** Readable dispatched community posts for this alert's revision chain. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CommunityThreads(List<String> postIds) {}
 }

@@ -19,11 +19,22 @@ public record AlertFeedResponse(List<AlertCardDto> alerts, Meta meta) {
      *   nothing distinguishing "calm day" from "the feed has been down for
      *   hours", which is the difference between reassurance and a lie.
      * @param coverageCaveat see {@link #COVERAGE_CAVEAT}
+     * @param context   {@code current} | {@code home} — whose coordinate this
+     *   answer is about, echoed from the request (S2 C2). It decides
+     *   {@code viewerContext.role} on every card. Null only on a Meta built
+     *   without one.
      */
     public record Meta(String lastSuccessAt,
                        boolean isStale,
                        String coverageCaveat,
-                       LocationAge locationAge) {}
+                       LocationAge locationAge,
+                       String context) {
+
+        /** The pre-S2 shape, with no context. */
+        public Meta(String lastSuccessAt, boolean isStale, String coverageCaveat, LocationAge locationAge) {
+            this(lastSuccessAt, isStale, coverageCaveat, locationAge, null);
+        }
+    }
 
     /**
      * Whether the COORDINATE this answer was computed for is still trustworthy —
