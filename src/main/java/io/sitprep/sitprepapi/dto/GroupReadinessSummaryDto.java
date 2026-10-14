@@ -23,6 +23,21 @@ public class GroupReadinessSummaryDto {
 
     private int fullyReadyMembers;
 
+    /**
+     * Audit ST-06 / D15: the four essentials (Home's rule) counted per
+     * member's base household, in Home's order, with admin labels. {@code done}
+     * of {@code total} members have that essential in their household.
+     */
+    private List<EssentialCount> essentials;
+
+    /** Members with every essential, as a whole percent; null when the group has no members. */
+    private Integer readinessPercent;
+
+    /** Members with no base household yet (they count as nothing done). */
+    private int membersWithoutHousehold;
+
+    public record EssentialCount(String key, String label, int done, int total) {}
+
     // Readiness only — status is handled on a different page
     private int membersCurrentlySafe;
     private int membersNeedingAssistance;
