@@ -16,7 +16,9 @@ import java.util.Locale;
  * {@link #resolve}, so a link written in any of the three forms finds the same
  * alert.</p>
  *
- * <p><b>The upstream id is kept verbatim</b> — case and content. NWS ids are
+ * <p><b>The upstream id is kept verbatim</b> — case and content; only
+ * surrounding whitespace is trimmed, as the frontend's {@code alertRecordKey}
+ * does ({@code String(alert.id).trim()}), so both sides mint one key. NWS ids are
  * {@code urn:oid:2.49.0.1.840...} (they contain colons, which is why the source
  * prefix is only recognised before the FIRST colon), USGS ids are lower-case
  * ({@code us7000abc}), FEMA ids contain dashes ({@code DR-4932-WV}). Only the
@@ -37,7 +39,7 @@ public final class AlertIdentity {
     public static String dedupeKey(String source, String upstreamId) {
         String s = knownSource(source);
         if (s == null || isBlank(upstreamId)) return null;
-        return s + ":" + upstreamId;
+        return s + ":" + upstreamId.trim();
     }
 
     /**
@@ -49,7 +51,7 @@ public final class AlertIdentity {
     public static String toLegacyDispatchKey(String source, String upstreamId) {
         String s = knownSource(source);
         if (s == null || isBlank(upstreamId)) return null;
-        return s + "-" + upstreamId;
+        return s + "-" + upstreamId.trim();
     }
 
     /** As {@link #toLegacyDispatchKey(String, String)} from a resolved ref; null unless resolved. */
@@ -144,7 +146,7 @@ public final class AlertIdentity {
     private static Resolved withPrefix(String source, String upstreamId, String hint) {
         if (isBlank(upstreamId)) return Resolved.invalid();
         if (hint != null && !hint.equals(source)) return Resolved.ambiguous();
-        return Resolved.of(source, upstreamId);
+        return Resolved.of(source, upstreamId.trim());
     }
 
     /** {@code source} upper-cased when it is one of {@link #SOURCES}, else null. */

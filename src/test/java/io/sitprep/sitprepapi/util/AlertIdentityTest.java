@@ -136,4 +136,16 @@ class AlertIdentityTest {
         assertThat(AlertIdentity.resolve("FEMA-DR-4932-WV", null).dedupeKey()).isEqualTo(expected);
         assertThat(AlertIdentity.resolve("DR-4932-WV", "fema").dedupeKey()).isEqualTo(expected);
     }
+
+    /** The frontend's alertRecordKey trims the id; both sides must mint one key. */
+    @Test
+    void surroundingWhitespaceOnTheIdIsTrimmed_likeTheFrontend() {
+        assertThat(AlertIdentity.dedupeKey("usgs", " us7000abc ")).isEqualTo("USGS:us7000abc");
+        assertThat(AlertIdentity.toLegacyDispatchKey("FEMA", "DR-4932-WV\n")).isEqualTo("FEMA-DR-4932-WV");
+        assertThat(AlertIdentity.resolve("NWS: urn:oid:2.49.0.1", null))
+                .isEqualTo(new Resolved(Status.RESOLVED, "NWS", "urn:oid:2.49.0.1"));
+        assertThat(AlertIdentity.resolve(" DR-4932-WV ", "FEMA").dedupeKey()).isEqualTo("FEMA:DR-4932-WV");
+        // Inner content stays verbatim.
+        assertThat(AlertIdentity.dedupeKey("NWS", "urn:oid:A b")).isEqualTo("NWS:urn:oid:A b");
+    }
 }

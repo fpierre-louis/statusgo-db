@@ -121,7 +121,11 @@ public class AlertIngestService {
                     + "?$filter=declarationDate%%20ge%%20%%27%s%%27"
                     + "%%20and%%20(iaProgramDeclared%%20eq%%20true"
                     + "%%20or%%20ihProgramDeclared%%20eq%%20true)"
-                    + "&$orderby=declarationDate%%20desc"
+                    // `id` breaks ties: every row of one declaration shares its
+                    // declarationDate, so without it the order within a
+                    // declaration, and across $skip pages, is not stable and a
+                    // page boundary can drop or repeat a row.
+                    + "&$orderby=declarationDate%%20desc,id"
                     + "&$top=" + FEMA_PAGE_SIZE + "&$skip=%d";
 
     /** Stop after this many pages — a guard against an unbounded upstream. */
@@ -420,9 +424,14 @@ public class AlertIngestService {
      * {@code femaDeclarationString}. FEMA emits one row per designated
      * county, so a hurricane affecting 30 counties shows up as 30 rows
      * — we collapse those into one alert per disaster with a
-     * comma-joined area string. {@code $orderby=declarationDate desc}
-     * means dedup keeps the most recent row's metadata; secondary rows
-     * just contribute their county to the area list.
+     * comma-joined area string.
+     *
+     * <p><b>Order-independent.</b> The same declaration polled twice must
+     * read the same, or its source fingerprint mints a new revision on a poll
+     * where nothing changed (S2 contract §1, §10). So each row is admitted on
+     * its own merits ({@link #isActiveRecovery}), never because an earlier row
+     * of its declaration was, and {@link #normalizeFema} sorts the rows before
+     * it picks the representative one and joins the areas.</p>
      *
      * <p><b>Severity:</b> {@code "Minor"} — a recovery declaration is not
      * a threat to life (audit P1-2; see {@code normalizeFema}).</p>
@@ -456,15 +465,11 @@ public class AlertIngestService {
                 JsonNode r = it.next();
                 String key = textOrNull(r, "femaDeclarationString");
                 if (key == null) continue;
-                if (!byDecl.containsKey(key) && !isActiveRecovery(r, clock.instant())) {
+                if (!isActiveRecovery(r, clock.instant())) {
                     skippedStale++;
                     continue;
                 }
-                FemaAccum acc = byDecl.computeIfAbsent(key, k -> new FemaAccum(r));
-                String area = textOrNull(r, "designatedArea");
-                if (area != null && !acc.areas.contains(area)) acc.areas.add(area);
-                String same = femaSameCode(r);
-                if (same != null && !acc.same.contains(same)) acc.same.add(same);
+                byDecl.computeIfAbsent(key, k -> new FemaAccum()).rows.add(r);
             }
 
             if (rows.size() < FEMA_PAGE_SIZE) break;   // last page
@@ -797,18 +802,24 @@ public class AlertIngestService {
     }
 
     /**
-     * Per-disaster scratch holder used during FEMA dedup. Carries the
-     * first row's metadata (declarationTitle, incidentType, dates) plus
-     * a deduplicated list of designated areas as more rows for the same
-     * declaration arrive.
+     * Per-disaster scratch holder used during FEMA dedup: every admitted row
+     * of one declaration, in arrival order. {@link #normalizeFema} sorts them
+     * ({@link #FEMA_ROW_ORDER}), so arrival order never reaches the alert.
      */
     private static final class FemaAccum {
-        final JsonNode firstRow;
-        final List<String> areas = new ArrayList<>();
-        /** SAME-form county codes, one per coded designated area — see {@link #femaSameCode}. */
-        final List<String> same = new ArrayList<>();
-        FemaAccum(JsonNode firstRow) { this.firstRow = firstRow; }
+        final List<JsonNode> rows = new ArrayList<>();
     }
+
+    /**
+     * The order a declaration's rows are read in: SAME code (uncoded rows
+     * last), then designated-area name, then OpenFEMA's row {@code id}. Total
+     * on real rows, so the representative row, the area string (and where its
+     * 240-char cut falls) and the SAME list are the same on every poll.
+     */
+    static final java.util.Comparator<JsonNode> FEMA_ROW_ORDER = java.util.Comparator
+            .comparing((JsonNode r) -> { String c = femaSameCode(r); return c == null ? "~" : c; })
+            .thenComparing(r -> { String a = textOrNull(r, "designatedArea"); return a == null ? "" : a; })
+            .thenComparing(r -> { String i = textOrNull(r, "id"); return i == null ? "" : i; });
 
     /**
      * One designated area as a SAME location code, or null when it has none.
@@ -837,7 +848,19 @@ public class AlertIngestService {
     }
 
     private NormalizedAlert normalizeFema(FemaAccum acc) {
-        JsonNode r = acc.firstRow;
+        List<JsonNode> rows = new ArrayList<>(acc.rows);
+        rows.sort(FEMA_ROW_ORDER);
+        List<String> areas = new ArrayList<>();
+        List<String> sameCodes = new ArrayList<>();
+        for (JsonNode row : rows) {
+            String a = textOrNull(row, "designatedArea");
+            if (a != null && !areas.contains(a)) areas.add(a);
+            String c = femaSameCode(row);
+            if (c != null && !sameCodes.contains(c)) sameCodes.add(c);
+        }
+        // Declaration-level metadata (title, type, dates) from a fixed row, not
+        // whichever one arrived first.
+        JsonNode r = rows.get(0);
         String id = textOrNull(r, "femaDeclarationString");
         String incidentType = textOrNull(r, "incidentType");
         String title = textOrNull(r, "declarationTitle");
@@ -858,8 +881,8 @@ public class AlertIngestService {
         }
 
         String area;
-        if (!acc.areas.isEmpty()) {
-            area = String.join(", ", acc.areas);
+        if (!areas.isEmpty()) {
+            area = String.join(", ", areas);
             // Cap the joined string so headlines don't blow up on
             // statewide declarations with 50+ counties.
             if (area.length() > 240) area = area.substring(0, 237) + "…";
@@ -897,7 +920,7 @@ public class AlertIngestService {
                 List.of(),
                 // The designated counties as SAME codes, which is what the feed,
                 // history and /active match on (femaSameCode).
-                List.copyOf(acc.same),
+                List.copyOf(sameCodes),
                 /* references */ List.of(),  // no CAP supersession vocabulary
                 /* sender */ null,
                 /* sent */ null,

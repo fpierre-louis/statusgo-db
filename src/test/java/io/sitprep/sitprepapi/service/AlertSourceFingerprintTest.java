@@ -140,4 +140,24 @@ class AlertSourceFingerprintTest {
         assertThat(AlertSourceFingerprint.revisionRef(null, "abc")).isNull();
         assertThat(AlertSourceFingerprint.fingerprint(null)).isNull();
     }
+
+    /**
+     * History stores the record as JSON and C3/C4 recompute the ref from what
+     * comes back, so every captured NWS alert must fingerprint the same after
+     * the round trip.
+     */
+    @Test
+    void everyCapturedNwsAlertKeepsItsRefThroughAHistoryRoundTrip() throws Exception {
+        List<NormalizedAlert> nws;
+        try (java.io.InputStream in = getClass().getResourceAsStream("/fixtures/nws-active-2026-08-22.json")) {
+            nws = new AlertIngestService(new NwsZoneService()).parseNwsFeed(MAPPER.readTree(in));
+        }
+        assertThat(nws).isNotEmpty();
+        for (NormalizedAlert a : nws) {
+            NormalizedAlert back = MAPPER.readValue(MAPPER.writeValueAsString(a), NormalizedAlert.class);
+            assertThat(AlertSourceFingerprint.revisionRef(back)).as(a.id())
+                    .isEqualTo(AlertSourceFingerprint.revisionRef(a));
+            assertThat(back.vtec()).as(a.id()).isEqualTo(a.vtec());
+        }
+    }
 }
