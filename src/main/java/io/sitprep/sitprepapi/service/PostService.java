@@ -837,7 +837,10 @@ public class PostService {
         // Title goes through per-kind validation below; description first
         // so the validation can require one when title is absent.
         t.setDescription(incoming.getDescription());
-        t.setStatus(incoming.getStatus() != null ? incoming.getStatus() : PostStatus.OPEN);
+        // TK-08: a new row is always OPEN. A client-set status (DONE, CLAIMED,
+        // ARCHIVED) skipped the transition audit rows and, with liability
+        // required, tripped the DB gate as a 500.
+        t.setStatus(PostStatus.OPEN);
         t.setPriority(incoming.getPriority() != null ? incoming.getPriority() : Post.PostPriority.MEDIUM);
         // Unified work-order fields (V43). Additive; inert on non-task kinds.
         // liabilityRequired flags a work order that must capture a signed
@@ -974,6 +977,20 @@ public class PostService {
             t.setProjectId(incomingProjectId);
         }
 
+        // Group work orders (owner decision D9, audit TK-02): a group-scoped
+        // kind=task is created by the group's Owner or Admins only. Members
+        // keep the personal-ask path to the community feed. A create-time
+        // assignee must belong to the group, the same rule /assign applies,
+        // so create can't push "New work assignment" to an arbitrary account.
+        if ("task".equals(t.getKind()) && t.getGroupId() != null && !t.getGroupId().isBlank()) {
+            Group owning = groupRepo.findByGroupId(t.getGroupId().trim()).orElse(null);
+            if (!isOwnerOrAdmin(owning, t.getRequesterEmail())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Only a group admin or owner can create a work order for this group");
+            }
+            requireAssignableMember(t.getGroupId(), delegatedAssignee);
+        }
+
         // Marketplace fields. price + isFree are mutually exclusive
         // and only meaningful when kind="marketplace"; silently drop
         // them on other kinds rather than throw, since they may be
@@ -1016,11 +1033,16 @@ public class PostService {
 
         // Metered monetization (Phase 2) — a group-scoped work order counts
         // against the owning group's monthly plan allowance. Personal tasks
-        // (groupId null) and civic-report kinds are never metered. A group at
-        // its cap gets a 402 here, before the row is persisted.
+        // (groupId null) and civic-report kinds are never metered.
+        // D26: life-safety work, a group in alert and an area in alert are
+        // exempt, and the cap is soft until billing is live.
         if (t.getGroupId() != null && "task".equals(t.getKind())) {
+            final Double qLat = t.getLatitude();
+            final Double qLng = t.getLongitude();
+            final boolean lifeSafety = hasLifeSafetyFlag(t);
             groupRepo.findByGroupId(t.getGroupId())
-                    .ifPresent(workOrderQuotaService::assertQuota);
+                    .ifPresent(g -> workOrderQuotaService.assertQuota(g, lifeSafety,
+                            () -> areaInAlert(qLat, qLng)));
         }
 
         publisherPublishAuditService.requirePublisherPostAllowed(
@@ -1387,16 +1409,36 @@ public class PostService {
      */
     @Transactional(readOnly = true)
     public List<PostDto> listByGroup(String groupId, PostStatus status, String viewerEmail) {
+        return listByGroup(groupId, status, viewerEmail, null, null);
+    }
+
+    /** Default page size for a group board (audit TK-08). */
+    public static final int GROUP_BOARD_DEFAULT_LIMIT = 100;
+    /** Largest page a caller may ask for. */
+    public static final int GROUP_BOARD_MAX_LIMIT = 200;
+
+    /**
+     * A page of a group's board, newest first (audit TK-08: the list was
+     * unbounded). {@code offset} defaults to 0; {@code limit} defaults to
+     * {@link #GROUP_BOARD_DEFAULT_LIMIT} and is clamped to
+     * [1, {@link #GROUP_BOARD_MAX_LIMIT}]. Project children are filtered in
+     * the query, so a page is always full when more rows exist.
+     */
+    @Transactional(readOnly = true)
+    public List<PostDto> listByGroup(String groupId, PostStatus status, String viewerEmail,
+                                     Integer offset, Integer limit) {
         if (groupId == null || groupId.isBlank()) return List.of();
         requireGroupMembership(groupId, viewerEmail);
+        int lim = (limit == null) ? GROUP_BOARD_DEFAULT_LIMIT
+                : Math.max(1, Math.min(GROUP_BOARD_MAX_LIMIT, limit));
+        int off = (offset == null) ? 0 : Math.max(0, offset);
+        org.springframework.data.domain.Pageable page = new io.sitprep.sitprepapi.util.OffsetPageRequest(off, lim);
         List<Post> rows = (status == null)
-                ? taskRepo.findByGroupIdOrderByCreatedAtDesc(groupId)
-                : taskRepo.findByGroupIdAndStatusOrderByCreatedAtDesc(groupId, status);
-        // V51: hide children (project_id != null) from the top-level list — the
+                ? taskRepo.findGroupBoard(groupId, page)
+                : taskRepo.findGroupBoardByStatus(groupId, status, page);
+        // V51: children (project_id != null) are excluded by the query — the
         // project container card represents them (plus its roll-up childCount).
-        // Standalone tasks and project containers (project_id == null) stay.
         List<PostDto> dtos = rows.stream()
-                .filter(p -> p.getProjectId() == null)
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         // withProjectRollup folds each project container's derived counts +
         // triage feed via one grouped child query (no-op when the page has no
@@ -1417,6 +1459,22 @@ public class PostService {
         if (!readAuthorizer.isMemberOfGroup(groupId, viewerEmail)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You are not a member of this group");
+        }
+    }
+
+    /**
+     * True when the point sits in a cell whose mode is alert or crisis. Used
+     * only for the work-order quota exemption (D26), and only once a group
+     * is actually at its cap. A failed lookup reads as "not in alert".
+     */
+    private boolean areaInAlert(Double lat, Double lng) {
+        if (lat == null || lng == null) return false;
+        try {
+            String mode = alertModeService.getForLatLng(lat, lng).getState();
+            return AlertModeService.ALERT.equals(mode) || AlertModeService.CRISIS.equals(mode);
+        } catch (RuntimeException e) {
+            log.debug("PostService: quota area-alert lookup failed for ({}, {}): {}", lat, lng, e.getMessage());
+            return false;
         }
     }
 
@@ -2253,10 +2311,29 @@ public class PostService {
     // ---------------------------------------------------------------------
 
     /**
-     * A group leader claims a task on behalf of their group. The task must
-     * currently be unclaimed and OPEN. Caller email must be admin/owner of
-     * the claimer group — checked at the resource layer; this service trusts
-     * the caller has been authorized.
+     * Community-scope kinds a group may claim across groups (owner decision
+     * D8, 2026-10-13). Everything else is claimable only by its own group.
+     */
+    static final Set<String> CROSS_GROUP_CLAIMABLE_KINDS =
+            Set.of(PostKind.ASK.wire(), PostKind.OFFER.wire());
+
+    /**
+     * A group leader claims a post on behalf of their group (audit TK-01).
+     *
+     * <p>Authorization, in order:</p>
+     * <ol>
+     *   <li>the caller must be able to read the post ({@link PostReadAuthorizer});
+     *       otherwise 404, so an enumerating caller can't tell "not yours"
+     *       from "not there";</li>
+     *   <li>a group-scoped post is claimable only by its own group
+     *       ({@code post.groupId == claimerGroupId}); a groupless post only
+     *       when its kind is on {@link #CROSS_GROUP_CLAIMABLE_KINDS}
+     *       (community asks and offers). Anything else is a 404 too: a
+     *       personal task is never claimable;</li>
+     *   <li>the caller must be an Owner or Admin of the claimer group (403);</li>
+     *   <li>{@code claimerEmail} (defaults to the caller) must belong to the
+     *       claimer group (403).</li>
+     * </ol>
      *
      * <p>The OPEN-and-unclaimed precondition is enforced by the conditional
      * UPDATE in {@link PostRepo#transitionClaim} — two leaders racing to
@@ -2264,18 +2341,72 @@ public class PostService {
      * the {@code rows == 0} branch and gets the conflict.</p>
      */
     @Transactional
-    public PostDto claim(Long postId, String claimerGroupId, String claimerEmail) {
-        // Verify existence up front so a missing id is a 400, not a 409.
-        Post before = mustExist(postId);
-        String email = claimerEmail == null ? null : claimerEmail.trim().toLowerCase();
+    public PostDto claimForGroup(Long postId, String claimerGroupId, String claimerEmail, String callerEmail) {
+        if (claimerGroupId == null || claimerGroupId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId required");
+        }
+        String gid = claimerGroupId.trim();
+        Post before = taskRepo.findById(postId).orElse(null);
+        if (before == null || !readAuthorizer.canRead(before, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found");
+        }
+        String postGroup = before.getGroupId();
+        boolean sameGroup = postGroup != null && !postGroup.isBlank() && postGroup.trim().equals(gid);
+        boolean communityClaimable = (postGroup == null || postGroup.isBlank())
+                && before.getKind() != null
+                && CROSS_GROUP_CLAIMABLE_KINDS.contains(before.getKind().trim().toLowerCase());
+        if (!sameGroup && !communityClaimable) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found");
+        }
+        Group claimer = groupRepo.findByGroupId(gid).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        if (!isOwnerOrAdmin(claimer, callerEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only an admin or owner can claim on behalf of a group");
+        }
+        String email = (claimerEmail == null || claimerEmail.isBlank())
+                ? callerEmail : claimerEmail;
+        email = email == null ? null : email.trim().toLowerCase();
+        if (!readAuthorizer.isMemberOfGroup(gid, email)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "The claimer must be a member of the claiming group");
+        }
         int rows = taskRepo.transitionClaim(
                 postId, PostStatus.OPEN, PostStatus.CLAIMED,
-                claimerGroupId, email, Instant.now());
+                gid, email, Instant.now());
         if (rows == 0) {
             throw new IllegalStateException("Task was claimed by another group");
         }
         auditWorkOrder(before, "task.claim", before.getStatus() + " -> CLAIMED");
         return refetchAndBroadcast(postId);
+    }
+
+    private static boolean isOwnerOrAdmin(Group g, String email) {
+        if (g == null || email == null || email.isBlank()) return false;
+        String me = email.trim();
+        if (g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(me)) return true;
+        return g.getAdminEmails() != null && g.getAdminEmails().stream()
+                .anyMatch(e -> e != null && e.equalsIgnoreCase(me));
+    }
+
+    /**
+     * Shared assignment-target check (audit TK-02): {@code email} must be the
+     * Owner, an Admin or a Member of {@code groupId}. Pending members and
+     * strangers are refused with 403; an unknown group is a 404. Called from
+     * {@link #create} for a create-time assignee and from the resource's
+     * {@code /assign} and {@code /helpers} guards, so every path that makes
+     * someone a Lead or Helper applies the same rule.
+     */
+    public void requireAssignableMember(String groupId, String email) {
+        if (email == null || email.isBlank()) return;
+        if (groupId == null || groupId.isBlank()
+                || groupRepo.findByGroupId(groupId.trim()).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        if (!readAuthorizer.isMemberOfGroup(groupId.trim(), email.trim())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Can only assign a member of the task's group");
+        }
     }
 
     /**

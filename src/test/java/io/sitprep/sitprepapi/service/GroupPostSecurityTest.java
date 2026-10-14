@@ -155,4 +155,60 @@ class GroupPostSecurityTest {
         assertNotNull(service.createPost(dto("owner@x.com"), "owner@x.com"));
         assertNotNull(service.createPost(dto("admin@x.com"), "admin@x.com"));
     }
+
+    // ---- Edit path (audit BE-03 / FD-11): the group is immutable --------
+
+    private GroupPost existingPost() {
+        GroupPost p = new GroupPost();
+        p.setId(7L);
+        p.setAuthor(MEMBER);
+        p.setGroupId(GROUP_ID);
+        p.setGroupName("Group Name Placeholder");
+        p.setContent("original");
+        return p;
+    }
+
+    @Test
+    void editIntoForeignGroupIsRefusedAndUnchanged() {
+        GroupPost post = existingPost();
+        when(postRepo.findById(7L)).thenReturn(Optional.of(post));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.editPost(7L, MEMBER, "moved", "other-household",
+                        null, null, null));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals(GROUP_ID, post.getGroupId());
+        assertEquals("original", post.getContent());
+        verify(postRepo, never()).save(any());
+    }
+
+    @Test
+    void editByNonAuthorIsForbidden() {
+        when(postRepo.findById(7L)).thenReturn(Optional.of(existingPost()));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.editPost(7L, STRANGER, "x", GROUP_ID, null, null, null));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        verify(postRepo, never()).save(any());
+    }
+
+    @Test
+    void editKeepsGroupDerivesNameAndReturnsDtoWithImageUrl() {
+        GroupPost post = existingPost();
+        Group g = groupWithMember(MEMBER);
+        g.setGroupName("Maple Street");
+        when(postRepo.findById(7L)).thenReturn(Optional.of(post));
+        when(groupRepo.findByGroupId(GROUP_ID)).thenReturn(Optional.of(g));
+        when(userInfoRepo.findByUserEmail(anyString())).thenReturn(Optional.empty());
+        when(postRepo.save(any(GroupPost.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        GroupPostDto out = service.editPost(7L, MEMBER, "edited", GROUP_ID,
+                List.of("water"), "uploads/abc.jpg", null);
+
+        assertEquals(GROUP_ID, out.getGroupId());
+        assertEquals("Maple Street", out.getGroupName());
+        assertEquals("edited", out.getContent());
+        assertNotNull(out.getImageUrl());
+        assertNotNull(out.getEditedAt());
+    }
 }

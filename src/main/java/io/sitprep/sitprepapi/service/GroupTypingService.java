@@ -40,12 +40,12 @@ public class GroupTypingService {
         String actor = normalizeEmail(email);
         if (safeGroupId.isBlank() || actor == null) return;
 
+        // Audit BE-12: the same rule as GroupPostService.canReadGroup (owner,
+        // admin or member; never pending). It read memberEmails only, so an
+        // owner or admin listed only in ownerEmail/adminEmails was dropped.
         boolean member = groupRepo.findByGroupId(safeGroupId)
-                .map(Group::getMemberEmails)
-                .orElseGet(java.util.List::of)
-                .stream()
-                .filter(Objects::nonNull)
-                .anyMatch(e -> e.equalsIgnoreCase(actor));
+                .map(g -> canRead(g, actor))
+                .orElse(false);
         if (!member) return;
 
         Instant now = Instant.now();
@@ -65,6 +65,18 @@ public class GroupTypingService {
                 ws.sendGroupTyping(safeGroupId, frame);
             }
         });
+    }
+
+    private static boolean canRead(Group g, String email) {
+        if (g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(email)) return true;
+        return containsIgnoreCase(g.getAdminEmails(), email)
+                || containsIgnoreCase(g.getMemberEmails(), email);
+    }
+
+    private static boolean containsIgnoreCase(java.util.Collection<String> emails, String email) {
+        return emails != null && emails.stream()
+                .filter(Objects::nonNull)
+                .anyMatch(e -> e.equalsIgnoreCase(email));
     }
 
     /**

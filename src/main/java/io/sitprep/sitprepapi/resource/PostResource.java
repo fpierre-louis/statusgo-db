@@ -96,17 +96,24 @@ public class PostResource {
     // the {data,error,meta} envelope and unwraps response.data to the
     // inner payload, so legacy callers keep receiving List<PostDto>
     // byte-for-byte; new consumers can read response.envelope.meta.
+    /**
+     * A page of a group's board, newest first. {@code offset} defaults to 0;
+     * {@code limit} defaults to 100 and is clamped to [1, 200] (audit TK-08:
+     * the list was unbounded). A short page means the end of the board.
+     */
     @GetMapping("/api/groups/{groupId}/posts")
     public ResponseEntity<ApiResponse<List<PostDto>>> listByGroup(
             @PathVariable String groupId,
-            @RequestParam(value = "status", required = false) PostStatus status
+            @RequestParam(value = "status", required = false) PostStatus status,
+            @RequestParam(value = "offset", required = false) Integer offset,
+            @RequestParam(value = "limit", required = false) Integer limit
     ) {
         // Pass the viewer through so the response carries viewerThanked
         // per row — the feed UI's heart shows filled when the viewer has
         // already thanked the post.
         String viewer = AuthUtils.requireAuthenticatedEmail();
         return ResponseEntity.ok(ApiResponse.ok(
-                tasks.listByGroup(groupId, status, viewer), ApiMeta.now()));
+                tasks.listByGroup(groupId, status, viewer, offset, limit), ApiMeta.now()));
     }
 
     @GetMapping("/api/community/posts")
@@ -250,8 +257,11 @@ public class PostResource {
     }
 
     /**
-     * Group leader claims a task. Body: {@code { "groupId": "...",
-     * "claimerEmail": "..." (optional) }}. claimerEmail defaults to caller.
+     * Group leader claims a post for their group. Body: {@code { "groupId":
+     * "...", "claimerEmail": "..." (optional) }}; claimerEmail defaults to
+     * the caller. All authorization lives in {@link PostService#claimForGroup}
+     * (audit TK-01): 404 for a post the caller can't read or their group
+     * can't claim, 403 for a non-manager caller or an outside claimer.
      */
     @PostMapping("/api/posts/{id}/claim")
     public ResponseEntity<ApiResponse<PostDto>> claim(@PathVariable Long id, @RequestBody ClaimRequest req) {
@@ -259,24 +269,8 @@ public class PostResource {
         if (req == null || req.groupId == null || req.groupId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId required");
         }
-        // Caller must be admin or owner of the claimer group.
-        Group g;
-        try {
-            g = groupService.getGroupByPublicId(req.groupId);
-        } catch (RuntimeException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
-        }
-        boolean isOwner = caller.equalsIgnoreCase(g.getOwnerEmail());
-        boolean isAdmin = g.getAdminEmails() != null && g.getAdminEmails().stream()
-                .anyMatch(e -> e != null && e.equalsIgnoreCase(caller));
-        if (!isOwner && !isAdmin) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Only an admin or owner can claim on behalf of a group");
-        }
-        String claimerEmail = (req.claimerEmail == null || req.claimerEmail.isBlank())
-                ? caller : req.claimerEmail;
         return ResponseEntity.ok(ApiResponse.ok(
-                tasks.claim(id, req.groupId, claimerEmail), ApiMeta.now()));
+                tasks.claimForGroup(id, req.groupId, req.claimerEmail, caller), ApiMeta.now()));
     }
 
     /**
@@ -781,23 +775,9 @@ public class PostResource {
      * no check. Throws 403 (non-member) / 404 (group gone).
      */
     private void ensureTargetIsGroupMember(String groupId, String targetEmail) {
-        if (targetEmail == null || targetEmail.isBlank()) return;
-        Group g;
-        try {
-            g = groupService.getGroupByPublicId(groupId);
-        } catch (RuntimeException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
-        }
-        String want = targetEmail.trim();
-        boolean member = want.equalsIgnoreCase(g.getOwnerEmail())
-                || (g.getAdminEmails() != null && g.getAdminEmails().stream()
-                        .anyMatch(e -> e != null && e.equalsIgnoreCase(want)))
-                || (g.getMemberEmails() != null && g.getMemberEmails().stream()
-                        .anyMatch(e -> e != null && e.equalsIgnoreCase(want)));
-        if (!member) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Can only assign a member of the task's group");
-        }
+        // One rule for every path that makes someone a Lead or Helper,
+        // including create (audit TK-02): PostService owns it.
+        tasks.requireAssignableMember(groupId, targetEmail);
     }
 
     /**
