@@ -213,6 +213,43 @@ class GroupPageDtoScopeTest {
         for (String f : NEVER_FOR_ANYONE) assertFalse(n.has(f), "household member sees " + f);
     }
 
+    /**
+     * B4 review (2026-10-14): a household has no preview ({@code /preview}
+     * answers 404, JN-04 / D4), so someone outside it learns nothing here
+     * either — not the family name, the owner's name, the note, the size or
+     * the dates. Measured on prod before this: households 601, 332 and 859
+     * each answered those to a non-member.
+     */
+    @Test
+    void stranger_onAHousehold_learnsNothing() {
+        Group hh = org();
+        hh.setGroupType("Household");
+        hh.setCreatedAt(Instant.now());
+        hh.setUpdatedAt(Instant.now());
+        when(groupService.getGroupByPublicId(GROUP_ID)).thenReturn(hh);
+        JsonNode n = read(STRANGER);
+        assertEquals(Set.of("groupId", "groupType", "viewer"), keys(n), "household outsider read " + n);
+        assertEquals("NONE", n.get("viewer").get("role").asText());
+        assertEquals(0, n.get("viewer").get("permissions").size());
+        assertFalse(n.toString().contains("Lehi Neighbors"));
+        assertFalse(n.toString().contains("Olive Owner"));
+    }
+
+    @Test
+    void pending_onAHousehold_getsOnlyTheirOwnRequest() {
+        Group hh = org();
+        hh.setGroupType("household"); // stored case varies on prod
+        when(groupService.getGroupByPublicId(GROUP_ID)).thenReturn(hh);
+        JsonNode n = read(PENDING);
+        assertEquals(Set.of("groupId", "groupType", "viewer", "pendingMemberEmails", "viewerStatus"), keys(n),
+                "household requester read " + n);
+        assertEquals("PENDING", n.get("viewerStatus").asText());
+        assertEquals("PENDING", n.get("viewer").get("role").asText());
+        assertEquals(1, n.get("pendingMemberEmails").size());
+        assertEquals(PENDING, n.get("pendingMemberEmails").get(0).asText());
+        assertFalse(n.toString().contains(OTHER_PENDING));
+    }
+
     @Test
     void anOrgMemberNeverSeesAHouseholdReadinessField() {
         Group g = org();
@@ -285,6 +322,12 @@ class GroupPageDtoScopeTest {
         g.setChallengeProgress(new HashMap<>(java.util.Map.of("k", true)));
         g.setDrillLog(new HashMap<>(java.util.Map.of("k", new DrillCompletion())));
         return g;
+    }
+
+    private static Set<String> keys(JsonNode n) {
+        Set<String> out = new HashSet<>();
+        n.fieldNames().forEachRemaining(out::add);
+        return out;
     }
 
     private static Set<String> texts(JsonNode arr) {

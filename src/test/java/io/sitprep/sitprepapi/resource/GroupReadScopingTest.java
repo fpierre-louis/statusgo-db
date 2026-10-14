@@ -30,11 +30,11 @@ import static org.mockito.Mockito.*;
  * family roster plus the home address and its coordinate, handed to anyone with
  * an account, along with the code used to join.
  *
- * <p>The response is scoped rather than refused, because the non-member answer
- * already exists and is public: {@code /{id}/preview} serves this same reduced
- * view to invitees who have not signed in. So a stranger now learns nothing here
- * they could not already read there — while roughly twenty member-facing
- * frontend call sites keep working.</p>
+ * <p>The response is scoped rather than refused, so the member-facing frontend
+ * call sites keep working. For a household a non-member reads only its id, its
+ * type and their own {@code viewer} block: a household has no public preview
+ * ({@code /preview} answers 404, JN-04 / D4), so there is nothing else a
+ * stranger may learn (B4 review, 2026-10-14).</p>
  *
  * <p>A pending request is NOT a relationship (B2 / JN-02, 2026-10-14): anyone
  * can self-join any id and land in pending. The requester gets the stranger
@@ -133,13 +133,19 @@ class GroupReadScopingTest {
     }
 
     @Test
-    void strangerStillSeesWhatThePublicPreviewWouldShow() {
-        // Scoping this route down to /preview's level is the whole argument for
-        // stripping instead of refusing — so it must actually reach that level.
+    void aStrangerToAHouseholdLearnsOnlyItsIdAndType() {
+        // This test used to pin the family name and the owner's name as "what
+        // the public preview would show". A household has NO preview
+        // (/preview answers 404 since B2, JN-04 / D4), so the stranger level
+        // for a household is nothing (B4 review, 2026-10-14). An
+        // organization's stranger still gets the preview: GroupPageDtoScopeTest.
         JsonNode n = read(STRANGER);
         assertEquals(GROUP_ID, n.get("groupId").asText());
-        assertEquals("The Reyes household", n.get("groupName").asText());
-        assertEquals("Ana Reyes", n.get("ownerName").asText());
+        assertEquals("Household", n.get("groupType").asText());
+        for (String f : List.of("groupName", "ownerName", "description", "memberCount",
+                "createdAt", "updatedAt", "privacy", "jurisdictionReady", "viewerAgencyPermissions")) {
+            assertFalse(n.has(f), "a household stranger still sees " + f);
+        }
     }
 
     @Test
@@ -177,8 +183,9 @@ class GroupReadScopingTest {
         assertEquals("PENDING", n.get("viewerStatus").asText());
         assertEquals(1, n.get("pendingMemberEmails").size());
         assertEquals(PENDING, n.get("pendingMemberEmails").get(0).asText());
-        // Identity still reads, so the page renders.
-        assertEquals("The Reyes household", n.get("groupName").asText());
+        // A household has no public face, so not even its name (B4 review).
+        assertFalse(n.has("groupName"));
+        assertFalse(n.has("ownerName"));
     }
 
     @Test

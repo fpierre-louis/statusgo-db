@@ -116,7 +116,12 @@ public record GroupMemberViewDto(
      *                      INJURED · HELP · CHECK_IN · SAFE · UNKNOWN —
      *                      never derived from a raw stored status
      * @param checkInActive whether the sub group has a check-in running; its
-     *                      rollup is freshness-clamped to that check-in
+     *                      rollup is freshness-clamped to that check-in. In
+     *                      calm the rollup counts only current statuses
+     *                      ({@code StatusFreshness}: SAFE for 24h, HELP /
+     *                      INJURED until changed), so it is never an all-clear
+     *                      built from old answers. Linked households are not
+     *                      listed at all (D14).
      */
     public record SubGroupRollup(
             String groupId,

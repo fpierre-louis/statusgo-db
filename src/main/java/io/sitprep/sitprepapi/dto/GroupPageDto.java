@@ -29,9 +29,15 @@ import java.util.Set;
  * <h2>Scopes</h2>
  * <ul>
  *   <li><b>STRANGER</b> — the preview: identity, purpose, public agency
- *       facts, a count. Nothing about people or place.</li>
+ *       facts, a count. Nothing about people or place. Organizations only.</li>
  *   <li><b>PENDING</b> — the stranger's view, plus the requester's own
  *       pending row and {@code viewerStatus} (D3; added by the resource).</li>
+ *   <li><b>HOUSEHOLD_STRANGER / HOUSEHOLD_PENDING</b> — anyone outside a
+ *       household. A household has no preview ({@code /preview} answers 404,
+ *       JN-04 / D4), so this route says no more than that: the id, the type
+ *       and the {@code viewer} block — no family name, owner name, note, size
+ *       or dates. A pending caller also gets their own request back, as on
+ *       PENDING (B4 review, 2026-10-14).</li>
  *   <li><b>MEMBER</b> (an organization) — the page: address, check-in state,
  *       links, plan. No pending list, no join code, no billing, no
  *       {@code lastUpdatedBy} (D6).</li>
@@ -58,7 +64,14 @@ public final class GroupPageDto {
 
     private GroupPageDto() {}
 
-    public enum Scope { STRANGER, PENDING, MEMBER, HOUSEHOLD, ADMIN }
+    public enum Scope {
+        STRANGER, PENDING, HOUSEHOLD_STRANGER, HOUSEHOLD_PENDING, MEMBER, HOUSEHOLD, ADMIN;
+
+        /** A caller with a join request open: gets their own row and {@code viewerStatus}. */
+        public boolean isPending() {
+            return this == PENDING || this == HOUSEHOLD_PENDING;
+        }
+    }
 
     /** What anyone signed in may read: the same level as {@code /preview}. */
     public static final Set<String> PUBLIC = Set.of(
@@ -73,6 +86,15 @@ public final class GroupPageDto {
             "jurisdictionLat", "jurisdictionLng", "jurisdictionRadiusMiles",
             // Added by the resource.
             "jurisdictionReady", "viewerAgencyPermissions", "viewer"
+    );
+
+    /**
+     * All that someone outside a household reads: the id they already hold,
+     * the type (so a client can route it), and their own {@code viewer} block.
+     * A household has no public face — see the class doc.
+     */
+    public static final Set<String> HOUSEHOLD_OUTSIDER = Set.of(
+            "groupId", "groupType", "viewer"
     );
 
     /** What every member adds (organizations and households). */
@@ -120,9 +142,13 @@ public final class GroupPageDto {
 
     /** The keys a scope may carry. */
     public static Set<String> allowed(Scope scope) {
+        if (scope == Scope.HOUSEHOLD_STRANGER || scope == Scope.HOUSEHOLD_PENDING) {
+            return HOUSEHOLD_OUTSIDER;
+        }
         Set<String> out = new HashSet<>(PUBLIC);
         switch (scope) {
             case STRANGER, PENDING -> { /* the preview only */ }
+            case HOUSEHOLD_STRANGER, HOUSEHOLD_PENDING -> { /* returned above */ }
             case MEMBER -> {
                 out.addAll(MEMBER);
                 out.addAll(MEMBER_ROSTER_TRANSITIONAL);
@@ -140,12 +166,13 @@ public final class GroupPageDto {
     /** Which scope this caller reads {@code g} in. */
     public static Scope scopeOf(Group g, String caller) {
         GroupRole role = GroupRole.fromGroup(g, caller);
+        boolean household = g != null && g.getGroupType() != null
+                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType().trim());
         if (role == GroupRole.NONE) {
-            return containsIgnoreCase(g == null ? null : g.getPendingMemberEmails(), caller)
-                    ? Scope.PENDING : Scope.STRANGER;
+            boolean pending = containsIgnoreCase(g == null ? null : g.getPendingMemberEmails(), caller);
+            if (household) return pending ? Scope.HOUSEHOLD_PENDING : Scope.HOUSEHOLD_STRANGER;
+            return pending ? Scope.PENDING : Scope.STRANGER;
         }
-        boolean household = g != null
-                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
         if (household) return Scope.HOUSEHOLD;
         return role.isAtLeastAdmin() ? Scope.ADMIN : Scope.MEMBER;
     }

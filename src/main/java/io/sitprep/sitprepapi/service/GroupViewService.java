@@ -277,16 +277,27 @@ public class GroupViewService {
      *
      * <p>The count is the one rule ({@link StatusRollups#compute} anchored on
      * {@link StatusRollups#anchorFor} of the SUB group): a SAFE from before the
-     * sub group's check-in is noResponse there. Manual members are left out —
-     * they belong to households, and a household can't be linked under an
-     * organization (D14); a legacy household link counts its accounts only.</p>
+     * sub group's check-in is noResponse there.</p>
+     *
+     * <p>In calm there is no check-in to clamp to, so the rollup counts only
+     * CURRENT statuses ({@link StatusFreshness}): a SAFE for 24 hours, HELP /
+     * INJURED until changed. There are no rows beside this count for a client
+     * to re-check, so a weeks-old SAFE would read as an all-clear (B4 review,
+     * 2026-10-14).</p>
+     *
+     * <p>A linked HOUSEHOLD is left out entirely: a household can't be linked
+     * under an organization (D14), and its name, size and check-in state are
+     * its own. The legacy links on prod are cleaned up by F5 / AD-06. So no
+     * manual members are counted here either — only households have them.</p>
      */
     private List<SubGroupRollup> subGroupRollups(Group parent) {
         List<String> ids = parent.getSubGroupIDs() == null ? List.of()
                 : parent.getSubGroupIDs().stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
         if (ids.isEmpty()) return null;
         List<Group> children = new ArrayList<>();
-        for (Group c : groupRepo.findAllById(ids)) if (c != null) children.add(c);
+        for (Group c : groupRepo.findAllById(ids)) {
+            if (c != null && !isHouseholdGroup(c)) children.add(c);
+        }
         if (children.isEmpty()) return List.of();
         LinkedHashSet<String> emails = new LinkedHashSet<>();
         for (Group c : children) {
@@ -302,18 +313,30 @@ public class GroupViewService {
         // The parent's own order of links, not the repo's.
         Map<String, Group> byId = new HashMap<>();
         for (Group c : children) byId.put(c.getGroupId(), c);
+        // Calm sub groups count only current statuses (see the javadoc).
+        Instant now = Instant.now();
+        Map<String, UserInfo> currentByEmail = new HashMap<>();
+        byEmail.forEach((email, u) -> {
+            Instant until = StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated());
+            if (until == null || until.isAfter(now)) currentByEmail.put(email, u);
+        });
         List<SubGroupRollup> out = new ArrayList<>();
         for (String id : ids) {
             Group c = byId.get(id);
-            if (c == null) continue; // a dangling link: nothing to count
+            if (c == null) continue; // a dangling link, or a household: nothing to say
             boolean active = "Active".equalsIgnoreCase(c.getAlert());
             List<String> childEmails = c.getMemberEmails() == null ? List.of() : c.getMemberEmails();
-            StatusRollup r = StatusRollups.compute(childEmails, byEmail, List.of(), List.of(),
-                    active, StatusRollups.anchorFor(c));
+            StatusRollup r = StatusRollups.compute(childEmails, active ? byEmail : currentByEmail,
+                    List.of(), List.of(), active, StatusRollups.anchorFor(c));
             out.add(new SubGroupRollup(c.getGroupId(), c.getGroupName(), r,
                     StatusRollups.dominantStatus(r), active));
         }
         return out;
+    }
+
+    private static boolean isHouseholdGroup(Group g) {
+        return g.getGroupType() != null
+                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType().trim());
     }
 
     /**

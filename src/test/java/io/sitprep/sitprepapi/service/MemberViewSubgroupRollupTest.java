@@ -155,6 +155,73 @@ class MemberViewSubgroupRollupTest {
         assertThat(running.checkInActive()).isTrue();
     }
 
+    /**
+     * B4 review (2026-10-14): in calm there is no check-in to clamp to, so
+     * only CURRENT statuses count (StatusFreshness). A SAFE from 30 days ago
+     * is no answer — the sub group must not read as an all-clear — while a
+     * HELP never lapses.
+     */
+    @Test
+    void calmSubGroup_aStaleSafeIsNoAnswer_butOldBadNewsStays() {
+        String stale = "stale@school.org";
+        String oldHelp = "oldhelp@school.org";
+        Group parent = group("p2", "Community", "Not Active", null);
+        parent.setOwnerEmail(OWNER);
+        parent.setMemberEmails(new ArrayList<>(List.of(OWNER)));
+        parent.setSubGroupIDs(new ArrayList<>(List.of("quiet", "worried")));
+        when(groupRepo.findByGroupId("p2")).thenReturn(Optional.of(parent));
+        Group quiet = group("quiet", "Community", "Not Active", null);
+        quiet.setMemberEmails(new ArrayList<>(List.of(stale)));
+        Group worried = group("worried", "Community", "Not Active", null);
+        worried.setMemberEmails(new ArrayList<>(List.of(oldHelp, stale)));
+        when(groupRepo.findAllById(anyList())).thenReturn(List.of(quiet, worried));
+        Instant monthAgo = Instant.now().minus(Duration.ofDays(30));
+        when(userRepo.findByUserEmailIn(anyList())).thenReturn(List.of(
+                user(OWNER, "u-owner", "Olive", null, null),
+                user(stale, "u-s", "Sid", "SAFE", monthAgo),
+                user(oldHelp, "u-h", "Hal", "HELP", monthAgo)));
+
+        List<SubGroupRollup> subs = service.buildMemberView("p2", OWNER).orElseThrow().subGroups();
+        assertThat(subs).extracting(SubGroupRollup::groupId).containsExactly("quiet", "worried");
+        SubGroupRollup q = subs.get(0);
+        assertThat(q.rollup().safe()).isZero();
+        assertThat(q.rollup().noResponse()).isEqualTo(1);
+        assertThat(q.worstStatus()).isEqualTo("UNKNOWN").isNotEqualTo("SAFE");
+        SubGroupRollup w = subs.get(1);
+        assertThat(w.rollup().help()).isEqualTo(1);
+        assertThat(w.rollup().safe()).isZero();
+        assertThat(w.worstStatus()).isEqualTo("HELP");
+    }
+
+    /**
+     * B4 review (2026-10-14): a household can't be linked under an
+     * organization (D14), and prod still holds legacy links. Its name, size
+     * and check-in state are its own, so the parent's admins get no row for it.
+     */
+    @Test
+    void aLinkedHousehold_isNotListed() throws Exception {
+        String mom = "mom@family.org";
+        Group parent = group("p3", "Community", "Not Active", null);
+        parent.setOwnerEmail(OWNER);
+        parent.setMemberEmails(new ArrayList<>(List.of(OWNER)));
+        parent.setSubGroupIDs(new ArrayList<>(List.of("home", "calm")));
+        when(groupRepo.findByGroupId("p3")).thenReturn(Optional.of(parent));
+        Group home = group("home", "Household", "Active", childStart);
+        home.setGroupName("The Smiths");
+        home.setMemberEmails(new ArrayList<>(List.of(mom)));
+        Group calm = group("calm", "Community", "Not Active", null);
+        calm.setMemberEmails(new ArrayList<>(List.of(KID_A)));
+        when(groupRepo.findAllById(anyList())).thenReturn(List.of(home, calm));
+
+        List<SubGroupRollup> subs = service.buildMemberView("p3", OWNER).orElseThrow().subGroups();
+        assertThat(subs).extracting(SubGroupRollup::groupId).containsExactly("calm");
+        assertThat(new ObjectMapper().findAndRegisterModules().writeValueAsString(subs))
+                .doesNotContain("Smiths").doesNotContain("home");
+        // Its members aren't even read.
+        org.mockito.Mockito.verify(userRepo, org.mockito.Mockito.never())
+                .findByUserEmailIn(org.mockito.ArgumentMatchers.argThat(l -> l != null && l.contains(mom)));
+    }
+
     @Test
     void subGroupRollups_carryNoPeople_D14() throws Exception {
         String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(view(OWNER).subGroups());

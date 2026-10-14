@@ -187,8 +187,13 @@ public class GroupResource {
      * (every co-member's email, the join code, Stripe ids). Now each scope
      * lists what it may read, and anything else never leaves.</p>
      *
-     * <p>Stripped rather than refused for a stranger, because the answer for a
-     * non-member already exists and is public ({@code /{id}/preview}).</p>
+     * <p>Stripped rather than refused for a stranger to an ORGANIZATION,
+     * because that answer already exists and is public
+     * ({@code /{id}/preview}). A HOUSEHOLD has no preview ({@code /preview}
+     * answers 404, JN-04 / D4), so someone outside one reads only
+     * {@code groupId}, {@code groupType} and {@code viewer} here
+     * ({@code GroupPageDto.HOUSEHOLD_OUTSIDER}, B4 review 2026-10-14): no
+     * family name, owner name, note, size or dates.</p>
      */
     @GetMapping("/{groupId}")
     public com.fasterxml.jackson.databind.JsonNode getGroupById(@PathVariable String groupId) {
@@ -215,7 +220,7 @@ public class GroupResource {
         io.sitprep.sitprepapi.dto.GroupPageDto.Scope scope =
                 io.sitprep.sitprepapi.dto.GroupPageDto.scopeOf(group, caller);
         io.sitprep.sitprepapi.dto.GroupPageDto.project(node, scope);
-        if (scope == io.sitprep.sitprepapi.dto.GroupPageDto.Scope.PENDING) {
+        if (scope.isPending()) {
             // A requester sees their own pending state and the preview
             // projection, nothing more (D3). Their own row only, so the
             // frontend's roleOf still answers PENDING ("Request sent")
