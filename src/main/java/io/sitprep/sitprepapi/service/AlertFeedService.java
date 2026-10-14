@@ -112,26 +112,46 @@ public class AlertFeedService {
     }
 
     /**
-     * The feed for a coordinate captured at {@code fixedAt}.
+     * The DECISION feed for a coordinate captured at {@code fixedAt}: every
+     * existing card field, none of the S2 interpretation blocks.
+     *
+     * <p>This is the overload the internal safety readers call —
+     * {@code ConcealmentSafetyService} (once per push recipient, through
+     * {@code NotificationService.shouldSendSilently} and the Live Activity
+     * pusher) and {@code ActivationDirectiveResolver} (and
+     * {@code PlanActivationService} through it).
+     * They read {@code lifecycleState}, {@code tier} and {@code safety} and
+     * nothing else, so they get an in-memory build with no repository call
+     * and no per-card fingerprint or containment test: during an emergency
+     * that path runs once per person being notified. A reader that serves a
+     * card to a person uses {@link #feedForViewer}.</p>
      *
      * <p>{@code fixedAt} is optional and a null one is honestly reported as
      * "unknown" rather than quietly treated as fresh — see
      * {@link AlertFeedResponse.LocationAge}.</p>
      */
     public AlertFeedResponse feedFor(double lat, double lng, Instant fixedAt) {
-        return feedFor(lat, lng, fixedAt, null);
+        return build(lat, lng, fixedAt, AlertInterpreter.CONTEXT_CURRENT, false);
     }
 
     /**
-     * As above, for whose coordinate this is: {@code current} (the default — the
-     * device's location) or {@code home} (the household's). It decides
-     * {@code viewerContext.role} on every card and is echoed in
-     * {@code meta.context}; it changes nothing about which alerts match.
+     * The feed a PERSON reads ({@code GET /api/alerts/feed}): the decision feed
+     * above plus the S2 card contract — interpreter, presentation, actions,
+     * lifecycle evidence, official area, viewer context and the community
+     * threads (one batched repository call per response).
+     *
+     * <p>{@code context} says whose coordinate this is: {@code current} (the
+     * default — the device's location) or {@code home} (the household's). It
+     * decides {@code viewerContext.role} on every card and is echoed in
+     * {@code meta.context}; it changes nothing about which alerts match.</p>
      */
-    public AlertFeedResponse feedFor(double lat, double lng, Instant fixedAt, String context) {
+    public AlertFeedResponse feedForViewer(double lat, double lng, Instant fixedAt, String context) {
+        return build(lat, lng, fixedAt, AlertInterpreter.normalizeContext(context), true);
+    }
+
+    private AlertFeedResponse build(double lat, double lng, Instant fixedAt, String ctx, boolean forViewer) {
         int radiusMi = AppConfigResource.alertsRadiusMi();
         double radiusKm = radiusMi * 1.609344;
-        String ctx = AlertInterpreter.normalizeContext(context);
         AlertInterpreter.Viewer viewer = new AlertInterpreter.Viewer(lat, lng, fixedAt, ctx);
 
         Snapshot snap = ingest.getSnapshot();
@@ -144,8 +164,10 @@ public class AlertFeedService {
         Map<String, NormalizedAlert> supersededBy =
                 AlertDerivations.supersessionIndex(snap.alerts());
         Set<String> knownIds = new HashSet<>();
-        for (NormalizedAlert a : snap.alerts()) {
-            if (a != null && a.id() != null) knownIds.add(a.id());
+        if (forViewer) {
+            for (NormalizedAlert a : snap.alerts()) {
+                if (a != null && a.id() != null) knownIds.add(a.id());
+            }
         }
 
         // Pass 1 — decide and match. One template lookup and one policy decision
@@ -165,15 +187,17 @@ public class AlertFeedService {
             matched.add(new Matched(a, match, assessed));
         }
 
-        // Pass 2 — ONE batched lookup of the community threads for every card.
-        Map<String, List<Long>> threads = communityThreadsFor(
-                matched.stream().map(Matched::alert).toList());
+        // Pass 2 — ONE batched lookup of the community threads for every card,
+        // and only for a person's feed: no internal safety reader looks at them.
+        Map<String, List<Long>> threads = forViewer
+                ? communityThreadsFor(matched.stream().map(Matched::alert).toList())
+                : Map.of();
 
         List<AlertCardDto> cards = new ArrayList<>(matched.size());
         for (Matched m : matched) {
             NormalizedAlert a = m.alert();
             cards.add(liveCard(a, m.match(), radiusMi, supersededBy.get(a.id()), m.assessed(),
-                    viewer, knownIds, threads.getOrDefault(a.id(), List.of())));
+                    forViewer ? new Reader(viewer, knownIds, threads.getOrDefault(a.id(), List.of())) : null));
         }
 
         return new AlertFeedResponse(List.copyOf(cards), metaFor(snap, fixedAt, ctx));
@@ -295,31 +319,41 @@ public class AlertFeedService {
      */
     AlertCardDto toCard(NormalizedAlert a, MatchType match, int radiusMi,
                         NormalizedAlert replacedBy, Assessment assessed) {
-        return liveCard(a, match, radiusMi, replacedBy, assessed, null, Set.of(), List.of());
+        return liveCard(a, match, radiusMi, replacedBy, assessed, new Reader(null, Set.of(), List.of()));
     }
 
     /**
-     * A live card with everything the feed knows about its reader.
+     * What a person's feed adds to a card: whose point it is, which messages
+     * are in hand (for {@code references[].resolved}) and the thread posts.
+     * Null for the internal decision feed, which gets no interpretation.
+     */
+    private record Reader(AlertInterpreter.Viewer viewer, Set<String> knownIds, List<Long> communityPostIds) {}
+
+    /**
+     * A live card.
      *
-     * <p>The lifecycle is decided FIRST ({@link AlertInterpreter#liveLifecycle}):
-     * an issuer edge — the replacing message's VTEC or CAP shape, the alert's
-     * own all-terminal VTEC, or its own end time — and the card's
-     * {@code lifecycleState} is that answer, so the two fields cannot disagree.
-     * Any card that answer leaves not in force is a RECORD: no SitPrep guidance,
-     * no current directive, whatever the decision would otherwise allow.</p>
+     * <p><b>{@code lifecycleState} and record-ness are the SHARED derivation</b>
+     * — the replacing message's CAP shape ({@link AlertDerivations#endingStateOf})
+     * or the alert's own fields ({@link AlertDerivations#lifecycleState}) — the
+     * same answer the dispatcher, the risk profile, {@code ConcealmentSafetyService}
+     * and {@code ActivationDirectiveResolver} act on. The interpreter's
+     * VTEC-aware reading ({@link AlertInterpreter#liveLifecycle}) goes into
+     * {@code lifecycleInfo} and the presentation blocks only, where it can only
+     * make a card LESS current, never more: a fifth liveness rule must not
+     * reach the fields those safety readers filter on.</p>
      */
     private AlertCardDto liveCard(NormalizedAlert a, MatchType match, int radiusMi,
-                                  NormalizedAlert replacedBy, Assessment assessed,
-                                  AlertInterpreter.Viewer viewer, Set<String> knownIds,
-                                  List<Long> communityPostIds) {
+                                  NormalizedAlert replacedBy, Assessment assessed, Reader reader) {
         Instant now = clock.instant();
-        AlertCardDto.LifecycleInfo lifecycle =
-                AlertInterpreter.liveLifecycle(a, replacedBy, knownIds, now);
-        boolean record = replacedBy != null || !lifecycle.current();
-        boolean allClear = AlertInterpreter.isAllClear(a)
-                || (replacedBy != null && AlertInterpreter.isAllClear(replacedBy));
-        return card(a, match, radiusMi, replacedBy, assessed, lifecycle, record, allClear,
-                viewer, communityPostIds, now);
+        boolean record = replacedBy != null;
+        String lifecycleState = record
+                ? AlertDerivations.endingStateOf(replacedBy)
+                : AlertDerivations.lifecycleState(a, now);
+        Interpretation interpretation = reader == null ? null : new Interpretation(
+                AlertInterpreter.liveLifecycle(a, replacedBy, reader.knownIds(), now),
+                AlertInterpreter.isAllClear(a) || AlertInterpreter.isAllClear(replacedBy),
+                reader.viewer(), reader.communityPostIds(), now);
+        return card(a, match, radiusMi, replacedBy, assessed, lifecycleState, record, interpretation);
     }
 
     /**
@@ -333,28 +367,38 @@ public class AlertFeedService {
      * caller's: it is the only one holding the stored edges that decide it.</p>
      */
     AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState) {
-        return toRecordCard(a, match, radiusMi, lifecycleState, null);
+        return toRecordCard(a, match, radiusMi, lifecycleState, null, null);
     }
 
-    /** As above, with the reader's point for {@code viewerContext}. */
+    /**
+     * As above, with the reader's point for {@code viewerContext} and, when the
+     * caller holds it, the message that ENDED this one ({@code endedBy} — the
+     * stored edge's source). It lets {@code lifecycleInfo} say how the alert
+     * ended: {@code all_clear} versus {@code cap_cancel}, the VTEC action, and
+     * the {@code all_clear} tone. Without it a {@code cancelled} record is still
+     * verified, but its reason is null rather than a guess.
+     */
     AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState,
-                              AlertInterpreter.Viewer viewer) {
+                              AlertInterpreter.Viewer viewer, NormalizedAlert endedBy) {
         Instant now = clock.instant();
-        AlertCardDto.LifecycleInfo lifecycle =
-                AlertInterpreter.recordLifecycle(a, lifecycleState, Set.of(), now);
-        return card(a, match, radiusMi, null, assess(a), lifecycle, true,
-                AlertInterpreter.isAllClear(a), viewer, List.of(), now);
+        Interpretation interpretation = new Interpretation(
+                AlertInterpreter.recordLifecycle(a, lifecycleState, endedBy, Set.of(), now),
+                AlertInterpreter.isAllClear(a) || AlertInterpreter.isAllClear(endedBy),
+                viewer, List.of(), now);
+        return card(a, match, radiusMi, null, assess(a), lifecycleState, true, interpretation);
     }
+
+    /** The interpretation inputs a person's card carries; null on the decision feed. */
+    private record Interpretation(AlertCardDto.LifecycleInfo lifecycle, boolean allClear,
+                                  AlertInterpreter.Viewer viewer, List<Long> communityPostIds,
+                                  Instant now) {}
 
     private AlertCardDto card(NormalizedAlert a, MatchType match, int radiusMi,
                               NormalizedAlert replacedBy, Assessment assessed,
-                              AlertCardDto.LifecycleInfo lifecycle, boolean record, boolean allClear,
-                              AlertInterpreter.Viewer viewer, List<Long> communityPostIds,
-                              Instant now) {
+                              String lifecycleState, boolean record, Interpretation interpretation) {
         DispatchTemplate tpl = assessed.template();
         AlertSafetyPolicy.Decision decision = assessed.decision();
         boolean guidance = !record && decision.allowsSitPrepGuidance();
-        String lifecycleState = lifecycle.state();
 
         // Plain-language copy — ours, sanitised. Absent when no template covers
         // this product, which is honest: we would rather say nothing than
@@ -373,9 +417,12 @@ public class AlertFeedService {
         String tier = tierOf(a, tpl);
         AlertCardDto.Safety safety = record ? recordSafetyOf(decision, lifecycleState) : safetyOf(decision);
 
-        AlertInterpreter.Output interp = AlertInterpreter.interpret(new AlertInterpreter.Input(
-                a, assessed, record, match, tier, headline, whatToDo, precautions, precautionsSource,
-                safety, lifecycle, allClear, viewer, communityPostIds, now));
+        AlertInterpreter.Output interp = interpretation == null
+                ? AlertInterpreter.Output.NONE
+                : AlertInterpreter.interpret(new AlertInterpreter.Input(
+                        a, assessed, record, match, tier, headline, whatToDo, precautions, precautionsSource,
+                        safety, interpretation.lifecycle(), interpretation.allClear(), interpretation.viewer(),
+                        interpretation.communityPostIds(), interpretation.now()));
 
         return new AlertCardDto(
                 a.id(),
@@ -419,9 +466,9 @@ public class AlertFeedService {
                 interp.dedupeKey(),
                 interp.sourceRevisionRef(),
                 null,                             // interpretationRef: C3's snapshot id
-                AlertInterpreter.VERSION,
+                interpretation == null ? null : AlertInterpreter.VERSION,
                 interp.sourceIdentity(),
-                lifecycle,
+                interpretation == null ? null : interpretation.lifecycle(),
                 interp.clusterKey(),
                 interp.interpreter(),
                 interp.presentation(),

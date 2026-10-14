@@ -84,6 +84,9 @@ public final class AlertInterpreter {
     /** VTEC actions that end an event, as opposed to carrying it on. */
     private static final Set<String> TERMINAL_VTEC = Set.of("CAN", "EXP", "UPG");
 
+    /** VTEC actions that carry an existing event on — rule 8's {@code updated}. */
+    private static final Set<String> CONTINUING_VTEC = Set.of("CON", "EXT", "EXA", "EXB");
+
     // ------------------------------------------------------------------
     // Inputs and outputs
     // ------------------------------------------------------------------
@@ -140,7 +143,11 @@ public final class AlertInterpreter {
                   List<AlertCardDto.Action> actions,
                   AlertCardDto.OfficialArea officialArea,
                   AlertCardDto.ViewerContext viewerContext,
-                  AlertCardDto.CommunityThreads communityThreads) {}
+                  AlertCardDto.CommunityThreads communityThreads) {
+
+        /** No interpretation: the internal decision feed's cards. */
+        static final Output NONE = new Output(null, null, null, null, null, null, null, null, null, null);
+    }
 
     static Output interpret(Input in) {
         NormalizedAlert a = in.alert();
@@ -149,7 +156,10 @@ public final class AlertInterpreter {
 
         // A card is current only when it is in force AND not a record. A history
         // card of a still-live alert says "active" in lifecycleInfo — a fact —
-        // but presents as a record; the live one is on the feed.
+        // but presents as a record; the live one is on the feed. And a live card
+        // whose lifecycleInfo is more specific than the shared lifecycleState
+        // (an own all-terminal VTEC) is not current either: lifecycleInfo can
+        // only make a card LESS current than the decision fields say.
         boolean current = !in.record() && in.lifecycle() != null && in.lifecycle().current();
 
         String dedupeKey = AlertIdentity.dedupeKey(a.source(), a.id());
@@ -197,7 +207,14 @@ public final class AlertInterpreter {
         NormalizedAlert a = in.alert();
         AlertCardDto.PrimaryAction primary = primaryActionOf(a, decision, current, in.whatToDo(), reg);
 
-        boolean sitprepAuthored = in.headline() != null || in.whatToDo() != null || in.precautions() != null;
+        // Present-tense SitPrep copy only on a current card. The card's legacy
+        // fields already drop it on a record; this also drops it where only
+        // lifecycleInfo knows the alert is over.
+        String summary = current ? in.headline() : null;
+        List<String> steps = current ? in.precautions() : null;
+        String stepsSource = steps == null ? null : in.precautionsSource();
+        boolean sitprepAuthored = summary != null || steps != null
+                || (primary != null && KIND_REVIEWED.equals(primary.kind()));
         String author = sitprepAuthored ? "sitprep"
                 : primary != null && KIND_OFFICIAL.equals(primary.kind()) ? "issuer"
                 : "none";
@@ -211,10 +228,10 @@ public final class AlertInterpreter {
 
         AlertCardDto.Safety safety = in.safety();
         return new AlertCardDto.Interpreter(
-                in.headline(),
+                summary,
                 primary,
-                in.precautions(),
-                in.precautionsSource(),
+                steps,
+                stepsSource,
                 author,
                 safety == null ? null : safety.guidanceMode(),
                 safety == null ? null : safety.compatibility(),
@@ -301,7 +318,13 @@ public final class AlertInterpreter {
         }
     }
 
-    /** Rule 3. */
+    /**
+     * Rule 3. "By tier" is read off the RECORD TYPE, not the template tier: for
+     * NWS the record type is the tier (§2), and for USGS and FEMA — whose
+     * templates carry tiers {@code warning} and {@code watch} for dispatch —
+     * an earthquake that has happened or a declaration is information, the
+     * same reading rule 2 gives their tone. Life safety still outranks it.
+     */
     static String priorityOf(boolean current, boolean lifeSafety, String recordType) {
         if (!current) return "record";
         if (lifeSafety) return "life_safety";
@@ -564,11 +587,20 @@ public final class AlertInterpreter {
      *       ({@link AlertDerivations#endingStateOf}).</li>
      *   <li><b>The alert's own VTEC</b>, when every entry is terminal: a
      *       message whose only word is {@code CAN} is a cancellation.</li>
+     *   <li><b>The alert's own continuing VTEC</b> ({@code CON/EXT/EXA/EXB}):
+     *       {@code updated}, whatever its CAP {@code messageType}.</li>
      *   <li><b>The alert's own fields</b> — {@link AlertDerivations#lifecycleState}:
      *       past its end time is expired; an Update is updated.</li>
      * </ol>
-     * <p>All three are the issuer's own statements, so all are verified. Only
-     * history can say {@code no_longer_listed}, and it never verifies it.</p>
+     * <p>All are the issuer's own statements, so all are verified. Only history
+     * can say {@code no_longer_listed}, and it never verifies it.</p>
+     *
+     * <p><b>This is {@code lifecycleInfo} only.</b> The card's legacy
+     * {@code lifecycleState} stays the shared {@link AlertDerivations} answer
+     * that the dispatcher and the safety resolvers act on, so where VTEC says
+     * more (an own {@code CAN}/{@code EXP} on an Update, a replacing {@code EXP},
+     * a {@code CON} on an Alert) the two may differ — and this one is never the
+     * more current of the two.</p>
      *
      * @param knownIds upstream ids of messages in hand, for {@code references[].resolved}
      */
@@ -594,12 +626,7 @@ public final class AlertInterpreter {
                 reason = vtecReason(edge);
             } else {
                 state = AlertDerivations.endingStateOf(replacedBy);
-                if (AlertDerivations.LIFECYCLE_CANCELLED.equals(state)) {
-                    reason = "cancel".equalsIgnoreCase(trim(replacedBy.messageType()))
-                            ? "cap_cancel" : "all_clear";
-                } else {
-                    reason = "cap_update";
-                }
+                reason = capEndingReason(replacedBy);
             }
         } else if (AlertDerivations.LIFECYCLE_EXPIRED.equals(base)) {
             state = base;
@@ -613,6 +640,12 @@ public final class AlertInterpreter {
             };
             reason = vtecReason(own);
             endedAt = blankToNull(a.sent());
+        } else if (own != null && CONTINUING_VTEC.contains(own.action())
+                && AlertDerivations.LIFECYCLE_ACTIVE.equals(base)) {
+            // Rule 8: NWS says this message continues an event it already
+            // issued, whatever CAP messageType it rode in on.
+            state = AlertDerivations.LIFECYCLE_UPDATED;
+            reason = vtecReason(own);
         } else {
             state = base;
             reason = ownReason(a, base, own);
@@ -633,22 +666,37 @@ public final class AlertInterpreter {
     /**
      * The lifecycle of a RECORD whose state the caller already decided — history
      * holds the stored edges that decide it. This adds the evidence: what the
-     * alert's own fields support, or else how the caller's state is known.
-     * {@code no_longer_listed} is poll absence, the one state that is never
-     * verified.
+     * issuer's own messages support, or else how the caller's state is known.
+     *
+     * <ul>
+     *   <li>{@code endedBy} is the message that ended this one when the caller
+     *       holds it (history's stored edge). Its VTEC or CAP shape then says
+     *       how — {@code vtec_can}, {@code all_clear}, {@code cap_cancel}.</li>
+     *   <li><b>Poll absence never outranks the issuer.</b> When the caller says
+     *       {@code no_longer_listed} but the alert's own messages already say it
+     *       ended (an own {@code CAN}/{@code EXP}), the verified ending wins.</li>
+     *   <li>{@code no_longer_listed} otherwise is the one state that is never
+     *       verified.</li>
+     *   <li>A {@code cancelled} with no ending message in hand is verified (the
+     *       caller holds a stored issuer edge) but its reason is null: Cancel and
+     *       AllClear both end that way, and saying which would be a guess.</li>
+     * </ul>
      */
     static AlertCardDto.LifecycleInfo recordLifecycle(NormalizedAlert a, String givenState,
+                                                      NormalizedAlert endedBy,
                                                       Set<String> knownIds, Instant now) {
-        AlertCardDto.LifecycleInfo own = liveLifecycle(a, null, knownIds, now);
+        AlertCardDto.LifecycleInfo own = liveLifecycle(a, endedBy, knownIds, now);
         if (givenState == null || givenState.equals(own.state())) return own;
+        if (AlertDerivations.LIFECYCLE_NO_LONGER_LISTED.equals(givenState) && !own.current()) return own;
 
         boolean verified = true;
         String reason;
-        String endedAt = null;
+        String endedAt = own.endedAt();
         switch (givenState) {
             case AlertDerivations.LIFECYCLE_NO_LONGER_LISTED -> {
                 verified = false;
                 reason = "not_listed";
+                endedAt = null;
             }
             case AlertDerivations.LIFECYCLE_EXPIRED -> {
                 Vtec v = primaryVtec(a);
@@ -656,14 +704,21 @@ public final class AlertInterpreter {
                 endedAt = blankToNull(a.endsAt());
             }
             // A stored CAP references edge from a later message (history's
-            // reverse index): the issuer's statement, not in hand here.
-            case AlertDerivations.LIFECYCLE_CANCELLED -> reason = "cap_cancel";
+            // reverse index): the issuer's statement — how it ended is known
+            // only when that message is in hand.
+            case AlertDerivations.LIFECYCLE_CANCELLED -> reason = endedBy == null ? null : capEndingReason(endedBy);
             case AlertDerivations.LIFECYCLE_SUPERSEDED -> reason = "replaced";
             default -> reason = own.reason();
         }
         return new AlertCardDto.LifecycleInfo(
                 givenState, isCurrent(givenState), verified, reason,
-                own.threadKey(), own.references(), null, own.updatedAt(), endedAt);
+                own.threadKey(), own.references(), own.replacedBy(), own.updatedAt(), endedAt);
+    }
+
+    /** How a replacing message with no VTEC edge ended its predecessor, by CAP shape. */
+    private static String capEndingReason(NormalizedAlert endedBy) {
+        if ("cancel".equalsIgnoreCase(trim(endedBy.messageType()))) return "cap_cancel";
+        return isAllClear(endedBy) ? "all_clear" : "cap_update";
     }
 
     /** CAP said AllClear about this message — in {@code response} or {@code responseTypes}. */

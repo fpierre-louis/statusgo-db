@@ -136,20 +136,68 @@ class AlertInterpreterTest {
         assertThat(id.logoKey()).isNull();
     }
 
-    @Test
-    @DisplayName("every existing card field keeps its value — the new blocks are additive")
-    void existingFieldsUnchanged() {
-        NormalizedAlert a = live("Flood Warning").instruction("Turn around, don't drown.").build();
-        AlertCardDto c = card(a);
-        AlertCardDto legacy = new AlertFeedService(ingest, dispatch).toCard(a, MatchType.ZONE, 50);
+    // Every EXISTING card field keeping its pre-C2 value is pinned against a
+    // golden capture from alerts/p3-C1 in AlertCardLegacyGoldenTest.
 
-        JsonNode now = MAPPER.valueToTree(c);
-        JsonNode before = MAPPER.valueToTree(legacy);
-        for (String field : List.of("id", "source", "eventType", "eventLabel", "tier", "isLifeThreatening",
-                "evacuationRelated", "headline", "whatToDo", "precautions", "precautionsSource",
-                "lifecycleState", "replacesAlertIds", "official", "location", "radiusMi", "effectiveAt",
-                "expiresAt", "sourceAttribution", "safety")) {
-            assertThat(now.get(field)).as(field).isEqualTo(before.get(field));
+    // ------------------------------------------------------------------
+    // the decision feed vs a person's feed
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("internal safety readers get the decision feed: no repository, no interpretation")
+    class DecisionFeed {
+
+        @Test
+        @DisplayName("feedFor(lat, lng) never touches AlertPostRepo, however often it is called")
+        void internalFeedMakesNoRepoCall() {
+            ingest.setSnapshotForTest(List.of(live("Tornado Warning").build(), watch("Flood Watch").build()));
+            for (int i = 0; i < 5; i++) {
+                List<AlertCardDto> cards = feed.feedFor(LAT, LNG).alerts();
+                assertThat(cards).hasSize(2);
+                // Decision fields intact, interpretation absent.
+                assertThat(cards).allSatisfy(c -> {
+                    assertThat(c.lifecycleState()).isEqualTo("active");
+                    assertThat(c.safety()).isNotNull();
+                    assertThat(c.dedupeKey()).isNull();
+                    assertThat(c.lifecycleInfo()).isNull();
+                    assertThat(c.presentation()).isNull();
+                    assertThat(c.viewerContext()).isNull();
+                    assertThat(c.presentationVersion()).isNull();
+                });
+            }
+            feed.feedFor(LAT, LNG, NOW);
+            verify(alertPostRepo, never()).findReadableThreadPosts(anyCollection(), anyString());
+
+            // ...while a person's feed asks exactly once.
+            feed.feedForViewer(LAT, LNG, null, null);
+            verify(alertPostRepo, times(1)).findReadableThreadPosts(anyCollection(), anyString());
+        }
+
+        @Test
+        @DisplayName("ConcealmentSafetyService — once per push recipient — makes zero repository calls")
+        void concealmentCheckMakesNoRepoCall() {
+            ingest.setSnapshotForTest(List.of(live("Civil Danger Warning").instruction("Stay put.").build()));
+            ConcealmentSafetyService concealment = new ConcealmentSafetyService(feed, dispatch);
+            for (int i = 0; i < 3; i++) concealment.isConcealmentSensitiveAt(LAT, LNG);
+            verify(alertPostRepo, never()).findReadableThreadPosts(anyCollection(), anyString());
+        }
+
+        @Test
+        @DisplayName("the decision feed's legacy fields equal the person's feed's, card for card")
+        void sameDecisionFieldsBothWays() {
+            ingest.setSnapshotForTest(List.of(live("Tornado Warning").build(), watch("Flood Watch").build(),
+                    live("Flood Warning").messageType("Update")
+                            .vtec(List.of(vtec("EXP", "KPSR", "FL", "W", "0001"))).build()));
+            List<AlertCardDto> internal = feed.feedFor(LAT, LNG).alerts();
+            List<AlertCardDto> viewer = feed.feedForViewer(LAT, LNG, null, null).alerts();
+            assertThat(internal).hasSameSizeAs(viewer);
+            for (int i = 0; i < internal.size(); i++) {
+                JsonNode a = MAPPER.valueToTree(internal.get(i));
+                JsonNode b = MAPPER.valueToTree(viewer.get(i));
+                for (String field : AlertCardLegacyGoldenTest.LEGACY_FIELDS) {
+                    assertThat(a.get(field)).as(internal.get(i).id() + "." + field).isEqualTo(b.get(field));
+                }
+            }
         }
     }
 
@@ -431,7 +479,7 @@ class AlertInterpreterTest {
         void inside() {
             ingest.setSnapshotForTest(List.of(live("Tornado Warning").ugc(List.of()).same(List.of())
                     .geometry(square(LAT, LNG, 0.1)).build()));
-            AlertCardDto c = only(feed.feedFor(LAT, LNG));
+            AlertCardDto c = only(feed.feedForViewer(LAT, LNG, null, null));
             assertThat(c.viewerContext().matchType()).isEqualTo("polygon");
             assertThat(c.viewerContext().containment()).isEqualTo("inside");
             assertThat(c.viewerContext().role()).isEqualTo("CURRENT_LOCATION");
@@ -449,7 +497,7 @@ class AlertInterpreterTest {
         void outside() {
             ingest.setSnapshotForTest(List.of(live("Tornado Warning").ugc(List.of()).same(List.of())
                     .geometry(square(LAT + 0.3, LNG + 0.3, 0.05)).build()));
-            AlertCardDto c = only(feed.feedFor(LAT, LNG));
+            AlertCardDto c = only(feed.feedForViewer(LAT, LNG, null, null));
             assertThat(c.viewerContext().matchType()).isEqualTo("polygon");
             assertThat(c.viewerContext().containment()).isEqualTo("outside");
         }
@@ -464,7 +512,7 @@ class AlertInterpreterTest {
             // toCard carries no viewer point; the feed path does.
             ingest.setSnapshotForTest(List.of(live("Tornado Warning").ugc(List.of()).same(List.of())
                     .geometry(broken).build()));
-            AlertCardDto viaFeed = only(feed.feedFor(LAT, LNG));
+            AlertCardDto viaFeed = only(feed.feedForViewer(LAT, LNG, null, null));
             assertThat(viaFeed.viewerContext().containment()).isEqualTo("unknown");
             assertThat(c.viewerContext()).isNull();
         }
@@ -473,7 +521,7 @@ class AlertInterpreterTest {
         @DisplayName("a zone match → zone; region area with the zones and no bbox")
         void zone() {
             ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
-            AlertCardDto c = only(feed.feedFor(LAT, LNG));
+            AlertCardDto c = only(feed.feedForViewer(LAT, LNG, null, null));
             assertThat(c.viewerContext().matchType()).isEqualTo("zone");
             assertThat(c.viewerContext().containment()).isEqualTo("zone");
             assertThat(c.officialArea().geometryKind()).isEqualTo("zone");
@@ -486,16 +534,16 @@ class AlertInterpreterTest {
         @DisplayName("context=home → HOUSEHOLD_LOCATION and meta.context=home; default and junk → current")
         void context() {
             ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
-            AlertFeedResponse home = feed.feedFor(LAT, LNG, null, "home");
+            AlertFeedResponse home = feed.feedForViewer(LAT, LNG, null, "home");
             assertThat(home.meta().context()).isEqualTo("home");
             AlertCardDto c = only(home);
             assertThat(c.viewerContext().role()).isEqualTo("HOUSEHOLD_LOCATION");
             assertThat(action(c, "OPEN_ALERT_DETAIL").params()).containsEntry("context", "home");
             assertThat(action(c, "OPEN_ALERT_DETAIL").fallbackRoute()).startsWith("/hazards?scope=home&alert=");
 
-            assertThat(feed.feedFor(LAT, LNG).meta().context()).isEqualTo("current");
-            assertThat(feed.feedFor(LAT, LNG, null, "HOME").meta().context()).isEqualTo("home");
-            assertThat(feed.feedFor(LAT, LNG, null, "elsewhere").meta().context()).isEqualTo("current");
+            assertThat(feed.feedForViewer(LAT, LNG, null, null).meta().context()).isEqualTo("current");
+            assertThat(feed.feedForViewer(LAT, LNG, null, "HOME").meta().context()).isEqualTo("home");
+            assertThat(feed.feedForViewer(LAT, LNG, null, "elsewhere").meta().context()).isEqualTo("current");
         }
 
         @Test
@@ -503,11 +551,11 @@ class AlertInterpreterTest {
         void coordinateAge() {
             ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
             Instant old = NOW.minus(java.time.Duration.ofDays(60));
-            AlertCardDto c = only(feed.feedFor(LAT, LNG, old, null));
+            AlertCardDto c = only(feed.feedForViewer(LAT, LNG, old, null));
             assertThat(c.viewerContext().coordinateCapturedAt()).isEqualTo(old.toString());
             assertThat(c.viewerContext().coordinateStale()).isTrue();
 
-            AlertCardDto unstamped = only(feed.feedFor(LAT, LNG));
+            AlertCardDto unstamped = only(feed.feedForViewer(LAT, LNG, null, null));
             assertThat(unstamped.viewerContext().coordinateCapturedAt()).isNull();
             assertThat(unstamped.viewerContext().coordinateStale()).isNull();
         }
@@ -526,7 +574,7 @@ class AlertInterpreterTest {
                 live("Civil Danger Warning").instruction("Stay put.").build());
         ingest.setSnapshotForTest(snapshot);
         AlertFeedService counted = spy(feed);
-        assertThat(counted.feedFor(LAT, LNG, null, "home").alerts()).hasSize(3);
+        assertThat(counted.feedForViewer(LAT, LNG, null, "home").alerts()).hasSize(3);
         verify(dispatch, times(3)).matchForAlert(any());
         verify(counted, times(3)).assess(any());
     }
@@ -577,7 +625,45 @@ class AlertInterpreterTest {
 
         private AlertCardDto replacedCard(NormalizedAlert b) {
             ingest.setSnapshotForTest(List.of(original(), b));
-            return cardIn(feed.feedFor(LAT, LNG).alerts(), "urn:oid:A");
+            return cardIn(feed.feedForViewer(LAT, LNG, null, null).alerts(), "urn:oid:A");
+        }
+
+        @Test
+        @DisplayName("an own VTEC CON is `updated` even on a CAP Alert; lifecycleState keeps the shared answer")
+        void ownConOnAnAlert() {
+            AlertCardDto c = card(replacing("CON").messageType("Alert").build());
+            assertThat(c.lifecycleInfo().state()).isEqualTo("updated");
+            assertThat(c.lifecycleInfo().reason()).isEqualTo("vtec_con");
+            assertThat(c.lifecycleInfo().verified()).isTrue();
+            assertThat(c.lifecycleState()).isEqualTo("active");   // AlertDerivations, unchanged
+            assertThat(c.presentation().current()).isTrue();
+        }
+
+        @Test
+        @DisplayName("an own all-terminal VTEC on a live Update: lifecycleInfo ends it, the decision fields do not move")
+        void ownTerminalVtec() {
+            for (String act : List.of("EXP", "CAN")) {
+                NormalizedAlert a = live("Flood Warning").messageType("Update")
+                        .vtec(List.of(vtec(act, "KPSR", "FL", "W", "0001"))).build();
+                AlertCardDto c = card(a);
+                // The shared derivation — what the dispatcher, ConcealmentSafetyService
+                // and ActivationDirectiveResolver act on — is untouched.
+                assertThat(c.lifecycleState()).as(act).isEqualTo("updated");
+                assertThat(c.whatToDo()).as(act).isNotNull();
+                // The VTEC verdict lives in lifecycleInfo and makes the card a record.
+                assertThat(c.lifecycleInfo().state()).as(act).isEqualTo(act.equals("EXP") ? "expired" : "cancelled");
+                assertThat(c.lifecycleInfo().verified()).isTrue();
+                assertThat(c.lifecycleInfo().reason()).isEqualTo("vtec_" + act.toLowerCase());
+                assertThat(c.presentation().current()).isFalse();
+                assertThat(c.presentation().priority()).isEqualTo("record");
+                assertThat(c.presentation().tone()).isEqualTo("neutral");
+                assertThat(c.presentation().interruptiveEligible()).isFalse();
+                assertThat(c.interpreter().primaryAction()).isNull();
+                assertThat(c.interpreter().summary()).isNull();
+                assertThat(c.interpreter().steps()).isNull();
+                assertThat(c.interpreter().author()).isEqualTo("none");
+                assertThat(actionTypes(c)).doesNotContain("OPEN_HOUSEHOLD_CHECKIN", "OPEN_EMERGENCY_PLAN");
+            }
         }
 
         @Test
@@ -613,7 +699,9 @@ class AlertInterpreterTest {
             assertThat(can.lifecycleInfo().endedAt()).isEqualTo("2026-10-13T17:00:00Z");
 
             AlertCardDto exp = replacedCard(replacing("EXP").messageType("Cancel").response("AllClear").build());
-            assertThat(exp.lifecycleState()).isEqualTo("expired");
+            // lifecycleState stays the shared CAP answer; VTEC's more specific
+            // "expired" is lifecycleInfo's.
+            assertThat(exp.lifecycleState()).isEqualTo("cancelled");
             assertThat(exp.lifecycleInfo().state()).isEqualTo("expired");
             assertThat(exp.lifecycleInfo().reason()).isEqualTo("vtec_exp");
             assertThat(exp.lifecycleInfo().verified()).isTrue();
@@ -630,7 +718,7 @@ class AlertInterpreterTest {
             assertThat(con.lifecycleState()).isEqualTo("superseded");
             assertThat(con.lifecycleInfo().reason()).isEqualTo("vtec_con");
             // ...and the replacing message sits on the same thread
-            AlertCardDto b = cardIn(feed.feedFor(LAT, LNG).alerts(), "urn:oid:B");
+            AlertCardDto b = cardIn(feed.feedForViewer(LAT, LNG, null, null).alerts(), "urn:oid:B");
             assertThat(b.lifecycleInfo().threadKey()).isEqualTo(con.lifecycleInfo().threadKey());
             assertThat(b.lifecycleInfo().references().get(0).resolved()).isTrue();
         }
@@ -654,20 +742,20 @@ class AlertInterpreterTest {
             NormalizedAlert update = watch("Flood Watch").id("urn:oid:B").messageType("Update")
                     .references(List.of("urn:oid:A")).build();
             ingest.setSnapshotForTest(List.of(a, update));
-            AlertCardDto superseded = cardIn(feed.feedFor(LAT, LNG).alerts(), "urn:oid:A");
+            AlertCardDto superseded = cardIn(feed.feedForViewer(LAT, LNG, null, null).alerts(), "urn:oid:A");
             assertThat(superseded.lifecycleState()).isEqualTo("superseded");
             assertThat(superseded.lifecycleInfo().reason()).isEqualTo("cap_update");
             assertThat(superseded.lifecycleInfo().verified()).isTrue();
             assertThat(superseded.lifecycleInfo().threadKey()).isEqualTo("CAP:urn:oid:A");
 
-            AlertCardDto updated = cardIn(feed.feedFor(LAT, LNG).alerts(), "urn:oid:B");
+            AlertCardDto updated = cardIn(feed.feedForViewer(LAT, LNG, null, null).alerts(), "urn:oid:B");
             assertThat(updated.lifecycleInfo().reason()).isEqualTo("cap_update");
             assertThat(updated.lifecycleInfo().threadKey()).isEqualTo("CAP:urn:oid:A");
 
             NormalizedAlert cancel = watch("Flood Watch").id("urn:oid:C").messageType("Cancel")
                     .references(List.of("urn:oid:A")).build();
             ingest.setSnapshotForTest(List.of(a, cancel));
-            AlertCardDto cancelled = cardIn(feed.feedFor(LAT, LNG).alerts(), "urn:oid:A");
+            AlertCardDto cancelled = cardIn(feed.feedForViewer(LAT, LNG, null, null).alerts(), "urn:oid:A");
             assertThat(cancelled.lifecycleState()).isEqualTo("cancelled");
             assertThat(cancelled.lifecycleInfo().reason()).isEqualTo("cap_cancel");
         }
@@ -698,8 +786,41 @@ class AlertInterpreterTest {
             AlertCardDto superseded = feed.toRecordCard(watch("Flood Watch").build(), MatchType.ZONE, 50, "superseded");
             assertThat(superseded.lifecycleInfo().verified()).isTrue();
             assertThat(superseded.lifecycleInfo().reason()).isEqualTo("replaced");
+            // Cancelled with no ending message in hand: verified, but how is unknown.
             AlertCardDto cancelled = feed.toRecordCard(watch("Flood Watch").build(), MatchType.ZONE, 50, "cancelled");
-            assertThat(cancelled.lifecycleInfo().reason()).isEqualTo("cap_cancel");
+            assertThat(cancelled.lifecycleInfo().verified()).isTrue();
+            assertThat(cancelled.lifecycleInfo().reason()).isNull();
+        }
+
+        @Test
+        @DisplayName("a cancelled record says HOW when the ending message is in hand: all_clear vs cap_cancel")
+        void cancelledReasonFromEndingMessage() {
+            NormalizedAlert a = watch("Flood Watch").id("urn:oid:A").build();
+            NormalizedAlert allClear = watch("Flood Watch").id("urn:oid:B").messageType("Update")
+                    .response("AllClear").references(List.of("urn:oid:A")).build();
+            AlertCardDto byAllClear = feed.toRecordCard(a, MatchType.ZONE, 50, "cancelled", null, allClear);
+            assertThat(byAllClear.lifecycleState()).isEqualTo("cancelled");
+            assertThat(byAllClear.lifecycleInfo().reason()).isEqualTo("all_clear");
+            assertThat(byAllClear.lifecycleInfo().replacedBy()).isEqualTo("NWS:urn:oid:B");
+            assertThat(byAllClear.presentation().tone()).isEqualTo("all_clear");
+
+            NormalizedAlert cancel = watch("Flood Watch").id("urn:oid:C").messageType("Cancel")
+                    .references(List.of("urn:oid:A")).build();
+            AlertCardDto byCancel = feed.toRecordCard(a, MatchType.ZONE, 50, "cancelled", null, cancel);
+            assertThat(byCancel.lifecycleInfo().reason()).isEqualTo("cap_cancel");
+            assertThat(byCancel.presentation().tone()).isEqualTo("neutral");
+        }
+
+        @Test
+        @DisplayName("poll absence never outranks the alert's own verified VTEC ending")
+        void ownVtecOutranksPollAbsence() {
+            NormalizedAlert a = live("Tornado Warning").messageType("Update")
+                    .vtec(List.of(vtec("CAN", "KPSR", "TO", "W", "0042"))).build();
+            AlertCardDto c = feed.toRecordCard(a, MatchType.ZONE, 50, "no_longer_listed");
+            assertThat(c.lifecycleState()).isEqualTo("no_longer_listed");   // history's answer, unchanged
+            assertThat(c.lifecycleInfo().state()).isEqualTo("cancelled");
+            assertThat(c.lifecycleInfo().verified()).isTrue();
+            assertThat(c.lifecycleInfo().reason()).isEqualTo("vtec_can");
         }
 
         @Test
@@ -738,7 +859,7 @@ class AlertInterpreterTest {
             when(alertPostRepo.findReadableThreadPosts(anyCollection(), anyString())).thenReturn(List.of(
                     ref("NWS-urn:oid:A", 12L), ref("NWS-urn:oid:A", 11L), ref("NWS-urn:oid:T0", 30L)));
 
-            List<AlertCardDto> cards = feed.feedFor(LAT, LNG).alerts();
+            List<AlertCardDto> cards = feed.feedForViewer(LAT, LNG, null, null).alerts();
             assertThat(cards).hasSize(3);
 
             org.mockito.ArgumentCaptor<Collection<String>> keys = org.mockito.ArgumentCaptor.forClass(Collection.class);
@@ -761,7 +882,7 @@ class AlertInterpreterTest {
         @DisplayName("an empty feed makes no lookup at all")
         void emptyFeedNoQuery() {
             ingest.setSnapshotForTest(List.of());
-            feed.feedFor(LAT, LNG);
+            feed.feedForViewer(LAT, LNG, null, null);
             verify(alertPostRepo, never()).findReadableThreadPosts(anyCollection(), anyString());
         }
 
@@ -771,7 +892,7 @@ class AlertInterpreterTest {
             ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
             when(alertPostRepo.findReadableThreadPosts(anyCollection(), anyString()))
                     .thenThrow(new IllegalStateException("db down"));
-            List<AlertCardDto> cards = feed.feedFor(LAT, LNG).alerts();
+            List<AlertCardDto> cards = feed.feedForViewer(LAT, LNG, null, null).alerts();
             assertThat(cards).hasSize(1);
             assertThat(cards.get(0).communityThreads()).isNull();
         }

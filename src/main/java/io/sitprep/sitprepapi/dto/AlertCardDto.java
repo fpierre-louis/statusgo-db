@@ -403,7 +403,13 @@ public record AlertCardDto(
     /**
      * Where the alert is in its life, with the evidence for it.
      *
-     * <p>{@code state} always equals the card's {@code lifecycleState}.
+     * <p>{@code state} equals the card's {@code lifecycleState} except where
+     * the issuer's VTEC says more than the shared CAP derivation can: an own
+     * {@code CAN}/{@code EXP} on an Update, a replacing message's {@code EXP},
+     * a {@code CON} on a CAP Alert, or a history row "no longer listed" whose
+     * own VTEC already ended it. {@code lifecycleState} stays the shared
+     * {@code AlertDerivations} answer that the dispatcher and the safety
+     * resolvers act on; {@code state} is never MORE current than it.
      * {@code verified} says whether the issuer stated it — a VTEC action, a CAP
      * reference, or the alert's own times — as opposed to SitPrep inferring it
      * from a poll that no longer listed the alert, which is never claimed as
@@ -437,13 +443,13 @@ public record AlertCardDto(
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Interpreter(
-            /** SitPrep's reviewed headline; null when guidance is not allowed. */
+            /** SitPrep's reviewed headline; null when guidance is not allowed or the card is not current. */
             String summary,
             /** Null on every non-current card, and when there is nothing to say. */
             PrimaryAction primaryAction,
-            /** == {@code precautions}. */
+            /** == {@code precautions} on a current card; null otherwise. */
             List<String> steps,
-            /** == {@code precautionsSource}. */
+            /** == {@code precautionsSource}, with {@code steps}. */
             String stepsSource,
             /** sitprep | issuer | none */
             String author,
@@ -469,7 +475,12 @@ public record AlertCardDto(
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Presentation(
-            /** life_safety | urgent | prepare | info | record */
+            /**
+             * life_safety | urgent | prepare | info | record. Below life_safety
+             * it follows the record type: warning → urgent, watch → prepare,
+             * anything else (advisory, statement, information, and USGS / FEMA
+             * records of fact) → info.
+             */
             String priority,
             /** danger | warning | attention | neutral | all_clear — never from severity. */
             String tone,

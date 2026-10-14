@@ -106,7 +106,7 @@ public class AlertResource {
             @RequestParam(value = "fixedAt", required = false) String fixedAt,
             @RequestParam(value = "context", required = false) String context
     ) {
-        return ResponseEntity.ok(feedService.feedFor(lat, lng, parseFixedAt(fixedAt), context));
+        return ResponseEntity.ok(feedService.feedForViewer(lat, lng, parseFixedAt(fixedAt), context));
     }
 
     /**
