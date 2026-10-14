@@ -722,20 +722,28 @@ class AlertInterpreterTest {
         }
 
         @Test
-        @DisplayName("an own all-terminal VTEC on a live Update: lifecycleInfo ends it, the decision fields do not move")
+        @DisplayName("an own all-terminal VTEC on a live Update: lifecycleInfo AND the decision fields end it (P1)")
         void ownTerminalVtec() {
             for (String act : List.of("EXP", "CAN")) {
                 NormalizedAlert a = live("Flood Warning").messageType("Update")
+                        .sent("2026-10-13T17:00:00Z")
                         .vtec(List.of(vtec(act, "KPSR", "FL", "W", "0001"))).build();
                 AlertCardDto c = card(a);
-                // The shared derivation — what the dispatcher, ConcealmentSafetyService
-                // and ActivationDirectiveResolver act on — is untouched.
-                assertThat(c.lifecycleState()).as(act).isEqualTo("updated");
-                assertThat(c.whatToDo()).as(act).isNotNull();
-                // The VTEC verdict lives in lifecycleInfo and makes the card a record.
-                assertThat(c.lifecycleInfo().state()).as(act).isEqualTo(act.equals("EXP") ? "expired" : "cancelled");
+                // P1 (handoff §27): the shared derivation — what the dispatcher,
+                // ConcealmentSafetyService and ActivationDirectiveResolver act on —
+                // reads the own VTEC too. Before P1 this card said `updated` with
+                // SitPrep steps and a critical_push dispatch mode.
+                String ended = act.equals("EXP") ? "expired" : "cancelled";
+                assertThat(c.lifecycleState()).as(act).isEqualTo(ended);
+                assertThat(c.whatToDo()).as(act).isNull();
+                assertThat(c.safety().dispatchMode()).as(act).isEqualTo("suppress");
+                assertThat(c.safety().reason()).as(act).isEqualTo("vtec_terminal");
+                assertThat(c.safety().movementDirective()).as(act).isEqualTo("none");
+                assertThat(c.lifecycleInfo().state()).as(act).isEqualTo(ended).isEqualTo(c.lifecycleState());
                 assertThat(c.lifecycleInfo().verified()).isTrue();
                 assertThat(c.lifecycleInfo().reason()).isEqualTo("vtec_" + act.toLowerCase());
+                // It ended when NWS said so, not at the future end time it still carries.
+                assertThat(c.lifecycleInfo().endedAt()).as(act).isEqualTo("2026-10-13T17:00:00Z");
                 assertThat(c.presentation().current()).isFalse();
                 assertThat(c.presentation().priority()).isEqualTo("record");
                 assertThat(c.presentation().tone()).isEqualTo("neutral");

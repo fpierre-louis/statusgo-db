@@ -81,8 +81,8 @@ public final class AlertInterpreter {
             "blizzard", "/blizzard-prep",
             "tornado", "/tornado-prep");
 
-    /** VTEC actions that end an event, as opposed to carrying it on. */
-    private static final Set<String> TERMINAL_VTEC = Set.of("CAN", "EXP", "UPG");
+    /** VTEC actions that end an event, as opposed to carrying it on — one definition, shared with the policy. */
+    private static final Set<String> TERMINAL_VTEC = AlertDerivations.TERMINAL_VTEC;
 
     /** VTEC actions that carry an existing event on — rule 8's {@code updated}. */
     private static final Set<String> CONTINUING_VTEC = Set.of("CON", "EXT", "EXA", "EXB");
@@ -635,10 +635,11 @@ public final class AlertInterpreter {
      *
      * <p><b>This is {@code lifecycleInfo} only.</b> The card's legacy
      * {@code lifecycleState} stays the shared {@link AlertDerivations} answer
-     * that the dispatcher and the safety resolvers act on, so where VTEC says
-     * more (an own {@code CAN}/{@code EXP} on an Update, a replacing {@code EXP},
-     * a {@code CON} on an Alert) the two may differ — and this one is never the
-     * more current of the two.</p>
+     * that the dispatcher and the safety resolvers act on. That answer reads
+     * the alert's own all-terminal VTEC too (P1, so an own {@code CAN}/{@code EXP}
+     * on an Update ends it in both), but where VTEC says more still (a
+     * replacing {@code EXP}, a {@code CON} on an Alert) the two may differ — and
+     * this one is never the more current of the two.</p>
      *
      * @param knownIds upstream ids of messages in hand, for {@code references[].resolved}
      */
@@ -666,7 +667,10 @@ public final class AlertInterpreter {
                 state = AlertDerivations.endingStateOf(replacedBy);
                 reason = capEndingReason(replacedBy);
             }
-        } else if (AlertDerivations.LIFECYCLE_EXPIRED.equals(base)) {
+        } else if (AlertDerivations.LIFECYCLE_EXPIRED.equals(base) && endsPassed(a, now)) {
+            // Past its own end time. An own all-EXP VTEC with a future end is
+            // also `expired` in base (P1), but it ended when it was SENT — the
+            // terminal-VTEC branch below says so.
             state = base;
             reason = own != null && "EXP".equals(own.action()) ? "vtec_exp" : "expired";
             endedAt = blankToNull(a.endsAt());
@@ -885,6 +889,11 @@ public final class AlertInterpreter {
     /** A plain decimal, never exponent notation, for a URL. */
     private static String num(double d) {
         return BigDecimal.valueOf(d).stripTrailingZeros().toPlainString();
+    }
+
+    private static boolean endsPassed(NormalizedAlert a, Instant now) {
+        Instant ends = parseInstant(a.endsAt());
+        return ends != null && ends.isBefore(now == null ? Instant.now() : now);
     }
 
     private static Instant parseInstant(String iso) {

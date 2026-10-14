@@ -121,7 +121,8 @@ public class MemberAlertAreaService {
         for (AreaAlert a : areas) {
             String life = AlertDerivations.lifecycleState(a.alert(), now);
             if (AlertDerivations.LIFECYCLE_EXPIRED.equals(life)
-                    || AlertDerivations.LIFECYCLE_SUPERSEDED.equals(life)) {
+                    || AlertDerivations.LIFECYCLE_SUPERSEDED.equals(life)
+                    || AlertDerivations.LIFECYCLE_CANCELLED.equals(life)) {
                 continue;
             }
             boolean inside;

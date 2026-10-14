@@ -39,6 +39,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * more specific lifecycle opinion (own and replacing VTEC, CAP-only edges,
  * expiry) plus one of each source, so a reader cannot quietly start following
  * that opinion.</p>
+ *
+ * <p><b>One deliberate break, P1 (handoff §27).</b> The golden was re-captured
+ * after P1 made the safety policy read the alert's own all-terminal VTEC. Three
+ * fixtures moved, and only these: {@code own_vtec_exp_update} and
+ * {@code own_vtec_can_update} went from a {@code critical_push} {@code updated}
+ * card carrying {@code shelter_in_place} to {@code expired} / {@code cancelled},
+ * {@code suppress}, directive {@code none}, not life-threatening (C1 had
+ * captured the defect itself); {@code record_own_vtec_can_no_longer_listed}
+ * kept every value but {@code safety.reason}, now {@code vtec_terminal}.</p>
  */
 class AlertCardLegacyGoldenTest {
 

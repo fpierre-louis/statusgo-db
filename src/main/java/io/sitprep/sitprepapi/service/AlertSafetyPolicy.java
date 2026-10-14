@@ -496,7 +496,18 @@ public final class AlertSafetyPolicy {
      *
      * <p>Everything {@link #publishabilityBlockReason} blocks, plus the three
      * ways CAP says "this is over": an {@code AllClear} response, {@code Past}
-     * urgency, and an {@code endsAt} in the past.</p>
+     * urgency, and an {@code endsAt} in the past — and the one way NWS says it
+     * in VTEC: {@code vtec_terminal}, every P-VTEC entry on the message
+     * {@code CAN}, {@code EXP} or {@code UPG}.</p>
+     *
+     * <p><b>Why VTEC is read here (P1, handoff §27).</b> NWS ends a warning with
+     * a CAP {@code Update} whose own VTEC is {@code CAN}/{@code EXP}, and that
+     * message keeps the original future end time. None of the CAP checks
+     * catch it, so it stayed {@code critical_push}-eligible with SitPrep steps
+     * attached. The rule is {@link AlertDerivations#vtecEndingState}: any
+     * entry that still carries an event on (a multi-segment product that
+     * cancels one county and continues another) keeps the message live. It
+     * runs last, so every earlier reason is unchanged.</p>
      */
     public static String lifecycleBlockReason(NormalizedAlert alert) {
         String unpublishable = publishabilityBlockReason(alert);
@@ -505,6 +516,7 @@ public final class AlertSafetyPolicy {
         if ("Past".equalsIgnoreCase(alert.urgency())) return "cap_urgency_past";
         Instant expires = parseInstant(alert.endsAt());
         if (expires != null && expires.isBefore(Instant.now())) return "alert_expired";
+        if (AlertDerivations.vtecEndingState(alert) != null) return "vtec_terminal";
         return null;
     }
 

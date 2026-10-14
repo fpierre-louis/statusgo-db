@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
+import io.sitprep.sitprepapi.util.Vtec;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The four facts the alert surfaces need that the wire does not state directly.
@@ -141,6 +143,13 @@ public final class AlertDerivations {
      * original, {@code response: AllClear} and {@code messageType: Cancel} both
      * mean called off, and {@code expires} in the past means over.</p>
      *
+     * <p><b>Except where NWS says more in VTEC (P1, handoff §27).</b> NWS ships
+     * the end of a warning as a CAP {@code Update} whose own P-VTEC is
+     * {@code CAN} or {@code EXP}, still carrying the original end time — so by
+     * CAP shape alone it read {@code updated}, and the safety readers kept it
+     * live. {@link #vtecEndingState} reads that statement; it sits after the
+     * CAP Cancel / AllClear answer (unchanged) and before {@code updated}.</p>
+     *
      * <p><b>This is not the whole answer for a card.</b> An alert cannot see its
      * own replacement: CAP {@code references} live on the NEW message, naming
      * the old one. Ingest keeps that edge, and the callers that hold both ends
@@ -162,8 +171,50 @@ public final class AlertDerivations {
         if ("cancel".equals(messageType) || "allclear".equals(response)) {
             return LIFECYCLE_SUPERSEDED;
         }
+        String vtecEnding = vtecEndingState(a);
+        if (vtecEnding != null) return vtecEnding;
         if ("update".equals(messageType)) return LIFECYCLE_UPDATED;
         return LIFECYCLE_ACTIVE;
+    }
+
+    /**
+     * VTEC actions that end, for that event, the event their entry names:
+     * {@code CAN} cancels, {@code EXP} expires, and {@code UPG} — on the OLD
+     * product's own entry — hands the event to the product that upgraded it.
+     */
+    static final Set<String> TERMINAL_VTEC = Set.of("CAN", "EXP", "UPG");
+
+    /**
+     * How this message's OWN P-VTEC ends it, or null when it does not.
+     *
+     * <p><b>Every entry must be terminal.</b> One NWS product can speak for
+     * several events (segments, or an upgrade that also issues the new
+     * warning: {@code UPG} on the watch plus {@code NEW} on the warning). While
+     * any entry still carries an event on — {@code NEW}, {@code CON},
+     * {@code EXT}, {@code EXA}, {@code EXB}, or anything else — the message is
+     * still in force for that event, so this returns null and nothing changes.
+     * A message with no operational VTEC (USGS, FEMA, most non-NWS products,
+     * test-class strings, which {@link Vtec#parse} drops) also returns null.</p>
+     *
+     * <p>When every entry is terminal, the first one names the state —
+     * {@code CAN} cancelled, {@code EXP} expired, {@code UPG} superseded — the
+     * same entry {@code AlertInterpreter.primaryVtec} picks, so this and
+     * {@code lifecycleInfo} give one answer.</p>
+     */
+    public static String vtecEndingState(NormalizedAlert a) {
+        if (a == null || a.vtec() == null || a.vtec().isEmpty()) return null;
+        Vtec first = null;
+        for (Vtec v : a.vtec()) {
+            if (v == null) continue;
+            if (v.action() == null || !TERMINAL_VTEC.contains(v.action())) return null;
+            if (first == null) first = v;
+        }
+        if (first == null) return null;
+        return switch (first.action()) {
+            case "CAN" -> LIFECYCLE_CANCELLED;
+            case "EXP" -> LIFECYCLE_EXPIRED;
+            default -> LIFECYCLE_SUPERSEDED;
+        };
     }
 
     /**

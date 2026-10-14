@@ -336,11 +336,12 @@ public class AlertFeedService {
      * — the replacing message's CAP shape ({@link AlertDerivations#endingStateOf})
      * or the alert's own fields ({@link AlertDerivations#lifecycleState}) — the
      * same answer the dispatcher, the risk profile, {@code ConcealmentSafetyService}
-     * and {@code ActivationDirectiveResolver} act on. The interpreter's
-     * VTEC-aware reading ({@link AlertInterpreter#liveLifecycle}) goes into
-     * {@code lifecycleInfo} and the presentation blocks only, where it can only
-     * make a card LESS current, never more: a fifth liveness rule must not
-     * reach the fields those safety readers filter on.</p>
+     * and {@code ActivationDirectiveResolver} act on. That shared answer reads
+     * the alert's own all-terminal VTEC ({@link AlertDerivations#vtecEndingState},
+     * P1), the same rule {@link AlertSafetyPolicy#lifecycleBlockReason} blocks
+     * on. The interpreter's fuller VTEC reading ({@link AlertInterpreter#liveLifecycle})
+     * goes into {@code lifecycleInfo} and the presentation blocks only, where it
+     * can only make a card LESS current, never more.</p>
      */
     private AlertCardDto liveCard(NormalizedAlert a, MatchType match, int radiusMi,
                                   NormalizedAlert replacedBy, Assessment assessed, Reader reader) {

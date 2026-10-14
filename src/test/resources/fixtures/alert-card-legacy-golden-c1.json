@@ -219,9 +219,9 @@
     "eventType" : "Tornado Warning",
     "eventLabel" : "Tornado Warning",
     "tier" : "warning",
-    "isLifeThreatening" : true,
+    "isLifeThreatening" : false,
     "evacuationRelated" : false,
-    "lifecycleState" : "updated",
+    "lifecycleState" : "expired",
     "replacesAlertIds" : [ ],
     "official" : {
       "headline" : "Tornado Warning issued for somewhere",
@@ -238,12 +238,12 @@
     "expiresAt" : "2099-01-01T00:00:00Z",
     "sourceAttribution" : "National Weather Service (NOAA)",
     "safety" : {
-      "dispatchMode" : "critical_push",
-      "guidanceMode" : "official_only",
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
       "compatibility" : "incompatible",
-      "protectiveActions" : [ "AVOID" ],
-      "movementDirective" : "shelter_in_place",
-      "reason" : "template_incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "vtec_terminal",
       "asIssuedMovementDirective" : "shelter_in_place"
     }
   },
@@ -253,9 +253,9 @@
     "eventType" : "Tornado Warning",
     "eventLabel" : "Tornado Warning",
     "tier" : "warning",
-    "isLifeThreatening" : true,
+    "isLifeThreatening" : false,
     "evacuationRelated" : false,
-    "lifecycleState" : "updated",
+    "lifecycleState" : "cancelled",
     "replacesAlertIds" : [ ],
     "official" : {
       "headline" : "Tornado Warning issued for somewhere",
@@ -272,12 +272,12 @@
     "expiresAt" : "2099-01-01T00:00:00Z",
     "sourceAttribution" : "National Weather Service (NOAA)",
     "safety" : {
-      "dispatchMode" : "critical_push",
-      "guidanceMode" : "official_only",
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
       "compatibility" : "incompatible",
-      "protectiveActions" : [ "AVOID" ],
-      "movementDirective" : "shelter_in_place",
-      "reason" : "template_incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "vtec_terminal",
       "asIssuedMovementDirective" : "shelter_in_place"
     }
   },
@@ -916,7 +916,7 @@
       "compatibility" : "incompatible",
       "protectiveActions" : [ ],
       "movementDirective" : "none",
-      "reason" : "record_no_longer_listed",
+      "reason" : "vtec_terminal",
       "asIssuedMovementDirective" : "shelter_in_place"
     }
   }
