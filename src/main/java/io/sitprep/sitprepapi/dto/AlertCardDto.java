@@ -108,10 +108,12 @@ public record AlertCardDto(
          * {@code response} and {@code expires} (see
          * {@code AlertDerivations.lifecycleState}). The live feed also says
          * {@code superseded} or {@code cancelled} when the message replacing
-         * this one is in the same snapshot — or {@code expired}, when that
-         * message's NWS VTEC action for this event is {@code EXP}: the issuer
-         * let it lapse rather than calling it off (S2 C2, rule 8; see
-         * {@link #lifecycleInfo} for the evidence). History adds what only a record can
+         * this one is in the same snapshot, read from that message's CAP shape
+         * only ({@code AlertDerivations.endingStateOf}). The VTEC-aware reading
+         * — e.g. {@code expired} when the replacing message's VTEC action for
+         * this event is {@code EXP} — lives in {@link #lifecycleInfo}'s
+         * {@code state}, which may be more specific than this field (S2 C2,
+         * rule 8); clients read that first. History adds what only a record can
          * know: a stored Update or Cancel naming this alert, and
          * {@code no_longer_listed} for an alert a later successful poll no longer
          * carried — which is never claimed as {@code cancelled}, because the
@@ -510,7 +512,13 @@ public record AlertCardDto(
             String role,
             /** polygon | zone | declared | none */
             String geometryKind,
-            /** [south, west, north, east], or null when the alert carries no geometry. */
+            /**
+             * [south, west, north, east], or null when the alert carries no
+             * geometry. Longitudes are in [-180, 180]. A box that crosses the
+             * antimeridian (Aleutians, western Alaska) has {@code west > east},
+             * the RFC 7946 §5.2 convention — it is never widened into a
+             * near-360° box.
+             */
             List<Double> bbox,
             List<String> zones,
             String areaDesc,

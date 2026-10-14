@@ -368,12 +368,19 @@ public final class AlertInterpreter {
                 : hazards + (hazards.contains("?") ? "&" : "?") + "alert=" + enc(dedupeKey);
         out.add(action("OPEN_ALERT_DETAIL", detail, detailRoute));
 
-        // Map — only when there is an area to show.
+        // Map — only when there is an area to show AND a camera point to open
+        // it on. The map's deep-link reader drops a link with no lat/lng
+        // (accepted deviation 2026-10-14), so a zone-only card built with no
+        // viewer — every zone-only history record — gets no map action rather
+        // than a dead one. The camera is the box's centre, else the viewer.
         boolean hasZones = area.zones() != null && !area.zones().isEmpty();
-        if (area.bbox() != null || hasZones) {
+        if ((area.bbox() != null || hasZones) && (area.bbox() != null || viewer != null)) {
             Map<String, Object> mp = new LinkedHashMap<>();
             put(mp, "dedupeKey", dedupeKey);
-            if (area.bbox() != null) mp.put("bbox", area.bbox());
+            // A box across the antimeridian (west > east) is refused by the
+            // map's bbox reader, so it is not handed to the map; the camera
+            // still centres on the true middle of the area.
+            if (area.bbox() != null && !wraps(area.bbox())) mp.put("bbox", area.bbox());
             out.add(action("OPEN_ALERT_MAP", mp, mapRoute(a, area.bbox(), viewer)));
         }
 
@@ -425,16 +432,32 @@ public final class AlertInterpreter {
         StringBuilder sb = new StringBuilder("/map?");
         if (bbox != null) {
             sb.append("lat=").append(num((bbox.get(0) + bbox.get(2)) / 2))
-                    .append("&lng=").append(num((bbox.get(1) + bbox.get(3)) / 2)).append('&');
+                    .append("&lng=").append(num(centreLng(bbox))).append('&');
         } else if (viewer != null) {
             sb.append("lat=").append(num(viewer.lat())).append("&lng=").append(num(viewer.lng())).append('&');
         }
         sb.append("select=").append(enc("alert:" + (a.id() == null ? "" : a.id().trim())));
-        if (bbox != null) {
+        if (bbox != null && !wraps(bbox)) {
             sb.append("&bbox=").append(num(bbox.get(0))).append(',').append(num(bbox.get(1)))
                     .append(',').append(num(bbox.get(2))).append(',').append(num(bbox.get(3)));
         }
         return sb.toString();
+    }
+
+    /** True for a box that crosses the antimeridian ({@code west > east}). */
+    static boolean wraps(List<Double> bbox) {
+        return bbox != null && bbox.get(1) > bbox.get(3);
+    }
+
+    /** The box's middle longitude, in [-180, 180], across the antimeridian too. */
+    private static double centreLng(List<Double> bbox) {
+        double w = bbox.get(1), e = bbox.get(3);
+        if (!wraps(bbox)) return (w + e) / 2;
+        return normaliseLng((w + e + 360) / 2);
+    }
+
+    private static double normaliseLng(double lng) {
+        return lng > 180 ? lng - 360 : lng;
     }
 
     private static AlertCardDto.Action action(String type, Map<String, Object> params, String route) {
@@ -505,44 +528,59 @@ public final class AlertInterpreter {
         return t instanceof String ? (String) t : null;
     }
 
-    /** [south, west, north, east] over every position in the geometry, or null. */
-    @SuppressWarnings("rawtypes")
+    /**
+     * [south, west, north, east] over every position in the geometry, or null.
+     *
+     * <p>Longitudes are taken two ways — as given, and shifted into [0, 360) —
+     * and the narrower span wins. A polygon across the antimeridian (Aleutians,
+     * western Alaska) therefore gets its true few-degree box, written with
+     * {@code west > east} (RFC 7946 §5.2), never a near-360° box centred in the
+     * Atlantic.</p>
+     */
     static List<Double> bboxOf(Object geometry) {
-        if (!(geometry instanceof Map)) return null;
-        double[] box = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
-                Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY};
-        Map g = (Map) geometry;
-        if ("GeometryCollection".equals(g.get("type")) && g.get("geometries") instanceof List) {
-            for (Object part : (List) g.get("geometries")) {
-                List<Double> sub = bboxOf(part);
-                if (sub != null) {
-                    box[0] = Math.min(box[0], sub.get(0));
-                    box[1] = Math.min(box[1], sub.get(1));
-                    box[2] = Math.max(box[2], sub.get(2));
-                    box[3] = Math.max(box[3], sub.get(3));
-                }
-            }
-        } else {
-            walk(g.get("coordinates"), box);
+        // {minLat, maxLat, minLng, maxLng, minShifted, maxShifted}
+        double[] acc = {Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        collect(geometry, acc);
+        if (acc[0] == Double.POSITIVE_INFINITY) return null;
+        double plainSpan = acc[3] - acc[2];
+        double shiftedSpan = acc[5] - acc[4];
+        if (plainSpan > 180 && shiftedSpan < plainSpan) {
+            double w = normaliseLng(acc[4]);
+            double e = normaliseLng(acc[5]);
+            return List.of(acc[0], w, acc[1], e);
         }
-        if (box[0] == Double.POSITIVE_INFINITY) return null;
-        return List.of(box[0], box[1], box[2], box[3]);
+        return List.of(acc[0], acc[2], acc[1], acc[3]);
     }
 
     @SuppressWarnings("rawtypes")
-    private static void walk(Object node, double[] box) {
+    private static void collect(Object geometry, double[] acc) {
+        if (!(geometry instanceof Map g)) return;
+        if ("GeometryCollection".equals(g.get("type")) && g.get("geometries") instanceof List parts) {
+            for (Object part : parts) collect(part, acc);
+        } else {
+            walk(g.get("coordinates"), acc);
+        }
+    }
+
+    @SuppressWarnings("rawtypes")
+    private static void walk(Object node, double[] acc) {
         if (!(node instanceof List list) || list.isEmpty()) return;
         if (list.get(0) instanceof Number && list.size() >= 2 && list.get(1) instanceof Number) {
             double lng = ((Number) list.get(0)).doubleValue();
             double lat = ((Number) list.get(1)).doubleValue();
             if (!Double.isFinite(lat) || !Double.isFinite(lng)) return;
-            box[0] = Math.min(box[0], lat);
-            box[1] = Math.min(box[1], lng);
-            box[2] = Math.max(box[2], lat);
-            box[3] = Math.max(box[3], lng);
+            double shifted = lng < 0 ? lng + 360 : lng;
+            acc[0] = Math.min(acc[0], lat);
+            acc[1] = Math.max(acc[1], lat);
+            acc[2] = Math.min(acc[2], lng);
+            acc[3] = Math.max(acc[3], lng);
+            acc[4] = Math.min(acc[4], shifted);
+            acc[5] = Math.max(acc[5], shifted);
             return;
         }
-        for (Object child : (List) list) walk(child, box);
+        for (Object child : (List) list) walk(child, acc);
     }
 
     // ------------------------------------------------------------------

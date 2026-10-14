@@ -290,6 +290,35 @@ class AlertInterpreterTest {
     class Tone {
 
         @Test
+        @DisplayName("a watch is never danger, even when handed a critical_push decision")
+        void watchNeverDangerEvenOnCriticalPush() {
+            NormalizedAlert a = watch("Tornado Watch").severity("Extreme").build();
+            AlertFeedService.Assessment real = feed.assess(a);
+            AlertSafetyPolicy.Decision crit = new AlertSafetyPolicy.Decision(
+                    AlertSafetyPolicy.DispatchMode.CRITICAL_PUSH, AlertSafetyPolicy.GuidanceMode.OFFICIAL_ONLY,
+                    AlertSafetyPolicy.Compatibility.COMPATIBLE, Set.of(),
+                    AlertSafetyPolicy.MovementDirective.NONE, "test");
+            AlertCardDto c = feed.toCard(a, MatchType.ZONE, 50, null,
+                    new AlertFeedService.Assessment(real.template(), crit));
+            assertThat(c.presentation().tone()).isEqualTo("warning");
+            assertThat(c.presentation().priority()).isEqualTo("life_safety");
+        }
+
+        @Test
+        @DisplayName("an Update whose own VTEC is all CAN is a record: no primary action, no household doors")
+        void ownCanUpdateIsARecord() {
+            NormalizedAlert a = live("Tornado Warning").messageType("Update")
+                    .response("Shelter").responseTypes(List.of("Shelter")).instruction("Take cover now.")
+                    .vtec(List.of(vtec("CAN", "KPSR", "TO", "W", "0042"))).build();
+            AlertCardDto c = card(a);
+            assertThat(c.lifecycleInfo().state()).isEqualTo("cancelled");
+            assertThat(c.interpreter().primaryAction()).isNull();
+            assertThat(c.presentation().current()).isFalse();
+            assertThat(c.presentation().tone()).isEqualTo("neutral");
+            assertThat(actionTypes(c)).doesNotContain("OPEN_HOUSEHOLD_CHECKIN", "OPEN_EMERGENCY_PLAN", "START_POST");
+        }
+
+        @Test
         @DisplayName("danger only for a current warning-tier critical_push / attention alert")
         void danger() {
             assertThat(card(live("Tornado Warning").build()).presentation().tone()).isEqualTo("danger");
@@ -416,7 +445,8 @@ class AlertInterpreterTest {
         @Test
         @DisplayName("OPEN_ALERT_MAP only with a bbox or zones")
         void mapNeedsAnArea() {
-            AlertCardDto zoned = card(watch("Flood Watch").build());
+            ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
+            AlertCardDto zoned = feed.feedForViewer(LAT, LNG, null, null).alerts().get(0);
             assertThat(actionTypes(zoned)).contains("OPEN_ALERT_MAP");
 
             AlertCardDto polygon = feed.toCard(live("Tornado Warning").ugc(List.of()).same(List.of())
@@ -428,6 +458,58 @@ class AlertInterpreterTest {
 
             AlertCardDto nowhere = feed.toCard(TestAlerts.fema("Severe Storms").id("DR-1-XX").build(), MatchType.ZONE, 50);
             assertThat(actionTypes(nowhere)).doesNotContain("OPEN_ALERT_MAP");
+        }
+
+        @Test
+        @DisplayName("every OPEN_ALERT_MAP route carries a camera point; a zone-only card with no viewer has no map action")
+        void mapRouteAlwaysHasACamera() {
+            // History builds records with no viewer. A zone-only record has no
+            // box to centre on, and the map drops a bare `select=` link, so the
+            // action must not be emitted at all (accepted deviation 2026-10-14).
+            AlertCardDto history = feed.toRecordCard(watch("Flood Watch").build(), MatchType.ZONE, 50, "expired");
+            assertThat(actionTypes(history)).doesNotContain("OPEN_ALERT_MAP");
+            assertThat(actionTypes(card(watch("Flood Watch").build()))).doesNotContain("OPEN_ALERT_MAP");
+
+            // With a viewer, the zone-only card centres on the viewer.
+            ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
+            AlertCardDto viewed = feed.feedForViewer(LAT, LNG, null, null).alerts().get(0);
+            assertThat(action(viewed, "OPEN_ALERT_MAP").fallbackRoute())
+                    .startsWith("/map?lat=" + LAT + "&lng=" + LNG + "&select=");
+
+            // A polygon record with no viewer centres on its box.
+            AlertCardDto polyRecord = feed.toRecordCard(live("Tornado Warning").ugc(List.of()).same(List.of())
+                    .geometry(square(LAT, LNG, 0.1)).build(), MatchType.POLYGON, 50, "expired");
+            assertThat(action(polyRecord, "OPEN_ALERT_MAP").fallbackRoute()).contains("lat=").contains("lng=");
+        }
+
+        @Test
+        @DisplayName("a polygon across the antimeridian gets a wrapped box (west > east), centred near 180, not at lng 0")
+        void antimeridianPolygon() {
+            Map<String, Object> aleutians = Map.of("type", "Polygon", "coordinates", List.of(List.of(
+                    List.of(179.0, 51.0), List.of(-179.5, 51.0), List.of(-179.5, 52.0),
+                    List.of(179.0, 52.0), List.of(179.0, 51.0))));
+            AlertCardDto c = feed.toCard(live("High Wind Warning").ugc(List.of("AKZ185")).same(List.of())
+                    .geometry(aleutians).build(), MatchType.POLYGON, 50);
+            assertThat(c.officialArea().bbox()).containsExactly(51.0, 179.0, 52.0, -179.5);
+
+            AlertCardDto.Action map = action(c, "OPEN_ALERT_MAP");
+            // The map's bbox reader refuses west > east, so the wrapped box is not
+            // sent to it; the camera centres on the true middle of the area.
+            assertThat(map.params()).doesNotContainKey("bbox");
+            assertThat(map.fallbackRoute()).startsWith("/map?lat=51.5&lng=179.75&select=")
+                    .doesNotContain("bbox=");
+
+            // A MultiPolygon split at the antimeridian reads the same way.
+            Map<String, Object> split = Map.of("type", "MultiPolygon", "coordinates", List.of(
+                    List.of(List.of(List.of(179.0, 51.0), List.of(180.0, 51.0), List.of(180.0, 52.0),
+                            List.of(179.0, 52.0), List.of(179.0, 51.0))),
+                    List.of(List.of(List.of(-180.0, 51.0), List.of(-179.5, 51.0), List.of(-179.5, 52.0),
+                            List.of(-180.0, 52.0), List.of(-180.0, 51.0)))));
+            assertThat(AlertInterpreter.bboxOf(split)).containsExactly(51.0, 179.0, 52.0, -179.5);
+
+            // An ordinary polygon is untouched.
+            assertThat(AlertInterpreter.bboxOf(square(LAT, LNG, 0.1)))
+                    .containsExactly(LAT - 0.1, LNG - 0.1, LAT + 0.1, LNG + 0.1);
         }
 
         @Test
