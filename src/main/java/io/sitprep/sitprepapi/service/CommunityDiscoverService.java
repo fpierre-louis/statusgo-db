@@ -26,12 +26,9 @@ import java.util.*;
  * radius, sorted by distance, plus the reverse-geocoded place label so
  * the page can render "Lahore, Punjab" without an extra round-trip.
  *
- * <p>Distance: Haversine in Java because Group stores lat/lng as String
- * (legacy) and converting to native numeric SQL would be a bigger schema
- * change. At SitPrep's scale (thousands of groups, not millions), an
- * in-memory pass over all public groups with non-null coords is fine.
- * When the public-group count gets large, add a zip-bucket pre-filter
- * on the JPQL side using the first 3 chars of {@code zipCode}.</p>
+ * <p>Candidates come from a SQL bounding box ({@code GroupRepo.findPublicInBounds},
+ * which never returns a household); the exact radius is Haversine in Java over
+ * that small set.</p>
  */
 @Service
 public class CommunityDiscoverService {
@@ -83,8 +80,17 @@ public class CommunityDiscoverService {
         String normalizedViewer = (viewerEmail == null || viewerEmail.isBlank())
                 ? null : viewerEmail.trim().toLowerCase();
 
-        List<Group> publicGroups = groupRepo.findAll().stream()
+        // SQL bounding box over the (latitude, longitude) index (V28), public
+        // groups only, households excluded in the query itself (BE-16, JN-05).
+        // This used to be findAll() over the whole table, filtered in memory
+        // for privacy alone, so two Public-flagged households (601, 332) were
+        // listed with their street addresses to every signed-in user. The
+        // Java filter below is the second line, not the first.
+        GeoUtil.GeoBox box = GeoUtil.around(lat, lng, radiusKm);
+        List<Group> publicGroups = groupRepo.findPublicInBounds(
+                        box.latMin(), box.latMax(), box.lngMin(), box.lngMax()).stream()
                 .filter(g -> "public".equalsIgnoreCase(safe(g.getPrivacy())))
+                .filter(g -> !"household".equalsIgnoreCase(safe(g.getGroupType()).trim()))
                 .filter(g -> g.getLatitude() != null && g.getLongitude() != null)
                 .toList();
 

@@ -748,6 +748,14 @@ public class GroupService {
      */
     public io.sitprep.sitprepapi.dto.GroupPreviewDto getGroupPreview(String groupId, String viewerEmail) {
         Group group = getGroupByPublicId(groupId);
+        // A household has no public preview (JN-04, D4). This route is public
+        // and served to anyone holding an id; it answered a household's street
+        // address and 7-decimal coordinate to an anonymous GET (measured on
+        // prod, group 601). Households have their own token-gated
+        // /household-invites/{token}/resolve. Same 404 as an unknown id.
+        if (isHouseholdGroup(group)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
 
         String viewer = viewerEmail == null ? "" : viewerEmail.trim().toLowerCase();
 
@@ -767,13 +775,25 @@ public class GroupService {
             status = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING;
         }
 
-        Double lat = group.getLatitude();
-        Double lng = group.getLongitude();
         int adminCount = group.getAdminEmails() == null ? 0 : group.getAdminEmails().size();
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = group.getMemberEmails() == null ? 0 : group.getMemberEmails().size();
-        boolean alertActive = "Active".equalsIgnoreCase(group.getAlert());
+        // Whether a check-in is running is a member fact (SH-06 addendum).
+        boolean inGroup = io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_OWNER.equals(status)
+                || io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_ADMIN.equals(status)
+                || io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_MEMBER.equals(status);
+        boolean alertActive = inGroup && "Active".equalsIgnoreCase(group.getAlert());
+        // Location (D5): never a street address or a coordinate on this public
+        // route. A public org shows its city and zip; a private group shows
+        // neither (null privacy reads as private, the same rule as join).
+        boolean isPublic = "public".equalsIgnoreCase(group.getPrivacy());
+        String city = isPublic ? cityOf(group.getAddress()) : null;
+        String zip = null;
+        if (isPublic) {
+            zip = blankToNull(group.getZipCode());
+            if (zip == null) zip = zipOf(group.getAddress());
+        }
 
         return new io.sitprep.sitprepapi.dto.GroupPreviewDto(
                 group.getGroupId(),
@@ -784,13 +804,74 @@ public class GroupService {
                 group.getOwnerName(),
                 adminCount,
                 memberCount,
-                group.getAddress(),
-                lat,
-                lng,
+                city,
+                zip,
                 group.getCreatedAt(),
                 alertActive,
                 status
         );
+    }
+
+    private static boolean isHouseholdGroup(Group g) {
+        return g != null && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    /**
+     * The city out of a free-form one-line address, or null when it can't be
+     * told apart from the street. Addresses come from the geocoder as
+     * "street, city, ST 84020" (sometimes with ", USA", a county, or the
+     * state and zip in separate parts). Trailing country / state / zip parts
+     * are dropped; the city is the last part left, and only when a street part
+     * sits before it, so a bare "123 Main St" never comes back as a "city".
+     */
+    static String cityOf(String address) {
+        if (address == null || address.isBlank()) return null;
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        for (String p : address.split(",")) {
+            String t = p.trim();
+            if (!t.isEmpty()) parts.add(t);
+        }
+        while (!parts.isEmpty() && isRegionPart(parts.get(parts.size() - 1))) {
+            parts.remove(parts.size() - 1);
+        }
+        if (parts.size() < 2) return null;
+        String city = parts.get(parts.size() - 1);
+        if (city.toLowerCase(Locale.ROOT).endsWith(" county")) {
+            if (parts.size() < 3) return null;
+            city = parts.get(parts.size() - 2);
+        }
+        // A part with a digit is a street or a unit, not a city.
+        return city.chars().anyMatch(Character::isDigit) ? null : city;
+    }
+
+    /**
+     * The 5-digit zip from a "street, city, ST 84020" address, or null. The
+     * first part is never read: a house number can be five digits too.
+     */
+    static String zipOf(String address) {
+        if (address == null || address.isBlank()) return null;
+        String[] parts = address.split(",");
+        for (int i = parts.length - 1; i >= 1; i--) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("(?:^|\\s)(\\d{5})(?:-\\d{4})?$").matcher(parts[i].trim());
+            if (m.find()) return m.group(1);
+        }
+        return null;
+    }
+
+    private static boolean isRegionPart(String part) {
+        String p = part.trim();
+        String lower = p.toLowerCase(Locale.ROOT);
+        if (lower.equals("usa") || lower.equals("us") || lower.equals("united states")
+                || lower.equals("united states of america")) return true;
+        // "UT", "UT 84020", "84020", "84020-1234", "Utah 84020"
+        if (p.matches("\\d{5}(-\\d{4})?")) return true;
+        if (p.matches("[A-Z]{2}( \\d{5}(-\\d{4})?)?")) return true;
+        return p.matches("[A-Za-z ]+ \\d{5}(-\\d{4})?");
     }
 
     private static boolean containsIgnoreCase(java.util.Collection<String> coll, String needle) {
@@ -1203,7 +1284,15 @@ public class GroupService {
             throw new IllegalArgumentException("Caller email required");
         }
         Group g = getGroupByPublicId(groupId);
-        boolean isPrivate = "Private".equalsIgnoreCase(g.getPrivacy());
+        // A household is never joined by request (JN-03): a family is joined
+        // through an admin's household invite or claim link, which is the
+        // approval. Same 404 as an unknown id.
+        if (isHouseholdGroup(g)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        // Only an explicitly Public group is instant-join. A null or unknown
+        // privacy is a request (JN-03): two org rows on prod had none.
+        boolean isPrivate = !"public".equalsIgnoreCase(g.getPrivacy());
 
         // Already a member or admin? No-op.
         if (containsCaseInsensitive(g.getMemberEmails(), email)

@@ -354,8 +354,9 @@ public class UserInfoResource {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "At most " + MAX_BATCH_EMAILS + " emails per batch");
         }
-        // Status and last-active go only to the viewer and their co-members.
-        return ResponseEntity.ok(userInfoService.getProfileSummariesByEmails(emails, viewer));
+        // Only people the viewer has a relationship with come back; status
+        // only for co-members; lastActiveAt never (BE-04, D7).
+        return ResponseEntity.ok(userInfoService.getRelatedProfileSummaries(emails, viewer));
     }
 
     public record BatchProfilesRequest(List<String> emails) {}

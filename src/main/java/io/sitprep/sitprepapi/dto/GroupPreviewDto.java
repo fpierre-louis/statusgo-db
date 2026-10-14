@@ -16,6 +16,13 @@ import java.time.Instant;
  * purpose, scale (member count), location context, and operational
  * state (active-alert badge).</p>
  *
+ * <p><b>Location (B2, 2026-10-14; owner decision D5).</b> No street address
+ * and no coordinate, ever: this route is public and the id travels in share
+ * links. It served a household's street address and 7-decimal coordinate to an
+ * anonymous GET until then. A public org group shows {@code city} and
+ * {@code zipCode}; a private group shows neither; a household has no preview
+ * at all (404). {@code alertActive} is true only for the group's own members.</p>
+ *
  * <p>{@code viewerStatus} tells the FE which CTA to render without a
  * second round-trip:</p>
  * <ul>
@@ -35,9 +42,8 @@ public record GroupPreviewDto(
         String ownerName,
         int adminCount,
         int memberCount,
-        String address,
-        Double latitude,
-        Double longitude,
+        String city,
+        String zipCode,
         Instant createdAt,
         boolean alertActive,
         String viewerStatus
