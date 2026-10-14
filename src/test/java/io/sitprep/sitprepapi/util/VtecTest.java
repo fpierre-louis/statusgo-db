@@ -87,11 +87,22 @@ class VtecTest {
                 "/O.XYZ.KSLC.FF.W.0042.261013T1800Z-261014T0000Z/",    // unknown action
                 "/O.CON.KSL.FF.W.0042.261013T1800Z-261014T0000Z/",     // 3-letter office
                 "/O.CON.KSLC.FF.W.0042.261313T1800Z-261014T0000Z/",    // month 13
+                "/O.CON.KSLC.FF.W.0042.260231T1800Z-260301T0000Z/",    // 31 Feb (not clamped to 28)
+                "/O.CON.KSLC.FF.W.0042.250229T1800Z-250301T0000Z/",    // 29 Feb in a non-leap year
+                "/O.CON.KSLC.FF.W.0042.261013T2460Z-261014T0000Z/",    // minute 60
                 "/O.CON.KSLC.FF.W.0042.261013T1800Z/",                 // no end
                 "/00000.0.ER.000000T0000Z.000000T0000Z.000000T0000Z.OO/" // H-VTEC shape
         }) {
             assertThat(Vtec.parse(bad, "2026-10-13T00:00:00Z")).as(String.valueOf(bad)).isEmpty();
         }
+    }
+
+    @Test
+    void aRealLeapDayStillParses() {
+        // The strict resolver rejects 31 Feb; it must not reject 29 Feb in a leap year.
+        assertThat(Vtec.parse("/O.NEW.KSLC.FF.W.0003.280229T1800Z-280301T0000Z/"))
+                .get().extracting(Vtec::beginsAt, Vtec::eventKey)
+                .containsExactly("2028-02-29T18:00:00Z", "KSLC.FF.W.0003.2028");
     }
 
     @Test

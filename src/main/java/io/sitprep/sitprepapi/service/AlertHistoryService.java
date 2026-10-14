@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.resource.AppConfigResource;
 import io.sitprep.sitprepapi.service.AlertIngestService.MatchType;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
+import io.sitprep.sitprepapi.util.AlertSourceFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -166,12 +167,21 @@ public class AlertHistoryService {
      * single most important property of the table and the reason the id is the
      * primary key rather than a surrogate.</p>
      *
-     * <p><b>Re-sightings do not rewrite the payload.</b> A CAP identifier is
-     * immutable per message: an update is a new message with a new id whose
+     * <p><b>NWS re-sightings do not rewrite the payload.</b> A CAP identifier
+     * is immutable per message: an update is a new message with a new id whose
      * {@code references} point back at what it replaces. So the alert behind an
-     * id never changes, and the whole supersession chain survives as distinct
-     * rows — which is what lets history show the arc of an event rather than
-     * only its last frame.</p>
+     * NWS id never changes, and the whole supersession chain survives as
+     * distinct rows — which is what lets history show the arc of an event
+     * rather than only its last frame.</p>
+     *
+     * <p><b>USGS and FEMA do revise under one id</b> — a quake's magnitude, a
+     * declaration's counties. For those, a freshly polled payload whose source
+     * fingerprint ({@link AlertSourceFingerprint}) differs from the stored one
+     * replaces it and re-derives the index columns ({@link #reindex}). Without
+     * that, a declaration recorded before its rows carried county codes (every
+     * FEMA row written before S2 C1) stayed uncoded for life: history placed it
+     * nowhere while the live feed showed it in its counties. Per-revision
+     * history for these sources is C3's revision table, not this row.</p>
      *
      * @return how many rows were newly inserted
      */
@@ -203,6 +213,7 @@ public class AlertHistoryService {
 
         List<AlertHistory> toSave = new ArrayList<>();
         int inserted = 0;
+        int revised = 0;
         for (NormalizedAlert a : batch) {
             if (a.id() == null || a.id().isBlank()) continue;
             AlertHistory row = existing.get(a.id());
@@ -212,7 +223,14 @@ public class AlertHistoryService {
                 // stamping them made an outage read as a run of sightings
                 // (Phase 3 D5) — they keep the time they were last really seen.
                 if (!snapshot.freshlyPolled(a.source())) continue;
-                row.setLastSeenAt(now);       // still in force — that is the whole update
+                row.setLastSeenAt(now);       // still in force — for NWS, that is the whole update
+                if (revisesUnderOneId(a.source()) && isRevisedFrom(row, a)) {
+                    String payload = serialize(a);
+                    if (payload != null) {
+                        reindex(row, a, payload);
+                        revised++;
+                    }
+                }
                 toSave.add(row);
                 continue;
             }
@@ -224,43 +242,84 @@ public class AlertHistoryService {
 
         repo.saveAll(toSave);
         lastRecorded.set(generation);
-        if (inserted > 0) {
-            log.debug("AlertHistory: {} new, {} still active", inserted, toSave.size() - inserted);
+        if (inserted > 0 || revised > 0) {
+            log.debug("AlertHistory: {} new, {} still active ({} revised under the same id)",
+                    inserted, toSave.size() - inserted, revised);
         }
         return inserted;
     }
 
     AlertHistory toRow(NormalizedAlert a, Instant now) {
-        String payload;
+        String payload = serialize(a);
+        if (payload == null) return null;
+        AlertHistory row = new AlertHistory();
+        row.setAlertId(a.id());
+        row.setSource(a.source() == null ? "UNKNOWN" : a.source());
+        reindex(row, a, payload);
+        row.setFirstSeenAt(now);
+        row.setLastSeenAt(now);
+        return row;
+    }
+
+    private String serialize(NormalizedAlert a) {
         try {
-            payload = json.writeValueAsString(a);
+            return json.writeValueAsString(a);
         } catch (Exception e) {
             log.warn("AlertHistory: could not serialize {}: {}", a.id(), e.getMessage());
             return null;
         }
-        AlertHistory row = new AlertHistory();
-        row.setAlertId(a.id());
-        row.setSource(a.source() == null ? "UNKNOWN" : a.source());
+    }
+
+    /**
+     * The payload and every column derived from it. One method for insert and
+     * revision, so a revised row can never be indexed differently from a new
+     * one.
+     */
+    private static void reindex(AlertHistory row, NormalizedAlert a, String payload) {
         row.setEvent(truncate(a.event(), 160));
         row.setSeverity(truncate(a.severity(), 16));
         row.setPayload(payload);
 
         double[] coord = AlertIngestService.firstCoord(a.geometry());
-        if (coord != null) {
-            row.setCentroidLng(coord[0]);   // firstCoord returns [lon, lat]
-            row.setCentroidLat(coord[1]);
-        }
+        row.setCentroidLng(coord == null ? null : coord[0]);   // firstCoord returns [lon, lat]
+        row.setCentroidLat(coord == null ? null : coord[1]);
 
         Set<String> tokens = tokensFor(a);
-        row.setTokens(tokens);
+        // Mutate in place: the managed collection is what Hibernate tracks.
+        if (row.getTokens() == null) {
+            row.setTokens(new LinkedHashSet<>(tokens));
+        } else {
+            row.getTokens().clear();
+            row.getTokens().addAll(tokens);
+        }
         // BROADCAST is what matchTypeFor returns when there is nothing to match
         // on at all — no geometry AND no UGC. Such a row applies at every
         // coordinate and must never be excluded by a prefilter.
         row.setBroadcast(coord == null && tokens.isEmpty());
+    }
 
-        row.setFirstSeenAt(now);
-        row.setLastSeenAt(now);
-        return row;
+    /**
+     * Sources whose id names the event rather than one message, so the payload
+     * behind an id can change: USGS (magnitude/PAGER revisions) and FEMA
+     * (declarations amended with counties). NWS is the only one that issues a
+     * new id per message.
+     */
+    static boolean revisesUnderOneId(String source) {
+        return source != null && !"NWS".equalsIgnoreCase(source);
+    }
+
+    /**
+     * Has the issuer changed this alert since the row was written? Decided by
+     * the source fingerprint, so a re-stamp with nothing changed ({@code sent},
+     * USGS {@code updated}) is not a revision. An unreadable stored payload
+     * counts as revised — the fresh one is the only usable record.
+     */
+    private boolean isRevisedFrom(AlertHistory row, NormalizedAlert fresh) {
+        NormalizedAlert stored = rehydrate(row);
+        if (stored == null) return true;
+        String before = AlertSourceFingerprint.fingerprint(stored);
+        String after = AlertSourceFingerprint.fingerprint(fresh);
+        return after != null && !after.equals(before);
     }
 
     /**

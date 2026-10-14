@@ -260,6 +260,12 @@ public record AlertCardDto(
             Double depthKm,
             /** USGS PAGER impact colour: green | yellow | orange | red. */
             String pagerLevel,
+            /**
+             * USGS's oceanic-region flag, as sent. NOT a tsunami warning: USGS
+             * says it does not indicate whether a tsunami exists or will exist.
+             * Tsunami threats arrive as NWS alerts. Never render this as
+             * "tsunami threat" and never derive tone or guidance from it.
+             */
             boolean tsunami
     ) {}
 

@@ -39,10 +39,12 @@ import java.util.Set;
  *
  * <p>A CAP identifier is immutable per message — an update is a NEW message
  * with a new id whose {@code references} point back at the one it replaces. So
- * the payload for a given id never changes, re-sightings only move
+ * the payload for a given NWS id never changes, re-sightings only move
  * {@link #lastSeenAt}, and the supersession chain survives as distinct rows,
  * which is what lets history show the arc of an event rather than its last
- * frame.</p>
+ * frame. USGS and FEMA revise under one id; their row holds the latest
+ * revision and is re-indexed when the source fingerprint changes (see
+ * {@code AlertHistoryService.record}).</p>
  *
  * <h2>The payload is the whole alert</h2>
  *
@@ -96,10 +98,11 @@ public class AlertHistory {
     private Double centroidLng;
 
     /**
-     * No geometry and no UGC. {@code matchTypeFor} returns {@code BROADCAST}
-     * for such an alert at every coordinate, so it can never be filtered out of
-     * a candidate set — that is the FEMA case, whose rows carry county and
-     * state <i>names</i> but never codes.
+     * No geometry and no target codes. {@code matchTypeFor} returns
+     * {@code BROADCAST} for such an NWS/USGS alert at every coordinate, so it
+     * can never be filtered out of a candidate set. FEMA rows carry the SAME
+     * codes of their counties since S2 C1; an uncoded FEMA row (a
+     * reservation-only declaration) is still flagged here but matches nowhere.
      */
     @Column(name = "broadcast", nullable = false)
     private boolean broadcast;

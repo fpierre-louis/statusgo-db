@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -64,8 +65,14 @@ public record Vtec(
 
     private static final String UNSPECIFIED = "000000T0000Z";
 
+    /**
+     * STRICT, so an impossible date (31 Feb, 29 Feb in a common year, minute
+     * 60) is malformed rather than clamped to a nearby real one. STRICT reads
+     * {@code yy} as year-of-era and needs an era, hence {@code uu}.
+     */
     private static final DateTimeFormatter VTEC_TIME =
-            DateTimeFormatter.ofPattern("yyMMdd'T'HHmm'Z'", Locale.ROOT);
+            DateTimeFormatter.ofPattern("uuMMdd'T'HHmm'Z'", Locale.ROOT)
+                    .withResolverStyle(ResolverStyle.STRICT);
 
     /**
      * {@code office.phenomena.significance.etn.year} — the key every message
@@ -102,7 +109,7 @@ public record Vtec(
 
         Instant begins = vtecTime(m.group(7));
         Instant ends = vtecTime(m.group(8));
-        // A coded time that is not a real date (e.g. month 13) is malformed.
+        // A coded time that is not a real date (month 13, 31 Feb) is malformed.
         if ((begins == null && !UNSPECIFIED.equals(m.group(7)))
                 || (ends == null && !UNSPECIFIED.equals(m.group(8)))) {
             return Optional.empty();

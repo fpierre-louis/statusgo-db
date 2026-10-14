@@ -835,6 +835,14 @@ public class AlertIngestService {
      * reservations and other non-county areas ({@code Crow Indian Reservation},
      * measured on the 2026-08-22 page), so those contribute no code. Only FEMA's
      * own {@code Statewide} designation becomes {@code SS000}.</p>
+     *
+     * <p><b>Known gap, owner ruling open.</b> A declaration whose only rows are
+     * reservations is therefore placed nowhere — not even for the people on
+     * that reservation. On 2026-10-14 that was 2 of the 9 active Individual
+     * Assistance declarations (DR-4954-NM Zuni Pueblo, DR-4941-SD Pine Ridge).
+     * The state is not used instead because it over-claims by hundreds of
+     * miles; the honest fix is a static crosswalk from the OpenFEMA
+     * {@code placeCode} to the counties that contain the reservation.</p>
      */
     static String femaSameCode(JsonNode r) {
         String state = textOrNull(r, "fipsStateCode");
@@ -1607,7 +1615,14 @@ public class AlertIngestService {
             Double magnitude,
             /** USGS PAGER level ({@code properties.alert}): green | yellow | orange | red, or null. */
             String pagerAlert,
-            /** USGS {@code properties.tsunami} (1/0); null when not sent — absence is not a "no". */
+            /**
+             * USGS {@code properties.tsunami} (1/0); null when not sent — absence
+             * is not a "no". <b>Not a tsunami warning.</b> USGS sets it for large
+             * events in oceanic regions and states it does not indicate whether
+             * a tsunami exists or will exist; tsunami threats come from NWS
+             * (Tsunami Warning Centers) as their own alerts. Nothing may drive
+             * tone, tier, push or "tsunami" copy from this flag.
+             */
             Boolean tsunamiFlag,
             /** FEMA {@code incidentEndDate} (R13). Null for open incidents and non-FEMA sources. */
             String incidentEndsAt,
