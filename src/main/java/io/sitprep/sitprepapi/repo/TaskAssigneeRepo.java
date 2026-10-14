@@ -2,7 +2,10 @@ package io.sitprep.sitprepapi.repo;
 
 import io.sitprep.sitprepapi.domain.TaskAssignee;
 import io.sitprep.sitprepapi.domain.TaskAssignee.Role;
+import io.sitprep.sitprepapi.domain.Post;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,4 +52,18 @@ public interface TaskAssigneeRepo extends JpaRepository<TaskAssignee, Long> {
 
     /** The "my work" assignee arm — tasks this person is assigned to (any role). */
     List<TaskAssignee> findByEmailIgnoreCase(String email);
+
+    /**
+     * Open tasks this person is assigned to (any role), counted per group, in
+     * one aggregate query (BE-17, the circle card's "N tasks for you"). Only
+     * the given groups; project containers and the given terminal statuses
+     * don't count. Rows are {@code [groupId, count]}.
+     */
+    @Query("SELECT p.groupId, COUNT(DISTINCT p.id) FROM TaskAssignee a, Post p "
+            + "WHERE p.id = a.postId AND LOWER(a.email) = LOWER(:email) "
+            + "AND p.groupId IN :groupIds AND p.kind <> 'project' AND p.status NOT IN :terminal "
+            + "GROUP BY p.groupId")
+    List<Object[]> countOpenAssignedByGroup(@Param("email") String email,
+                                           @Param("groupIds") java.util.Collection<String> groupIds,
+                                           @Param("terminal") java.util.Collection<Post.PostStatus> terminal);
 }

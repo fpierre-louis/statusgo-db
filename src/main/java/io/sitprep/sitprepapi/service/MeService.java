@@ -1161,24 +1161,20 @@ public class MeService {
     }
 
     /**
-     * Open tasks the viewer is assigned to, per group (BE-17). Two queries
-     * whatever the number of groups: the viewer's {@code task_assignee} rows,
-     * then those tasks. Terminal statuses and project containers don't count
-     * (the board's "active" rule, {@code PostService.workOrderSummary}).
+     * Open tasks the viewer is assigned to, per group (BE-17). One aggregate
+     * query whatever the number of groups or how many tasks the viewer ever
+     * had: {@code task_assignee} joined to the task, counted per group.
+     * Terminal statuses and project containers don't count (the board's
+     * "active" rule, {@code PostService.workOrderSummary}).
      */
     java.util.Map<String, Integer> assignedOpenTaskCounts(String email, java.util.Set<String> groupIds) {
         if (email == null || email.isBlank() || groupIds == null || groupIds.isEmpty()
                 || taskAssigneeRepo == null) return java.util.Map.of();
-        List<Long> taskIds = taskAssigneeRepo.findByEmailIgnoreCase(email).stream()
-                .map(io.sitprep.sitprepapi.domain.TaskAssignee::getPostId)
-                .filter(java.util.Objects::nonNull).distinct().toList();
-        if (taskIds.isEmpty()) return java.util.Map.of();
         java.util.Map<String, Integer> out = new java.util.HashMap<>();
-        for (io.sitprep.sitprepapi.domain.Post p : postRepo.findAllById(taskIds)) {
-            if (p == null || p.getGroupId() == null || !groupIds.contains(p.getGroupId())) continue;
-            if ("project".equals(p.getKind())) continue;
-            if (p.getStatus() != null && TERMINAL_TASK_STATUSES.contains(p.getStatus())) continue;
-            out.merge(p.getGroupId(), 1, Integer::sum);
+        for (Object[] row : taskAssigneeRepo.countOpenAssignedByGroup(email.trim(), groupIds, TERMINAL_TASK_STATUSES)) {
+            if (row == null || row[0] == null || row[1] == null) continue;
+            int n = ((Number) row[1]).intValue();
+            if (n > 0) out.put((String) row[0], n);
         }
         return out;
     }

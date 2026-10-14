@@ -2,8 +2,6 @@ package io.sitprep.sitprepapi.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.domain.Group;
-import io.sitprep.sitprepapi.domain.Post;
-import io.sitprep.sitprepapi.domain.TaskAssignee;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.MeDto;
 import io.sitprep.sitprepapi.repo.*;
@@ -18,7 +16,10 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -100,36 +101,23 @@ class MeServiceGroupSummaryFieldsTest {
     }
 
     @Test
-    void assignedOpenTaskCount_countsOpenNonProjectRowsPerGroup_inTwoQueries() {
-        when(assigneeRepo.findByEmailIgnoreCase(ME)).thenReturn(List.of(
-                assignee(1L), assignee(2L), assignee(3L), assignee(4L), assignee(5L), assignee(1L)));
-        when(postRepo.findAllById(anyList())).thenReturn(List.of(
-                post(1L, "g1", "task", Post.PostStatus.OPEN),
-                post(2L, "g1", "task", Post.PostStatus.IN_PROGRESS),
-                post(3L, "g1", "task", Post.PostStatus.DONE),        // terminal
-                post(4L, "g1", "project", Post.PostStatus.OPEN),     // a container
-                post(5L, "elsewhere", "task", Post.PostStatus.OPEN))); // not one of my groups
+    void assignedOpenTaskCount_isOneAggregateQuery_perGroupCountsPassThrough() {
+        // The filtering (my groups, open, not a project) is the query's job;
+        // TaskAssigneeOpenCountRepoTest runs it on H2.
+        when(assigneeRepo.countOpenAssignedByGroup(eq(ME), anyCollection(), anyCollection()))
+                .thenReturn(List.<Object[]>of(new Object[]{"g1", 2L}, new Object[]{"g2", 0L}));
 
         Map<String, Integer> out = service.assignedOpenTaskCounts(ME, Set.of("g1", "g2"));
 
         assertThat(out).containsExactlyEntriesOf(Map.of("g1", 2));
-        verify(assigneeRepo, times(1)).findByEmailIgnoreCase(ME);
-        verify(postRepo, times(1)).findAllById(anyList());
+        verify(assigneeRepo, times(1)).countOpenAssignedByGroup(eq(ME), eq(Set.of("g1", "g2")), anyCollection());
+        verify(assigneeRepo, never()).findByEmailIgnoreCase(anyString());
+        verify(postRepo, never()).findAllById(anyList());
     }
 
-    private static TaskAssignee assignee(Long postId) {
-        TaskAssignee a = new TaskAssignee();
-        a.setPostId(postId);
-        a.setEmail(ME);
-        return a;
-    }
-
-    private static Post post(Long id, String groupId, String kind, Post.PostStatus status) {
-        Post p = new Post();
-        p.setId(id);
-        p.setGroupId(groupId);
-        p.setKind(kind);
-        p.setStatus(status);
-        return p;
+    @Test
+    void assignedOpenTaskCount_costsNothingWithoutGroups() {
+        assertThat(service.assignedOpenTaskCounts(ME, Set.of())).isEmpty();
+        verifyNoInteractions(assigneeRepo);
     }
 }

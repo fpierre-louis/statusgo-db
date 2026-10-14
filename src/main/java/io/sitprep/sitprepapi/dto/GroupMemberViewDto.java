@@ -205,9 +205,11 @@ public record GroupMemberViewDto(
              */
             int checkInWindowHours,
             /**
-             * From when "Continue" is accepted for the running check-in
+             * From when the page offers "Continue" for the running check-in
              * ({@code CheckInWindow.continueAvailableFrom}); null when none is
-             * running. {@code POST /alert/continue} refuses before it (409).
+             * running. {@code POST /alert/continue} still accepts any time
+             * while the check-in runs (the organizer reminders' "Keep going"
+             * action needs it; see {@code CheckInWindow}).
              */
             Instant continueAvailableFrom
     ) {}
