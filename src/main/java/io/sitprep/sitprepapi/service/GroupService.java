@@ -177,9 +177,102 @@ public class GroupService {
         }
     }
 
-    public Group createGroup(Group group) {
+    /**
+     * Create a group from the fields a creator may choose (JN-01).
+     *
+     * <p>Everything else is the server's: a minted id and join code, the
+     * caller as the only owner, admin and member, FREE, no check-in running,
+     * no links, no billing state. A household is always Private (it is never
+     * listed publicly). A body {@code groupId} that names an existing group is
+     * a 409 and nothing is written: that is the merge-takeover shape, and a
+     * loud refusal beats quietly minting a second group next to it.</p>
+     */
+    @Transactional
+    public Group createGroup(io.sitprep.sitprepapi.dto.CreateGroupRequest req, String caller) {
+        if (caller == null || caller.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in to create a group");
+        }
+        if (req == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Group details required");
+        }
+        String claimedId = req.groupId() == null ? null : req.groupId().trim();
+        if (claimedId != null && !claimedId.isEmpty() && groupRepo.existsById(claimedId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "That group already exists");
+        }
+        String name = req.groupName() == null ? "" : req.groupName().trim();
+        if (name.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Give the group a name");
+        }
+        if (name.length() > GROUP_NAME_MAX) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Group names can be up to " + GROUP_NAME_MAX + " characters");
+        }
+        String type = req.groupType() == null ? "" : req.groupType().trim();
+        if (type.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a group type");
+        }
+        boolean household = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(type);
+        String me = caller.trim().toLowerCase(Locale.ROOT);
+        Instant now = Instant.now();
+
+        Group g = new Group();
+        g.setGroupId(UUID.randomUUID().toString());
+        g.setGroupCode(mintGroupCode(household));
+        g.setGroupName(name);
+        g.setGroupType(household ? HouseholdEventService.HOUSEHOLD_GROUP_TYPE : type);
+        g.setPrivacy(!household && "public".equalsIgnoreCase(trimToNull(req.privacy())) ? "Public" : "Private");
+        g.setDescription(trimToNull(req.description()));
+        g.setAddress(trimToNull(req.address()));
+        g.setZipCode(trimToNull(req.zipCode()));
+        g.setLatitude(req.latitude());
+        g.setLongitude(req.longitude());
+        g.setLogoImageUrl(trimToNull(req.logoImageUrl()));
+        g.setBusinessCategory(trimToNull(req.businessCategory()));
+        g.setWebsiteUrl(trimToNull(req.websiteUrl()));
+
+        g.setOwnerEmail(me);
+        g.setOwnerName(userInfoRepo.findByUserEmailIgnoreCase(me)
+                .map(u -> trimToNull((nullToEmpty(u.getUserFirstName()) + " " + nullToEmpty(u.getUserLastName())).trim()))
+                .orElse(null));
+        g.setAdminEmails(new ArrayList<>(List.of(me)));
+        g.setMemberEmails(new ArrayList<>(List.of(me)));
+        g.setPendingMemberEmails(new ArrayList<>());
+        g.setSubGroupIDs(new ArrayList<>());
+        g.setParentGroupIDs(new ArrayList<>());
+        g.setMemberCount(1);
+        g.setAlert("Not Active");
+        g.setPlanTier(PlanTier.FREE.name());
+        g.setAgencyAuthorized(false);
+        g.setLastUpdatedBy(me);
+        g.setCreatedAt(now);
+        g.setUpdatedAt(now);
+        return createGroup(g);
+    }
+
+    /** A join code nobody holds. Households keep their "HH-" prefix. */
+    private String mintGroupCode(boolean household) {
+        for (int i = 0; i < 8; i++) {
+            String raw = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+            String code = household ? "HH-" + raw.toUpperCase(Locale.ROOT) : "g-" + raw;
+            if (!groupRepo.existsByGroupCodeIgnoreCase(code)) return code;
+        }
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Couldn't create the group. Try again.");
+    }
+
+    private static String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    /**
+     * Persist an already-built group. Internal: the only caller is
+     * {@link #createGroup(io.sitprep.sitprepapi.dto.CreateGroupRequest, String)},
+     * which builds every field server-side.
+     */
+    private Group createGroup(Group group) {
         if (group.getGroupId() == null || group.getGroupId().isEmpty()) {
-            throw new RuntimeException("Missing groupId. Ensure UUID is generated on frontend.");
+            throw new IllegalStateException("createGroup needs a minted groupId");
         }
         Group saved = groupRepo.save(group);
         // Creating a household seeds the creator's base household if they
@@ -709,16 +802,28 @@ public class GroupService {
     }
 
 
+    /**
+     * The whole-group PUT, narrowed to the fields an admin may edit (BE-01).
+     *
+     * <p>It used to copy every field from the body, which let any admin set
+     * {@code ownerEmail} to themselves and become OWNER, inject or drop a
+     * roster, flip the alert, write sub/parent links past the no-loop walk,
+     * and retype a household. Those fields each have a narrow, gated path now
+     * (owner transfer, member and admin ops, {@code POST /alert},
+     * {@code PUT /subgroups}); this one leaves them alone. Both frontend
+     * callers still send a whole group, and the extra keys are ignored
+     * rather than refused. The PUT itself goes in B5, once the frontend
+     * moves to {@code PATCH /settings}.</p>
+     *
+     * <p>Not written here: owner (email and name), admins, members, pending,
+     * alert, sub/parent ids, createdAt, lastUpdatedBy, memberCount, and a
+     * household's type (AD-06).</p>
+     */
     @Transactional
     public Group updateGroupByPublicId(String groupId, Group groupDetails) {
         Group group = getGroupByPublicId(groupId);
-        String previousAlert = group.getAlert();
         updateGroupFields(group, groupDetails);
-        Group saved = groupRepo.save(group);
-        // A whole-group PUT can add accounts to a household roster.
-        syncHouseholdCountsAfterJoin(saved);
-        broadcastAlertIfChanged(previousAlert, saved);
-        return saved;
+        return groupRepo.save(group);
     }
 
     public void deleteGroupByPublicId(String groupId) {
@@ -727,99 +832,44 @@ public class GroupService {
     }
 
     private void updateGroupFields(Group group, Group groupDetails) {
-        Set<String> oldMemberEmails = new HashSet<>(safeList(group.getMemberEmails()));
-        Set<String> oldPendingMemberEmails = new HashSet<>(safeList(group.getPendingMemberEmails()));
-
-        // Captured before the field writes below; the transition itself is
-        // applied by applyAlertTransition once the new value is in place.
-        final String previousAlert = group.getAlert();
-        final String newAlert = groupDetails.getAlert();
         final boolean isHousehold =
                 HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
 
-        group.setAdminEmails(safeList(groupDetails.getAdminEmails()));
-        group.setAlert(groupDetails.getAlert());
-        group.setCreatedAt(groupDetails.getCreatedAt());
         group.setDescription(groupDetails.getDescription());
         group.setGroupName(groupDetails.getGroupName());
-        group.setGroupType(groupDetails.getGroupType());
-        group.setLastUpdatedBy(groupDetails.getLastUpdatedBy());
-        group.setMemberCount(groupDetails.getMemberCount());
-        // Population-band enforcement (diff-based): a bulk roster overwrite must
-        // not over-provision a seat-capped tier. Allow shrink / reorder and a
-        // grandfathered over-cap roster, but reject net-new additions that push
-        // the roster past max_seats (the population band cap). 409 CONFLICT.
-        Integer bandCap = group.getMaxSeats();
-        if (bandCap != null && bandCap > 0) {
-            Set<String> oldNorm = oldMemberEmails.stream()
-                    .filter(e -> e != null && !e.isBlank())
-                    .map(e -> e.trim().toLowerCase())
-                    .collect(Collectors.toSet());
-            Set<String> incomingNorm = safeList(groupDetails.getMemberEmails()).stream()
-                    .filter(e -> e != null && !e.isBlank())
-                    .map(e -> e.trim().toLowerCase())
-                    .collect(Collectors.toSet());
-            boolean hasNetNew = incomingNorm.stream().anyMatch(e -> !oldNorm.contains(e));
-            if (hasNetNew && incomingNorm.size() > bandCap) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "This plan's population band is full (" + bandCap + "). "
-                        + "Remove members or add capacity in billing before inviting more.");
-            }
+        // A household stays a household, and nothing becomes one here: the type
+        // decides location defaults and phone exposure (AD-06).
+        String incomingType = groupDetails.getGroupType();
+        boolean becomingHousehold =
+                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(incomingType);
+        if (!isHousehold && !becomingHousehold && incomingType != null && !incomingType.isBlank()) {
+            group.setGroupType(incomingType);
         }
-        group.setMemberEmails(safeList(groupDetails.getMemberEmails()));
-        group.setPendingMemberEmails(safeList(groupDetails.getPendingMemberEmails()));
         // A household is never eligible for the public community map, and the
         // privacy flag was the only thing that ever put one there. `GroupRepo`
         // now excludes households from that query outright; this closes the
         // write side so the flag cannot be flipped from the general group
-        // settings screen (ManageGroup.js:311), which is how the two known rows
-        // got there — both household create paths set "Private" correctly.
+        // settings screen.
         //
         // GUARDS THE TRANSITION, DOES NOT COERCE THE VALUE. Forcing a household
-        // to "Private" here would be the smaller diff and would flip the two
-        // existing public rows lazily, on whatever unrelated save touched them
-        // next. That is a change to records and the owner's call, explicitly
-        // withheld. So an already-public household still saves — adding a member
-        // must not 409 — and only a NEW private→public move is refused.
-        //
-        // Reads BOTH types on purpose: setGroupType() ran above, so by this line
-        // group.getGroupType() is already the INCOMING value. Guarding on that
-        // alone would let one request retype a household and publish it in the
-        // same breath; guarding on the stored type alone would miss a group
-        // being turned into a household as it is published.
-        final boolean becomingHousehold =
-                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
+        // to "Private" here would flip existing public rows lazily, on whatever
+        // unrelated save touched them next. That is a change to records and the
+        // owner's call (B2 / D4 back-fills it). So an already-public household
+        // still saves, and only a NEW private→public move is refused.
         final boolean wasPublic = "public".equalsIgnoreCase(group.getPrivacy());
         final boolean wantsPublic = "public".equalsIgnoreCase(groupDetails.getPrivacy());
-        if ((isHousehold || becomingHousehold) && wantsPublic && !wasPublic) {
+        if (isHousehold && wantsPublic && !wasPublic) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "A household cannot be made public. Households are never listed "
                     + "on the community map.");
         }
         group.setPrivacy(groupDetails.getPrivacy());
-        group.setSubGroupIDs(safeList(groupDetails.getSubGroupIDs()));
-        group.setParentGroupIDs(safeList(groupDetails.getParentGroupIDs()));
         group.setUpdatedAt(Instant.now());
         group.setZipCode(groupDetails.getZipCode());
-        group.setOwnerName(groupDetails.getOwnerName());
-        group.setOwnerEmail(groupDetails.getOwnerEmail());
         group.setGroupCode(groupDetails.getGroupCode());
         group.setAddress(groupDetails.getAddress());
         group.setLongitude(groupDetails.getLongitude());
         group.setLatitude(groupDetails.getLatitude());
-
-        // Track when the alert most recently went Active so the decay
-        // sweep can find stale ones. Cleared on flip-back so a future
-        // re-activation gets a fresh timestamp instead of inheriting the
-        // prior session's clock. Reminder counter resets on both
-        // transitions so a re-activation gets the full 5-reminder
-        // cadence again, and a manual end stops any pending tick from
-        // sending a stale reminder.
-        applyAlertTransition(group, previousAlert, newAlert, groupDetails.getLastUpdatedBy());
-
-        notifyNewMembers(group, oldMemberEmails);
-        notifyAdminsOfNewMembers(group, oldMemberEmails);
-        notifyAdminsOfPendingMembers(group, oldPendingMemberEmails);
     }
 
     private static <T> List<T> safeList(List<T> list) {
@@ -1329,7 +1379,6 @@ public class GroupService {
     @Transactional
     public GroupMembershipActionResultDto approveMemberAction(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g); // now a no-op; frontend enforces
         String normalizedEmail = normalizeActionEmail(email);
 
         List<String> members = safeList(g.getMemberEmails());
@@ -1388,7 +1437,6 @@ public class GroupService {
     @Transactional
     public GroupMembershipActionResultDto rejectPendingMemberAction(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g); // no-op
         String normalizedEmail = normalizeActionEmail(email);
 
         List<String> pending = safeList(g.getPendingMemberEmails());
@@ -1495,11 +1543,42 @@ public class GroupService {
      * owns). Left pointing at the old id, {@code /api/me} would keep anchoring
      * them to a household they are no longer in.</p>
      */
+    /**
+     * {@code POST /members/remove}: an admin removes someone (BE-08).
+     *
+     * <p>The owner can't be removed (409: transfer first). Removing another
+     * admin takes the owner; an admin may still remove themselves. Without
+     * that, any admin could strip the others and hold the group alone, and the
+     * owner could be taken off the roster while {@code ownerEmail} kept them
+     * OWNER.</p>
+     */
+    @Transactional
+    public Group removeMember(String groupId, String email, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        String target = normalizeActionEmail(email);
+        if (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(target)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The owner can't be removed. Transfer ownership first.");
+        }
+        requireOwnerToTouchAnotherAdmin(g, target, caller);
+        return removeMember(groupId, target);
+    }
+
+    /**
+     * Remove an account from the roster. No caller check: the callers are
+     * {@link #removeMember(String, String, String)} and the self-leave path,
+     * which gate first. Refuses the owner whatever the path (409).
+     */
     @Transactional
     public Group removeMember(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g); // no-op
         final String normalized = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+        if (normalized != null && g.getOwnerEmail() != null
+                && g.getOwnerEmail().trim().equalsIgnoreCase(normalized)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The owner can't be removed. Transfer ownership first.");
+        }
 
         List<String> members = safeList(g.getMemberEmails());
         List<String> admins = safeList(g.getAdminEmails());
@@ -1548,25 +1627,47 @@ public class GroupService {
         return saved;
     }
 
+    /**
+     * {@code POST /admins/add}: promote someone who is ALREADY a member (BE-02,
+     * D2). Anyone else is a 409: membership is the person's own act, so "add
+     * someone new" is an invite, never a roster write. Idempotent for an
+     * existing admin.
+     */
+    @Transactional
+    public Group promoteMemberToAdmin(String groupId, String email, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        String target = normalizeActionEmail(email);
+        if (!containsCaseInsensitive(g.getMemberEmails(), target)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Only members can be made admins. Invite them to the group first.");
+        }
+        return addAdmin(groupId, target);
+    }
+
+    /**
+     * Grant admin, adding the person as a member if they aren't one.
+     *
+     * <p><b>Platform console only</b> ({@code AdminAgencyRosterResource}), where
+     * a SitPrep admin provisions an agency's staff white-glove. A group admin
+     * goes through {@link #promoteMemberToAdmin}, which refuses non-members.</p>
+     */
     @Transactional
     public Group addAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g); // no-op
+        final String target = normalizeActionEmail(email);
 
         List<String> admins = safeList(g.getAdminEmails());
-        // null-safe admin check
-        boolean alreadyAdmin = admins.stream()
-                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+        boolean alreadyAdmin = containsCaseInsensitive(admins, target);
         if (!alreadyAdmin) {
-            admins.add(email);
+            admins.add(target);
         }
 
         List<String> members = safeList(g.getMemberEmails());
-        // null-safe membership check
-        boolean alreadyMember = members.stream()
-                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(email));
+        boolean alreadyMember = containsCaseInsensitive(members, target);
         if (!alreadyMember) {
-            members.add(email); // admin must be a member too
+            assertSeatAvailable(g, target);
+            members.add(target); // admin must be a member too
         }
 
         g.setAdminEmails(admins);
@@ -1574,7 +1675,7 @@ public class GroupService {
         g.setMemberCount(members.size());
         g.setUpdatedAt(Instant.now());
 
-        userInfoRepo.findByUserEmail(email).ifPresent(u -> {
+        userInfoRepo.findByUserEmailIgnoreCase(target).ifPresent(u -> {
             Set<String> m = addToSet(u.getManagedGroupIDs(), groupId);
             Set<String> j = addToSet(u.getJoinedGroupIDs(), groupId);
             u.setManagedGroupIDs(m);
@@ -1588,28 +1689,11 @@ public class GroupService {
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",
-                    email,
-                    GroupRole.fromGroup(saved, email).wire(),
+                    target,
+                    GroupRole.fromGroup(saved, target).wire(),
                     saved.getUpdatedAt());
         }
         return saved;
-    }
-
-    /**
-     * Set the organization plan tier (Phase 4 of docs/BUSINESS_MODEL.md).
-     * Self-serve and unpaid for now — Stripe billing lands later; this
-     * just records the chosen tier. Caller authorization (admin/owner)
-     * is enforced at the resource layer.
-     *
-     * @param tier a {@link PlanTier} enum name; invalid / null input
-     *             normalizes to {@code FREE} via {@link PlanTier#fromWire}.
-     */
-    @Transactional
-    public Group setPlanTier(String groupId, String tier) {
-        Group g = getGroupByPublicId(groupId);
-        g.setPlanTier(PlanTier.fromWire(tier).name());
-        g.setUpdatedAt(Instant.now());
-        return groupRepo.save(g);
     }
 
     /**
@@ -1831,23 +1915,41 @@ public class GroupService {
         }
     }
 
+    /**
+     * {@code POST /admins/remove}: an admin demotes an admin (BE-08). Demoting
+     * ANOTHER admin takes the owner (403), the same rule as removing one, or an
+     * admin could demote and then remove. Self-demotion is allowed.
+     */
+    @Transactional
+    public Group removeAdmin(String groupId, String email, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        String target = normalizeActionEmail(email);
+        requireOwnerToTouchAnotherAdmin(g, target, caller);
+        return removeAdmin(groupId, target);
+    }
+
+    /**
+     * Drop the admin role. Refuses the owner with a {@link SecurityException},
+     * which {@code GlobalExceptionHandler} answers 403. No caller check: the
+     * group path is {@link #removeAdmin(String, String, String)}; the platform
+     * console gates itself.
+     */
     @Transactional
     public Group removeAdmin(String groupId, String email) {
         Group g = getGroupByPublicId(groupId);
-        requireAdminOrOwner(g); // no-op
+        final String target = normalizeActionEmail(email);
 
-        // owner cannot be demoted here (still kept for safety)
-        if (g.getOwnerEmail() != null && g.getOwnerEmail().equalsIgnoreCase(email)) {
+        if (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(target)) {
             throw new SecurityException("Cannot remove owner admin role. Transfer ownership first.");
         }
 
         List<String> admins = safeList(g.getAdminEmails());
-        // null-safe removal
-        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(email));
+        admins.removeIf(e -> e != null && e.trim().equalsIgnoreCase(target));
         g.setAdminEmails(admins);
         g.setUpdatedAt(Instant.now());
 
-        userInfoRepo.findByUserEmail(email).ifPresent(u -> {
+        userInfoRepo.findByUserEmailIgnoreCase(target).ifPresent(u -> {
             Set<String> m = removeFromSet(u.getManagedGroupIDs(), groupId);
             u.setManagedGroupIDs(m);
             userInfoRepo.save(u);
@@ -1856,35 +1958,65 @@ public class GroupService {
         return groupRepo.save(g);
     }
 
+    /**
+     * {@code POST /owner/transfer}: the owner hands the group to an EXISTING
+     * member (BE-02, D2), who is told. Anyone else is a 409. Transferring to
+     * yourself is a no-op.
+     */
+    @Transactional
+    public Group transferOwnershipToMember(String groupId, String newOwnerEmail, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        if (caller == null || GroupRole.fromGroup(g, caller) != GroupRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Group owner role required");
+        }
+        String target = normalizeActionEmail(newOwnerEmail);
+        if (!containsCaseInsensitive(g.getMemberEmails(), target)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Ownership can only go to a member of the group.");
+        }
+        if (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(target)) {
+            return g;
+        }
+        Group saved = transferOwner(groupId, target);
+        notifyNewOwnerAfterCommit(saved, target, caller);
+        return saved;
+    }
+
+    /**
+     * Set a single owner and make sure they are admin and member.
+     *
+     * <p><b>Platform console only</b> ({@code AdminAgencyRosterResource}), which
+     * may hand an agency to someone not yet on it. A group owner goes through
+     * {@link #transferOwnershipToMember}.</p>
+     */
     @Transactional
     public Group transferOwner(String groupId, String newOwnerEmail) {
         Group g = getGroupByPublicId(groupId);
-        requireOwner(g); // no-op now
+        final String target = normalizeActionEmail(newOwnerEmail);
 
-        g.setOwnerEmail(newOwnerEmail);
+        g.setOwnerEmail(target);
+        userInfoRepo.findByUserEmailIgnoreCase(target).ifPresent(u -> {
+            String full = (nullToEmpty(u.getUserFirstName()) + " " + nullToEmpty(u.getUserLastName())).trim();
+            if (!full.isEmpty()) g.setOwnerName(full);
+        });
 
-        // ensure new owner is admin + member
         List<String> admins = safeList(g.getAdminEmails());
-        boolean alreadyAdmin = admins.stream()
-                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(newOwnerEmail));
-        if (!alreadyAdmin) {
-            admins.add(newOwnerEmail);
+        if (!containsCaseInsensitive(admins, target)) {
+            admins.add(target);
         }
         g.setAdminEmails(admins);
 
         List<String> members = safeList(g.getMemberEmails());
-        boolean alreadyMember = members.stream()
-                .anyMatch(e -> e != null && e.trim().equalsIgnoreCase(newOwnerEmail));
+        boolean alreadyMember = containsCaseInsensitive(members, target);
         if (!alreadyMember) {
-            members.add(newOwnerEmail);
+            members.add(target);
         }
         g.setMemberEmails(members);
         g.setMemberCount(members.size());
 
         g.setUpdatedAt(Instant.now());
 
-        // sync user managed/joined sets
-        userInfoRepo.findByUserEmail(newOwnerEmail).ifPresent(u -> {
+        userInfoRepo.findByUserEmailIgnoreCase(target).ifPresent(u -> {
             Set<String> m = addToSet(u.getManagedGroupIDs(), groupId);
             Set<String> j = addToSet(u.getJoinedGroupIDs(), groupId);
             u.setManagedGroupIDs(m);
@@ -1898,11 +2030,53 @@ public class GroupService {
             broadcastMembershipAfterCommit(
                     saved,
                     "ADD",
-                    newOwnerEmail,
-                    GroupRole.fromGroup(saved, newOwnerEmail).wire(),
+                    target,
+                    GroupRole.fromGroup(saved, target).wire(),
                     saved.getUpdatedAt());
         }
         return saved;
+    }
+
+    /**
+     * Tell the new owner. Rides the existing {@code new_member} type so it
+     * routes to the group with no notification-pipeline change; a dedicated
+     * role-change type would be a {@code NotificationEventType} addition.
+     */
+    private void notifyNewOwnerAfterCommit(Group group, String newOwner, String previousOwner) {
+        if (group == null || newOwner == null || newOwner.isBlank() || notificationService == null) return;
+        final String groupName = group.getGroupName() == null || group.getGroupName().isBlank()
+                ? "your group" : group.getGroupName();
+        final String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
+        afterCommitOrNow(() -> {
+            UserInfo recipient = userInfoRepo.findByUserEmailIgnoreCase(newOwner).orElse(null);
+            UserInfo from = previousOwner == null ? null
+                    : userInfoRepo.findByUserEmailIgnoreCase(previousOwner.trim()).orElse(null);
+            String fromName = from == null ? "" : nullToEmpty(from.getUserFirstName()).trim();
+            String body = (fromName.isEmpty() ? "You're" : fromName + " made you")
+                    + (fromName.isEmpty() ? " now the owner of " : " the owner of ") + groupName + ".";
+            notificationService.deliverPresenceAware(
+                    newOwner,
+                    "You're the owner now",
+                    body,
+                    groupName,
+                    null,
+                    "new_member",
+                    group.getGroupId(),
+                    targetUrl,
+                    null,
+                    recipient == null ? null : recipient.getFcmtoken()
+            );
+        });
+    }
+
+    /** 403 unless the caller owns the group, when the target is another admin. */
+    private static void requireOwnerToTouchAnotherAdmin(Group g, String target, String caller) {
+        boolean targetIsAdmin = GroupRole.fromGroup(g, target).isAtLeastAdmin();
+        boolean self = caller != null && caller.trim().equalsIgnoreCase(target);
+        if (targetIsAdmin && !self && GroupRole.fromGroup(g, caller) != GroupRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the owner can remove another admin.");
+        }
     }
 
     private void broadcastMembershipAfterCommit(Group group, String action, String email,
@@ -1916,28 +2090,12 @@ public class GroupService {
                 role,
                 updatedAt != null ? updatedAt : Instant.now()
         );
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
-                webSocketMessageSender.sendGroupMembership(group.getGroupId(), frame);
-            }
-        });
+        // After the commit when there is one; immediately otherwise
+        // (registerSynchronization throws without one).
+        afterCommitOrNow(() -> webSocketMessageSender.sendGroupMembership(group.getGroupId(), frame));
     }
 
     // ---------------- permissions & set helpers ----------------
-
-    /**
-     * No-op: authorization is handled on the frontend now.
-     */
-    private void requireAdminOrOwner(Group g) {
-        // intentionally empty
-    }
-
-    /**
-     * No-op: authorization is handled on the frontend now.
-     */
-    private void requireOwner(Group g) {
-        // intentionally empty
-    }
 
     /** Return a new/updated set with the value added, never null. */
     private static Set<String> addToSet(Set<String> set, String value) {

@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.constant.GroupPermission;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.CheckInRollupDto;
@@ -71,26 +70,17 @@ public class GroupResource {
         return groupService.getGroupsForCurrentAdmin();
     }
 
+    /**
+     * Create a group. The body is a {@link io.sitprep.sitprepapi.dto.CreateGroupRequest}:
+     * the server mints the id and code, the caller is the whole roster, the
+     * tier is FREE and no check-in runs. Extra keys (the frontend still sends
+     * a whole group) are ignored. 409 when the body names an existing id.
+     * See {@code GroupService#createGroup(CreateGroupRequest, String)}.
+     */
     @PostMapping
-    public Group createGroup(@RequestBody Group group) {
+    public Group createGroup(@RequestBody io.sitprep.sitprepapi.dto.CreateGroupRequest body) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        // Agency status and capabilities are platform-provisioned. Group is a
-        // legacy entity-bound request, so clear these server-owned fields even
-        // if a permissive/older JSON mapper populated them.
-        group.setAgencyAuthorized(false);
-        group.setAgencyCapabilities(new java.util.LinkedHashSet<>());
-        // Force the creator into the owner / admin / member slots so they
-        // can never create a group they aren't part of.
-        group.setOwnerEmail(caller);
-        if (group.getAdminEmails() == null) group.setAdminEmails(List.of());
-        if (!containsCaseInsensitive(group.getAdminEmails(), caller)) {
-            group.setAdminEmails(append(group.getAdminEmails(), caller));
-        }
-        if (group.getMemberEmails() == null) group.setMemberEmails(List.of());
-        if (!containsCaseInsensitive(group.getMemberEmails(), caller)) {
-            group.setMemberEmails(append(group.getMemberEmails(), caller));
-        }
-        return groupService.createGroup(group);
+        return groupService.createGroup(body, caller);
     }
 
     @PutMapping("/{groupId}")
@@ -214,6 +204,12 @@ public class GroupResource {
                 io.sitprep.sitprepapi.service.AgencyAuthorizationService.isJurisdictionReady(group));
         node.set("viewerAgencyPermissions", objectMapper.valueToTree(
                 io.sitprep.sitprepapi.service.AgencyAuthorizationService.viewerPermissions(group, caller)));
+        // `planTier` is the Stripe-synced base; this is what the group really
+        // has (an unexpired platform override wins). PR-01.
+        io.sitprep.sitprepapi.constant.PlanTier effective =
+                io.sitprep.sitprepapi.service.BillingService.effectivePlanTier(group);
+        node.put("effectivePlanTier", effective.name());
+        node.set("planUnlocks", objectMapper.valueToTree(effective.unlocks()));
         if (!hasRelationshipTo(group, caller)) {
             RELATIONSHIP_ONLY_FIELDS.forEach(node::remove);
         }
@@ -445,44 +441,36 @@ public class GroupResource {
         return ResponseEntity.ok(groupService.rejectPendingMemberAction(groupId, req.email()));
     }
 
+    /** 409 for the owner; another admin takes the owner (403). See GroupService. */
     @PostMapping("/{groupId}/members/remove")
     public ResponseEntity<Group> removeMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.removeMember(groupId, req.email()));
+        return ResponseEntity.ok(groupService.removeMember(groupId, req.email(), caller));
     }
 
+    /** Promotes an existing member only; anyone else is a 409 (D2). */
     @PostMapping("/{groupId}/admins/add")
     public ResponseEntity<Group> addAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.addAdmin(groupId, req.email()));
+        return ResponseEntity.ok(groupService.promoteMemberToAdmin(groupId, req.email(), caller));
     }
 
+    /** Demoting another admin takes the owner (403); the owner can't be demoted (403). */
     @PostMapping("/{groupId}/admins/remove")
     public ResponseEntity<Group> removeAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.removeAdmin(groupId, req.email()));
+        return ResponseEntity.ok(groupService.removeAdmin(groupId, req.email(), caller));
     }
 
+    /** To an existing member only (409 otherwise), who is notified. Owner only. */
     @PostMapping("/{groupId}/owner/transfer")
     public ResponseEntity<Group> transferOwner(@PathVariable String groupId, @RequestBody EmailRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireOwnerOf(groupId);
-        return ResponseEntity.ok(groupService.transferOwner(groupId, req.email()));
-    }
-
-    /**
-     * Set the group's organization plan tier — Phase 4 of
-     * docs/BUSINESS_MODEL.md. Self-serve and unpaid for now (Stripe
-     * billing lands later). <b>Owner only</b> ({@code MANAGE_PLAN}) —
-     * the plan is a billing commitment, so it sits above the admin
-     * role. Body: {@code {"planTier": "GROUP"}}. An unknown / missing
-     * value normalizes to {@code FREE} in {@code GroupService.setPlanTier}.
-     */
-    @PatchMapping("/{groupId}/plan")
-    public ResponseEntity<Group> setPlan(@PathVariable String groupId,
-                                         @RequestBody Map<String, String> body) {
-        requirePermission(groupId, GroupPermission.MANAGE_PLAN);
-        String tier = body == null ? null : body.get("planTier");
-        return ResponseEntity.ok(groupService.setPlanTier(groupId, tier));
+        return ResponseEntity.ok(groupService.transferOwnershipToMember(groupId, req.email(), caller));
     }
 
     /**
@@ -667,19 +655,10 @@ public class GroupResource {
 
     // ---------- Authorization helpers ----------
     //
-    // All three resolve the caller's GroupRole once (constant/GroupRole)
+    // Both resolve the caller's GroupRole once (constant/GroupRole)
     // and check against the formalized Owner/Admin/Member permission
     // matrix — the single source of truth shared with the FE mirror in
     // src/groups/shared/groupRoles.js.
-
-    /** Caller must hold {@code permission} in the group. Throws 401/403/404. */
-    private void requirePermission(String groupId, GroupPermission permission) {
-        String caller = AuthUtils.requireAuthenticatedEmail();
-        if (!GroupRole.fromGroup(lookup(groupId), caller).has(permission)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "You don't have permission to do that in this group");
-        }
-    }
 
     /** Caller must be admin or owner of the group. Throws 401/403/404. */
     private void requireAdminOf(String groupId) {
@@ -738,11 +717,5 @@ public class GroupResource {
             if (e != null && e.equalsIgnoreCase(needle)) return true;
         }
         return false;
-    }
-
-    private static List<String> append(List<String> list, String value) {
-        java.util.List<String> out = new java.util.ArrayList<>(list);
-        out.add(value);
-        return out;
     }
 }

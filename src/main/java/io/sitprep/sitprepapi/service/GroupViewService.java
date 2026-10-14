@@ -272,7 +272,8 @@ public class GroupViewService {
                 g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs()),
                 g.getPlanTier(),
                 checkInEndsAt(g),
-                "active".equalsIgnoreCase(g.getAlert()) ? g.getAlertActivatedAt() : null
+                "active".equalsIgnoreCase(g.getAlert()) ? g.getAlertActivatedAt() : null,
+                BillingService.effectivePlanTier(g).name()
         );
     }
 
