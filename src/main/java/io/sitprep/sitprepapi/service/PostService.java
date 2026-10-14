@@ -1215,10 +1215,8 @@ public class PostService {
 
     /** Universal life-safety flags in work_details that force an emergency
      *  escalation regardless of the client-submitted priority. */
-    private static final List<String> LIFE_SAFETY_FLAGS = List.of(
-            "occupantTrapped", "medicalPowerDependence", "gasLeakSuspected",
-            "downedPowerLine", "structurallyUnsafe", "hazmatSpillPresent",
-            "carbonMonoxideRisk");
+    private static final List<String> LIFE_SAFETY_FLAGS =
+            io.sitprep.sitprepapi.constant.WorkOrderLifeSafety.FLAGS;
 
     /**
      * Interrogate the authoritative {@code work_details} bag and:
@@ -2653,9 +2651,7 @@ public class PostService {
      * triage and the old client triage agree row for row.
      */
     static boolean isLifeSafetyForTriage(Post t) {
-        if (hasLifeSafetyFlag(t)) return true;
-        Map<String, Object> wd = t == null ? null : t.getWorkDetails();
-        return wd != null && "unsafeDoNotEnter".equals(str(wd.get("siteSafeToEnter")));
+        return t != null && io.sitprep.sitprepapi.constant.WorkOrderLifeSafety.isLifeSafety(t.getWorkDetails());
     }
 
     /** Triage rank, lower first: 0 life-safety, 1 urgent, 2 the rest (FE {@code triageRank}). */
