@@ -21,6 +21,15 @@ public final class AlertSafetyPolicy {
 
     private AlertSafetyPolicy() {}
 
+    /**
+     * Bumped by hand whenever a rule here changes what {@link #evaluate}
+     * decides (S2 contract §6). It is part of every interpretation snapshot's
+     * fingerprint, so a bump records a fresh snapshot for each live revision
+     * on the next ingest tick; template copy edits do not bump it.
+     * {@code 2026-10-14.1} = the P1 own-VTEC lifecycle block.
+     */
+    public static final String POLICY_VERSION = "policy-2026-10-14.1";
+
     public enum ProtectiveAction {
         EVACUATE, SHELTER, AVOID, PREPARE, MONITOR, EXECUTE, ASSESS, ALL_CLEAR,
         NONE, HAZARD_SPECIFIC, UNKNOWN

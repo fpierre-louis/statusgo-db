@@ -28,17 +28,20 @@ class RetentionSweepServiceTest {
     @Mock NotificationLogRepo notificationLogRepo;
     @Mock HouseholdEventRepo householdEventRepo;
     @Mock AlertHistoryService alertHistoryService;
+    @Mock InterpretationRecorder interpretationRecorder;
 
     RetentionSweepService service;
 
     @BeforeEach
     void setUp() {
-        service = new RetentionSweepService(notificationLogRepo, householdEventRepo, alertHistoryService);
+        service = new RetentionSweepService(notificationLogRepo, householdEventRepo, alertHistoryService,
+                interpretationRecorder);
         ReflectionTestUtils.setField(service, "notificationLogRetentionDays", 30);
         ReflectionTestUtils.setField(service, "notificationLogArchivedRetentionDays", 7);
         ReflectionTestUtils.setField(service, "householdEventRetentionDays", 90);
         ReflectionTestUtils.setField(service, "sweepBatchSize", 1000);
         ReflectionTestUtils.setField(service, "maxBatchesPerTick", 5);
+        ReflectionTestUtils.setField(service, "alertInterpretationRetentionDays", 30);
     }
 
     @Test
@@ -125,6 +128,38 @@ class RetentionSweepServiceTest {
 
         verify(householdEventRepo, times(1)).findIdsOlderThan(any(), any(Pageable.class));
         verify(householdEventRepo, never()).deleteByIdIn(anyCollection());
+    }
+
+    /**
+     * S2 C3 (contract §6): notification rows go first, then the snapshots they
+     * no longer name, then the revisions no snapshot names — each step its own
+     * drain. Reversed, a step would find its rows still referenced and keep
+     * them another day.
+     */
+    @Test
+    void theDailySweepRunsNotificationsThenSnapshotsThenRevisions() {
+        when(notificationLogRepo.findIdsOlderThan(any(), any(Pageable.class))).thenReturn(ids(10));
+        when(notificationLogRepo.deleteByIdIn(anyCollection())).thenReturn(10);
+        when(interpretationRecorder.sweepSnapshotsOnce(30, 1000)).thenReturn(1000, 4);
+        when(interpretationRecorder.sweepRevisionsOnce(30, 1000)).thenReturn(2);
+
+        service.scheduledNotificationLogSweep();
+
+        org.mockito.InOrder order = inOrder(notificationLogRepo, interpretationRecorder);
+        order.verify(notificationLogRepo).deleteByIdIn(anyCollection());
+        order.verify(interpretationRecorder, times(2)).sweepSnapshotsOnce(30, 1000);
+        order.verify(interpretationRecorder, times(1)).sweepRevisionsOnce(30, 1000);
+    }
+
+    @Test
+    void aFailedSnapshotStepStillLetsTheRevisionStepRun_whichOnlyTakesUnreferencedRows() {
+        when(notificationLogRepo.findIdsOlderThan(any(), any(Pageable.class))).thenReturn(List.of());
+        when(interpretationRecorder.sweepSnapshotsOnce(30, 1000)).thenThrow(new IllegalStateException("db away"));
+        when(interpretationRecorder.sweepRevisionsOnce(30, 1000)).thenReturn(0);
+
+        service.scheduledNotificationLogSweep();
+
+        verify(interpretationRecorder, times(1)).sweepRevisionsOnce(30, 1000);
     }
 
     private static List<Long> ids(int n) {

@@ -52,6 +52,7 @@ public class RetentionSweepService {
     private final NotificationLogRepo notificationLogRepo;
     private final HouseholdEventRepo householdEventRepo;
     private final AlertHistoryService alertHistoryService;
+    private final InterpretationRecorder interpretationRecorder;
 
     @Value("${app.retention.notificationLogDays:30}")
     private int notificationLogRetentionDays;
@@ -61,6 +62,10 @@ public class RetentionSweepService {
 
     @Value("${app.retention.householdEventDays:90}")
     private int householdEventRetentionDays;
+
+    /** Alert interpretation snapshots and source revisions (V110, S2 contract §6). */
+    @Value("${app.retention.alertInterpretationDays:30}")
+    private int alertInterpretationRetentionDays;
 
     @Value("${app.retention.sweepBatchSize:1000}")
     private int sweepBatchSize;
@@ -78,11 +83,13 @@ public class RetentionSweepService {
     public RetentionSweepService(
             NotificationLogRepo notificationLogRepo,
             HouseholdEventRepo householdEventRepo,
-            AlertHistoryService alertHistoryService
+            AlertHistoryService alertHistoryService,
+            InterpretationRecorder interpretationRecorder
     ) {
         this.notificationLogRepo = notificationLogRepo;
         this.householdEventRepo = householdEventRepo;
         this.alertHistoryService = alertHistoryService;
+        this.interpretationRecorder = interpretationRecorder;
     }
 
     /**
@@ -98,6 +105,32 @@ public class RetentionSweepService {
                 "NotificationLogRetention",
                 notificationLogRetentionDays,
                 this::sweepNotificationLogOnce
+        );
+        sweepAlertInterpretations();
+    }
+
+    /**
+     * Steps 2 and 3 of the contract's retention order (S2 §6), run straight
+     * after step 1 above so the order holds whatever the scheduler does:
+     * snapshots older than the window that no notification row names (and
+     * whose revision is no longer listed), then revisions last seen before the
+     * window that no snapshot names.
+     *
+     * <p>The order is what lets one tick clear a whole chain — notification
+     * rows free their snapshots, snapshots free their revisions. Each step is
+     * its own drain, so a failure in one is logged and the next still runs;
+     * it can only take rows nothing points at.</p>
+     */
+    void sweepAlertInterpretations() {
+        runSweep(
+                "AlertInterpretationSnapshotRetention",
+                alertInterpretationRetentionDays,
+                () -> interpretationRecorder.sweepSnapshotsOnce(alertInterpretationRetentionDays, sweepBatchSize)
+        );
+        runSweep(
+                "AlertSourceRevisionRetention",
+                alertInterpretationRetentionDays,
+                () -> interpretationRecorder.sweepRevisionsOnce(alertInterpretationRetentionDays, sweepBatchSize)
         );
     }
 

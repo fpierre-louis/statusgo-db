@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Polls public emergency-alert sources on a fixed schedule and exposes a
@@ -170,6 +172,19 @@ public class AlertIngestService {
     }
 
     /**
+     * Called once per tick in which at least one source answered, after the new
+     * snapshot is live (S2 C3: {@code InterpretationRecorder}). A listener that
+     * throws is logged and skipped — recording is never allowed to fail a poll.
+     */
+    private final List<Consumer<Snapshot>> pollListeners =
+            new CopyOnWriteArrayList<>();
+
+    /** Registers {@code listener} for every successful tick; see {@link #pollListeners}. */
+    public void onSuccessfulPoll(Consumer<Snapshot> listener) {
+        if (listener != null) pollListeners.add(listener);
+    }
+
+    /**
      * Latest snapshot. AtomicReference so the scheduled writer and the
      * resource-thread readers don't need a lock — they swap whole
      * snapshot objects.
@@ -289,6 +304,18 @@ public class AlertIngestService {
             }
         }
         zoneService.warmZones(zones);
+
+        // A tick where every upstream failed carries the last snapshot forward
+        // and says nothing new; only a tick that heard from someone is recorded.
+        if (!fresh.isEmpty()) {
+            for (Consumer<Snapshot> listener : pollListeners) {
+                try {
+                    listener.accept(next);
+                } catch (RuntimeException e) {
+                    log.warn("AlertIngest: poll listener failed: {}", e.getMessage(), e);
+                }
+            }
+        }
     }
 
     /** One source's poll: the new alerts on success, its previous alerts on any failure. */

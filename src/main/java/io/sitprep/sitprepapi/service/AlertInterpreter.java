@@ -276,7 +276,8 @@ public final class AlertInterpreter {
         return "FEMA".equals(reg.key()) ? "From " + name : "From the " + name;
     }
 
-    private static String templateKeyOf(NormalizedAlert a, DispatchTemplate tpl) {
+    /** Also the template part of the interpretation snapshot's fingerprint ({@code InterpretationRecorder}). */
+    static String templateKeyOf(NormalizedAlert a, DispatchTemplate tpl) {
         if (tpl == null) return null;
         String subject = !isBlank(a.event()) ? a.event() : tpl.hazardType;
         return tpl.source + ":" + subject + ":" + tpl.tier;

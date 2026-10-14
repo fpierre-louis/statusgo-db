@@ -89,16 +89,29 @@ public class AlertFeedService {
     private final AlertDispatchService dispatch;
     /** Null in unit tests that build the service by hand: no community threads then. */
     private final AlertPostRepo alertPostRepo;
+    /**
+     * Source of each person-facing card's {@code interpretationRef} — a cache
+     * read, never a query (S2 C3). Null in unit tests that build the service by
+     * hand: no {@code interpretationRef} then.
+     */
+    private final InterpretationRecorder recorder;
 
     /** Serve-time clock. A field so a test can pin it. */
     Clock clock = Clock.systemUTC();
 
     @Autowired
     public AlertFeedService(AlertIngestService ingest, AlertDispatchService dispatch,
-                            AlertPostRepo alertPostRepo) {
+                            AlertPostRepo alertPostRepo, InterpretationRecorder recorder) {
         this.ingest = ingest;
         this.dispatch = dispatch;
         this.alertPostRepo = alertPostRepo;
+        this.recorder = recorder;
+    }
+
+    /** Without the interpretation snapshots — for tests with no recorder. */
+    public AlertFeedService(AlertIngestService ingest, AlertDispatchService dispatch,
+                            AlertPostRepo alertPostRepo) {
+        this(ingest, dispatch, alertPostRepo, null);
     }
 
     /** Without the community-thread lookup — for callers and tests with no repository. */
@@ -323,6 +336,19 @@ public class AlertFeedService {
     }
 
     /**
+     * The viewer-free card {@code InterpretationRecorder} snapshots: the same
+     * live-card path a person's feed takes, with no viewer point and no
+     * community threads, so the recorded interpreter, presentation, source
+     * identity and lifecycle are exactly what a reader is shown — minus
+     * everything that depends on who is reading.
+     */
+    AlertCardDto interpretationCard(NormalizedAlert a, NormalizedAlert replacedBy,
+                                    Assessment assessed, Set<String> knownIds) {
+        return liveCard(a, MatchType.BROADCAST, AppConfigResource.alertsRadiusMi(), replacedBy, assessed,
+                new Reader(null, knownIds == null ? Set.of() : knownIds, List.of()));
+    }
+
+    /**
      * What a person's feed adds to a card: whose point it is, which messages
      * are in hand (for {@code references[].resolved}) and the thread posts.
      * Null for the internal decision feed, which gets no interpretation.
@@ -466,7 +492,7 @@ public class AlertFeedService {
                 safety,
                 interp.dedupeKey(),
                 interp.sourceRevisionRef(),
-                null,                             // interpretationRef: C3's snapshot id
+                interpretationRefOf(interpretation, interp, assessed, a),
                 interpretation == null ? null : AlertInterpreter.VERSION,
                 interp.sourceIdentity(),
                 interpretation == null ? null : interpretation.lifecycle(),
@@ -477,6 +503,21 @@ public class AlertFeedService {
                 interp.officialArea(),
                 interp.viewerContext(),
                 interp.communityThreads());
+    }
+
+    /**
+     * The recorded snapshot of exactly this interpretation, from the
+     * recorder's cache (S2 C3). Never a query: a feed of N cards costs N hash
+     * computations and N map reads. Null on the decision feed, without a
+     * recorder, and when the decision has moved since the last ingest tick
+     * recorded it — a card never points at a snapshot that says something
+     * else.
+     */
+    private String interpretationRefOf(Interpretation interpretation, AlertInterpreter.Output interp,
+                                       Assessment assessed, NormalizedAlert a) {
+        if (interpretation == null || recorder == null || interp.sourceRevisionRef() == null) return null;
+        return recorder.cachedSnapshotId(
+                InterpretationRecorder.snapshotFingerprint(interp.sourceRevisionRef(), assessed, a));
     }
 
     private static AlertCardDto.Safety safetyOf(AlertSafetyPolicy.Decision decision) {

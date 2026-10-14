@@ -8,6 +8,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * One row per notifiable event for a user — push fan-outs, silent
@@ -31,7 +32,9 @@ import java.util.Map;
 @Table(indexes = {
         @Index(name = "idx_notif_recipient_ts", columnList = "recipientEmail,timestamp"),
         @Index(name = "idx_notif_type_ts", columnList = "type,timestamp"),
-        @Index(name = "idx_notif_recipient_unread", columnList = "recipientEmail,read_at")
+        @Index(name = "idx_notif_recipient_unread", columnList = "recipientEmail,read_at"),
+        @Index(name = "idx_nl_recipient_thread", columnList = "recipientEmail,alert_thread_key"),
+        @Index(name = "idx_nl_recipient_alert", columnList = "recipientEmail,alert_key")
 })
 public class NotificationLog {
 
@@ -146,6 +149,29 @@ public class NotificationLog {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "presentation_json", columnDefinition = "jsonb")
     private Map<String, Object> presentationJson;
+
+    // ── Alert references (V110, S2 contract §5–6). Null on every non-alert row
+    //    and on alert rows written before V110; written by dispatch (C5). ──
+
+    /** The alert's {@code dedupeKey} ({@code SOURCE:upstreamId}, {@code AlertIdentity}). */
+    @Column(name = "alert_key", length = 300)
+    private String alertKey;
+
+    /** The source revision this row was about ({@code dedupeKey@fp12}, {@code alert_source_revision}). */
+    @Column(name = "alert_revision_ref", length = 320)
+    private String alertRevisionRef;
+
+    /** The lifecycle thread the row groups under, across page boundaries. */
+    @Column(name = "alert_thread_key", length = 200)
+    private String alertThreadKey;
+
+    /**
+     * The {@code alert_interpretation_snapshot} delivered with this row — what
+     * SitPrep said at the time. No FK, on purpose: a notification write must
+     * never fail on it. The retention sweep keeps any snapshot a row names.
+     */
+    @Column(name = "interpretation_snapshot_id")
+    private UUID interpretationSnapshotId;
 
     public NotificationLog() {}
 
