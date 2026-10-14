@@ -89,7 +89,7 @@ public class GroupPostService {
         if (!actorEmail.equalsIgnoreCase(postDto.getAuthor())) {
             throw new SecurityException("User not authorized to create a post for another user.");
         }
-        requireGroupMembership(postDto.getGroupId(), actorEmail);
+        Group group = requireGroupMembership(postDto.getGroupId(), actorEmail);
         GeoUtil.requireValidLatLng(postDto.getLatitude(), postDto.getLongitude());
         UserGeneratedContentFilter.requireAcceptable("group post", postDto.getContent());
 
@@ -97,7 +97,10 @@ public class GroupPostService {
         post.setAuthor(postDto.getAuthor());
         post.setContent(postDto.getContent());
         post.setGroupId(postDto.getGroupId());
-        post.setGroupName(postDto.getGroupName());
+        // The server names the group (FD-11, create half; editPost already
+        // does): a client that hasn't learned the name yet sent "" and the
+        // row stored an empty group_name that GroupPostSummaryDto surfaced.
+        post.setGroupName(group.getGroupName());
         post.setTimestamp(Instant.now());
         post.setTags(postDto.getTags());
         post.setMentionedUserIds(MentionToken.extractIds(postDto.getContent()));
@@ -148,7 +151,7 @@ public class GroupPostService {
      * coordinates) into an arbitrary {@code groupId}. 400 on unknown group,
      * 403 on non-membership; covers both the REST and WS create paths.
      */
-    private void requireGroupMembership(String groupId, String actorEmail) {
+    private Group requireGroupMembership(String groupId, String actorEmail) {
         if (groupId == null || groupId.isBlank()) {
             throw new IllegalArgumentException("groupId is required");
         }
@@ -159,6 +162,7 @@ public class GroupPostService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You are not a member of this group");
         }
+        return group;
     }
 
     /**

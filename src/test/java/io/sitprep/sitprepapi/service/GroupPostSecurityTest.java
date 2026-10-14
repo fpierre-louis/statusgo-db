@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
@@ -141,6 +142,28 @@ class GroupPostSecurityTest {
         assertNotNull(saved);
         assertEquals(MEMBER, saved.getAuthor());
         verify(postRepo).save(any(GroupPost.class));
+    }
+
+    @Test
+    void createStoresTheServersGroupNameNotTheClients() {
+        Group g = groupWithMember(MEMBER);
+        g.setGroupName("Maple Street");
+        when(groupRepo.findByGroupId(GROUP_ID)).thenReturn(Optional.of(g));
+        when(userInfoRepo.findByUserEmail(anyString())).thenReturn(Optional.empty());
+        when(postRepo.save(any(GroupPost.class))).thenAnswer(inv -> {
+            GroupPost p = inv.getArgument(0);
+            p.setId(44L);
+            return p;
+        });
+
+        GroupPostDto in = dto(MEMBER);
+        in.setGroupName("");
+        GroupPostDto out = service.createPost(in, MEMBER);
+
+        ArgumentCaptor<GroupPost> saved = ArgumentCaptor.forClass(GroupPost.class);
+        verify(postRepo).save(saved.capture());
+        assertEquals("Maple Street", saved.getValue().getGroupName());
+        assertEquals("Maple Street", out.getGroupName());
     }
 
     @Test
