@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.constant.LocationSharing;
+import io.sitprep.sitprepapi.constant.GroupPermission;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.PlatformRole;
 import io.sitprep.sitprepapi.domain.Group;
@@ -134,10 +135,14 @@ public class GroupViewService {
 
     private GroupMemberViewDto assemble(Group g, String viewerEmail) {
         List<String> memberEmails = g.getMemberEmails() == null ? List.of() : g.getMemberEmails();
-        Map<String, UserInfo> byEmail = memberEmails.isEmpty()
-                ? Map.of()
-                : userInfoRepo.findByUserEmailIn(memberEmails).stream()
-                        .collect(Collectors.toMap(u -> normalize(u.getUserEmail()), u -> u, (a, b) -> a));
+        GroupRole viewerRole = GroupRole.fromGroup(g, viewerEmail);
+        boolean viewerIsAdmin = viewerRole.isAtLeastAdmin();
+        List<String> pendingEmails = viewerIsAdmin && g.getPendingMemberEmails() != null
+                ? g.getPendingMemberEmails() : List.of();
+
+        // BE-10 (B4): every UserInfo this view needs — members, and for an
+        // admin the people asking to join — in ONE query.
+        Map<String, UserInfo> byEmail = usersByEmail(memberEmails, pendingEmails);
 
         boolean alertActive = "Active".equalsIgnoreCase(g.getAlert());
         // RC-2 · the two facts the roster needs beside a status: was this
@@ -148,7 +153,10 @@ public class GroupViewService {
         // write-side window is "now" outside a check-in, which matched nothing.
         Instant windowStart = CheckInRequestService.readWindowStartFor(g, Instant.now());
         Map<String, GroupMemberViewDto.DispatchOutcome> dispatch =
-                dispatchByEmail(memberEmails, windowStart);
+                dispatchByEmail(g.getGroupId(), windowStart);
+        // Who answered for whom — one query for every proxy-set status
+        // (BE-10; it was one lookup per proxy-set member).
+        Map<String, String> setByNames = setByFirstNames(byEmail);
         // One query for every "At <place>" on the roster — only for members
         // whose location this group may see at all.
         Map<Long, UserSavedLocation> currentPlaces = currentPlacesFor(
@@ -157,7 +165,7 @@ public class GroupViewService {
         // Phones travel only between members of the same household. The read
         // gate above also admits platform admins and agency staff; neither is a
         // member, so neither gets a phone number from this payload.
-        boolean includePhones = isHousehold && GroupRole.fromGroup(g, viewerEmail) != GroupRole.NONE;
+        boolean includePhones = isHousehold && viewerRole != GroupRole.NONE;
         // Built once per ingest snapshot (not per member, not per read), and
         // only when at least one member's location is visible here at all.
         List<MemberAlertAreaService.AreaAlert> activeAreas =
@@ -177,7 +185,8 @@ public class GroupViewService {
                         checkInStartedAt, checkInEndsAt, now,
                         askedAt.get(normalize(email)),
                         dispatch.get(normalize(email)),
-                        currentPlaces, includePhones, activeAreas))
+                        currentPlaces, includePhones, activeAreas,
+                        setByNames, GroupRole.fromGroup(g, email).wire()))
                 .toList();
 
         List<HouseholdManualMemberDto> manualMembers = isHousehold
@@ -187,7 +196,9 @@ public class GroupViewService {
                 ? accompanimentService.list(g.getGroupId())
                 : List.of();
 
-        List<GroupPostSummaryDto> recentPosts = postRepo.findPostsByGroupId(g.getGroupId()).stream()
+        // The newest five in SQL (BE-10): this read every post the group had
+        // ever made, then kept five in memory.
+        List<GroupPostSummaryDto> recentPosts = postRepo.findTop5ByGroupIdOrderByTimestampDesc(g.getGroupId()).stream()
                 .limit(RECENT_POST_LIMIT)
                 .map(p -> toPostSummary(p, byEmail))
                 .toList();
@@ -210,8 +221,8 @@ public class GroupViewService {
                 alertActive, StatusRollups.anchorFor(g));
 
         return new GroupMemberViewDto(
-                toGroupInfo(g),
-                resolveViewerRole(g, viewerEmail),
+                toGroupInfo(g, viewerIsAdmin || (isHousehold && viewerRole != GroupRole.NONE)),
+                viewerRole.wire(),
                 resolveViewerPlatformRole(viewerEmail),
                 members,
                 manualMembers,
@@ -220,8 +231,89 @@ public class GroupViewService {
                 pinnedPosts,
                 rollup,
                 new MetaDto(Instant.now(), DTO_VERSION),
-                viewerCapabilities(g, viewerEmail)
+                viewerCapabilities(g, viewerEmail),
+                viewerIsAdmin ? pendingMembers(pendingEmails, byEmail) : null,
+                viewerIsAdmin ? subGroupRollups(g) : null
         );
+    }
+
+    /** Members and pending requesters, one query, keyed by normalized email. */
+    private Map<String, UserInfo> usersByEmail(List<String> memberEmails, List<String> pendingEmails) {
+        LinkedHashSet<String> wanted = new LinkedHashSet<>();
+        for (String e : memberEmails) if (e != null && !e.isBlank()) wanted.add(e);
+        for (String e : pendingEmails) if (e != null && !e.isBlank()) wanted.add(e);
+        if (wanted.isEmpty()) return Map.of();
+        Map<String, UserInfo> out = new HashMap<>();
+        for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(wanted))) {
+            if (u == null || u.getUserEmail() == null) continue;
+            out.putIfAbsent(normalize(u.getUserEmail()), u);
+        }
+        return out;
+    }
+
+    /**
+     * MB-06: the people asking to join, for the owner and admins. A requester
+     * without an account still gets a row (email only), so it can be declined.
+     */
+    private static List<PendingMember> pendingMembers(List<String> pendingEmails, Map<String, UserInfo> byEmail) {
+        List<PendingMember> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String raw : pendingEmails) {
+            String email = normalize(raw);
+            if (email == null || email.isBlank() || !seen.add(email)) continue;
+            UserInfo u = byEmail.get(email);
+            out.add(u == null
+                    ? new PendingMember(email, null, null, null, null)
+                    : new PendingMember(email, u.getId(), u.getUserFirstName(), u.getUserLastName(),
+                            DtoImages.avatar(u.getProfileImageUrl())));
+        }
+        return out;
+    }
+
+    /**
+     * ST-02 (D14): each linked sub group's counts and worst status, for the
+     * parent's owner and admins — never its members. One query for the sub
+     * groups and one for every account across them, whatever their size.
+     *
+     * <p>The count is the one rule ({@link StatusRollups#compute} anchored on
+     * {@link StatusRollups#anchorFor} of the SUB group): a SAFE from before the
+     * sub group's check-in is noResponse there. Manual members are left out —
+     * they belong to households, and a household can't be linked under an
+     * organization (D14); a legacy household link counts its accounts only.</p>
+     */
+    private List<SubGroupRollup> subGroupRollups(Group parent) {
+        List<String> ids = parent.getSubGroupIDs() == null ? List.of()
+                : parent.getSubGroupIDs().stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        if (ids.isEmpty()) return null;
+        List<Group> children = new ArrayList<>();
+        for (Group c : groupRepo.findAllById(ids)) if (c != null) children.add(c);
+        if (children.isEmpty()) return List.of();
+        LinkedHashSet<String> emails = new LinkedHashSet<>();
+        for (Group c : children) {
+            if (c.getMemberEmails() == null) continue;
+            for (String e : c.getMemberEmails()) if (e != null && !e.isBlank()) emails.add(e);
+        }
+        Map<String, UserInfo> byEmail = new HashMap<>();
+        if (!emails.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))) {
+                if (u != null && u.getUserEmail() != null) byEmail.putIfAbsent(normalize(u.getUserEmail()), u);
+            }
+        }
+        // The parent's own order of links, not the repo's.
+        Map<String, Group> byId = new HashMap<>();
+        for (Group c : children) byId.put(c.getGroupId(), c);
+        List<SubGroupRollup> out = new ArrayList<>();
+        for (String id : ids) {
+            Group c = byId.get(id);
+            if (c == null) continue; // a dangling link: nothing to count
+            boolean active = "Active".equalsIgnoreCase(c.getAlert());
+            List<String> childEmails = c.getMemberEmails() == null ? List.of() : c.getMemberEmails();
+            StatusRollup r = StatusRollups.compute(childEmails, byEmail, List.of(), List.of(),
+                    active, StatusRollups.anchorFor(c));
+            out.add(new SubGroupRollup(c.getGroupId(), c.getGroupName(), r,
+                    StatusRollups.dominantStatus(r), active));
+        }
+        return out;
     }
 
     /**
@@ -247,7 +339,12 @@ public class GroupViewService {
                 accompaniments, alertActive, updatedAt);
     }
 
-    private GroupInfo toGroupInfo(Group g) {
+    /**
+     * @param includeCode whether the join code ships: owner and admins, and
+     *                    any member of a household (BE-06 / D6 — a plain
+     *                    member of an organization gets none).
+     */
+    private GroupInfo toGroupInfo(Group g, boolean includeCode) {
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
@@ -265,7 +362,7 @@ public class GroupViewService {
                 g.getCreatedAt(),
                 g.getUpdatedAt(),
                 g.getPrivacy(),
-                g.getGroupCode(),
+                includeCode ? g.getGroupCode() : null,
                 g.getOwnerName(),
                 g.getOwnerEmail(),
                 g.getAdminEmails() == null ? List.of() : List.copyOf(g.getAdminEmails()),
@@ -273,35 +370,47 @@ public class GroupViewService {
                 g.getPlanTier(),
                 checkInEndsAt(g),
                 "active".equalsIgnoreCase(g.getAlert()) ? g.getAlertActivatedAt() : null,
-                BillingService.effectivePlanTier(g).name()
+                BillingService.effectivePlanTier(g).name(),
+                checkInHours,
+                CheckInWindow.continueAvailableFrom(checkInEndsAt(g))
         );
     }
 
     /** The running check-in's automatic end: V90's column, else start + window. */
     private Instant checkInEndsAt(Group g) {
-        if (!"active".equalsIgnoreCase(g.getAlert()) || g.getAlertActivatedAt() == null) return null;
-        return g.getAlertExpiresAt() != null
-                ? g.getAlertExpiresAt()
-                : g.getAlertActivatedAt().plus(java.time.Duration.ofHours(checkInHours));
+        return CheckInWindow.endsAt(g, checkInHours);
     }
 
     /**
-     * The first name of whoever set this person's status, or null when they
-     * set it themselves.
-     *
-     * <p>One lookup per member with a proxy-set status, which in practice is a
-     * handful during a check-in and none the rest of the time — the column is
-     * null on every self-report, so the branch below skips the query entirely
-     * for the common case.</p>
+     * The first name of whoever set each proxy-set status, keyed by the
+     * setter's normalized email — ONE query for the whole roster (BE-10; it
+     * was one lookup per proxy-set member). A setter already on the roster
+     * costs nothing. Self-reports have no setter and are skipped.
      */
-    private String statusSetByName(UserInfo u) {
-        String setBy = u == null ? null : u.getStatusSetByEmail();
-        if (setBy == null || setBy.isBlank()) return null;
-        return userInfoRepo.findByUserEmailIgnoreCase(setBy)
-                .map(UserInfo::getUserFirstName)
-                .filter(n -> n != null && !n.isBlank())
-                .map(String::trim)
-                .orElse(null);
+    private Map<String, String> setByFirstNames(Map<String, UserInfo> byEmail) {
+        Set<String> setters = new HashSet<>();
+        for (UserInfo u : byEmail.values()) {
+            String setBy = u == null ? null : normalize(u.getStatusSetByEmail());
+            if (setBy != null && !setBy.isBlank()) setters.add(setBy);
+        }
+        if (setters.isEmpty()) return Map.of();
+        Map<String, UserInfo> known = new HashMap<>();
+        List<String> missing = new ArrayList<>();
+        for (String e : setters) {
+            UserInfo u = byEmail.get(e);
+            if (u != null) known.put(e, u); else missing.add(e);
+        }
+        if (!missing.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(missing)) {
+                if (u != null && u.getUserEmail() != null) known.putIfAbsent(normalize(u.getUserEmail()), u);
+            }
+        }
+        Map<String, String> out = new HashMap<>();
+        known.forEach((email, u) -> {
+            String n = u.getUserFirstName();
+            if (n != null && !n.isBlank()) out.put(email, n.trim());
+        });
+        return out;
     }
 
     /**
@@ -312,30 +421,42 @@ public class GroupViewService {
      * — no record, which is NOT the same as a failure. A muted category is
      * dropped by {@code PushPolicyService} before any row is written, so the
      * honest answer there is "we cannot confirm a message went out".</p>
+     *
+     * <p>BE-10 (B4): ONE query for the group — the {@code check_in_request}
+     * rows whose {@code referenceId} is this group (both writers set it to the
+     * group id) since the window opened. It was one query per member, and it
+     * also counted a check-in request from ANOTHER group as "sent" here.</p>
      */
     private Map<String, GroupMemberViewDto.DispatchOutcome> dispatchByEmail(
-            List<String> memberEmails, Instant windowStart) {
-        Map<String, GroupMemberViewDto.DispatchOutcome> out = new java.util.HashMap<>();
-        if (memberEmails == null || memberEmails.isEmpty() || windowStart == null) return out;
-        for (String raw : memberEmails) {
-            String email = normalize(raw);
-            if (email == null) continue;
-            try {
-                List<NotificationLog> rows = notificationLogRepo
-                        .findByRecipientEmailAndTypeAndTimestampAfterOrderByTimestampAsc(
-                                email, "check_in_request", windowStart);
-                if (rows == null || rows.isEmpty()) continue; // stays UNKNOWN
-                // The LAST attempt is the one that describes the current state:
-                // a retry that succeeded after a failure is a send, not a failure.
-                NotificationLog latest = rows.get(rows.size() - 1);
-                out.put(email, latest.isSuccess()
-                        ? GroupMemberViewDto.DispatchOutcome.SENT
-                        : GroupMemberViewDto.DispatchOutcome.FAILED);
-            } catch (Exception e) {
-                // Unknown is the truthful fallback; never invent a negative.
+            String groupId, Instant windowStart) {
+        Map<String, GroupMemberViewDto.DispatchOutcome> out = new HashMap<>();
+        if (groupId == null || windowStart == null || notificationLogRepo == null) return out;
+        try {
+            List<NotificationLog> rows = notificationLogRepo
+                    .findByTypeAndReferenceIdAndTimestampGreaterThanEqual(
+                            "check_in_request", groupId, windowStart);
+            if (rows == null || rows.isEmpty()) return out;
+            // The LAST attempt per person describes the current state: a
+            // retry that succeeded after a failure is a send, not a failure.
+            Map<String, NotificationLog> latest = new HashMap<>();
+            for (NotificationLog r : rows) {
+                String email = normalize(r.getRecipientEmail());
+                if (email == null || email.isBlank()) continue;
+                NotificationLog prior = latest.get(email);
+                if (prior == null || isAfter(r.getTimestamp(), prior.getTimestamp())) latest.put(email, r);
             }
+            latest.forEach((email, r) -> out.put(email, r.isSuccess()
+                    ? GroupMemberViewDto.DispatchOutcome.SENT
+                    : GroupMemberViewDto.DispatchOutcome.FAILED));
+        } catch (Exception e) {
+            // Unknown is the truthful fallback; never invent a negative.
         }
         return out;
+    }
+
+    private static boolean isAfter(Instant a, Instant b) {
+        if (a == null) return false;
+        return b == null || !a.isBefore(b);
     }
 
     /**
@@ -383,7 +504,9 @@ public class GroupViewService {
                                   GroupMemberViewDto.DispatchOutcome dispatch,
                                   Map<Long, UserSavedLocation> currentPlaces,
                                   boolean includePhone,
-                                  List<MemberAlertAreaService.AreaAlert> activeAreas) {
+                                  List<MemberAlertAreaService.AreaAlert> activeAreas,
+                                  Map<String, String> setByNames,
+                                  String role) {
         String dispatchWire = (dispatch == null
                 ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
                 : dispatch).wire();
@@ -392,11 +515,13 @@ public class GroupViewService {
                     null, null, null, null, checkInRequestedAt, dispatchWire,
                     null, null, null, null, null, null,
                     CheckInState.of(checkInRequestedAt, null, null, null,
-                            alertActive, checkInStartedAt, checkInEndsAt, now));
+                            alertActive, checkInStartedAt, checkInEndsAt, now),
+                    null, role);
         }
         SelfStatus status = new SelfStatus(
                 u.getUserStatus(), u.getStatusColor(), u.getUserStatusLastUpdated(),
-                statusSetByName(u),
+                setByNames == null || u.getStatusSetByEmail() == null
+                        ? null : setByNames.get(normalize(u.getStatusSetByEmail())),
                 StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated())
         );
         CheckIn checkIn = CheckInState.of(checkInRequestedAt,
@@ -458,7 +583,9 @@ public class GroupViewService {
                 locationAccuracyM,
                 includePhone ? blankToNull(u.getPhone()) : null,
                 inAlertIds,
-                checkIn
+                checkIn,
+                u.getId(),
+                role
         );
     }
 
@@ -499,7 +626,7 @@ public class GroupViewService {
     /**
      * The viewer's platform role, or null when they hold none.
      *
-     * <p>Deliberately a SEPARATE resolver from {@link #resolveViewerRole},
+     * <p>Deliberately a SEPARATE resolver from {@code GroupRole.fromGroup},
      * which is left exactly as it was. {@code viewerRole} means "this person's
      * standing on this group's roster" and frontend WRITE gates branch on it
      * ({@code GroupVerificationPage} → submit a verification application;
@@ -526,24 +653,30 @@ public class GroupViewService {
         }
     }
 
-    private static GroupMemberViewDto.ViewerCapabilities viewerCapabilities(Group g, String viewerEmail) {
+    /**
+     * What the viewer may do here. The member actions come from
+     * {@link MemberActionPolicy} (what those endpoints enforce); the rest from
+     * the {@link GroupRole} permission matrix the group endpoints check, so the
+     * client never keeps its own copy (BE-11). Pinning is owner/admin
+     * ({@code GroupPostService.requireGroupAdmin}).
+     */
+    static GroupMemberViewDto.ViewerCapabilities viewerCapabilities(Group g, String viewerEmail) {
         MemberActionPolicy.Capabilities c = MemberActionPolicy.of(g, viewerEmail);
+        GroupRole role = GroupRole.fromGroup(g, viewerEmail);
         return new GroupMemberViewDto.ViewerCapabilities(
-                c.setOthersStatus(), c.nudge(), c.askEveryone(), c.pingMissing());
+                c.setOthersStatus(), c.nudge(), c.askEveryone(), c.pingMissing(),
+                role.has(GroupPermission.MANAGE_MEMBERS),
+                role.has(GroupPermission.MANAGE_ALERTS),
+                role.has(GroupPermission.EDIT_GROUP),
+                role.has(GroupPermission.MANAGE_PLAN),
+                role.has(GroupPermission.DELETE_GROUP),
+                role.has(GroupPermission.TRANSFER_OWNERSHIP),
+                role.has(GroupPermission.VIEW_ADMIN_DASHBOARD),
+                role.isAtLeastAdmin());
     }
 
     @org.springframework.beans.factory.annotation.Value("${app.groupAlert.decayHours:48}")
     private int checkInHours = 48;
-
-    private String resolveViewerRole(Group g, String viewerEmail) {
-        if (viewerEmail == null || viewerEmail.isBlank()) return "none";
-        if (viewerEmail.equalsIgnoreCase(g.getOwnerEmail())) return "owner";
-        if (g.getAdminEmails() != null && g.getAdminEmails().stream()
-                .anyMatch(e -> e != null && e.equalsIgnoreCase(viewerEmail))) return "admin";
-        if (g.getMemberEmails() != null && g.getMemberEmails().stream()
-                .anyMatch(e -> e != null && e.equalsIgnoreCase(viewerEmail))) return "member";
-        return "none";
-    }
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();

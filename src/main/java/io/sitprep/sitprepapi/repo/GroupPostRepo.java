@@ -33,6 +33,13 @@ public interface GroupPostRepo extends JpaRepository<GroupPost, Long> {
     @Query("SELECT p FROM GroupPost p WHERE p.groupId = :groupId ORDER BY p.timestamp DESC")
     List<GroupPost> findPostsByGroupId(@Param("groupId") String groupId);
 
+    /**
+     * The newest five, in SQL — the member view's "recent posts" (BE-10). It
+     * read {@link #findPostsByGroupId} (every post the group ever made) and
+     * kept five in memory.
+     */
+    List<GroupPost> findTop5ByGroupIdOrderByTimestampDesc(String groupId);
+
     // Backfill by UPDATED time (ascending for client merge)
     List<GroupPost> findByGroupIdAndUpdatedAtAfterOrderByUpdatedAtAsc(String groupId, Instant since);
 

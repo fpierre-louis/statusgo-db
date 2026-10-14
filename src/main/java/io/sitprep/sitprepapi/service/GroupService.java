@@ -1156,12 +1156,14 @@ public class GroupService {
                 GroupNotificationRecipients.adminOwnerEmails(group));
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
+        // BE-10 (B4): the requesters once, not once per admin per requester;
+        // and an email with no account is skipped — it used to throw "User
+        // not found" and turn the roster write behind it into a 500.
+        List<UserInfo> requesters = knownUsers(newPendingMemberEmails);
         for (UserInfo admin : admins) {
             String token = admin.getFcmtoken();
 
-            for (String email : newPendingMemberEmails) {
-                UserInfo pending = userInfoRepo.findByUserEmailIgnoreCase(email)
-                        .orElseThrow(() -> new RuntimeException("User not found: " + email));
+            for (UserInfo pending : requesters) {
 
                 notificationService.deliverPresenceAware(
                         admin.getUserEmail(),
@@ -1187,6 +1189,21 @@ public class GroupService {
         }
     }
 
+    /**
+     * The accounts behind these emails, in one query. An email with no account
+     * is left out (logged), never thrown on: a notification can't make a
+     * roster write fail (BE-10).
+     */
+    private List<UserInfo> knownUsers(Set<String> emails) {
+        if (emails == null || emails.isEmpty()) return List.of();
+        List<UserInfo> found = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails));
+        if (found.size() < emails.size()) {
+            logger.info("Skipping {} roster notification(s) for email(s) with no account",
+                    emails.size() - found.size());
+        }
+        return found;
+    }
+
     private void notifyNewMembers(Group group, Set<String> oldMemberEmails) {
         Set<String> newMemberEmails = new HashSet<>(safeList(group.getMemberEmails()));
         newMemberEmails.removeAll(oldMemberEmails);
@@ -1194,10 +1211,7 @@ public class GroupService {
 
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        for (String email : newMemberEmails) {
-            UserInfo user = userInfoRepo.findByUserEmail(email)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + email));
-
+        for (UserInfo user : knownUsers(newMemberEmails)) {
             String token = user.getFcmtoken();
             if (token == null || token.isEmpty()) continue;
 
@@ -1226,10 +1240,7 @@ public class GroupService {
                 GroupNotificationRecipients.adminOwnerEmails(group));
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);
 
-        for (String email : newMemberEmails) {
-            UserInfo newUser = userInfoRepo.findByUserEmail(email)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + email));
-
+        for (UserInfo newUser : knownUsers(newMemberEmails)) {
             for (UserInfo admin : admins) {
                 String token = admin.getFcmtoken();
                 if (token == null || token.isEmpty()) continue;

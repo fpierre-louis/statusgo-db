@@ -176,60 +176,20 @@ public class GroupResource {
     }
 
     /**
-     * Fields on {@link Group} that only someone with a relationship to the group
-     * may read.
+     * The group page read, scoped to the caller by an allowlist
+     * ({@link io.sitprep.sitprepapi.dto.GroupPageDto}; BE-06, B4 2026-10-14).
      *
-     * <p>Until 2026-08-24 this route returned the raw entity to any signed-in
-     * caller. <b>Households are Group rows</b>, so for a household id that meant
-     * the family roster plus the home address and its coordinate, to anyone with
-     * an account. It also handed out the group code, which is how you join.</p>
+     * <p>History, because each step is load-bearing. Until 2026-08-24 this
+     * returned the raw entity to any signed-in caller — and <b>households are
+     * Group rows</b>, so that was a family's roster, home address and join code.
+     * B2 (2026-10-14) stripped a named list of fields for non-members, which
+     * still shipped every unnamed column, and gave plain members everything
+     * (every co-member's email, the join code, Stripe ids). Now each scope
+     * lists what it may read, and anything else never leaves.</p>
      *
-     * <p>Stripped rather than 403'd, because the answer for a non-member already
-     * exists and is public: {@code /api/groups/{id}/preview} deliberately serves
-     * exactly this reduced view to invitees who are not signed in. Refusing here
-     * would break the roughly twenty frontend call sites that use this route
-     * before anyone could check which of them are member-only surfaces; scoping
-     * the payload removes the leak and can break nothing that was not reading a
-     * roster it had no claim to.</p>
+     * <p>Stripped rather than refused for a stranger, because the answer for a
+     * non-member already exists and is public ({@code /{id}/preview}).</p>
      */
-    private static final java.util.Set<String> RELATIONSHIP_ONLY_FIELDS = java.util.Set.of(
-            // The roster. This is the finding.
-            "memberEmails", "adminEmails", "pendingMemberEmails", "ownerEmail",
-            // A household's home. `latitude`/`longitude` are the delegating
-            // accessors over the embedded homeLocation, not fields, so they need
-            // naming here too or they stay in the JSON.
-            "address", "latitude", "longitude", "zipCode",
-            // The join code.
-            "groupCode",
-            // Billing identity and the agency contact of record.
-            "stripeCustomerId", "stripeSubscriptionId", "subscriptionStatus",
-            "subscriptionOverrideTier", "officialContactEmail",
-            // The resolved tier names an active override tier, and the plan
-            // badge is a member surface (B1 review).
-            "effectivePlanTier", "planUnlocks",
-            // B2 / BE-05 (2026-10-14). Measured on prod: a non-member GET of
-            // groups 100, 68 and 601 each returned one email, at
-            // lastUpdatedBy (the admin who last flipped the alert), plus the
-            // subgroup graph and the outreach and reminder counters.
-            "lastUpdatedBy",
-            // Platform staff's override: their email and a free-text note.
-            "subscriptionOverrideExpiresAt", "subscriptionOverrideReason",
-            "subscriptionOverrideBy", "subscriptionOverrideAt",
-            "maxSeats", "smsAllowanceMonthly",
-            // Internal outreach state for unclaimed groups.
-            "ghostDemandSignal", "outreachOptOut", "lastOutreachDate", "outreachCount",
-            // The subgroup graph and the optimistic-lock counter.
-            "subGroupIDs", "parentGroupIDs", "version",
-            // Whether a check-in is running, since when, until when, for what
-            // hazard, and how many reminders went out. The check-in banner is
-            // for members (SH-06 addendum); a stranger learns none of it.
-            "alert", "alertActivatedAt", "alertExpiresAt", "activeHazardType",
-            "checkInRemindersFired",
-            // A household's readiness record. A readiness gap is never visible
-            // to anyone outside the household (T-27).
-            "challengeProgress", "drillLog", "planLastConfirmedAt", "challengeLastShownWeek"
-    );
-
     @GetMapping("/{groupId}")
     public com.fasterxml.jackson.databind.JsonNode getGroupById(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
@@ -245,32 +205,25 @@ public class GroupResource {
                 io.sitprep.sitprepapi.service.BillingService.effectivePlanTier(group);
         node.put("effectivePlanTier", effective.name());
         node.set("planUnlocks", objectMapper.valueToTree(effective.unlocks()));
-        if (!hasRelationshipTo(group, caller)) {
-            RELATIONSHIP_ONLY_FIELDS.forEach(node::remove);
-            if (containsCaseInsensitive(group.getPendingMemberEmails(), caller)) {
-                // A requester sees their own pending state and the preview
-                // projection, nothing more (D3). Their own row only, so the
-                // frontend's roleOf still answers PENDING ("Request sent")
-                // without learning who else asked.
-                node.putArray("pendingMemberEmails").add(caller.trim().toLowerCase(java.util.Locale.ROOT));
-                node.put("viewerStatus", io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING);
-            }
+        // The stored count drifts (set at creation, not kept in sync); the
+        // list is the truth, and the count is public on /preview already.
+        node.put("memberCount", group.getMemberEmails() == null ? 0 : group.getMemberEmails().size());
+        // BE-11: the viewer's role and permissions, nested — never a
+        // top-level `viewerRole` (see GroupPageDto.viewer).
+        io.sitprep.sitprepapi.dto.GroupPageDto.viewer(node, group, caller);
+
+        io.sitprep.sitprepapi.dto.GroupPageDto.Scope scope =
+                io.sitprep.sitprepapi.dto.GroupPageDto.scopeOf(group, caller);
+        io.sitprep.sitprepapi.dto.GroupPageDto.project(node, scope);
+        if (scope == io.sitprep.sitprepapi.dto.GroupPageDto.Scope.PENDING) {
+            // A requester sees their own pending state and the preview
+            // projection, nothing more (D3). Their own row only, so the
+            // frontend's roleOf still answers PENDING ("Request sent")
+            // without learning who else asked.
+            node.putArray("pendingMemberEmails").add(caller.trim().toLowerCase(java.util.Locale.ROOT));
+            node.put("viewerStatus", io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_PENDING);
         }
         return node;
-    }
-
-    /**
-     * Owner, admin or member. <b>Not pending</b> (B2 / JN-02, 2026-10-14).
-     *
-     * <p>Until then a pending request counted, so that the requester kept their
-     * own pending row. But a private group puts every self-joiner in pending,
-     * and anyone signed in can self-join any id: "pending" was a relationship
-     * anyone could grant themselves, and it unlocked the full entity, including
-     * a household's roster, home address and coordinate. The requester's own
-     * row is now added back on its own (see {@link #getGroupById}).</p>
-     */
-    private boolean hasRelationshipTo(Group group, String caller) {
-        return GroupRole.fromGroup(group, caller) != GroupRole.NONE;
     }
 
     /**

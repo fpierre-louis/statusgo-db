@@ -444,6 +444,13 @@ public class MeService {
         // membership-derived buckets would otherwise miss entirely.
         java.util.Set<String> staffGroupIds = agencyStaffService.staffGroupIdsFor(email);
 
+        // BE-17 (D36): the circle cards' "N of M answered" and "N tasks for
+        // you" — each one batched across every group, never per group.
+        java.util.Map<String, MeDto.CheckInRollup> checkInRollups = safeGet("groups.checkInRollups", logCtx,
+                () -> checkInRollupsFor(groupsById.values(), email, householdIds), java.util.Map.of());
+        java.util.Map<String, Integer> assignedOpen = safeGet("groups.assignedOpenTasks", logCtx,
+                () -> assignedOpenTaskCounts(email, groupsById.keySet()), java.util.Map.of());
+
         List<GroupSummary> managed = new ArrayList<>();
         List<GroupSummary> joined = new ArrayList<>();
         List<GroupSummary> pending = new ArrayList<>();
@@ -452,7 +459,7 @@ public class MeService {
             // Households live in their own "Your households" section, never in
             // the circles lists.
             if (g.getGroupId() != null && householdIds.contains(g.getGroupId())) continue;
-            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds);
+            GroupSummary summary = toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds, checkInRollups, assignedOpen);
             boolean isOwner = email != null && !email.isBlank()
                     && email.equalsIgnoreCase(g.getOwnerEmail());
             if (isOwner || adminGroupIds.contains(g.getGroupId())) managed.add(summary);
@@ -479,7 +486,7 @@ public class MeService {
                 if (g == null || g.getGroupId() == null) continue;
                 if (householdIds.contains(g.getGroupId())) continue;
                 if (!g.isAgencyAuthorized()) continue;
-                joined.add(toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds));
+                joined.add(toGroupSummary(g, email, profileMap, readMap, latestPostMap, muteMap, prefMap, staffGroupIds, checkInRollups, assignedOpen));
             }
         }
 
@@ -1069,7 +1076,7 @@ public class MeService {
         return groups;
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds) {
+    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds, java.util.Map<String, MeDto.CheckInRollup> checkInRollups, java.util.Map<String, Integer> assignedOpen) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -1106,8 +1113,89 @@ public class MeService {
                 io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
                 g.getMaxSeats(),
                 g.getSmsAllowanceMonthly(),
-                BillingService.effectivePlanTier(g).name()
+                BillingService.effectivePlanTier(g).name(),
+                g.getGroupId() == null || checkInRollups == null ? null : checkInRollups.get(g.getGroupId()),
+                g.getGroupId() == null || assignedOpen == null ? 0 : assignedOpen.getOrDefault(g.getGroupId(), 0)
         );
+    }
+
+    /**
+     * The running check-in's count per group, for groups where the viewer is
+     * owner, admin or member (BE-17). ONE {@code UserInfo} query across every
+     * active group's roster; a calm group costs nothing. Households are left
+     * out: they are not circle cards ({@code HouseholdSummary} carries its
+     * own state), and their manual members would need the household reads.
+     */
+    java.util.Map<String, MeDto.CheckInRollup> checkInRollupsFor(java.util.Collection<Group> groups,
+                                                                String email,
+                                                                java.util.Set<String> householdIds) {
+        List<Group> active = new ArrayList<>();
+        java.util.LinkedHashSet<String> emails = new java.util.LinkedHashSet<>();
+        for (Group g : groups) {
+            if (g == null || g.getGroupId() == null) continue;
+            if (householdIds != null && householdIds.contains(g.getGroupId())) continue;
+            if (!"Active".equalsIgnoreCase(g.getAlert())) continue;
+            if (io.sitprep.sitprepapi.constant.GroupRole.fromGroup(g, email)
+                    == io.sitprep.sitprepapi.constant.GroupRole.NONE) continue;
+            active.add(g);
+            if (g.getMemberEmails() != null) {
+                for (String e : g.getMemberEmails()) if (e != null && !e.isBlank()) emails.add(e);
+            }
+        }
+        if (active.isEmpty()) return java.util.Map.of();
+        java.util.Map<String, UserInfo> byEmail = new java.util.HashMap<>();
+        if (!emails.isEmpty()) {
+            for (UserInfo u : userInfoRepo.findByUserEmailIn(new ArrayList<>(emails))) {
+                if (u == null || u.getUserEmail() == null) continue;
+                byEmail.putIfAbsent(u.getUserEmail().trim().toLowerCase(java.util.Locale.ROOT), u);
+            }
+        }
+        java.util.Map<String, MeDto.CheckInRollup> out = new java.util.HashMap<>();
+        for (Group g : active) {
+            List<String> roster = g.getMemberEmails() == null ? List.of() : g.getMemberEmails();
+            io.sitprep.sitprepapi.dto.GroupMemberViewDto.StatusRollup r = StatusRollups.compute(roster, byEmail,
+                    List.of(), List.of(), true, StatusRollups.anchorFor(g));
+            out.put(g.getGroupId(), new MeDto.CheckInRollup(r.accounted(), r.total(), r.help() + r.injured()));
+        }
+        return out;
+    }
+
+    /**
+     * Open tasks the viewer is assigned to, per group (BE-17). Two queries
+     * whatever the number of groups: the viewer's {@code task_assignee} rows,
+     * then those tasks. Terminal statuses and project containers don't count
+     * (the board's "active" rule, {@code PostService.workOrderSummary}).
+     */
+    java.util.Map<String, Integer> assignedOpenTaskCounts(String email, java.util.Set<String> groupIds) {
+        if (email == null || email.isBlank() || groupIds == null || groupIds.isEmpty()
+                || taskAssigneeRepo == null) return java.util.Map.of();
+        List<Long> taskIds = taskAssigneeRepo.findByEmailIgnoreCase(email).stream()
+                .map(io.sitprep.sitprepapi.domain.TaskAssignee::getPostId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        if (taskIds.isEmpty()) return java.util.Map.of();
+        java.util.Map<String, Integer> out = new java.util.HashMap<>();
+        for (io.sitprep.sitprepapi.domain.Post p : postRepo.findAllById(taskIds)) {
+            if (p == null || p.getGroupId() == null || !groupIds.contains(p.getGroupId())) continue;
+            if ("project".equals(p.getKind())) continue;
+            if (p.getStatus() != null && TERMINAL_TASK_STATUSES.contains(p.getStatus())) continue;
+            out.merge(p.getGroupId(), 1, Integer::sum);
+        }
+        return out;
+    }
+
+    private static final java.util.Set<io.sitprep.sitprepapi.domain.Post.PostStatus> TERMINAL_TASK_STATUSES =
+            java.util.EnumSet.of(io.sitprep.sitprepapi.domain.Post.PostStatus.DONE,
+                    io.sitprep.sitprepapi.domain.Post.PostStatus.CLOSED,
+                    io.sitprep.sitprepapi.domain.Post.PostStatus.CANCELLED,
+                    io.sitprep.sitprepapi.domain.Post.PostStatus.ARCHIVED);
+
+    // Setter-injected (BE-17) so the long constructor — and the tests that
+    // call it — stay unchanged. Null → assignedOpenTaskCount is 0.
+    private io.sitprep.sitprepapi.repo.TaskAssigneeRepo taskAssigneeRepo;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTaskAssigneeRepo(io.sitprep.sitprepapi.repo.TaskAssigneeRepo taskAssigneeRepo) {
+        this.taskAssigneeRepo = taskAssigneeRepo;
     }
 
     private GroupSummary toPendingGroupSummary(Group g, java.util.Set<String> staffGroupIds) {
@@ -1138,7 +1226,9 @@ public class MeService {
                 io.sitprep.sitprepapi.constant.PlanTier.fromWire(g.getPlanTier()).name(),
                 g.getMaxSeats(),
                 g.getSmsAllowanceMonthly(),
-                BillingService.effectivePlanTier(g).name()
+                BillingService.effectivePlanTier(g).name(),
+                null,
+                0
         );
     }
 

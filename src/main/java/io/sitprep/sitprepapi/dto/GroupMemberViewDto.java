@@ -77,8 +77,54 @@ public record GroupMemberViewDto(
          * so the client offers only what the API will accept (map sheet audit
          * 2026-09-29, Phase 2). Appended last: this is a positional record.
          */
-        ViewerCapabilities viewerCapabilities
+        ViewerCapabilities viewerCapabilities,
+        /**
+         * People asking to join (MB-06, B4 2026-10-14), so the admin surfaces
+         * can approve and reject from the one member view. Owner and admin
+         * only: {@code null} for every other viewer, which means "not yours
+         * to see", not "nobody is asking". Appended last (positional record).
+         */
+        List<PendingMember> pendingMembers,
+        /**
+         * The linked sub groups' check-in state, for the PARENT's owner and
+         * admins (ST-02). Counts and the worst status only (D14): no member
+         * rows, no names, no emails. {@code null} for every other viewer and
+         * for a group with no sub groups. Each rollup is the one count rule
+         * ({@code StatusRollups.compute} + {@code anchorFor(child)}).
+         */
+        List<SubGroupRollup> subGroups
 ) {
+
+    /**
+     * One join request. {@code userId} / names are null when the email has
+     * no account yet.
+     */
+    public record PendingMember(
+            String email,
+            String userId,
+            String firstName,
+            String lastName,
+            String profileImageUrl
+    ) {}
+
+    /**
+     * One linked sub group, as its parent's admins see it (D14).
+     *
+     * @param rollup        the sub group's own accountability rollup — the
+     *                      same rule as {@link GroupMemberViewDto#rollup}
+     * @param worstStatus   {@code StatusRollups.dominantStatus(rollup)}:
+     *                      INJURED · HELP · CHECK_IN · SAFE · UNKNOWN —
+     *                      never derived from a raw stored status
+     * @param checkInActive whether the sub group has a check-in running; its
+     *                      rollup is freshness-clamped to that check-in
+     */
+    public record SubGroupRollup(
+            String groupId,
+            String name,
+            StatusRollup rollup,
+            String worstStatus,
+            boolean checkInActive
+    ) {}
 
     /**
      * @param setOthersStatus answer "check in" for someone else
@@ -90,7 +136,26 @@ public record GroupMemberViewDto(
             boolean setOthersStatus,
             boolean nudge,
             boolean askEveryone,
-            boolean pingMissing
+            boolean pingMissing,
+            // ── BE-11 (B4, 2026-10-14): the role-level permissions, from
+            // GroupRole (the matrix the endpoints check), so no client keeps
+            // its own copy. Appended: positional record.
+            /** Approve, reject and remove members; add or remove admins. */
+            boolean manageMembers,
+            /** Start, continue and end the group's check-in. */
+            boolean manageAlerts,
+            /** Edit the group's name, description, logo and settings. */
+            boolean editGroup,
+            /** Change the plan. Owner only. */
+            boolean managePlan,
+            /** Delete the group. Owner only. */
+            boolean deleteGroup,
+            /** Hand the group to another member. Owner only. */
+            boolean transferOwnership,
+            /** Open the admin home ({@code /groups/:id/admin}). */
+            boolean viewAdminDashboard,
+            /** Pin and unpin posts in the group conversation. */
+            boolean pinPosts
     ) {}
 
     public record GroupInfo(
@@ -132,7 +197,19 @@ public record GroupMemberViewDto(
              * platform override wins over the Stripe-synced {@link #planTier}.
              * {@code BillingService.effectivePlanTier}; PR-01. Appended last.
              */
-            String effectivePlanTier
+            String effectivePlanTier,
+            /**
+             * How long a check-in runs before it ends by itself, in hours
+             * ({@code app.groupAlert.decayHours}). The FE stops restating 48
+             * (ST-04). Appended last: positional record.
+             */
+            int checkInWindowHours,
+            /**
+             * From when "Continue" is accepted for the running check-in
+             * ({@code CheckInWindow.continueAvailableFrom}); null when none is
+             * running. {@code POST /alert/continue} refuses before it (409).
+             */
+            Instant continueAvailableFrom
     ) {}
 
     public record MemberSummary(
@@ -222,7 +299,20 @@ public record GroupMemberViewDto(
              * re-derives 24 hours (household drawer gameplan §5.3). Never null.
              * See {@link CheckIn} and {@code service.CheckInState}.
              */
-            CheckIn checkIn
+            CheckIn checkIn,
+            /**
+             * The member's stable id ({@code UserInfo.id}) — what
+             * {@code /profile/:userId} routes to and what a row is keyed by
+             * once the roster stops keying on email (BE-11). Null when the
+             * roster email has no account. Appended: positional record.
+             */
+            String userId,
+            /**
+             * This row's role in the group: {@code owner} · {@code admin} ·
+             * {@code member} ({@code GroupRole.wire()}), so no client
+             * re-derives it from email lists (BE-11).
+             */
+            String role
     ) {}
 
     /**

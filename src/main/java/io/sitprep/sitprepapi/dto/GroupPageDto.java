@@ -1,0 +1,194 @@
+package io.sitprep.sitprepapi.dto;
+
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.sitprep.sitprepapi.constant.GroupPermission;
+import io.sitprep.sitprepapi.constant.GroupRole;
+import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.service.HouseholdEventService;
+
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * What {@code GET /api/groups/{groupId}} may say, per viewer — an ALLOWLIST
+ * (BE-06, B4 2026-10-14). It replaces B2's denylist
+ * ({@code RELATIONSHIP_ONLY_FIELDS}), which stripped named fields from the
+ * whole serialized entity: every new column on {@link Group} shipped to every
+ * caller until somebody remembered to name it. Here a key ships only when a
+ * scope lists it, and {@code GroupPageDtoScopeTest} fails the build when the
+ * entity grows a key no set below classifies.
+ *
+ * <p>The wire shape for a key that does ship is unchanged (it is still the
+ * entity's own serialization), so the dozen frontend readers of this route
+ * keep working.</p>
+ *
+ * <h2>Scopes</h2>
+ * <ul>
+ *   <li><b>STRANGER</b> — the preview: identity, purpose, public agency
+ *       facts, a count. Nothing about people or place.</li>
+ *   <li><b>PENDING</b> — the stranger's view, plus the requester's own
+ *       pending row and {@code viewerStatus} (D3; added by the resource).</li>
+ *   <li><b>MEMBER</b> (an organization) — the page: address, check-in state,
+ *       links, plan. No pending list, no join code, no billing, no
+ *       {@code lastUpdatedBy} (D6).</li>
+ *   <li><b>HOUSEHOLD</b> — any member of a household: unchanged from before
+ *       (roster, pending, code and the household's readiness record).</li>
+ *   <li><b>ADMIN</b> — owner and admins of an organization: also pending,
+ *       the join code and the seat cap. Billing is never on this route: the
+ *       owner reads it from {@code /api/billing/status}.</li>
+ * </ul>
+ *
+ * <h2>The roster email lists, for plain org members — transitional</h2>
+ *
+ * D6 says a plain organization member gets no co-member email. Three live
+ * frontend readers still need the lists from THIS route for a plain member,
+ * and none has a userId path yet: {@code MemberRail} (the faces + "N
+ * members"), {@code MembersSheet → Members.js} (the roster and its per-row
+ * {@code roleOf} pills), and {@code OrgGroupPage}'s own viewer role. Removing
+ * them now would empty the page. They ship on {@link #MEMBER_ROSTER_TRANSITIONAL}
+ * until F3 (MB-01) moves the roster onto the member view's {@code userId} /
+ * {@code role} rows; that change deletes the set from {@link Scope#MEMBER}.
+ * It is named so nobody mistakes it for the rule.
+ */
+public final class GroupPageDto {
+
+    private GroupPageDto() {}
+
+    public enum Scope { STRANGER, PENDING, MEMBER, HOUSEHOLD, ADMIN }
+
+    /** What anyone signed in may read: the same level as {@code /preview}. */
+    public static final Set<String> PUBLIC = Set.of(
+            "groupId", "groupName", "groupType", "description", "privacy",
+            "ownerName", "memberCount", "createdAt", "updatedAt",
+            "logoImageUrl", "coverImageUrl", "businessCategory", "websiteUrl",
+            "planTier",
+            // An agency's public footprint: its claimed service area and what
+            // it is authorized to do. Already public before B4.
+            "agencyAuthorized", "agencyCapabilities", "claimState",
+            "jurisdictionZips", "jurisdictionType", "serviceAreaRadius",
+            "jurisdictionLat", "jurisdictionLng", "jurisdictionRadiusMiles",
+            // Added by the resource.
+            "jurisdictionReady", "viewerAgencyPermissions", "viewer"
+    );
+
+    /** What every member adds (organizations and households). */
+    public static final Set<String> MEMBER = Set.of(
+            "address", "latitude", "longitude", "zipCode",
+            "alert", "alertActivatedAt", "alertExpiresAt", "activeHazardType",
+            "subGroupIDs", "parentGroupIDs", "version",
+            // Added by the resource (B1 / PR-01).
+            "effectivePlanTier", "planUnlocks"
+    );
+
+    /**
+     * The roster as email lists. Every scope above STRANGER that sees them
+     * lists them explicitly; see the class doc for why a plain org member
+     * still does.
+     */
+    public static final Set<String> MEMBER_ROSTER_TRANSITIONAL = Set.of(
+            "memberEmails", "adminEmails", "ownerEmail"
+    );
+
+    /** What the owner and admins of an organization add. */
+    public static final Set<String> ADMIN = Set.of(
+            "pendingMemberEmails", "groupCode", "lastUpdatedBy",
+            "maxSeats", "smsAllowanceMonthly"
+    );
+
+    /** A household's readiness record: its own members only (T-27). */
+    public static final Set<String> HOUSEHOLD_ONLY = Set.of(
+            "challengeProgress", "drillLog", "planLastConfirmedAt", "challengeLastShownWeek"
+    );
+
+    /**
+     * Never on this route, for anyone: Stripe identity and status (the owner
+     * reads {@code /api/billing/status}), platform staff's override (their
+     * email and a free-text note), outreach state for unclaimed groups, the
+     * agency contact of record, and the reminder counter.
+     */
+    public static final Set<String> NEVER = Set.of(
+            "stripeCustomerId", "stripeSubscriptionId", "subscriptionStatus",
+            "subscriptionOverrideTier", "subscriptionOverrideExpiresAt",
+            "subscriptionOverrideReason", "subscriptionOverrideBy", "subscriptionOverrideAt",
+            "ghostDemandSignal", "outreachOptOut", "lastOutreachDate", "outreachCount",
+            "officialContactEmail", "checkInRemindersFired"
+    );
+
+    /** The keys a scope may carry. */
+    public static Set<String> allowed(Scope scope) {
+        Set<String> out = new HashSet<>(PUBLIC);
+        switch (scope) {
+            case STRANGER, PENDING -> { /* the preview only */ }
+            case MEMBER -> {
+                out.addAll(MEMBER);
+                out.addAll(MEMBER_ROSTER_TRANSITIONAL);
+            }
+            case HOUSEHOLD, ADMIN -> {
+                out.addAll(MEMBER);
+                out.addAll(MEMBER_ROSTER_TRANSITIONAL);
+                out.addAll(ADMIN);
+                if (scope == Scope.HOUSEHOLD) out.addAll(HOUSEHOLD_ONLY);
+            }
+        }
+        return Collections.unmodifiableSet(out);
+    }
+
+    /** Which scope this caller reads {@code g} in. */
+    public static Scope scopeOf(Group g, String caller) {
+        GroupRole role = GroupRole.fromGroup(g, caller);
+        if (role == GroupRole.NONE) {
+            return containsIgnoreCase(g == null ? null : g.getPendingMemberEmails(), caller)
+                    ? Scope.PENDING : Scope.STRANGER;
+        }
+        boolean household = g != null
+                && HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType());
+        if (household) return Scope.HOUSEHOLD;
+        return role.isAtLeastAdmin() ? Scope.ADMIN : Scope.MEMBER;
+    }
+
+    /** Drops every key the scope does not allow, in place. */
+    public static ObjectNode project(ObjectNode node, Scope scope) {
+        Set<String> keep = allowed(scope);
+        List<String> names = new java.util.ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        for (String n : names) if (!keep.contains(n)) node.remove(n);
+        return node;
+    }
+
+    /**
+     * The viewer block (BE-11): {@code {role, permissions}}, nested under
+     * {@code viewer}. It is NOT a top-level {@code viewerRole}: the frontend's
+     * {@code groupRoles.roleOf} returns {@code group.viewerRole} for ANY email
+     * it is asked about, so a top-level field would label every row on the
+     * per-row role pills (Members.js, ManageMembersModal, GroupRosterManager)
+     * with the viewer's own role.
+     *
+     * <p>{@code role} is {@code OWNER | ADMIN | MEMBER | PENDING | NONE}, the
+     * values {@code roleOf} returns; {@code permissions} are
+     * {@link GroupPermission} names, the matrix the endpoints enforce.</p>
+     */
+    public static ObjectNode viewer(ObjectNode into, Group g, String caller) {
+        GroupRole role = GroupRole.fromGroup(g, caller);
+        String wire = role == GroupRole.NONE
+                && containsIgnoreCase(g == null ? null : g.getPendingMemberEmails(), caller)
+                ? "PENDING" : role.name();
+        ObjectNode v = into.putObject("viewer");
+        v.put("role", wire);
+        ArrayNode perms = v.putArray("permissions");
+        for (GroupPermission p : GroupPermission.values()) {
+            if (role.has(p)) perms.add(p.name());
+        }
+        return v;
+    }
+
+    private static boolean containsIgnoreCase(List<String> list, String needle) {
+        if (list == null || needle == null || needle.isBlank()) return false;
+        String n = needle.trim().toLowerCase(Locale.ROOT);
+        for (String s : list) if (s != null && s.trim().toLowerCase(Locale.ROOT).equals(n)) return true;
+        return false;
+    }
+}

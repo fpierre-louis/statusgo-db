@@ -472,8 +472,32 @@ public record MeDto(
              * wins. {@link #planTier} is the Stripe-synced BASE tier (its doc
              * above said "effective"; it never was). PR-01.
              */
-            String effectivePlanTier
+            String effectivePlanTier,
+            /**
+             * "4 of 9 answered · 1 needs help" for a running check-in (BE-17,
+             * B4 2026-10-14; D36). Null when no check-in is running, and for a
+             * viewer who is not owner/admin/member (pending, staff-only). The
+             * one count rule: {@code StatusRollups.compute} anchored on the
+             * check-in's start, the same as the member view and the lock
+             * screen. Appended last: positional record.
+             */
+            CheckInRollup checkInRollup,
+            /**
+             * Open tasks in this group the viewer is assigned to, as lead or
+             * helper ({@code task_assignee}); project containers and
+             * done / closed / cancelled / archived rows don't count. 0 for a
+             * pending row.
+             */
+            int assignedOpenTaskCount
     ) {}
+
+    /**
+     * @param accounted answered (safe + help + injured)
+     * @param total     everyone on the roster
+     * @param help      need help, injured included — the lock screen's
+     *                  "urgent" count ({@code LiveActivityStateBuilder})
+     */
+    public record CheckInRollup(int accounted, int total, int help) {}
 
     // MemberAvatar (the circle-card member-stack identity) is now the shared
     // top-level io.sitprep.sitprepapi.dto.MemberAvatar — same package, so the
