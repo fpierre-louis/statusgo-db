@@ -8,9 +8,12 @@
 --                                  payload stored ONCE; last_seen_at moves only
 --                                  for a source that answered the poll
 --   alert_interpretation_snapshot  one row per (revision, policy, interpreter,
---                                  template, decision) — what SitPrep said about
---                                  that revision, with no viewer context and no
---                                  engagement counts
+--                                  template, decision, lifecycle mode) — what
+--                                  SitPrep said about that revision, with no
+--                                  viewer context and no engagement counts. The
+--                                  lifecycle mode (record or live + lifecycle
+--                                  verdict) keeps a record from ever sharing the
+--                                  live row's current=true and primary action
 --   notification_log.alert_*       which alert/revision/thread/snapshot a row
 --                                  was about (written by C5's dispatch)
 --   alert_post.resolved_reason     why a dispatched post was resolved (C6)
@@ -39,14 +42,14 @@ CREATE TABLE IF NOT EXISTS alert_source_revision (
     sent_at           TIMESTAMPTZ,
     payload           TEXT         NOT NULL,         -- normalized alert JSON, ONCE per revision
     first_seen_at     TIMESTAMPTZ  NOT NULL,
-    last_seen_at      TIMESTAMPTZ  NOT NULL
+    last_seen_at      TIMESTAMPTZ  NOT NULL          -- retention-grade: moved at most hourly, never a liveness bound
 );
 CREATE INDEX IF NOT EXISTS idx_asr_dedupe ON alert_source_revision (dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_asr_last_seen ON alert_source_revision (last_seen_at);
 
 CREATE TABLE IF NOT EXISTS alert_interpretation_snapshot (
     id                      UUID PRIMARY KEY,
-    fingerprint             CHAR(64)     NOT NULL UNIQUE,  -- revision_ref + policy_version + interpreter_version + template_key + template_review_version + decision fields
+    fingerprint             CHAR(64)     NOT NULL UNIQUE,  -- revision_ref + policy_version + interpreter_version + template_key + template_review_version + decision fields + lifecycle mode
     revision_ref            VARCHAR(320) NOT NULL REFERENCES alert_source_revision (revision_ref) ON DELETE RESTRICT,
     dedupe_key              VARCHAR(300) NOT NULL,
     policy_version          VARCHAR(40)  NOT NULL,

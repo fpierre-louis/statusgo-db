@@ -134,6 +134,52 @@ class AlertInterpretationPostgresIT {
         AlertSourceRevision stored = revisions.findById(AlertSourceFingerprint.revisionRef(flood())).orElseThrow();
         assertThat(stored.getFingerprint()).isEqualTo(AlertSourceFingerprint.fingerprint(flood()));
         assertThat(stored.getSentAt()).isEqualTo(Instant.parse("2026-10-14T18:55:00Z"));
+
+        // The cache-miss projection: two columns, a timestamptz read back as the Instant written.
+        assertThat(revisions.findLastSeenByRefIn(List.of(AlertSourceFingerprint.revisionRef(flood()), "NWS:absent@aaaaaaaaaaaa")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getRevisionRef()).isEqualTo(AlertSourceFingerprint.revisionRef(flood()));
+                    assertThat(row.getLastSeenAt()).isEqualTo(NOW);
+                });
+    }
+
+    @Test
+    void aMessageReplacedWhileListedGetsARecordSnapshot_besideItsLiveOne() throws Exception {
+        NormalizedAlert update = TestAlerts.nws("Flood Warning")
+                .id("urn:oid:2.49.0.1.840.0.pgit.002.1")
+                .sent("2026-10-14T12:30:00-07:00")
+                .references(List.of("urn:oid:2.49.0.1.840.0.pgit.001.1"))
+                .endsAt("2099-08-27T06:55:00Z")
+                .build();
+        InterpretationRecorder recorder = recorder();
+        recorder.record(new Snapshot(List.of(flood()), NOW, NOW));
+        InterpretationRecorder.Result r = recorder.record(new Snapshot(List.of(flood(), update), NOW, NOW));
+        em.flush();
+
+        assertThat(r.newRevisions()).isEqualTo(1);
+        assertThat(r.newSnapshots()).isEqualTo(2);
+        List<String> contents = jdbc.queryForList(
+                "SELECT content_json FROM alert_interpretation_snapshot WHERE revision_ref = ?",
+                String.class, AlertSourceFingerprint.revisionRef(flood()));
+        assertThat(contents).hasSize(2);
+        com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
+        long current = 0;
+        for (String c : contents) {
+            if (m.readTree(c).path("presentation").path("current").asBoolean()) current++;
+        }
+        assertThat(current).as("one live, one record").isEqualTo(1);
+    }
+
+    @Test
+    void theTouchCountsOnlyRowsThatExist() {
+        revision("NWS:urn:pg-touch@aaaaaaaaaaaa", OLD);
+        em.flush();
+
+        int moved = revisions.touchLastSeen(
+                List.of("NWS:urn:pg-touch@aaaaaaaaaaaa", "NWS:urn:pg-missing@aaaaaaaaaaaa"), NOW);
+
+        assertThat(moved).as("the recorder forgets the chunk when this is short").isEqualTo(1);
     }
 
     // ── retention ───────────────────────────────────────────────────────

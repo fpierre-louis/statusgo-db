@@ -15,10 +15,25 @@ import java.util.List;
 /** V110 source revisions — see {@link AlertSourceRevision} and {@code InterpretationRecorder}. */
 public interface AlertSourceRevisionRepo extends JpaRepository<AlertSourceRevision, String> {
 
+    /** Ref and {@code lastSeenAt} only — what the recorder's cache holds. */
+    interface LastSeenByRef {
+        String getRevisionRef();
+        Instant getLastSeenAt();
+    }
+
+    /**
+     * The recorder's cache-miss lookup: which of {@code refs} are stored, and
+     * when each was last seen. A projection, so a restart's first tick reads
+     * two short columns per revision rather than every payload.
+     */
+    @Query("SELECT r.revisionRef AS revisionRef, r.lastSeenAt AS lastSeenAt FROM AlertSourceRevision r WHERE r.revisionRef IN :refs")
+    List<LastSeenByRef> findLastSeenByRefIn(@Param("refs") Collection<String> refs);
+
     /**
      * Moves {@code lastSeenAt} forward for revisions their source re-listed on
      * a successful poll — one statement for the whole batch. Never moves it
-     * back: a row already seen later keeps its time.
+     * back: a row already seen later keeps its time. The count is how many
+     * rows moved; the recorder trusts its cache only when it matches.
      */
     @Transactional
     @Modifying

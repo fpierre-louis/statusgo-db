@@ -91,6 +91,20 @@ class AlertInterpretationPersistenceTest {
     }
 
     @Test
+    void theCacheMissProjectionReturnsRefAndLastSeenOnly() {
+        revisions.saveAndFlush(revision("NWS:urn:1@aaaaaaaaaaaa", T0));
+        revisions.saveAndFlush(revision("NWS:urn:2@aaaaaaaaaaaa", T0.plusSeconds(60)));
+        em.clear();
+
+        assertThat(revisions.findLastSeenByRefIn(List.of("NWS:urn:2@aaaaaaaaaaaa", "NWS:urn:absent@aaaaaaaaaaaa")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getRevisionRef()).isEqualTo("NWS:urn:2@aaaaaaaaaaaa");
+                    assertThat(row.getLastSeenAt()).isEqualTo(T0.plusSeconds(60));
+                });
+    }
+
+    @Test
     void aRevisionIsInsertedOnce_neverMergedOver() {
         revisions.saveAndFlush(revision("USGS:us1@aaaaaaaaaaaa", T0));
         em.clear();

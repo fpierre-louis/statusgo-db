@@ -84,6 +84,12 @@ public class AlertSourceRevision implements Persistable<String> {
     @Column(name = "first_seen_at", nullable = false)
     private Instant firstSeenAt;
 
+    /**
+     * RETENTION-GRADE ONLY: moved at most once per
+     * {@code InterpretationRecorder.LAST_SEEN_STEP} (1 h), so it can trail the
+     * real last sighting by that much. Read it for the 30-day sweep, never as
+     * "is this still listed" — the live ingest snapshot answers that.
+     */
     @Column(name = "last_seen_at", nullable = false)
     private Instant lastSeenAt;
 

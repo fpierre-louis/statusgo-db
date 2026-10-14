@@ -12,6 +12,7 @@ import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
 import io.sitprep.sitprepapi.util.AlertSourceFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -166,7 +167,7 @@ class InterpretationRecorderTest {
         InterpretationRecorder.Result r = restarted.record(polled(T0, flood(), quake(5.9)));
 
         assertThat(r).isEqualTo(new InterpretationRecorder.Result(0, 0, 0));
-        verify(revisions, times(1)).findAllById(anyIterable());
+        verify(revisions, times(1)).findLastSeenByRefIn(anyCollection());
         verify(snapshots, times(1)).findIdsByFingerprintIn(anyCollection());
         verify(revisions, never()).saveAll(anyIterable());
         verify(snapshots, never()).saveAll(anyIterable());
@@ -229,7 +230,7 @@ class InterpretationRecorderTest {
 
         clearInvocations(revisions, snapshots);
         small.record(polled(T0, many.get(0)));       // the eldest, evicted
-        verify(revisions, times(1)).findAllById(anyIterable());
+        verify(revisions, times(1)).findLastSeenByRefIn(anyCollection());
         verify(revisions, never()).saveAll(anyIterable());
         verify(snapshots, never()).saveAll(anyIterable());
         assertThat(revisionRows).hasSize(20);
@@ -309,24 +310,341 @@ class InterpretationRecorderTest {
 
     @Test
     void aRecordingFailureIsSwallowedByTheIngestHook() {
-        when(revisions.findAllById(anyIterable())).thenThrow(new IllegalStateException("db away"));
+        when(revisions.findLastSeenByRefIn(anyCollection())).thenThrow(new IllegalStateException("db away"));
 
         recorder.onPoll(polled(T0, flood()));   // must not throw
 
         assertThat(snapshotRows).isEmpty();
     }
 
+    // ── review 1: a record never points at the live interpretation ──────
+
+    /** The message that replaces {@link #flood()} inside the same snapshot. */
+    private static NormalizedAlert floodUpdate() {
+        return TestAlerts.nws("Flood Warning")
+                .id("urn:oid:2.49.0.1.840.0.flood.002.1")
+                .sent("2026-10-14T12:30:00-07:00")
+                .references(List.of("urn:oid:2.49.0.1.840.0.flood.001.1"))
+                .endsAt("2099-08-27T06:55:00Z")
+                .build();
+    }
+
+    /** What a record card may never point at: a snapshot that speaks in the present tense. */
+    private static void assertSaysNothingCurrent(AlertInterpretationSnapshot s) throws Exception {
+        JsonNode content = MAPPER.readTree(s.getContentJson());
+        assertThat(content.path("presentation").path("current").asBoolean())
+                .as("presentation.current").isFalse();
+        assertThat(content.path("lifecycleInfo").path("current").asBoolean())
+                .as("lifecycleInfo.current").isFalse();
+        JsonNode primary = content.path("interpreter").path("primaryAction");
+        assertThat(primary.isMissingNode() || primary.isNull()).as("a non-current snapshot has no primary action").isTrue();
+    }
+
+    @Test
+    void aHistoryRecordCardOfAStillLiveAlertNeverCarriesTheLiveSnapshotId() throws Exception {
+        ingest.setSnapshotForTest(List.of(flood()));
+        recorder.record(ingest.getSnapshot());
+        AlertInterpretationSnapshot live = snapshotRows.values().iterator().next();
+        JsonNode content = MAPPER.readTree(live.getContentJson());
+        assertThat(content.path("presentation").path("current").asBoolean())
+                .as("the recorded snapshot is the live interpretation").isTrue();
+        assertThat(content.path("interpreter").path("primaryAction").isObject()).isTrue();
+
+        AlertCardDto rec = feed.toRecordCard(flood(), AlertIngestService.MatchType.BROADCAST, 50, "active");
+
+        assertThat(rec.presentation().current()).isFalse();
+        assertThat(rec.interpreter().primaryAction()).isNull();
+        assertThat(rec.interpretationRef())
+                .as("a record card never points at a snapshot that carries current guidance")
+                .isNull();
+    }
+
+    @Test
+    void anAlertSupersededInTheSnapshotGetsItsOwnRecordSnapshot_neverTheLiveOne() throws Exception {
+        recorder.record(polled(T0, flood()));
+        UUID liveId = snapshotRows.keySet().iterator().next();
+
+        ingest.setSnapshotForTest(List.of(flood(), floodUpdate()));
+        InterpretationRecorder.Result r = recorder.record(ingest.getSnapshot());
+        assertThat(r.newRevisions()).as("only the update is a new revision").isEqualTo(1);
+        assertThat(r.newSnapshots()).as("the update, and the replaced message as a record").isEqualTo(2);
+
+        AlertCardDto replaced = feed.feedForViewer(LAT, LNG, null, "current").alerts().stream()
+                .filter(c -> "urn:oid:2.49.0.1.840.0.flood.001.1".equals(c.id())).findFirst().orElseThrow();
+        assertThat(replaced.supersededBy()).isNotNull();
+        assertThat(replaced.presentation().current()).isFalse();
+        assertThat(replaced.interpretationRef()).isNotNull().isNotEqualTo(liveId.toString());
+        assertSaysNothingCurrent(snapshotRows.get(UUID.fromString(replaced.interpretationRef())));
+
+        // History, holding the same stored edge, finds the same record snapshot.
+        AlertCardDto history = feed.toRecordCard(flood(), AlertIngestService.MatchType.BROADCAST, 50,
+                replaced.lifecycleState(), null, floodUpdate());
+        assertThat(history.interpretationRef()).isEqualTo(replaced.interpretationRef());
+    }
+
+    @Test
+    void noRecordCardEverPointsAtASnapshotThatSpeaksInThePresentTense() throws Exception {
+        ingest.setSnapshotForTest(List.of(flood(), floodUpdate()));
+        recorder.record(polled(T0, flood()));        // flood alone first: its live snapshot exists
+        recorder.record(ingest.getSnapshot());
+
+        List<AlertCardDto> records = new ArrayList<>();
+        feed.feedForViewer(LAT, LNG, null, "current").alerts().stream()
+                .filter(c -> !c.presentation().current()).forEach(records::add);
+        for (String state : List.of("active", "updated", "superseded", "cancelled", "expired", "no_longer_listed")) {
+            records.add(feed.toRecordCard(flood(), AlertIngestService.MatchType.BROADCAST, 50, state));
+            records.add(feed.toRecordCard(flood(), AlertIngestService.MatchType.BROADCAST, 50, state, null, floodUpdate()));
+            records.add(feed.toRecordCard(floodUpdate(), AlertIngestService.MatchType.BROADCAST, 50, state));
+        }
+
+        assertThat(records).isNotEmpty();
+        for (AlertCardDto c : records) {
+            if (c.interpretationRef() == null) continue;
+            assertSaysNothingCurrent(snapshotRows.get(UUID.fromString(c.interpretationRef())));
+        }
+    }
+
+    @Test
+    void dispatchResolvesTheLiveSnapshot_andARecordOnlyOnceOneIsRecorded() {
+        recorder.record(polled(T0, flood()));
+        UUID liveId = snapshotRows.keySet().iterator().next();
+        AlertFeedService.Assessment assessed = feed.assess(flood());
+
+        assertThat(recorder.liveSnapshotId(flood(), null, assessed)).isEqualTo(liveId.toString());
+        assertThat(recorder.liveSnapshotId(flood(), floodUpdate(), assessed))
+                .as("replaced, it is a record — and no record snapshot exists yet").isNull();
+
+        recorder.record(polled(T0, flood(), floodUpdate()));
+        String recordId = recorder.liveSnapshotId(flood(), floodUpdate(), assessed);
+        assertThat(recordId).isNotNull().isNotEqualTo(liveId.toString());
+        assertThat(snapshotRows.get(UUID.fromString(recordId)).getRevisionRef())
+                .isEqualTo(AlertSourceFingerprint.revisionRef(flood()));
+    }
+
+    // ── review 1: the caches never claim a row that is not there ────────
+
+    @Test
+    void aTouchThatMatchesFewerRowsThanAskedForgetsThoseRefs_soTheNextTickRechecks() {
+        recorder.record(polled(T0, flood()));
+        String floodRef = AlertSourceFingerprint.revisionRef(flood());
+        revisionRows.remove(floodRef);              // gone underneath the cache
+        snapshotRows.clear();                       // and so (FK) its snapshot
+
+        Instant later = T0.plus(Duration.ofHours(2));
+        at(later);
+        recorder.record(polled(later, flood()));    // the touch matches 0 of 1
+
+        clearInvocations(revisions, snapshots);
+        Instant next = later.plus(Duration.ofMinutes(5));
+        at(next);
+        InterpretationRecorder.Result r = recorder.record(polled(next, flood()));
+
+        assertThat(r.newRevisions()).as("the missing row is written again, not assumed").isEqualTo(1);
+        assertThat(r.newSnapshots()).as("and so is its snapshot").isEqualTo(1);
+        assertThat(revisionRows).containsKey(floodRef);
+        assertThat(snapshotRows).hasSize(1);
+    }
+
+    @Test
+    void aFailedSnapshotBatchForgetsItsRevisions_soTheNextTickRechecks() {
+        when(snapshots.saveAll(anyIterable())).thenThrow(new IllegalStateException("FK violation"));
+        recorder.onPoll(polled(T0, flood()));        // swallowed
+        assertThat(snapshotRows).isEmpty();
+
+        reset(snapshots);
+        fakeStore();
+        clearInvocations(revisions, snapshots);
+        at(T0.plus(Duration.ofMinutes(5)));
+        recorder.record(polled(T0.plus(Duration.ofMinutes(5)), flood()));
+
+        verify(revisions, atLeastOnce()).findLastSeenByRefIn(anyCollection());
+        assertThat(snapshotRows).hasSize(1);
+    }
+
+    /** Polls until {@code t} is parked on a monitor or has finished — no sleeps, no timing guesses. */
+    private static Thread.State settle(Thread t) throws InterruptedException {
+        for (int i = 0; i < 5000; i++) {
+            Thread.State s = t.getState();
+            if (s == Thread.State.BLOCKED || s == Thread.State.TERMINATED) return s;
+            Thread.sleep(1);
+        }
+        return t.getState();
+    }
+
+    /**
+     * The interleaving the review found: a tick reads a revision as stored, the
+     * sweep deletes it, and the tick then caches it — a cache that claims a row
+     * the table no longer has, so the revision is never written again and its
+     * next snapshot fails the FK. Driven step by step with latches.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aSweepNeverRunsBetweenATicksLookupAndItsCacheWrite() throws Exception {
+        String floodRef = AlertSourceFingerprint.revisionRef(flood());
+        Instant old = T0.minus(Duration.ofDays(40));
+        AlertSourceRevision stale = new AlertSourceRevision();
+        stale.setRevisionRef(floodRef);
+        stale.setDedupeKey("NWS:urn:oid:2.49.0.1.840.0.flood.001.1");
+        stale.setSource("NWS");
+        stale.setUpstreamId("urn:oid:2.49.0.1.840.0.flood.001.1");
+        stale.setFingerprint(AlertSourceFingerprint.fingerprint(flood()));
+        stale.setPayload("{}");
+        stale.setFirstSeenAt(old);
+        stale.setLastSeenAt(old);
+        revisionRows.put(floodRef, stale);
+
+        // The sweep's two statements, against the same rows (FK: a snapshot keeps its revision).
+        when(revisions.findSweepableRefs(any(), any())).thenAnswer(inv -> {
+            Instant cutoff = inv.getArgument(0);
+            return revisionRows.values().stream()
+                    .filter(r -> r.getLastSeenAt().isBefore(cutoff))
+                    .filter(r -> snapshotRows.values().stream().noneMatch(s -> s.getRevisionRef().equals(r.getRevisionRef())))
+                    .map(AlertSourceRevision::getRevisionRef).toList();
+        });
+        when(revisions.deleteSweepable(anyCollection(), any())).thenAnswer(inv -> {
+            int n = 0;
+            for (String ref : (Collection<String>) inv.getArgument(0)) {
+                boolean named = snapshotRows.values().stream().anyMatch(s -> s.getRevisionRef().equals(ref));
+                if (!named && revisionRows.remove(ref) != null) n++;
+            }
+            return n;
+        });
+
+        // The tick parks inside its lookup, after reading the row as stored.
+        java.util.concurrent.CountDownLatch inLookup = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Answer<?> realLookup = lastSeenLookup();
+        when(revisions.findLastSeenByRefIn(anyCollection())).thenAnswer(inv -> {
+            Object rows = realLookup.answer(inv);
+            inLookup.countDown();
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return rows;
+        });
+
+        // NWS has been down: the alert rides forward, so the tick does not touch it.
+        Snapshot carried = partly(T0, old, Set.of("USGS", "FEMA"), flood());
+        Thread tick = new Thread(() -> recorder.onPoll(carried));
+        tick.start();
+        assertThat(inLookup.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        Thread sweep = new Thread(() -> recorder.sweepRevisionsOnce(30, 1000));
+        sweep.start();
+        Thread.State sweepWhileTickParked = settle(sweep);
+
+        release.countDown();
+        tick.join(5000);
+        sweep.join(5000);
+        assertThat(tick.isAlive() || sweep.isAlive()).isFalse();
+
+        // The tick finished first: its snapshot now names the revision, so the sweep left it.
+        assertThat(revisionRows).as("the revision the tick cached is still stored").containsKey(floodRef);
+        assertThat(snapshotRows).as("and its snapshot was written").hasSize(1);
+        assertThat(sweepWhileTickParked).as("the sweep waited for the tick").isEqualTo(Thread.State.BLOCKED);
+
+        // And whatever the cache claims, the table has.
+        clearInvocations(revisions, snapshots);
+        recorder.record(carried);
+        assertThat(revisionRows).containsKey(floodRef);
+        verifyNoInteractions(revisions, snapshots);
+    }
+
+    @Test
+    void aSnapshotSweepWaitsForAnInFlightTickToo() throws Exception {
+        java.util.concurrent.CountDownLatch inLookup = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        when(revisions.findLastSeenByRefIn(anyCollection())).thenAnswer(inv -> {
+            inLookup.countDown();
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return List.of();
+        });
+        when(snapshots.findSweepableIds(any(), any())).thenReturn(List.of());
+
+        Thread tick = new Thread(() -> recorder.onPoll(polled(T0, flood())));
+        tick.start();
+        assertThat(inLookup.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        Thread sweep = new Thread(() -> recorder.sweepSnapshotsOnce(30, 1000));
+        sweep.start();
+        assertThat(settle(sweep)).as("the sweep waits for the tick").isEqualTo(Thread.State.BLOCKED);
+        verify(snapshots, never()).findSweepableIds(any(), any());
+
+        release.countDown();
+        tick.join(5000);
+        sweep.join(5000);
+        verify(snapshots).findSweepableIds(any(), any());
+    }
+
+    // ── review 1: the cache-miss lookup reads two columns, not payloads ─
+
+    @Test
+    void aCacheMissReadsTheLastSeenProjection_neverTheFullRows() {
+        recorder.record(polled(T0, flood(), quake(5.9)));
+        clearInvocations(revisions, snapshots);
+
+        newRecorder(64).record(polled(T0, flood(), quake(5.9)));
+
+        verify(revisions, times(1)).findLastSeenByRefIn(anyCollection());
+        verify(revisions, never()).findAllById(anyIterable());
+        verify(revisions, never()).findById(any());
+    }
+
+    // ── review 1: the LRU is ordered by use ─────────────────────────────
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aKeyStillListedEveryTickStaysCached_whileOthersChurnThrough() {
+        InterpretationRecorder small = newRecorder(16);   // the floor
+        NormalizedAlert keep = quake(5.0);
+        small.record(polled(T0, keep));
+        String keepRef = AlertSourceFingerprint.revisionRef(keep);
+        String keepFp = snapshotRows.values().iterator().next().getFingerprint();
+
+        // More newcomers than the cache holds, with `keep` re-listed on every tick.
+        clearInvocations(revisions, snapshots);
+        for (int i = 0; i < 20; i++) {
+            small.record(polled(T0, keep, TestAlerts.usgs("M x").id("us-other-" + i).magnitude(6.0)
+                    .geometry(Map.of("type", "Point", "coordinates", List.of(-118.2, 34.0))).build()));
+        }
+
+        for (org.mockito.invocation.Invocation inv : mockingDetails(revisions).getInvocations()) {
+            if (inv.getMethod().getName().equals("findLastSeenByRefIn")) {
+                assertThat((Collection<String>) inv.getArgument(0)).as("keep's revision is never re-read").doesNotContain(keepRef);
+            }
+        }
+        for (org.mockito.invocation.Invocation inv : mockingDetails(snapshots).getInvocations()) {
+            if (inv.getMethod().getName().equals("findIdsByFingerprintIn")) {
+                assertThat((Collection<String>) inv.getArgument(0)).as("keep's snapshot is never re-read").doesNotContain(keepFp);
+            }
+        }
+
+        clearInvocations(revisions, snapshots);
+        small.record(polled(T0, keep));
+        verifyNoInteractions(revisions, snapshots);
+    }
+
     // ── the in-memory store ─────────────────────────────────────────────
+
+    /** The recorder's cache-miss projection over {@link #revisionRows}. */
+    @SuppressWarnings("unchecked")
+    private Answer<List<AlertSourceRevisionRepo.LastSeenByRef>> lastSeenLookup() {
+        return inv -> {
+            List<AlertSourceRevisionRepo.LastSeenByRef> out = new ArrayList<>();
+            for (String ref : (Collection<String>) inv.getArgument(0)) {
+                AlertSourceRevision r = revisionRows.get(ref);
+                if (r == null) continue;
+                Instant seen = r.getLastSeenAt();
+                out.add(new AlertSourceRevisionRepo.LastSeenByRef() {
+                    public String getRevisionRef() { return ref; }
+                    public Instant getLastSeenAt() { return seen; }
+                });
+            }
+            return out;
+        };
+    }
 
     @SuppressWarnings("unchecked")
     private void fakeStore() {
-        when(revisions.findAllById(anyIterable())).thenAnswer(inv -> {
-            List<AlertSourceRevision> out = new ArrayList<>();
-            for (String id : (Iterable<String>) inv.getArgument(0)) {
-                if (revisionRows.containsKey(id)) out.add(revisionRows.get(id));
-            }
-            return out;
-        });
+        when(revisions.findLastSeenByRefIn(anyCollection())).thenAnswer(lastSeenLookup());
         when(revisions.saveAll(anyIterable())).thenAnswer(inv -> {
             List<AlertSourceRevision> out = new ArrayList<>();
             for (AlertSourceRevision r : (Iterable<AlertSourceRevision>) inv.getArgument(0)) {

@@ -340,12 +340,21 @@ public class AlertFeedService {
      * live-card path a person's feed takes, with no viewer point and no
      * community threads, so the recorded interpreter, presentation, source
      * identity and lifecycle are exactly what a reader is shown — minus
-     * everything that depends on who is reading.
+     * everything that depends on who is reading. Built at the recorder's
+     * {@code now}, the instant its fingerprint's lifecycle mode was read at.
      */
     AlertCardDto interpretationCard(NormalizedAlert a, NormalizedAlert replacedBy,
-                                    Assessment assessed, Set<String> knownIds) {
+                                    Assessment assessed, Set<String> knownIds, Instant now) {
         return liveCard(a, MatchType.BROADCAST, AppConfigResource.alertsRadiusMi(), replacedBy, assessed,
-                new Reader(null, knownIds == null ? Set.of() : knownIds, List.of()));
+                new Reader(null, knownIds == null ? Set.of() : knownIds, List.of()), now);
+    }
+
+    /**
+     * The all-clear reading a card's tone and its snapshot fingerprint share:
+     * CAP AllClear on the alert or on the message that ended it.
+     */
+    static boolean allClearOf(NormalizedAlert a, NormalizedAlert endedBy) {
+        return AlertInterpreter.isAllClear(a) || AlertInterpreter.isAllClear(endedBy);
     }
 
     /**
@@ -371,14 +380,21 @@ public class AlertFeedService {
      */
     private AlertCardDto liveCard(NormalizedAlert a, MatchType match, int radiusMi,
                                   NormalizedAlert replacedBy, Assessment assessed, Reader reader) {
-        Instant now = clock.instant();
+        return liveCard(a, match, radiusMi, replacedBy, assessed, reader, clock.instant());
+    }
+
+    private AlertCardDto liveCard(NormalizedAlert a, MatchType match, int radiusMi,
+                                  NormalizedAlert replacedBy, Assessment assessed, Reader reader,
+                                  Instant now) {
+        // Record-ness here is the rule InterpretationRecorder.LifecycleMode.live
+        // fingerprints with: a record exactly when something replaced it.
         boolean record = replacedBy != null;
         String lifecycleState = record
                 ? AlertDerivations.endingStateOf(replacedBy)
                 : AlertDerivations.lifecycleState(a, now);
         Interpretation interpretation = reader == null ? null : new Interpretation(
                 AlertInterpreter.liveLifecycle(a, replacedBy, reader.knownIds(), now),
-                AlertInterpreter.isAllClear(a) || AlertInterpreter.isAllClear(replacedBy),
+                allClearOf(a, replacedBy),
                 reader.viewer(), reader.communityPostIds(), now);
         return card(a, match, radiusMi, replacedBy, assessed, lifecycleState, record, interpretation);
     }
@@ -410,7 +426,7 @@ public class AlertFeedService {
         Instant now = clock.instant();
         Interpretation interpretation = new Interpretation(
                 AlertInterpreter.recordLifecycle(a, lifecycleState, endedBy, Set.of(), now),
-                AlertInterpreter.isAllClear(a) || AlertInterpreter.isAllClear(endedBy),
+                allClearOf(a, endedBy),
                 viewer, List.of(), now);
         return card(a, match, radiusMi, null, assess(a), lifecycleState, true, interpretation);
     }
@@ -492,7 +508,7 @@ public class AlertFeedService {
                 safety,
                 interp.dedupeKey(),
                 interp.sourceRevisionRef(),
-                interpretationRefOf(interpretation, interp, assessed, a),
+                interpretationRefOf(interpretation, interp, assessed, a, record),
                 interpretation == null ? null : AlertInterpreter.VERSION,
                 interp.sourceIdentity(),
                 interpretation == null ? null : interpretation.lifecycle(),
@@ -509,15 +525,22 @@ public class AlertFeedService {
      * The recorded snapshot of exactly this interpretation, from the
      * recorder's cache (S2 C3). Never a query: a feed of N cards costs N hash
      * computations and N map reads. Null on the decision feed, without a
-     * recorder, and when the decision has moved since the last ingest tick
-     * recorded it — a card never points at a snapshot that says something
-     * else.
+     * recorder, and when the decision or the lifecycle has moved since the
+     * last ingest tick recorded it — a card never points at a snapshot that
+     * says something else.
+     *
+     * <p>The fingerprint carries the card's own record flag and lifecycle
+     * verdict, so a record — a history card, or a live message already
+     * replaced — names only a snapshot recorded as that record, never the
+     * live one with its {@code current=true} and primary action. A history
+     * card of an alert the feed never showed replaced gets null.</p>
      */
     private String interpretationRefOf(Interpretation interpretation, AlertInterpreter.Output interp,
-                                       Assessment assessed, NormalizedAlert a) {
+                                       Assessment assessed, NormalizedAlert a, boolean record) {
         if (interpretation == null || recorder == null || interp.sourceRevisionRef() == null) return null;
-        return recorder.cachedSnapshotId(
-                InterpretationRecorder.snapshotFingerprint(interp.sourceRevisionRef(), assessed, a));
+        return recorder.cachedSnapshotId(InterpretationRecorder.snapshotFingerprint(
+                interp.sourceRevisionRef(), assessed, a,
+                InterpretationRecorder.LifecycleMode.of(record, interpretation.lifecycle(), interpretation.allClear())));
     }
 
     private static AlertCardDto.Safety safetyOf(AlertSafetyPolicy.Decision decision) {

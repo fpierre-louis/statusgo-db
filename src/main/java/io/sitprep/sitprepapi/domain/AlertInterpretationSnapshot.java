@@ -25,8 +25,12 @@ import java.util.UUID;
  *
  * <p>{@code fingerprint} covers the revision ref, {@code POLICY_VERSION},
  * {@code AlertInterpreter.VERSION}, the template key and its review version,
- * and every field of the policy decision. Any of those changing is a new
- * snapshot; a re-poll of the same revision under the same rules is not.</p>
+ * every field of the policy decision, and the card's lifecycle mode (record or
+ * live, and its lifecycle verdict — {@code InterpretationRecorder.LifecycleMode}).
+ * Any of those changing is a new snapshot; a re-poll of the same revision under
+ * the same rules is not. So a revision that is replaced while still listed has
+ * a live snapshot AND a record snapshot, and a record card only ever names the
+ * second.</p>
  *
  * <p>{@code contentJson} is the interpreter, presentation, source-identity and
  * lifecycle blocks as they were at creation. It holds <b>no viewer context and

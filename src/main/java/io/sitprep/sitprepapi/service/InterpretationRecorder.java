@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -64,16 +63,36 @@ import java.util.function.Supplier;
  *
  * <p>{@code lastSeenAt} is moved only for an alert whose source answered this
  * tick (Phase 3 D5: carried-forward data is not a sighting), and at most once
- * per {@link #LAST_SEEN_STEP}, in one UPDATE for the batch. Its only reader is
- * the 30-day retention sweep, which an hour of slack does not move.</p>
+ * per {@link #LAST_SEEN_STEP}, in one UPDATE for the batch.</p>
+ *
+ * <p><b>{@code lastSeenAt} is retention-grade only</b> (an accepted deviation
+ * from contract §6, which says "bump {@code last_seen_at}" per tick): it may
+ * trail the real last sighting by up to {@link #LAST_SEEN_STEP}. Its one reader
+ * is the 30-day retention sweep, which an hour of slack does not move. Nothing
+ * may read it as a liveness bound — not the record lookup (C4) deciding
+ * live-versus-record, not dispatch or the inbox (C5) deciding "still listed".
+ * Whether an alert is listed now is the ingest snapshot's answer, and only
+ * its.</p>
  *
  * <h2>The snapshot id the feed hands out</h2>
  *
  * <p>{@link #cachedSnapshotId} is the feed card's {@code interpretationRef}: a
  * lookup in the fingerprint cache, never a query, so a person's feed costs no
  * more database work than before. A card whose interpretation has not been
- * recorded yet — the decision moved since the last tick — carries null rather
- * than the id of a snapshot that says something else.</p>
+ * recorded yet — the decision or the lifecycle moved since the last tick —
+ * carries null rather than the id of a snapshot that says something else. The
+ * fingerprint folds in the card's {@link LifecycleMode}, so a RECORD (replaced
+ * in the snapshot, or a history card) only ever names a record snapshot, never
+ * the live one with its {@code current=true} and primary action.</p>
+ *
+ * <h2>One writer at a time</h2>
+ *
+ * <p>{@link #record} and both sweeps hold this recorder's monitor, and each
+ * sweep's DELETE commits before the monitor is released. Otherwise a sweep
+ * could delete a row between a tick's lookup and its cache write, and the
+ * cache would go on claiming a row the table no longer has — the revision would
+ * never be written again and its next snapshot would fail the FK. The feed's
+ * cache reads take only the short {@code cacheLock}, never the monitor.</p>
  *
  * <p>Nothing here is AI. The content is the interpreter's existing output,
  * serialized.</p>
@@ -83,7 +102,12 @@ public class InterpretationRecorder {
 
     private static final Logger log = LoggerFactory.getLogger(InterpretationRecorder.class);
 
-    /** How stale a written {@code lastSeenAt} may get before a re-listing moves it. */
+    /**
+     * How stale a written {@code lastSeenAt} may get before a re-listing moves
+     * it — the price of one UPDATE an hour instead of one a tick. It is why
+     * {@code lastSeenAt} is retention-grade only (see the class doc): never a
+     * liveness bound.
+     */
     static final Duration LAST_SEEN_STEP = Duration.ofHours(1);
 
     /** Keys per IN list. */
@@ -98,12 +122,19 @@ public class InterpretationRecorder {
     private final Supplier<AlertFeedService> feed;
     private final ObjectMapper json = new ObjectMapper();
 
-    /** Guards both caches; a person's feed reads them while a tick writes. */
+    /**
+     * Guards both caches; a person's feed reads them while a tick writes. The
+     * monitor ({@code synchronized} on this) orders ticks against sweeps; this
+     * lock only keeps the maps whole.
+     */
     private final Object cacheLock = new Object();
     /** revisionRef → the {@code lastSeenAt} this process knows is stored. */
     private final Map<String, Instant> revisionCache;
-    /** snapshot fingerprint → snapshot id. */
-    private final Map<String, UUID> snapshotCache;
+    /** snapshot fingerprint → the stored snapshot's id and revision. */
+    private final Map<String, CachedSnapshot> snapshotCache;
+
+    /** A stored snapshot, by fingerprint; the revision lets a vanished revision take its snapshots with it. */
+    private record CachedSnapshot(UUID id, String revisionRef) {}
 
     /** Write-time clock. A field so a test can pin it. */
     Clock clock = Clock.systemUTC();
@@ -172,12 +203,16 @@ public class InterpretationRecorder {
         AlertFeedService assessor = feed.get();
         Instant now = clock.instant();
 
-        // Pass 1 — identity and decision, in memory. One entry per revision and
-        // one per interpretation, whatever the snapshot repeats.
+        // Pass 1 — identity, decision and lifecycle mode, in memory. One entry
+        // per revision and one per interpretation, whatever the snapshot
+        // repeats. What replaced what is a fact about the whole snapshot (the
+        // feed builds it the same way), and it decides which alerts read as
+        // records.
+        Map<String, NormalizedAlert> supersededBy = AlertDerivations.supersessionIndex(snapshot.alerts());
         Map<String, Seen> byRef = new LinkedHashMap<>();
         Map<String, Seen> byFingerprint = new LinkedHashMap<>();
         for (NormalizedAlert a : snapshot.alerts()) {
-            Seen s = identify(a, assessor);
+            Seen s = identify(a, a == null ? null : supersededBy.get(a.id()), assessor, now);
             if (s == null) continue;
             byRef.putIfAbsent(s.revisionRef(), s);
             byFingerprint.putIfAbsent(s.snapshotFingerprint(), s);
@@ -186,7 +221,7 @@ public class InterpretationRecorder {
 
         Set<String> stored = new HashSet<>();
         int newRevisions = recordRevisions(snapshot, byRef, now, stored);
-        int touched = touchRelisted(snapshot, byRef, now);
+        int touched = touchRelisted(snapshot, byRef, now, stored);
         int newSnapshots = recordSnapshots(snapshot, byFingerprint, stored, assessor, now);
         return new Result(newRevisions, touched, newSnapshots);
     }
@@ -198,11 +233,29 @@ public class InterpretationRecorder {
      */
     public String cachedSnapshotId(String snapshotFingerprint) {
         if (snapshotFingerprint == null) return null;
-        UUID id;
+        CachedSnapshot hit;
         synchronized (cacheLock) {
-            id = snapshotCache.get(snapshotFingerprint);
+            hit = snapshotCache.get(snapshotFingerprint);
         }
-        return id == null ? null : id.toString();
+        return hit == null ? null : hit.id().toString();
+    }
+
+    /**
+     * The recorded snapshot id of {@code a}'s LIVE interpretation as of now —
+     * what dispatch stamps on a notification row (C5). {@code replacedBy} is
+     * the message that replaced {@code a} in the same ingest snapshot, if any
+     * ({@link AlertDerivations#supersessionIndex}); with it the answer is the
+     * record snapshot, as on the feed.
+     *
+     * <p>A cache read, never a query. Null when this exact interpretation has
+     * not been recorded yet — the decision or lifecycle moved since the last
+     * tick — and the caller then writes the row with no snapshot rather than
+     * one that says something else.</p>
+     */
+    public String liveSnapshotId(NormalizedAlert a, NormalizedAlert replacedBy, AlertFeedService.Assessment assessed) {
+        if (a == null || assessed == null) return null;
+        return cachedSnapshotId(snapshotFingerprint(AlertSourceFingerprint.revisionRef(a), assessed, a,
+                LifecycleMode.live(a, replacedBy, clock.instant())));
     }
 
     // ------------------------------------------------------------------
@@ -210,13 +263,15 @@ public class InterpretationRecorder {
     // ------------------------------------------------------------------
 
     private record Seen(NormalizedAlert alert,
+                        NormalizedAlert replacedBy,
                         String dedupeKey,
                         String fingerprint,
                         String revisionRef,
                         AlertFeedService.Assessment assessed,
                         String snapshotFingerprint) {}
 
-    private static Seen identify(NormalizedAlert a, AlertFeedService assessor) {
+    private static Seen identify(NormalizedAlert a, NormalizedAlert replacedBy,
+                                 AlertFeedService assessor, Instant now) {
         if (a == null || a.id() == null || a.id().isBlank()) return null;
         String dedupeKey = AlertIdentity.dedupeKey(a.source(), a.id());
         String fp = AlertSourceFingerprint.fingerprint(a);
@@ -226,22 +281,64 @@ public class InterpretationRecorder {
             return null;    // no column holds it; the live feed is unaffected
         }
         AlertFeedService.Assessment assessed = assessor.assess(a);
-        return new Seen(a, dedupeKey, fp, ref, assessed, snapshotFingerprint(ref, assessed, a));
+        return new Seen(a, replacedBy, dedupeKey, fp, ref, assessed,
+                snapshotFingerprint(ref, assessed, a, LifecycleMode.live(a, replacedBy, now)));
+    }
+
+    /**
+     * The part of an interpretation that is about TIME rather than about the
+     * revision: whether the card is a record, and its lifecycle verdict.
+     *
+     * <p>One revision under one decision reads two ways. Live, it is current
+     * and may carry a primary action and steps; replaced in the snapshot, or
+     * looked up in history, it is a record and carries none of them. Before
+     * this was part of the fingerprint, a record card's
+     * {@code interpretationRef} named the live snapshot — {@code current=true},
+     * a primary action — while the card itself said neither (C3 review 1).</p>
+     *
+     * <p>The verdict only, never the evidence: references, timestamps and the
+     * replacing message's key stay out, so a revision gets one snapshot per way
+     * it can read, not one per poll. Every input here is what decides the
+     * card's {@code presentation.current}, priority, tone, label and whether
+     * {@code primaryAction} may exist ({@link AlertInterpreter#interpret}).</p>
+     */
+    record LifecycleMode(boolean record, String state, boolean current, boolean verified,
+                         String reason, boolean allClear) {
+
+        /** As a card holds it: its record flag, its {@code lifecycleInfo} and its all-clear reading. */
+        static LifecycleMode of(boolean record, AlertCardDto.LifecycleInfo info, boolean allClear) {
+            return info == null
+                    ? new LifecycleMode(record, null, false, false, null, allClear)
+                    : new LifecycleMode(record, info.state(), info.current(), info.verified(), info.reason(), allClear);
+        }
+
+        /**
+         * A live card's mode at {@code now} — the derivation the feed's live
+         * card makes: a record exactly when something replaced it, the
+         * interpreter's live lifecycle, and the shared all-clear reading.
+         */
+        static LifecycleMode live(NormalizedAlert a, NormalizedAlert replacedBy, Instant now) {
+            return of(replacedBy != null,
+                    AlertInterpreter.liveLifecycle(a, replacedBy, Set.of(), now),
+                    AlertFeedService.allClearOf(a, replacedBy));
+        }
     }
 
     /**
      * The snapshot fingerprint (contract §6): revision ref, policy version,
-     * interpreter version, template key and review version, and every field of
-     * the decision. Shared by the writer and every reader that resolves a
-     * snapshot id — the feed card, and dispatch — so the two cannot drift.
+     * interpreter version, template key and review version, every field of the
+     * decision — and the card's {@link LifecycleMode} (C3 review 1, beyond §6),
+     * so a record and the live card never share a snapshot. Shared by the
+     * writer and every reader that resolves a snapshot id — the feed card, and
+     * dispatch through {@link #liveSnapshotId} — so the two cannot drift.
      *
      * <p>Each part is written as {@code name=<length>:<value>} on its own line,
      * the same framing as {@link AlertSourceFingerprint}, so no value can shift
      * into its neighbour.</p>
      */
     static String snapshotFingerprint(String revisionRef, AlertFeedService.Assessment assessed,
-                                      NormalizedAlert a) {
-        if (revisionRef == null || assessed == null || assessed.decision() == null) return null;
+                                      NormalizedAlert a, LifecycleMode mode) {
+        if (revisionRef == null || assessed == null || assessed.decision() == null || mode == null) return null;
         DispatchTemplate tpl = assessed.template();
         AlertSafetyPolicy.Decision d = assessed.decision();
         StringBuilder sb = new StringBuilder(256);
@@ -258,6 +355,12 @@ public class InterpretationRecorder {
         line(sb, "asIssuedMovementDirective",
                 d.asIssuedMovementDirective() == null ? null : d.asIssuedMovementDirective().wire());
         line(sb, "reason", d.reason());
+        line(sb, "record", String.valueOf(mode.record()));
+        line(sb, "lifecycleState", mode.state());
+        line(sb, "lifecycleCurrent", String.valueOf(mode.current()));
+        line(sb, "lifecycleVerified", String.valueOf(mode.verified()));
+        line(sb, "lifecycleReason", mode.reason());
+        line(sb, "allClear", String.valueOf(mode.allClear()));
         return sha256Hex(sb.toString());
     }
 
@@ -292,15 +395,19 @@ public class InterpretationRecorder {
         List<String> unknown = new ArrayList<>();
         synchronized (cacheLock) {
             for (String ref : byRef.keySet()) {
-                if (revisionCache.containsKey(ref)) stored.add(ref);
+                // get(), not containsKey(): a hit is a use, and the LRU is
+                // ordered by use — a key re-listed every tick never ages out.
+                if (revisionCache.get(ref) != null) stored.add(ref);
                 else unknown.add(ref);
             }
         }
         if (unknown.isEmpty()) return 0;
 
+        // Two columns per row, never the payloads: a restart's first tick
+        // re-reads every listed revision.
         Map<String, Instant> found = new LinkedHashMap<>();
         for (List<String> chunk : chunks(unknown)) {
-            for (AlertSourceRevision r : revisions.findAllById(chunk)) {
+            for (AlertSourceRevisionRepo.LastSeenByRef r : revisions.findLastSeenByRefIn(chunk)) {
                 found.put(r.getRevisionRef(), r.getLastSeenAt());
             }
         }
@@ -360,8 +467,15 @@ public class InterpretationRecorder {
     /**
      * Moves {@code lastSeenAt} for revisions their source re-listed this tick,
      * once per {@link #LAST_SEEN_STEP}, in one statement per chunk.
+     *
+     * <p>The new time is cached only when the UPDATE moved every row it was
+     * handed. A short count means some ref the cache vouched for is not in
+     * the table as the cache thinks; the count cannot say which, so the whole
+     * chunk is forgotten ({@link #forget}) and left out of {@code stored} — no
+     * snapshot is hung on it this tick, and the next tick re-reads it and
+     * writes back whatever is missing.</p>
      */
-    private int touchRelisted(Snapshot snapshot, Map<String, Seen> byRef, Instant now) {
+    private int touchRelisted(Snapshot snapshot, Map<String, Seen> byRef, Instant now, Set<String> stored) {
         Instant due = now.minus(LAST_SEEN_STEP);
         List<String> touch = new ArrayList<>();
         synchronized (cacheLock) {
@@ -372,13 +486,39 @@ public class InterpretationRecorder {
             }
         }
         if (touch.isEmpty()) return 0;
+        int touched = 0;
+        List<String> unsure = new ArrayList<>();
         for (List<String> chunk : chunks(touch)) {
-            revisions.touchLastSeen(chunk, now);
+            int moved = revisions.touchLastSeen(chunk, now);
+            if (moved == chunk.size()) {
+                synchronized (cacheLock) {
+                    for (String ref : chunk) revisionCache.put(ref, now);
+                }
+                touched += moved;
+            } else {
+                unsure.addAll(chunk);
+            }
         }
+        if (!unsure.isEmpty()) {
+            log.warn("InterpretationRecorder: lastSeen touch matched fewer rows than cached; re-reading {} ref(s)",
+                    unsure.size());
+            forget(unsure);
+            unsure.forEach(stored::remove);
+        }
+        return touched;
+    }
+
+    /**
+     * Drops {@code refs} from the revision cache, and every cached snapshot
+     * hung on one of them — a revision the table does not have cannot have
+     * snapshots either (the FK). The next tick that lists them re-reads both.
+     */
+    private void forget(Collection<String> refs) {
+        Set<String> gone = new HashSet<>(refs);
         synchronized (cacheLock) {
-            for (String ref : touch) revisionCache.put(ref, now);
+            revisionCache.keySet().removeAll(gone);
+            snapshotCache.values().removeIf(c -> gone.contains(c.revisionRef()));
         }
-        return touch.size();
     }
 
     // ------------------------------------------------------------------
@@ -392,27 +532,27 @@ public class InterpretationRecorder {
             for (Map.Entry<String, Seen> e : byFingerprint.entrySet()) {
                 // A revision that could not be stored cannot carry a snapshot (FK).
                 if (!storedRefs.contains(e.getValue().revisionRef())) continue;
-                if (!snapshotCache.containsKey(e.getKey())) unknown.add(e.getKey());
+                if (snapshotCache.get(e.getKey()) == null) unknown.add(e.getKey());   // get(): a hit is a use
             }
         }
         if (unknown.isEmpty()) return 0;
 
-        Map<String, UUID> found = new LinkedHashMap<>();
+        Map<String, CachedSnapshot> found = new LinkedHashMap<>();
         for (List<String> chunk : chunks(unknown)) {
             for (AlertInterpretationSnapshotRepo.IdByFingerprint row : snapshots.findIdsByFingerprintIn(chunk)) {
-                found.put(row.getFingerprint(), row.getId());
+                Seen s = byFingerprint.get(row.getFingerprint());
+                if (s != null) found.put(row.getFingerprint(), new CachedSnapshot(row.getId(), s.revisionRef()));
             }
         }
 
-        // The card's context — what replaced what, which ids are in hand — is
-        // built once, and only when something new needs interpreting.
+        // Which ids are in hand (for references[].resolved) is built once, and
+        // only when something new needs interpreting. The card is built at the
+        // same `now` as the fingerprint's lifecycle mode, so the two agree.
         List<AlertInterpretationSnapshot> fresh = new ArrayList<>();
-        Map<String, NormalizedAlert> supersededBy = null;
         Set<String> knownIds = null;
         for (String fp : unknown) {
             if (found.containsKey(fp)) continue;
-            if (supersededBy == null) {
-                supersededBy = AlertDerivations.supersessionIndex(snapshot.alerts());
+            if (knownIds == null) {
                 knownIds = new HashSet<>();
                 for (NormalizedAlert a : snapshot.alerts()) {
                     if (a != null && a.id() != null) knownIds.add(a.id());
@@ -420,13 +560,23 @@ public class InterpretationRecorder {
             }
             Seen s = byFingerprint.get(fp);
             AlertInterpretationSnapshot row = toSnapshot(s, fp,
-                    assessor.interpretationCard(s.alert(), supersededBy.get(s.alert().id()), s.assessed(), knownIds),
+                    assessor.interpretationCard(s.alert(), s.replacedBy(), s.assessed(), knownIds, now),
                     now);
             if (row != null) fresh.add(row);
         }
         if (!fresh.isEmpty()) {
-            snapshots.saveAll(fresh);
-            for (AlertInterpretationSnapshot r : fresh) found.put(r.getFingerprint(), r.getId());
+            try {
+                snapshots.saveAll(fresh);
+            } catch (RuntimeException e) {
+                // Most likely the FK: a revision the cache vouched for is not
+                // stored. Forget those revisions so the next tick re-reads them
+                // instead of failing the same way every five minutes.
+                forget(fresh.stream().map(AlertInterpretationSnapshot::getRevisionRef).toList());
+                throw e;
+            }
+            for (AlertInterpretationSnapshot r : fresh) {
+                found.put(r.getFingerprint(), new CachedSnapshot(r.getId(), r.getRevisionRef()));
+            }
         }
         synchronized (cacheLock) {
             snapshotCache.putAll(found);
@@ -491,42 +641,51 @@ public class InterpretationRecorder {
      * One batch of snapshots older than {@code retentionDays} that no
      * notification row names and whose revision is no longer listed.
      *
+     * <p>Holds the recorder's monitor, so it never runs inside a tick (see
+     * the class doc). Deliberately NOT {@code @Transactional}: the repository's
+     * DELETE commits on its own, inside the monitor — a transaction around this
+     * method would commit after the monitor is released, and a tick could read
+     * the doomed rows as stored in between. The candidates leave the cache
+     * before the DELETE, so no card is handed an id mid-delete; one the DELETE
+     * keeps is simply re-read on its next listing.</p>
+     *
      * @return rows deleted (the drain loop stops on a short batch)
      */
-    @Transactional
-    public int sweepSnapshotsOnce(int retentionDays, int batchSize) {
+    public synchronized int sweepSnapshotsOnce(int retentionDays, int batchSize) {
         Instant cutoff = clock.instant().minus(Duration.ofDays(retentionDays));
         List<UUID> ids = snapshots.findSweepableIds(cutoff, PageRequest.of(0, batchSize));
         if (ids.isEmpty()) return 0;
-        int deleted = snapshots.deleteSweepable(ids);
-        Set<UUID> gone = new HashSet<>(ids);
+        Set<UUID> doomed = new HashSet<>(ids);
         synchronized (cacheLock) {
-            snapshotCache.values().removeIf(gone::contains);
+            snapshotCache.values().removeIf(c -> doomed.contains(c.id()));
         }
-        return deleted;
+        return snapshots.deleteSweepable(ids);
     }
 
     /**
      * One batch of revisions last seen more than {@code retentionDays} ago
-     * that no snapshot points at.
+     * that no snapshot points at. Same monitor and commit rule as
+     * {@link #sweepSnapshotsOnce}.
      */
-    @Transactional
-    public int sweepRevisionsOnce(int retentionDays, int batchSize) {
+    public synchronized int sweepRevisionsOnce(int retentionDays, int batchSize) {
         Instant cutoff = clock.instant().minus(Duration.ofDays(retentionDays));
         List<String> refs = revisions.findSweepableRefs(cutoff, PageRequest.of(0, batchSize));
         if (refs.isEmpty()) return 0;
-        int deleted = revisions.deleteSweepable(refs, cutoff);
         synchronized (cacheLock) {
             revisionCache.keySet().removeAll(refs);
         }
-        return deleted;
+        return revisions.deleteSweepable(refs, cutoff);
     }
 
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
-    /** Access-ordered, so a key the feed keeps re-listing never ages out. */
+    /**
+     * Access-ordered, so a key the feed keeps re-listing never ages out —
+     * which holds only because every hit is a {@code get()}: {@code containsKey}
+     * does not count as a use.
+     */
     private static <K, V> Map<K, V> lru(int capacity) {
         int cap = Math.max(16, capacity);
         return new LinkedHashMap<>(64, 0.75f, true) {
