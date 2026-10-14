@@ -127,6 +127,9 @@ class GroupReadScopingTest {
         JsonNode n = read(STRANGER);
         assertFalse(n.has("groupCode"));
         assertFalse(n.has("stripeCustomerId"));
+        // The resolved tier names an active override tier (B1 review).
+        assertFalse(n.has("effectivePlanTier"));
+        assertFalse(n.has("planUnlocks"));
     }
 
     @Test
@@ -146,6 +149,7 @@ class GroupReadScopingTest {
             JsonNode n = read(caller);
             assertTrue(n.has("memberEmails"), caller + " lost the roster");
             assertTrue(n.has("address"), caller + " lost the address");
+            assertTrue(n.has("effectivePlanTier"), caller + " lost the plan tier");
         }
     }
 

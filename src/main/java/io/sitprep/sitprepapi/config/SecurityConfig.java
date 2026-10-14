@@ -135,7 +135,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/readiness/assessment/evaluate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/agency/requests").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/agency/requests/*/status").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/agency/requests/*/respond").permitAll()
+                        // AG-01: the mapping is /{id}/status/respond (AgencyRequestResource);
+                        // the old "*/respond" matcher never matched it, so a signed-out
+                        // applicant answering NEEDS_INFO got a 401.
+                        .requestMatchers(HttpMethod.POST, "/api/agency/requests/*/status/respond").permitAll()
 
                         .requestMatchers("/api/**").authenticated()
                         .requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()

@@ -158,6 +158,11 @@ public class HouseholdCompositionService {
             UserInfo u = profiles.get(email);
             boolean isYou = email.equals(viewer);
             boolean isOwner = email.equals(owner);
+            // Another admin is the owner's to remove (GroupService
+            // requireOwnerToTouchAnotherAdmin answers 403 to anyone else).
+            boolean targetAdmin = GroupRole.fromGroup(g, email).isAtLeastAdmin();
+            boolean canRemoveAccount = viewerAdmin && !isOwner && !isYou
+                    && (viewerRole == GroupRole.OWNER || !targetAdmin);
             people.add(new Person(
                     "user:" + email,
                     PersonKind.ACCOUNT,
@@ -172,7 +177,7 @@ public class HouseholdCompositionService {
                     null,
                     null,
                     u == null ? null : DtoImages.avatar(u.getProfileImageUrl()),
-                    new Capabilities(false, viewerAdmin && !isOwner && !isYou, false, false)));
+                    new Capabilities(false, canRemoveAccount, false, false)));
         }
 
         // Manual members — oldest first.

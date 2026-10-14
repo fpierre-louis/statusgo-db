@@ -224,12 +224,51 @@ public class GroupPostService {
                 .anyMatch(e -> e != null && e.equalsIgnoreCase(email));
     }
 
+    /**
+     * REST edit ({@code PUT /api/group-posts/{id}}). Audit BE-03 / FD-11:
+     * the post's group is immutable. A request that names a different
+     * {@code groupId} is refused with 403 and nothing changes (it used to
+     * write the new id straight onto the row and broadcast to that group,
+     * so an author could move a message into any group or household chat).
+     * The group name is re-derived from the group, never taken from the
+     * client (the FE sent "Group Name Placeholder" on every edit). Returns
+     * the DTO so the response carries {@code imageUrl}.
+     *
+     * @param requestedGroupId the client's {@code groupId}; optional. When
+     *        present it must equal the post's own group.
+     */
     @Transactional
-    public GroupPost updatePost(GroupPost post, String actorEmail) {
-        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
-            throw new SecurityException("User not authorized to update this post.");
+    public GroupPostDto editPost(Long postId, String actorEmail, String content,
+                                 String requestedGroupId, List<String> tags,
+                                 String imageKey, Boolean removeImage) {
+        GroupPost post = postRepo.findById(postId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
+        if (post.getAuthor() == null || actorEmail == null
+                || !post.getAuthor().equalsIgnoreCase(actorEmail.trim())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the author can edit this post");
         }
-        UserGeneratedContentFilter.requireAcceptable("group post", post.getContent());
+        if (requestedGroupId != null && !requestedGroupId.isBlank()
+                && !requestedGroupId.trim().equals(post.getGroupId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "A post can't be moved to another group");
+        }
+        UserGeneratedContentFilter.requireAcceptable("group post", content);
+
+        post.setContent(content);
+        post.setTags(tags);
+        post.setMentionedUserIds(MentionToken.extractIds(content));
+        post.setEditedAt(Instant.now());
+        groupRepo.findByGroupId(post.getGroupId())
+                .ifPresent(g -> post.setGroupName(g.getGroupName()));
+
+        // Image lifecycle on edit: imageKey present → replace;
+        // removeImage=true → clear; both absent → leave unchanged.
+        if (imageKey != null && !imageKey.isBlank()) {
+            post.setImageKey(imageKey.trim());
+        } else if (Boolean.TRUE.equals(removeImage)) {
+            post.setImageKey(null);
+        }
 
         GroupPost updatedPost = postRepo.save(post);
         GroupPostDto updatedPostDto = convertToPostDto(updatedPost);
@@ -240,7 +279,7 @@ public class GroupPostService {
             }
         });
 
-        return updatedPost;
+        return updatedPostDto;
     }
 
     @Transactional

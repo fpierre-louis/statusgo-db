@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.resource;
 
-import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.GroupPostDto;
@@ -128,47 +127,26 @@ public class GroupPostResource {
                 .orElseGet(() -> ResponseEntity.status(404).<ApiResponse<GroupPostDto>>build());
     }
 
+    /**
+     * Author edit. The post's group is immutable (BE-03): {@code groupId}
+     * is accepted only to be checked against the post's own group (403 if
+     * it differs), and {@code groupName} is ignored; the server derives it.
+     * Returns the DTO, so {@code imageUrl} comes back with the edit (FD-11).
+     */
     @PutMapping(value = "/{postId}", consumes = { "multipart/form-data" })
-    public ResponseEntity<ApiResponse<GroupPost>> updatePost(
+    public ResponseEntity<ApiResponse<GroupPostDto>> updatePost(
             @PathVariable Long postId,
             @RequestParam("content") String content,
-            @RequestParam("groupId") String groupId,
-            @RequestParam("groupName") String groupName,
+            @RequestParam(value = "groupId", required = false) String groupId,
+            @RequestParam(value = "groupName", required = false) String ignoredGroupName,
             @RequestParam(value = "imageKey", required = false) String imageKey,
             @RequestParam(value = "removeImage", required = false) Boolean removeImage,
             @RequestParam(value = "tags", required = false) List<String> tags
     ) {
         String actor = AuthUtils.requireAuthenticatedEmail();
-
-        Optional<GroupPost> postOpt = postService.getPostById(postId);
-        if (postOpt.isEmpty()) return ResponseEntity.status(404).<ApiResponse<GroupPost>>build();
-
-        GroupPost post = postOpt.get();
-
-        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actor)) {
-            return ResponseEntity.status(403).<ApiResponse<GroupPost>>build();
-        }
-
-        post.setContent(content);
-        post.setGroupId(groupId);
-        post.setGroupName(groupName);
-        post.setTags(tags);
-        // Mentions are re-derived from content by the service -- see
-        // GroupPostService.applyMentions.
-        post.setEditedAt(Instant.now());
-
-        // Image lifecycle on edit:
-        //   - imageKey present  → replace
-        //   - removeImage=true  → clear
-        //   - both absent       → leave unchanged
-        if (imageKey != null && !imageKey.isBlank()) {
-            post.setImageKey(imageKey.trim());
-        } else if (Boolean.TRUE.equals(removeImage)) {
-            post.setImageKey(null);
-        }
-
-        GroupPost updatedPost = postService.updatePost(post, actor);
-        return ResponseEntity.ok(ApiResponse.ok(updatedPost, ApiMeta.now()));
+        GroupPostDto updated = postService.editPost(
+                postId, actor, content, groupId, tags, imageKey, removeImage);
+        return ResponseEntity.ok(ApiResponse.ok(updated, ApiMeta.now()));
     }
 
     @DeleteMapping("/{postId}")

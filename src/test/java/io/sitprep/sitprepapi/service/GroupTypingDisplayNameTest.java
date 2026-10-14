@@ -80,6 +80,43 @@ class GroupTypingDisplayNameTest {
         assertThat(frame.email()).isEqualTo("bc@probe.app");
     }
 
+    // ── membership rule (audit BE-12) ────────────────────────────────────────
+
+    @Test
+    void ownerListedOnlyAsOwnerRelays() {
+        Group group = new Group();
+        group.setGroupId("g-hoa");
+        group.setOwnerEmail("bc@probe.app");
+        group.setMemberEmails(List.of());
+        when(groupRepo.findByGroupId("g-hoa")).thenReturn(Optional.of(group));
+        when(userInfoRepo.findByUserEmail("bc@probe.app")).thenReturn(Optional.of(userNamed("Bea", "C")));
+
+        GroupTypingService service = new GroupTypingService(groupRepo, userInfoRepo, ws);
+        TransactionSynchronizationManager.initSynchronization();
+        service.relay("g-hoa", "bc@probe.app", true);
+        for (TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
+            sync.afterCommit();
+        }
+        verify(ws).sendGroupTyping(org.mockito.ArgumentMatchers.eq("g-hoa"),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void pendingMemberDoesNotRelay() {
+        Group group = new Group();
+        group.setGroupId("g-hoa");
+        group.setOwnerEmail("owner@probe.app");
+        group.setMemberEmails(List.of());
+        group.setPendingMemberEmails(List.of("bc@probe.app"));
+        when(groupRepo.findByGroupId("g-hoa")).thenReturn(Optional.of(group));
+
+        GroupTypingService service = new GroupTypingService(groupRepo, userInfoRepo, ws);
+        TransactionSynchronizationManager.initSynchronization();
+        service.relay("g-hoa", "bc@probe.app", true);
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(ws);
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private UserInfo userNamed(String first, String last) {

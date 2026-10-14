@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
+
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.domain.CivicCoverageGap;
@@ -63,16 +65,19 @@ public class CivicAgencyService {
     private final PostRepo taskRepo;
     private final AgencyJurisdictionService jurisdiction;
     private final GhostTenantService ghostTenant;
+    private final AgencyAuthorizationService agencyAuthorization;
 
     public CivicAgencyService(CivicReportAgencyRepo tagRepo, CivicCoverageGapRepo gapRepo,
                               GroupRepo groupRepo, PostRepo taskRepo,
-                              AgencyJurisdictionService jurisdiction, GhostTenantService ghostTenant) {
+                              AgencyJurisdictionService jurisdiction, GhostTenantService ghostTenant,
+                              AgencyAuthorizationService agencyAuthorization) {
         this.tagRepo = tagRepo;
         this.gapRepo = gapRepo;
         this.groupRepo = groupRepo;
         this.taskRepo = taskRepo;
         this.jurisdiction = jurisdiction;
         this.ghostTenant = ghostTenant;
+        this.agencyAuthorization = agencyAuthorization;
     }
 
     /** A tag as the queue sees it — resolved name + claim state + source. */
@@ -518,8 +523,16 @@ public class CivicAgencyService {
 
     /**
      * Enforce decision 3 for a civic-status advance. ACKNOWLEDGED is open to any
-     * admin of an active-tagged agency; SCHEDULED/RESOLVED require the caller to
-     * be an admin of the CLAIMING agency (and the report must be claimed).
+     * operating admin of an active-tagged agency; SCHEDULED/RESOLVED require the
+     * caller to be an operating admin of the CLAIMING agency (and the report
+     * must be claimed).
+     *
+     * <p>"Operating admin" (audit AG-02, 2026-10-13) is the same gate claim and
+     * merge use: {@link AgencyAuthorizationService#requireAgencyAdminCapability}
+     * with {@code OPERATE_CIVIC_QUEUE}, so the group must still be
+     * {@code agencyAuthorized} and provisioned for the queue. Tags are filtered
+     * only at write time, so before this a de-authorized agency with old tags
+     * could still resolve reports.</p>
      */
     public void requireCanAdvanceCivic(Post report, CivicStatus to, String callerEmail) {
         if (to == CivicStatus.SCHEDULED || to == CivicStatus.RESOLVED) {
@@ -533,11 +546,11 @@ public class CivicAgencyService {
         }
     }
 
-    /** Work-order spawn / merge require the claiming agency (decision 3). */
+    /** Work-order spawn / merge require the claiming agency (decision 3), still operating (AG-02). */
     public boolean isClaimingAgencyAdmin(Post report, String callerEmail) {
         String claimingId = report.getClaimingAgencyGroupId();
         if (claimingId == null || claimingId.isBlank()) return false;
-        return isAgencyAdmin(claimingId, callerEmail);
+        return canOperateCivic(claimingId, callerEmail);
     }
 
     private void requireClaimingAgencyAdmin(Post report, String callerEmail) {
@@ -550,13 +563,29 @@ public class CivicAgencyService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the claiming agency can schedule or resolve this report");
         }
+        agencyAuthorization.requireAgencyAdminCapability(
+                groupRepo.findByGroupId(claimingId).orElse(null),
+                callerEmail, AgencyCapability.OPERATE_CIVIC_QUEUE);
     }
 
     private boolean isAdminOfAnyActiveTag(Long postId, String email) {
         for (CivicReportAgency tag : tagRepo.findByPostIdAndActiveTrue(postId)) {
-            if (isAgencyAdmin(tag.getAgencyGroupId(), email)) return true;
+            if (canOperateCivic(tag.getAgencyGroupId(), email)) return true;
         }
         return false;
+    }
+
+    /** {@code requireAgencyAdminCapability(OPERATE_CIVIC_QUEUE)} as a boolean. */
+    private boolean canOperateCivic(String agencyGroupId, String email) {
+        if (agencyGroupId == null || email == null) return false;
+        Group g = groupRepo.findByGroupId(agencyGroupId).orElse(null);
+        if (g == null) return false;
+        try {
+            agencyAuthorization.requireAgencyAdminCapability(g, email, AgencyCapability.OPERATE_CIVIC_QUEUE);
+            return true;
+        } catch (ResponseStatusException e) {
+            return false;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

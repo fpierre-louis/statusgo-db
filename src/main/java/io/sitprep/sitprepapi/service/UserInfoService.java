@@ -323,7 +323,7 @@ public class UserInfoService {
      * calls across a group roster (admin manage-members, status cards, etc.).
      */
     @Transactional(readOnly = true)
-    public List<ProfileSummaryDto> getProfileSummariesByEmails(List<String> emails) {
+    public List<ProfileSummaryDto> getProfileSummariesByEmails(List<String> emails, String viewerEmail) {
         if (emails == null || emails.isEmpty()) return List.of();
 
         List<String> normalized = emails.stream()
@@ -335,22 +335,91 @@ public class UserInfoService {
                 .collect(Collectors.toList());
         if (normalized.isEmpty()) return List.of();
 
+        // WHO MAY SEE A STATUS (2026-10-13, group page audit FEED-MEMBERS-3).
+        // This endpoint resolves names and avatars for any thread or roster,
+        // and it also shipped every person's status, its time and their last
+        // activity to ANY signed-in caller for ANY address: a status oracle.
+        // Identity stays; welfare and presence go only to the person
+        // themselves and to people they share a group with.
+        final Set<String> audience = statusAudienceFor(viewerEmail);
         return userInfoRepo.findByUserEmailIn(normalized).stream()
-                .map(u -> new ProfileSummaryDto(
-                        u.getId(),
-                        u.getUserEmail(),
-                        u.getUserFirstName(),
-                        u.getUserLastName(),
-                        DtoImages.avatar(u.getProfileImageUrl()),
-                        u.getUserStatus(),
-                        u.getStatusColor(),
-                        u.getUserStatusLastUpdated(),
-                        StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated()),
-                        u.getLastActiveAt(),
-                        u.isVerifiedPublisher(),
-                        u.getVerifiedPublisherKind()
-                ))
+                .map(u -> {
+                    String email = u.getUserEmail() == null ? "" : u.getUserEmail().trim().toLowerCase(Locale.ROOT);
+                    boolean mayView = audience.contains(email);
+                    return new ProfileSummaryDto(
+                            u.getId(),
+                            u.getUserEmail(),
+                            u.getUserFirstName(),
+                            u.getUserLastName(),
+                            DtoImages.avatar(u.getProfileImageUrl()),
+                            mayView ? u.getUserStatus() : null,
+                            mayView ? u.getStatusColor() : null,
+                            mayView ? u.getUserStatusLastUpdated() : null,
+                            mayView ? StatusFreshness.freshUntil(u.getUserStatus(), u.getUserStatusLastUpdated()) : null,
+                            mayView ? u.getLastActiveAt() : null,
+                            u.isVerifiedPublisher(),
+                            u.getVerifiedPublisherKind()
+                    );
+                })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * The viewer plus everyone they share a group with (member, admin or
+     * owner, in any group including their households), plus everyone in the
+     * subgroups below a group they admin or own. A pending request is not
+     * membership. Lower-cased. Empty for an unknown viewer.
+     */
+    Set<String> statusAudienceFor(String viewerEmail) {
+        if (viewerEmail == null || viewerEmail.isBlank()) return Set.of();
+        String v = viewerEmail.trim().toLowerCase(Locale.ROOT);
+        // Keyed by id: an entity's own equals/hashCode is not a set key.
+        Map<String, Group> groups = new HashMap<>();
+        for (List<Group> found : List.of(groupRepo.findByMemberEmail(v),
+                groupRepo.findByAdminEmail(v), groupRepo.findByOwnerEmailIgnoreCase(v))) {
+            if (found != null) for (Group g : found) if (g != null) groups.putIfAbsent(g.getGroupId(), g);
+        }
+        // An admin or owner also oversees the subgroups below the groups they
+        // run: the subgroup board is how a parent's admin reads those members,
+        // and they are often not members themselves. Walk DOWN only, bounded
+        // like GroupService's no-loop walk.
+        java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
+        for (Group g : groups.values()) {
+            String owner = g.getOwnerEmail() == null ? "" : g.getOwnerEmail().trim().toLowerCase(Locale.ROOT);
+            boolean runs = v.equals(owner) || containsLower(g.getAdminEmails(), v);
+            if (runs && g.getSubGroupIDs() != null) queue.addAll(g.getSubGroupIDs());
+        }
+        int visits = 0;
+        while (!queue.isEmpty() && visits < STATUS_SUBGROUP_WALK_LIMIT) {
+            String id = queue.poll();
+            if (id == null || groups.containsKey(id)) continue;
+            visits++;
+            Group sub = groupRepo.findById(id).orElse(null);
+            if (sub == null) continue;
+            groups.put(id, sub);
+            if (sub.getSubGroupIDs() != null) queue.addAll(sub.getSubGroupIDs());
+        }
+        Set<String> out = new HashSet<>();
+        out.add(v);
+        for (Group g : groups.values()) {
+            addAllLower(out, g.getMemberEmails());
+            addAllLower(out, g.getAdminEmails());
+            if (g.getOwnerEmail() != null) out.add(g.getOwnerEmail().trim().toLowerCase(Locale.ROOT));
+        }
+        return out;
+    }
+
+    private static final int STATUS_SUBGROUP_WALK_LIMIT = 500;
+
+    private static boolean containsLower(java.util.Collection<String> emails, String v) {
+        if (emails == null) return false;
+        for (String e : emails) if (e != null && v.equals(e.trim().toLowerCase(Locale.ROOT))) return true;
+        return false;
+    }
+
+    private static void addAllLower(Set<String> out, java.util.Collection<String> emails) {
+        if (emails == null) return;
+        for (String e : emails) if (e != null && !e.isBlank()) out.add(e.trim().toLowerCase(Locale.ROOT));
     }
 
     // ✅ NEW

@@ -114,15 +114,30 @@ public class BillingService {
         return priceIdFor(tier) != null;
     }
 
-    public BillingAccountStatusDto accountStatus(Group group) {
-        Instant now = Instant.now();
-        boolean overrideActive = group.getSubscriptionOverrideTier() != null
+    /**
+     * The tier a group actually has right now: a platform-granted override
+     * while it is unexpired, else the Stripe-synced base tier. The ONE resolver
+     * (PR-01): the quota, the DTOs and {@link #accountStatus} all read this, so
+     * a comp tier can't show on one surface and be ignored by another.
+     */
+    public static PlanTier effectivePlanTier(Group group) {
+        if (group == null) return PlanTier.FREE;
+        return isOverrideActive(group, Instant.now())
+                ? PlanTier.fromWire(group.getSubscriptionOverrideTier())
+                : PlanTier.fromWire(group.getPlanTier());
+    }
+
+    private static boolean isOverrideActive(Group group, Instant now) {
+        return group.getSubscriptionOverrideTier() != null
                 && group.getSubscriptionOverrideExpiresAt() != null
                 && group.getSubscriptionOverrideExpiresAt().isAfter(now);
+    }
+
+    public BillingAccountStatusDto accountStatus(Group group) {
+        Instant now = Instant.now();
+        boolean overrideActive = isOverrideActive(group, now);
         String baseTier = PlanTier.fromWire(group.getPlanTier()).name();
-        String effectiveTier = overrideActive
-                ? PlanTier.fromWire(group.getSubscriptionOverrideTier()).name()
-                : baseTier;
+        String effectiveTier = effectivePlanTier(group).name();
         boolean customerPresent = hasText(group.getStripeCustomerId());
         boolean subscriptionPresent = hasText(group.getStripeSubscriptionId())
                 && !"canceled".equalsIgnoreCase(group.getSubscriptionStatus());

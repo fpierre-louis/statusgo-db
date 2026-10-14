@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.constant.AgencyCapability;
+
 import io.sitprep.sitprepapi.constant.CivicStatus;
 import io.sitprep.sitprepapi.domain.CivicCoverageGap;
 import io.sitprep.sitprepapi.domain.CivicReportAgency;
@@ -51,6 +53,9 @@ class CivicAgencyServiceTest {
         g.setGroupName(id);
         g.setOwnerEmail(admin);
         g.setAgencyAuthorized(authorized);
+        // Approval grants the core capabilities (applyApprovedCapabilities);
+        // the civic advance gate requires OPERATE_CIVIC_QUEUE (AG-02).
+        if (authorized) g.getAgencyCapabilities().add(AgencyCapability.OPERATE_CIVIC_QUEUE);
         g.setJurisdictionLat(lat);
         g.setJurisdictionLng(lng);
         g.setJurisdictionRadiusMiles(radius);
@@ -186,6 +191,32 @@ class CivicAgencyServiceTest {
         Post claimed = postRepo.findById(r.getId()).orElseThrow();
         civic.requireCanAdvanceCivic(claimed, CivicStatus.SCHEDULED, "city-admin@x.gov");
         assertThatThrownBy(() -> civic.requireCanAdvanceCivic(claimed, CivicStatus.SCHEDULED, "county-admin@x.gov"))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void ag02_agencyWithoutTheCivicQueueCapabilityCannotAdvance() {
+        city(); county();
+        Post r = report(LAT, LNG);
+        civic.applyCreateTags(r, ZIP);
+        civic.claim(r.getId(), "city", "city-admin@x.gov");
+
+        // The city loses OPERATE_CIVIC_QUEUE (de-provisioned) but keeps its tags
+        // and its claim: tags are filtered only at write time.
+        Group city = groupRepo.findByGroupId("city").orElseThrow();
+        city.getAgencyCapabilities().remove(AgencyCapability.OPERATE_CIVIC_QUEUE);
+        groupRepo.save(city);
+
+        Post claimed = postRepo.findById(r.getId()).orElseThrow();
+        assertThatThrownBy(() -> civic.requireCanAdvanceCivic(claimed, CivicStatus.RESOLVED, "city-admin@x.gov"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(civic.isClaimingAgencyAdmin(claimed, "city-admin@x.gov")).isFalse();
+
+        // De-authorized entirely: no ACKNOWLEDGE through an old tag either.
+        Group county = groupRepo.findByGroupId("county").orElseThrow();
+        county.setAgencyAuthorized(false);
+        groupRepo.save(county);
+        assertThatThrownBy(() -> civic.requireCanAdvanceCivic(claimed, CivicStatus.ACKNOWLEDGED, "county-admin@x.gov"))
                 .isInstanceOf(ResponseStatusException.class);
     }
 }

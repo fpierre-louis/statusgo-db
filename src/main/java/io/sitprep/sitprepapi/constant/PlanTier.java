@@ -57,6 +57,35 @@ public enum PlanTier {
 
     public int rank() { return rank; }
 
+    /**
+     * Operational work orders a group may open per calendar month (UTC);
+     * {@code null} = unlimited. Mirrors {@code WorkOrderQuotaService}'s table
+     * (the illustrative Phase 2 values) so the number has a home callers can
+     * read; that service should read this instead of its private switch.
+     */
+    public Integer workOrdersPerMonth() {
+        return switch (this) {
+            case FREE -> 15;
+            case GROUP -> 200;
+            case BUSINESS -> 2000;
+            case AGENCY, PREMIUM_AGENCY -> null;
+        };
+    }
+
+    /**
+     * What this tier really changes, as {@code key} + {@code limit} (null =
+     * unlimited). Only what the server meters is listed: the capability set
+     * above is soft, and much of it (dashboard, logo, roster CSV, subgroups,
+     * roles) is free to every group today, so selling it would be selling
+     * nothing (AUDIT PR-01/PR-02; VISION rule 8). The client owns the words.
+     */
+    public java.util.List<Unlock> unlocks() {
+        return java.util.List.of(new Unlock("WORK_ORDERS_PER_MONTH", workOrdersPerMonth()));
+    }
+
+    /** One real, server-metered unlock. */
+    public record Unlock(String key, Integer limit) {}
+
     public String label() { return label; }
 
     /** Informational price hint for the self-serve plan picker. */

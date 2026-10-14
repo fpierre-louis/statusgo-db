@@ -265,8 +265,31 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                          @Param("expected") PostStatus expected,
                          @Param("next") PostStatus next);
 
-    /** Group-scope feed — tasks bound to a single group, newest first. */
-    List<Post> findByGroupIdOrderByCreatedAtDesc(String groupId);
+    /**
+     * A page of a group's board, newest first (audit TK-08). Project children
+     * ({@code projectId != null}) are excluded here, in SQL, so a page is
+     * full whenever more top-level rows exist; the project container card
+     * represents its children.
+     */
+    @Query("""
+           SELECT p FROM Post p
+            WHERE p.groupId = :groupId
+              AND p.projectId IS NULL
+            ORDER BY p.createdAt DESC, p.id DESC
+           """)
+    List<Post> findGroupBoard(@Param("groupId") String groupId, Pageable page);
+
+    /** {@link #findGroupBoard} filtered by status. */
+    @Query("""
+           SELECT p FROM Post p
+            WHERE p.groupId = :groupId
+              AND p.projectId IS NULL
+              AND p.status = :status
+            ORDER BY p.createdAt DESC, p.id DESC
+           """)
+    List<Post> findGroupBoardByStatus(@Param("groupId") String groupId,
+                                      @Param("status") PostStatus status,
+                                      Pageable page);
 
     /**
      * Personal preparedness tasks whose due date has passed and which
@@ -296,8 +319,6 @@ public interface PostRepo extends JpaRepository<Post, Long> {
                                                @Param("now") Instant now,
                                                Pageable page);
 
-    /** Group-scope feed filtered by status. */
-    List<Post> findByGroupIdAndStatusOrderByCreatedAtDesc(String groupId, PostStatus status);
 
     /** Anything the requester posted. */
     List<Post> findByRequesterEmailIgnoreCaseOrderByCreatedAtDesc(String requesterEmail);

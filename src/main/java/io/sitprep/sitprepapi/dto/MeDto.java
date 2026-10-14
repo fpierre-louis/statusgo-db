@@ -448,7 +448,7 @@ public record MeDto(
              */
             String quietTimezone,
             /**
-             * Effective org plan tier (normalized PlanTier name: FREE / GROUP /
+             * Base org plan tier, Stripe-synced (normalized PlanTier name: FREE / GROUP /
              * BUSINESS / AGENCY / PREMIUM_AGENCY). Lets the FE gate agency-admin
              * vs member surfaces straight from /api/me — combine with
              * {@link #role} (owner/admin can invite; member consumes premium) —
@@ -466,7 +466,13 @@ public record MeDto(
              * Surfaced so the agency dashboard can render "sent / allowance"
              * without an extra call.
              */
-            Integer smsAllowanceMonthly
+            Integer smsAllowanceMonthly,
+            /**
+             * The tier the group really has now: an unexpired platform override
+             * wins. {@link #planTier} is the Stripe-synced BASE tier (its doc
+             * above said "effective"; it never was). PR-01.
+             */
+            String effectivePlanTier
     ) {}
 
     // MemberAvatar (the circle-card member-stack identity) is now the shared

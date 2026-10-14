@@ -126,7 +126,13 @@ public record GroupMemberViewDto(
              * freshness rule), so a client counting answers needs it; before
              * this it arrived only on the live socket frame, never on load.
              */
-            Instant alertActivatedAt
+            Instant alertActivatedAt,
+            /**
+             * The tier the group really has now (PlanTier name): an unexpired
+             * platform override wins over the Stripe-synced {@link #planTier}.
+             * {@code BillingService.effectivePlanTier}; PR-01. Appended last.
+             */
+            String effectivePlanTier
     ) {}
 
     public record MemberSummary(

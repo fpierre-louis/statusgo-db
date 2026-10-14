@@ -179,6 +179,20 @@ public class GlobalExceptionHandler {
                 .body(buildErrorBody("LIABILITY_NOT_ACCEPTED", ex.getMessage(), req));
     }
 
+    /**
+     * A refused action is a 403, not a server fault (BE-08). Services throw
+     * {@link SecurityException} for "you may not do that" (the owner's admin
+     * role can't be removed, a plain member can't start an org check-in); with
+     * no handler it fell to the catch-all below and read as a 500. The
+     * messages are authored refusals, so they are shown.
+     */
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(SecurityException ex, HttpServletRequest req) {
+        log.warn("Forbidden on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(buildErrorBody("FORBIDDEN", safeMessage(ex), req));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleAllUncaughtException(Exception ex, HttpServletRequest req) {
         // Catch-all for anything that escaped the more-specific handlers above.

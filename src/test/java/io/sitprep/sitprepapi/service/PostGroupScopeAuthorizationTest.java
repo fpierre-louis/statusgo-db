@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -228,14 +229,14 @@ class PostGroupScopeAuthorizationTest {
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.listByGroup(GROUP, null, AUTHOR));
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
-        verify(taskRepo, never()).findByGroupIdOrderByCreatedAtDesc(anyString());
+        verify(taskRepo, never()).findGroupBoard(anyString(), any());
     }
 
     @Test
     void listByGroup_allowsMember() {
-        when(taskRepo.findByGroupIdOrderByCreatedAtDesc(GROUP)).thenReturn(List.of());
+        when(taskRepo.findGroupBoard(eq(GROUP), any())).thenReturn(List.of());
         assertTrue(service.listByGroup(GROUP, null, MEMBER).isEmpty());
-        verify(taskRepo).findByGroupIdOrderByCreatedAtDesc(eq(GROUP));
+        verify(taskRepo).findGroupBoard(eq(GROUP), any());
     }
 
     // ------------------------------------------------------------------
@@ -266,5 +267,21 @@ class PostGroupScopeAuthorizationTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.create(incoming, MEMBER));
         verify(taskRepo, never()).save(any(Post.class));
+    }
+
+    @Test
+    void listByGroup_isPaged_withADefaultAndAClampedLimit() {
+        when(taskRepo.findGroupBoard(eq(GROUP), any())).thenReturn(List.of());
+        org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> page =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+
+        service.listByGroup(GROUP, null, MEMBER);
+        service.listByGroup(GROUP, null, MEMBER, 40, 5000);
+        verify(taskRepo, times(2)).findGroupBoard(eq(GROUP), page.capture());
+
+        assertEquals(0, page.getAllValues().get(0).getOffset());
+        assertEquals(PostService.GROUP_BOARD_DEFAULT_LIMIT, page.getAllValues().get(0).getPageSize());
+        assertEquals(40, page.getAllValues().get(1).getOffset());
+        assertEquals(PostService.GROUP_BOARD_MAX_LIMIT, page.getAllValues().get(1).getPageSize());
     }
 }

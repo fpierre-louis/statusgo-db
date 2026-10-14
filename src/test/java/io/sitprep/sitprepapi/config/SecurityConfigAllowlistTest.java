@@ -89,7 +89,7 @@ class SecurityConfigAllowlistTest {
             // Applicant status links use a one-time capability token rather
             // than requiring the applicant to create an account.
             "GET,  /api/agency/requests/does-not-exist/status?token=nope",
-            "POST, /api/agency/requests/does-not-exist/respond?token=nope",
+            "POST, /api/agency/requests/does-not-exist/status/respond?token=nope",
             // Ghost-tenant opt-out — signed token in the URL is the auth.
             "GET,  /api/public/outreach/opt-out?token=nope",
     })
@@ -155,6 +155,38 @@ class SecurityConfigAllowlistTest {
         // 403 here, which would give clients two dialects of "not signed in".
         assertThat(anonymous(HttpMethod.GET, "/api/userinfo/email/x@x.com").getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Autowired
+    private io.sitprep.sitprepapi.repo.VerificationApplicationRepo verificationApplicationRepo;
+
+    @Test
+    @DisplayName("AG-01: a signed-out applicant with the status token can answer NEEDS_INFO (200)")
+    void anonymousApplicantWithTokenCanRespond() throws Exception {
+        String rawToken = "b3-respond-token-" + System.nanoTime();
+        String hash = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(rawToken.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        io.sitprep.sitprepapi.domain.VerificationApplication app =
+                new io.sitprep.sitprepapi.domain.VerificationApplication();
+        app.setApplicantEmail("applicant-b3@x.gov");
+        app.setStatus(io.sitprep.sitprepapi.domain.VerificationApplication.Status.NEEDS_INFO);
+        app.setStatusTokenHash(hash);
+        app.setStatusTokenExpiresAt(java.time.Instant.now().plus(java.time.Duration.ofDays(1)));
+        app = verificationApplicationRepo.save(app);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> res = rest.exchange(
+                "http://localhost:" + port + "/api/agency/requests/" + app.getId()
+                        + "/status/respond?token=" + rawToken,
+                HttpMethod.POST,
+                new HttpEntity<>("{\"message\":\"Here is the letterhead.\"}", headers),
+                String.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(verificationApplicationRepo.findById(app.getId()).orElseThrow().getStatus())
+                .isEqualTo(io.sitprep.sitprepapi.domain.VerificationApplication.Status.IN_REVIEW);
     }
 
     @Test
