@@ -35,7 +35,13 @@ public class CommunityReport {
      * (audit FD-01): {@code postId} then holds the group post's id (for a
      * comment, the post it hangs off), so a group's queue is one subquery on
      * the group post's group. The names fit the column's 16 characters
-     * ({@code GROUP_POST_COMMENT} would not), so no migration.
+     * ({@code GROUP_POST_COMMENT} would not).
+     *
+     * <p>Prod carried a stale CHECK on target_type (POST/COMMENT only) from the
+     * old ddl-auto=update days, invisible from V1 and not compared by
+     * ddl-auto=validate; V109 drops it. Adding a value here needs no
+     * migration now, but confirm with
+     * {@code SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='community_report'::regclass}.</p>
      */
     public enum TargetType {
         POST,
