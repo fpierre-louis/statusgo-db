@@ -884,6 +884,8 @@ public class GroupPostService {
         GroupPost post = postRepo.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("Post not found"));
         requireGroupAdmin(post.getGroupId(), actorEmail);
+        // An admin-removed post is an empty tombstone: never pin it (409).
+        requireNotRemoved(post);
         post.setPinnedAt(Instant.now());
         post.setPinnedBy(actorEmail.trim().toLowerCase());
         GroupPost saved = postRepo.save(post);

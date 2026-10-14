@@ -3107,15 +3107,6 @@ public class PostService {
     /** Mirrors the imageKeys cap in create — bounds jsonb row + STOMP frames. */
     private static final int MAX_PHOTOS_PER_PHASE = 5;
 
-    /**
-     * Guard applied wherever a client-sent work_details bag is persisted
-     * (create + generic patch): the photo-key arrays are endpoint-only —
-     * {@link #updateWorkPhotos} is their SOLE author — so incoming copies are
-     * dropped and the stored arrays are carried over a wholesale bag replace.
-     * The derived {@code *PhotoUrls} fields are wire-only and always stripped.
-     * Preserves null-in → null-out ("absent === unknown") when there is
-     * nothing stored to carry.
-     */
     /** Stored bag + the sent keys: a value replaces, an explicit null removes (merge mode). */
     static Map<String, Object> mergeWorkDetailsKeys(Map<String, Object> stored, Map<String, Object> sent) {
         Map<String, Object> out = stored == null ? new LinkedHashMap<>() : new LinkedHashMap<>(stored);
@@ -3127,6 +3118,15 @@ public class PostService {
         return out;
     }
 
+    /**
+     * Guard applied wherever a client-sent work_details bag is persisted
+     * (create + generic patch): the photo-key arrays are endpoint-only —
+     * {@link #updateWorkPhotos} is their SOLE author — so incoming copies are
+     * dropped and the stored arrays are carried over a wholesale bag replace.
+     * The derived {@code *PhotoUrls} fields are wire-only and always stripped.
+     * Preserves null-in → null-out ("absent === unknown") when there is
+     * nothing stored to carry.
+     */
     private static Map<String, Object> sanitizeWorkDetails(Map<String, Object> incoming,
                                                            Map<String, Object> stored) {
         boolean storedHasPhotos = stored != null

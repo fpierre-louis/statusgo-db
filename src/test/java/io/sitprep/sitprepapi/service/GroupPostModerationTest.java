@@ -177,6 +177,19 @@ class GroupPostModerationTest {
     }
 
     @Test
+    void anAdminCannotPinARemovedPost() {
+        GroupPost p = memberPost();
+        p.setPinnedAt(null);
+        p.setPinnedBy(null);
+        when(removals.isPostRemoved(7L)).thenReturn(true);
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.pinPost(7L, ADMIN));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertNull(p.getPinnedAt());
+        verify(postRepo, never()).save(any());
+    }
+
+    @Test
     void readsCarryTheTombstoneAndTheAuthorUserId() {
         memberPost();
         UserInfo u = new UserInfo();
