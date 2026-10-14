@@ -4,6 +4,7 @@ import io.sitprep.sitprepapi.util.GeoUtil;
 import io.sitprep.sitprepapi.util.GroupUrlUtil;
 import io.sitprep.sitprepapi.util.PublicCdn;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.constant.GroupRole;
 import io.sitprep.sitprepapi.constant.MentionToken;
 import io.sitprep.sitprepapi.domain.GroupPost;
 import io.sitprep.sitprepapi.domain.GroupReadState;
@@ -57,6 +58,7 @@ public class GroupPostService {
     private final GroupPostThreadPresenceService threadPresenceService;
     private final PublisherPublishAuditService publisherPublishAuditService;
     private final MentionService mentionService;
+    private final GroupContentRemovals removals;
 
     @Autowired
     public GroupPostService(GroupPostRepo postRepo, UserInfoRepo userInfoRepo, GroupRepo groupRepo,
@@ -66,7 +68,8 @@ public class GroupPostService {
                        GroupReadStateRepo groupReadStateRepo,
                        GroupPostThreadPresenceService threadPresenceService,
                        PublisherPublishAuditService publisherPublishAuditService,
-                       MentionService mentionService) {
+                       MentionService mentionService,
+                       GroupContentRemovals removals) {
         this.postRepo = postRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupRepo = groupRepo;
@@ -77,6 +80,7 @@ public class GroupPostService {
         this.threadPresenceService = threadPresenceService;
         this.publisherPublishAuditService = publisherPublishAuditService;
         this.mentionService = mentionService;
+        this.removals = removals;
     }
 
     /** REST creation. Body carries content/group + optional imageKey from /api/images. */
@@ -248,6 +252,7 @@ public class GroupPostService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the author can edit this post");
         }
+        requireNotRemoved(post);
         if (requestedGroupId != null && !requestedGroupId.isBlank()
                 && !requestedGroupId.trim().equals(post.getGroupId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
@@ -282,16 +287,84 @@ public class GroupPostService {
         return updatedPostDto;
     }
 
+    /**
+     * {@code DELETE /api/group-posts/{id}}. The author hard-deletes their own
+     * post (unchanged). The group's owner or an admin removing SOMEONE ELSE's
+     * post soft-removes it (audit FD-06, D24: every tier): the row stays, its
+     * text, image, place, tags and mentions are cleared, a pin is lifted, and
+     * an {@code admin_audit_log} row records who removed it with a preview. The
+     * frame that goes out is the tombstone DTO ({@code removedByAdmin=true}),
+     * so open feeds swap the post for "Removed by an admin" in place.
+     *
+     * <p>Unknown id → 404; anyone else → 403 (both were 500: a bare
+     * RuntimeException and an unmapped SecurityException).</p>
+     */
     @Transactional
     public void deletePostAndBroadcast(Long postId, String actorEmail) {
-        GroupPost post = postRepo.findById(postId).orElseThrow(() -> new RuntimeException("GroupPost not found"));
+        GroupPost post = postRepo.findById(postId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Post not found"));
 
-        if (post.getAuthor() == null || !post.getAuthor().equalsIgnoreCase(actorEmail)) {
-            throw new SecurityException("User not authorized to delete this post.");
+        if (actorEmail != null && post.getAuthor() != null
+                && post.getAuthor().equalsIgnoreCase(actorEmail.trim())) {
+            postRepo.delete(post);
+            webSocketMessageSender.sendGroupPostDeletion(post.getGroupId(), post.getId());
+            return;
         }
+        if (!isGroupAdminOrOwner(post.getGroupId(), actorEmail)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the author or a group admin can remove this post");
+        }
+        removeByAdmin(post, actorEmail);
+    }
 
-        postRepo.delete(post);
-        webSocketMessageSender.sendGroupPostDeletion(post.getGroupId(), post.getId());
+    private void removeByAdmin(GroupPost post, String actorEmail) {
+        if (removals.isPostRemoved(post.getId())) return; // idempotent: already a tombstone
+        String preview = post.getContent() == null ? "" : post.getContent().trim();
+        if (preview.length() > 300) preview = preview.substring(0, 300);
+        removals.recordPost(actorEmail, post.getId(),
+                "group=" + post.getGroupId() + " author=" + post.getAuthor()
+                        + (post.getImageKey() != null ? " [image]" : "")
+                        + " text: " + preview);
+
+        post.setContent("");
+        post.setImageKey(null);
+        post.setLatitude(null);
+        post.setLongitude(null);
+        post.setLocationLabel(null);
+        post.setTags(new ArrayList<>());
+        post.setMentionedUserIds(new ArrayList<>());
+        post.setPinnedAt(null);
+        post.setPinnedBy(null);
+        GroupPost saved = postRepo.save(post);
+        GroupPostDto dto = convertToPostDto(saved);
+        dto.setRemovedByAdmin(true);
+        if (dto.getRemovedAt() == null) dto.setRemovedAt(Instant.now());
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                webSocketMessageSender.sendNewGroupPost(saved.getGroupId(), dto);
+            }
+        });
+    }
+
+    /**
+     * True when {@code email} is the owner or an admin of {@code groupId}.
+     * The moderation gate for posts and comments (FD-06) and the group report
+     * queue (FD-01).
+     */
+    public boolean isGroupAdminOrOwner(String groupId, String email) {
+        if (groupId == null || groupId.isBlank() || email == null || email.isBlank()) return false;
+        return groupRepo.findByGroupId(groupId.trim())
+                .map(g -> GroupRole.fromGroup(g, email).isAtLeastAdmin())
+                .orElse(false);
+    }
+
+    /** A removed post can't be edited back into the feed. */
+    private void requireNotRemoved(GroupPost post) {
+        if (post != null && removals.isPostRemoved(post.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This post was removed by a group admin");
+        }
     }
 
     @Transactional
@@ -304,6 +377,7 @@ public class GroupPostService {
         if (actorEmail != null && !post.getAuthor().equalsIgnoreCase(actorEmail)) {
             throw new SecurityException("Not allowed to edit this post.");
         }
+        requireNotRemoved(post);
 
         UserGeneratedContentFilter.requireAcceptable("group post", dto.getContent());
         post.setContent(dto.getContent());
@@ -347,6 +421,7 @@ public class GroupPostService {
 
         List<GroupPostDto> out = new ArrayList<>(rows.size());
         for (GroupPost p : rows) out.add(convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())));
+        applyRemovals(out);
         applyReadReceipts(out, groupId);
         return out;
     }
@@ -398,6 +473,7 @@ public class GroupPostService {
                     return b.getTimestamp().compareTo(a.getTimestamp());
                 })
                 .toList();
+        applyRemovals(out);
         applyReadReceipts(out, groupId);
         return out;
     }
@@ -484,6 +560,10 @@ public class GroupPostService {
         List<GroupPostDto> unpinnedDtos = unpinned.stream()
                 .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
                 .toList();
+        List<GroupPostDto> both = new ArrayList<>(pinnedDtos.size() + unpinnedDtos.size());
+        both.addAll(pinnedDtos);
+        both.addAll(unpinnedDtos);
+        applyRemovals(both);
         applyReadReceipts(pinnedDtos, groupId);
         applyReadReceipts(unpinnedDtos, groupId);
 
@@ -687,7 +767,9 @@ public class GroupPostService {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
             dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
+            dto.setAuthorUserId(u.getId());
         });
+        applyRemovals(List.of(dto));
         return dto;
     }
 
@@ -700,8 +782,27 @@ public class GroupPostService {
             dto.setAuthorFirstName(u.getUserFirstName());
             dto.setAuthorLastName(u.getUserLastName());
             dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
+            dto.setAuthorUserId(u.getId());
         }
         return dto;
+    }
+
+    /**
+     * Fold the admin-removal tombstone (FD-06) onto a page of DTOs: one
+     * batched audit lookup, no per-row query.
+     */
+    private void applyRemovals(List<GroupPostDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) return;
+        Map<Long, Instant> removed = removals.removedPosts(
+                dtos.stream().map(GroupPostDto::getId).filter(Objects::nonNull).toList());
+        if (removed.isEmpty()) return;
+        for (GroupPostDto d : dtos) {
+            Instant at = removed.get(d.getId());
+            if (at != null) {
+                d.setRemovedByAdmin(true);
+                d.setRemovedAt(at);
+            }
+        }
     }
 
     private GroupPostDto baseDto(GroupPost post, Map<String, List<EmojiReactionDto>> reactions) {

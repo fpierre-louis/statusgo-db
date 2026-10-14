@@ -86,4 +86,14 @@ public class GroupPostCommentDto {
      * would have been silently empty.</p>
      */
     private String authorUserId;
+
+    /**
+     * True when the group's owner or an admin removed this comment (audit
+     * FD-06). The row stays for the thread's shape; its text is cleared and
+     * the FE shows "Removed by an admin".
+     */
+    private boolean removedByAdmin;
+
+    /** When it was removed; null unless {@link #removedByAdmin}. */
+    private Instant removedAt;
 }

@@ -122,10 +122,15 @@ public class GroupPostCommentResource {
         return ResponseEntity.ok(updated);
     }
 
+    /**
+     * The author deletes their own comment; the post's group owner or an admin
+     * removes someone else's, leaving a "Removed by an admin" tombstone and an
+     * audit row (audit FD-06, D24). 404 unknown id, 403 anyone else.
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteComment(@PathVariable Long id) {
-        ensureAuthors(id);
-        commentService.deleteCommentByIdAndBroadcast(id);
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        commentService.deleteOrRemoveAsCaller(id, caller);
         return ResponseEntity.noContent().build();
     }
 
