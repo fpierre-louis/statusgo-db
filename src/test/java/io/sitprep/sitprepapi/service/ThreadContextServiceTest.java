@@ -135,6 +135,28 @@ class ThreadContextServiceTest {
                 .doesNotContain("email", "userEmail");
     }
 
+    // Confirm-response faces (2026-10-13): the same faces thread-context
+    // shows, and NONE for a caller who cannot read the post — the confirm
+    // endpoint is not read-gated on main, so this is where that is enforced.
+    @Test
+    void confirmFacesMatchThreadContextForAReader() {
+        when(confirms.findByPostIdAndUserEmailIgnoreCase(7L, ME)).thenReturn(Optional.of(confirm(ME)));
+        when(confirms.findTop10ByPostIdOrderByCreatedAtDesc(7L)).thenReturn(List.of(
+                confirm("ana@example.com"), confirm(ME), confirm("ken@example.com")));
+        assertThat(service.confirmFacesFor(7L, ME))
+                .isEqualTo(service.context(7L, ME).orElseThrow().recentConfirmers())
+                .extracting(MemberAvatar::firstName).containsExactly("me", "ana", "ken");
+    }
+
+    @Test
+    void confirmFacesAreEmptyForSomeoneWhoCannotReadThePost() {
+        when(confirms.findTop10ByPostIdOrderByCreatedAtDesc(7L)).thenReturn(List.of(confirm("ana@example.com")));
+        when(auth.canRead(eq(post), eq("stranger@example.com"))).thenReturn(false);
+        assertThat(service.confirmFacesFor(7L, "stranger@example.com")).isEmpty();
+        assertThat(service.confirmFacesFor(999L, ME)).isEmpty();
+        verify(users, never()).findByUserEmailIgnoreCase("ana@example.com");
+    }
+
     @Test
     void facesSkipBlockRelationships() {
         when(confirms.findTop10ByPostIdOrderByCreatedAtDesc(7L)).thenReturn(List.of(

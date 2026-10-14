@@ -109,6 +109,19 @@ public class ThreadContextService {
     }
 
     /**
+     * The faces for a confirm toggle's response (2026-10-13), so the card
+     * updates without re-reading thread-context. Same gate as every entry point
+     * here: a caller who cannot read the post gets NO faces, because the
+     * confirm endpoint itself is not read-gated on main and would otherwise
+     * say who confirmed a post the caller cannot see. Same query and cap as
+     * {@link #recentConfirmers}; there is no second faces shape.
+     */
+    @Transactional(readOnly = true)
+    public List<MemberAvatar> confirmFacesFor(Long postId, String viewer) {
+        return readable(postId, viewer).map(p -> recentConfirmers(p.getId(), viewer)).orElse(List.of());
+    }
+
+    /**
      * Up to three faces for "seen by": the viewer first when they confirmed
      * (the pill beside the faces says "You saw it", so the first face is
      * theirs), then the most recent others. A block relationship in either

@@ -1413,8 +1413,32 @@ public class PostService {
     // Community-redesign engagement + civic lifecycle
     // ---------------------------------------------------------------------
 
-    /** Result of a confirm toggle — the fresh count + the viewer's new state. */
-    public record ConfirmResult(int confirmsCount, boolean viewerConfirmed) {}
+    /**
+     * Result of a confirm toggle: the fresh count, the viewer's new state, and
+     * the "seen by" faces (empty when the caller cannot read the post).
+     * {@code recentConfirmers} appended 2026-10-13 so the card updates without
+     * re-reading thread-context.
+     */
+    public record ConfirmResult(int confirmsCount, boolean viewerConfirmed,
+                                List<io.sitprep.sitprepapi.dto.MemberAvatar> recentConfirmers) {
+        public ConfirmResult(int confirmsCount, boolean viewerConfirmed) {
+            this(confirmsCount, viewerConfirmed, List.of());
+        }
+    }
+
+    // Setter-injected and optional: the faces are an addition to the confirm
+    // response, and the hand-built PostService in tests has no thread context.
+    private ThreadContextService threadContext;
+
+    @Autowired(required = false)
+    void setThreadContextService(ThreadContextService threadContext) {
+        this.threadContext = threadContext;
+    }
+
+    /** The one place the confirm response gets its faces (read-gated there). */
+    private List<io.sitprep.sitprepapi.dto.MemberAvatar> confirmFacesFor(Long postId, String email) {
+        return threadContext == null ? List.of() : threadContext.confirmFacesFor(postId, email);
+    }
 
     /**
      * The statuses after which a post takes no new confirm: it has ended, so
@@ -1466,7 +1490,7 @@ public class PostService {
                 // A racing confirm for the same (post,user) already landed — idempotent success.
             }
         }
-        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), true);
+        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), true, confirmFacesFor(postId, e));
     }
 
     /**
@@ -1478,7 +1502,8 @@ public class PostService {
     public ConfirmResult removeConfirm(Long postId, String email) {
         readableForConfirm(postId, email);
         postConfirmRepo.deleteByPostAndUser(postId, email.trim().toLowerCase());
-        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), false);
+        return new ConfirmResult((int) postConfirmRepo.countByPostId(postId), false,
+                confirmFacesFor(postId, email.trim().toLowerCase()));
     }
 
     private Post readableForConfirm(Long postId, String email) {
