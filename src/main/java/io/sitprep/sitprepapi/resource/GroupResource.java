@@ -51,6 +51,9 @@ public class GroupResource {
     private io.sitprep.sitprepapi.service.GroupLeaveService groupLeaveService;
 
     @Autowired
+    private io.sitprep.sitprepapi.service.GroupDeletionService groupDeletionService;
+
+    @Autowired
     private io.sitprep.sitprepapi.service.GroupPostReadReceiptService groupPostReadReceiptService;
 
     @Autowired
@@ -67,12 +70,6 @@ public class GroupResource {
      */
     @Autowired
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
-
-    @GetMapping("/admin")
-    public List<Group> getGroupsByAdminEmail() {
-        AuthUtils.requireAuthenticatedEmail();
-        return groupService.getGroupsForCurrentAdmin();
-    }
 
     /**
      * Create a group. The body is a {@link io.sitprep.sitprepapi.dto.CreateGroupRequest}:
@@ -94,6 +91,12 @@ public class GroupResource {
         return groupService.createGroup(body, caller);
     }
 
+    /**
+     * The whole-group PUT, narrowed in B1 to the fields an admin may edit.
+     * Superseded by {@link #updateSettings} and {@link #updateHouseholdDetails}
+     * (B5); it stays until its last two FE callers (ManageGroup.js,
+     * CreateHouseholdGroup.js) move in F5, then it is deleted (BE-01 step 2).
+     */
     @PutMapping("/{groupId}")
     public ResponseEntity<Group> updateGroup(@PathVariable String groupId, @RequestBody Group groupDetails) {
         requireAdminOf(groupId);
@@ -141,24 +144,77 @@ public class GroupResource {
     /** When the continued check-in now ends by itself. */
     public record ContinueCheckInDto(java.time.Instant alertExpiresAt) {}
 
-    @DeleteMapping("/{groupId}")
-    public void deleteGroup(@PathVariable String groupId) {
-        requireOwnerOf(groupId);
-        groupService.deleteGroupByPublicId(groupId);
+    /**
+     * {@code PATCH /groups/{id}/settings}: change only the settings sent
+     * (AD-01). Admin or owner. Allowed keys: description, privacy, address,
+     * latitude + longitude, zipCode, businessCategory, websiteUrl, groupType;
+     * any other key is a 400 that names it, so a whole-group body can't ride
+     * through. The name is {@code PATCH /name}. Never touches the alert, the
+     * rosters, the links or the join code. Answers the caller's
+     * {@code GET /groups/{id}} projection. See {@code GroupService#updateSettings}.
+     */
+    @PatchMapping("/{groupId}/settings")
+    public com.fasterxml.jackson.databind.JsonNode updateSettings(
+            @PathVariable String groupId,
+            @RequestBody(required = false) com.fasterxml.jackson.databind.JsonNode body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        var req = io.sitprep.sitprepapi.dto.GroupSettingsRequest.parse(
+                body, io.sitprep.sitprepapi.dto.GroupSettingsRequest.SETTINGS_KEYS);
+        Group saved = notFoundIfMissing(() -> groupService.updateSettings(groupId, req, caller));
+        return pageFor(saved, caller);
     }
 
     /**
-     * Lightweight uniqueness check for the group-create flows. Replaces
-     * the previous pattern of FE pulling the entire groups table on
-     * every keystroke and scanning in memory — that was the worst
-     * offender on the LAUNCH_READINESS.md "no render-blocking dump-
-     * everything endpoints on critical paths" item, even though
-     * group-create isn't quite a critical path.
+     * {@code PATCH /groups/{id}/household-details}: a household's name, note
+     * and home location in one write (groupName, description, address,
+     * latitude + longitude, zipCode). Household admin or owner; 409 for an
+     * org group. Replaces CreateHouseholdGroup's fetch-merge-PUT.
+     */
+    @PatchMapping("/{groupId}/household-details")
+    public com.fasterxml.jackson.databind.JsonNode updateHouseholdDetails(
+            @PathVariable String groupId,
+            @RequestBody(required = false) com.fasterxml.jackson.databind.JsonNode body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        var req = io.sitprep.sitprepapi.dto.GroupSettingsRequest.parse(
+                body, io.sitprep.sitprepapi.dto.GroupSettingsRequest.HOUSEHOLD_DETAIL_KEYS);
+        Group saved = notFoundIfMissing(() -> groupService.updateHouseholdDetails(groupId, req, caller));
+        return pageFor(saved, caller);
+    }
+
+    /**
+     * Delete the group. Owner only. One transaction that ends a running
+     * check-in, drops links, re-anchors base households and clears invites,
+     * mutes and read state (BE-09; {@code GroupDeletionService}).
      *
-     * <p>Both query params are optional. If only {@code name} is
-     * provided, {@code codeTaken} is null (and vice versa) so the FE
-     * can debounce per-field independently. Empty / blank values
-     * short-circuit to false rather than hitting the DB.</p>
+     * @param posts {@code keep} (default) leaves the conversation rows, which
+     *              nobody can read once the group is gone; {@code delete}
+     *              removes posts, comments and reactions. Anything else is a 400.
+     */
+    @DeleteMapping("/{groupId}")
+    public ResponseEntity<Void> deleteGroup(@PathVariable String groupId,
+                                            @RequestParam(value = "posts", required = false) String posts) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        io.sitprep.sitprepapi.service.GroupDeletionService.Posts mode;
+        if (posts == null || posts.isBlank() || "keep".equalsIgnoreCase(posts.trim())) {
+            mode = io.sitprep.sitprepapi.service.GroupDeletionService.Posts.KEEP;
+        } else if ("delete".equalsIgnoreCase(posts.trim())) {
+            mode = io.sitprep.sitprepapi.service.GroupDeletionService.Posts.DELETE;
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "posts must be keep or delete");
+        }
+        requireOwnerOf(groupId);
+        groupDeletionService.delete(groupId, caller, mode);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Join-code availability for the group forms.
+     *
+     * <p>Names are no longer checked (JN-16, D21, B5 2026-10-14): a name is not
+     * an identity, two groups may share one, and the global check told anyone
+     * who typed a family's household name that it existed. A {@code name}
+     * param is accepted and ignored, so the answer carries no
+     * {@code nameTaken} and the current clients read "not taken".</p>
      */
     @GetMapping("/availability")
     public Map<String, Boolean> checkAvailability(
@@ -166,9 +222,6 @@ public class GroupResource {
             @RequestParam(value = "code", required = false) String code) {
         AuthUtils.requireAuthenticatedEmail();
         Map<String, Boolean> out = new HashMap<>();
-        if (name != null && !name.isBlank()) {
-            out.put("nameTaken", groupService.isGroupNameTaken(name.trim()));
-        }
         if (code != null && !code.isBlank()) {
             out.put("codeTaken", groupService.isGroupCodeTaken(code.trim()));
         }
@@ -198,7 +251,11 @@ public class GroupResource {
     @GetMapping("/{groupId}")
     public com.fasterxml.jackson.databind.JsonNode getGroupById(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        Group group = groupService.getGroupByPublicId(groupId);
+        return pageFor(groupService.getGroupByPublicId(groupId), caller);
+    }
+
+    /** The group page projection for {@code caller}: what GET answers, and what the PATCHes return. */
+    private com.fasterxml.jackson.databind.JsonNode pageFor(Group group, String caller) {
         com.fasterxml.jackson.databind.node.ObjectNode node = objectMapper.valueToTree(group);
         node.put("jurisdictionReady",
                 io.sitprep.sitprepapi.service.AgencyAuthorizationService.isJurisdictionReady(group));
@@ -424,7 +481,9 @@ public class GroupResource {
 
     /**
      * The caller leaves the group. 204; 409 for the owner (transfer or delete
-     * first); 404 when the group is unknown or the caller is not in it. See
+     * first). A pending requester's leave withdraws their request (204; JN-21).
+     * 404 when the group is unknown or the caller is neither in it nor
+     * waiting on it. See
      * {@link io.sitprep.sitprepapi.service.GroupLeaveService}.
      */
     @PostMapping("/{groupId}/leave")

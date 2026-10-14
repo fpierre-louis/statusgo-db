@@ -61,16 +61,10 @@ public class GroupPostResource {
     // Reads below wrapped in {@link ApiResponse} per P2-3 (audit BE-02 /
     // BE-15). FE axios interceptor unwraps response.data to the inner
     // payload so existing callers are unchanged.
-    @GetMapping("/group/{groupId}")
-    public ResponseEntity<ApiResponse<List<GroupPostDto>>> getPostsByGroupId(@PathVariable String groupId) {
-        String viewer = AuthUtils.requireAuthenticatedEmail();
-        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupIdDto(groupId, viewer), ApiMeta.now()));
-    }
-
     /**
      * Cursor-paginated chat-feed listing. Canonical surface for the
      * chat-style feed scroll on OrgGroupPage / HouseholdFamily chat.
-     * Replaces the un-paginated {@link #getPostsByGroupId} when groups
+     * Replaced the un-paginated whole-history read (deleted in B5, BE-14) when groups
      * accumulate enough posts that loading the whole history at once
      * becomes a phone-memory / network drag.
      *

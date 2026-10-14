@@ -20,7 +20,9 @@ import java.util.Map;
  * <p>Routes:</p>
  * <ul>
  *   <li>{@code POST /api/groups/{groupId}/invites} — mint a new invite.</li>
- *   <li>{@code GET  /api/groups/{groupId}/invites} — list active invites.</li>
+ *   <li>{@code GET  /api/groups/{groupId}/invites} — list live links (shaped, current flagged).</li>
+ *   <li>{@code POST /api/groups/{groupId}/invites/current} — the group's one share link (JN-10).</li>
+ *   <li>{@code POST /api/groups/{groupId}/invites/current/reset} — revoke + mint (JN-10).</li>
  *   <li>{@code POST /api/invites/{inviteId}/redeem} — authenticated token redeem.</li>
  *   <li>{@code POST /api/households/{householdId}/invites} — mint a household invite.</li>
  *   <li>{@code GET /api/household-invites/{inviteId}/resolve} — public household preview.</li>
@@ -74,10 +76,35 @@ public class GroupInviteResource {
         );
     }
 
+    /**
+     * The group's live links, newest first, the current one flagged
+     * ({@code current: true}). Owner/admin only. Shaped rows
+     * ({@link io.sitprep.sitprepapi.dto.GroupInviteLinkDto}), not the entity:
+     * the list now has a consumer (the admin's invite links, F5/F6).
+     */
     @GetMapping("/api/groups/{groupId}/invites")
-    public ResponseEntity<List<GroupInvite>> list(@PathVariable String groupId) {
+    public ResponseEntity<List<io.sitprep.sitprepapi.dto.GroupInviteLinkDto>> list(@PathVariable String groupId) {
         requireAdminOf(groupId);
-        return ResponseEntity.ok(inviteService.listActive(groupId));
+        return ResponseEntity.ok(inviteService.listLinks(groupId));
+    }
+
+    /**
+     * The link the share sheet shows (JN-10, D20). Owner/admin: the group's
+     * one current link, reused (expiry slid out) or minted. Org member: the
+     * plain group link, which doesn't approve anyone. Anyone else: 403.
+     * POST because it may mint. See {@code GroupInviteService#currentLink}.
+     */
+    @PostMapping("/api/groups/{groupId}/invites/current")
+    public ResponseEntity<io.sitprep.sitprepapi.dto.GroupInviteLinkDto> current(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(inviteService.currentLink(groupId, caller));
+    }
+
+    /** "Reset link": revoke every live share link of the group, mint one. Owner/admin. */
+    @PostMapping("/api/groups/{groupId}/invites/current/reset")
+    public ResponseEntity<io.sitprep.sitprepapi.dto.GroupInviteLinkDto> reset(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(inviteService.resetLink(groupId, caller));
     }
 
     @PostMapping("/api/households/{householdId}/invites")

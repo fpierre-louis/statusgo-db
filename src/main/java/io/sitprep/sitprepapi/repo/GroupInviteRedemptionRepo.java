@@ -9,4 +9,7 @@ import java.util.Optional;
 @Repository
 public interface GroupInviteRedemptionRepo extends JpaRepository<GroupInviteRedemption, Long> {
     Optional<GroupInviteRedemption> findByInviteIdAndUserEmail(String inviteId, String userEmail);
+
+    /** Every redemption into a group: the delete cleanup (BE-09). */
+    java.util.List<GroupInviteRedemption> findByGroupId(String groupId);
 }

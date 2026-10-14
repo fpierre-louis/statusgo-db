@@ -46,17 +46,6 @@ public final class AuthUtils {
         return null;
     }
 
-    /**
-     * Returns the verified email from the token when present, else the
-     * supplied fallback. Transitional helper: resources accept an actor in
-     * the request body/params during the auth rollout; when enforcement
-     * flips, drop the fallback and require the token-derived email.
-     */
-    public static String resolveActor(String fallback) {
-        String fromToken = getCurrentUserEmail();
-        return fromToken != null ? fromToken : fallback;
-    }
-
     // ---------------------------------------------------------------------
     // Per-endpoint enforcement helpers
     // ---------------------------------------------------------------------
@@ -111,10 +100,6 @@ public final class AuthUtils {
      * insensitive). Throws 403 if a different verified user is present, 401
      * if no verified user. Use in "edit my own resource" paths to defend
      * against a logged-in attacker submitting another user's id.
-     *
-     * <p>During the auth rollout call sites that don't yet enforce can use
-     * {@link #resolveActor(String)} instead — that prefers the verified
-     * email but falls back to the body param.</p>
      */
     public static void requireSelf(String expected) {
         String actual = requireAuthenticatedEmail();

@@ -351,6 +351,14 @@ public class GroupPostService {
         });
     }
 
+    /** True when {@code groupId} is a household (its notification routes differ). */
+    public boolean isHouseholdGroup(String groupId) {
+        if (groupId == null || groupId.isBlank()) return false;
+        return groupRepo.findByGroupId(groupId.trim())
+                .map(g -> HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType()))
+                .orElse(false);
+    }
+
     /**
      * True when {@code email} is the owner or an admin of {@code groupId}.
      * The moderation gate for posts and comments (FD-06) and the group report
@@ -430,58 +438,6 @@ public class GroupPostService {
         return out;
     }
 
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public List<GroupPostDto> getPostsByGroupIdDto(String groupId, String viewerEmail) {
-        requireCanReadGroup(groupId, viewerEmail);
-        List<GroupPost> posts = postRepo.findPostsByGroupId(groupId);
-        if (posts.isEmpty()) return List.of();
-
-        Set<String> emails = posts.stream().map(GroupPost::getAuthor).filter(Objects::nonNull).collect(Collectors.toSet());
-        // Pin authors are surfaced by name on the FE ("📌 Pinned by Alice")
-        // so include their emails in the batch userinfo lookup. Single
-        // round trip; falls back gracefully when a pinner profile is
-        // missing (baseDto handles the empty pinnedByFirstName case).
-        for (GroupPost p : posts) {
-            if (p.getPinnedBy() != null && !p.getPinnedBy().isBlank()) {
-                emails.add(p.getPinnedBy());
-            }
-        }
-        Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
-                .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
-
-        // Batched reaction roster — one repo call for the whole listing.
-        Map<Long, Map<String, List<EmojiReactionDto>>> reactionsByPost =
-                reactionService.loadByPostIds(posts.stream().map(GroupPost::getId).toList());
-
-        List<GroupPostDto> out = posts.stream()
-                .map(p -> convertToPostDto(p, userByEmail, reactionsByPost.get(p.getId())))
-                // Sort pinned posts first (by pinnedAt DESC so a recent
-                // pin reads above older pins), then everything else by
-                // timestamp DESC. The repo returns timestamp-ordered
-                // already; this stable sort just lifts the pinned set
-                // to the top without disturbing the rest.
-                .sorted((a, b) -> {
-                    boolean ap = a.getPinnedAt() != null;
-                    boolean bp = b.getPinnedAt() != null;
-                    if (ap && !bp) return -1;
-                    if (!ap && bp) return 1;
-                    if (ap && bp) {
-                        return b.getPinnedAt().compareTo(a.getPinnedAt());
-                    }
-                    // Both unpinned — preserve the repo's timestamp DESC
-                    // by comparing timestamps directly (defensive — the
-                    // repo query already orders this way, but explicit
-                    // here means the sort is total and stable).
-                    if (a.getTimestamp() == null) return 1;
-                    if (b.getTimestamp() == null) return -1;
-                    return b.getTimestamp().compareTo(a.getTimestamp());
-                })
-                .toList();
-        applyRemovals(out);
-        applyReadReceipts(out, groupId);
-        return out;
-    }
-
     /**
      * Cursor-paginated chat-feed listing. Returns:
      * <ul>
@@ -494,13 +450,11 @@ public class GroupPostService {
      *       {@code hasMore} hint.</li>
      * </ul>
      *
-     * <p>Scale rationale: the legacy {@link #getPostsByGroupIdDto(String)}
-     * loads ALL posts at once — fine for the first quarter of a group's
-     * life, fatal at 1k+ rows. This paginated path is the canonical
-     * listing surface for the chat feed; the legacy method stays
-     * available for any caller that genuinely needs the whole set
-     * (none currently — usePostWebSocket migrates here in the FE
-     * pass shipped alongside this BE change).</p>
+     * <p>Scale rationale: the old whole-history read loaded ALL posts at
+     * once — fine for the first quarter of a group's life, fatal at 1k+
+     * rows. This paginated path is the only listing surface for the chat
+     * feed; the whole-history method and its endpoint were deleted in B5
+     * (BE-14, 0 callers).</p>
      *
      * <p>Limit is clamped to [1, 200]. Default size is 50 — matches the
      * sustainable rendering load on phones for chat-style scroll

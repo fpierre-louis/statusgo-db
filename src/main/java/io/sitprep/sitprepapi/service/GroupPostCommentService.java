@@ -625,8 +625,9 @@ public class GroupPostCommentService {
                 + snippet(mentionService.toPlainText(enrichedDto.getContent()));
         String iconUrl = enrichedDto.getAuthorProfileImageUrl();
 
-        // Deep-link to the post. Service worker already prefers targetUrl first.
-        String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();
+        // Deep-link to the post's own thread, by the one route registry (BE-15):
+        // a household post opens its chat tab, an org post its view=post page.
+        String targetUrl = postRoute(post);
 
         // Actor identity — commenter's stable userId, so the FE inbox
         // card can deep-link the actor avatar to /profile/:actorUserId
@@ -674,7 +675,7 @@ public class GroupPostCommentService {
         String title = (post.getGroupName() != null && !post.getGroupName().isBlank())
                 ? post.getGroupName()
                 : "You were mentioned";
-        String targetUrl = "/Linked/lg/4D-FwtX/" + post.getGroupId() + "?postId=" + post.getId();
+        String targetUrl = postRoute(post);
         String actorUserId = userInfoRepo.findByUserEmailIgnoreCase(saved.getAuthor())
                 .map(UserInfo::getId)
                 .orElse(null);
@@ -691,6 +692,18 @@ public class GroupPostCommentService {
                             String.valueOf(post.getId()), targetUrl, null,
                             u.getFcmtoken(), actorUserId));
         }
+    }
+
+    /**
+     * The thread a comment or mention push opens. It used to be the org form
+     * {@code /Linked/...?postId=} for every post, so a household comment
+     * landed on a route that drops the query and opens Family (AUDIT BE-15).
+     */
+    String postRoute(GroupPost post) {
+        return io.sitprep.sitprepapi.notifications.NotificationRoutes.groupPost(
+                post.getGroupId(),
+                post.getId() == null ? null : String.valueOf(post.getId()),
+                postService.isHouseholdGroup(post.getGroupId()));
     }
 
     private String snippet(String content) {

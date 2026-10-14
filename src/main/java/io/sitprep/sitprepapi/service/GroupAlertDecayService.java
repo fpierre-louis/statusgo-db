@@ -205,7 +205,18 @@ public class GroupAlertDecayService {
     }
 
     /**
-     * Fan out the "Check-in ended after 48h — continue?" prompt to
+     * The decay prompt's words (BE-15). The window is the configured
+     * {@code app.groupAlert.decayHours}, not a hard-coded "48", and an org
+     * admin isn't asked about "family".
+     */
+    static String continuePromptBody(Group group, int hours) {
+        boolean household = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
+        return "The check-in ended by itself after " + hours + " hours. Tap to continue if "
+                + (household ? "your family" : "your group") + " still needs it.";
+    }
+
+    /**
+     * Fan out the "Check-in ended after its window — continue?" prompt to
      * admins/owners of an auto-decayed group.
      */
     private void notifyContinuePrompt(Group group) {
@@ -214,7 +225,7 @@ public class GroupAlertDecayService {
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String title = group.getGroupName();
-        String body = "Check-in auto-ended after 48 hours. Tap to continue if family still needs it.";
+        String body = continuePromptBody(group, decayHours);
         String type = "checkin_auto_ended";
         String referenceId = group.getGroupId();
         String targetUrl = GroupUrlUtil.getGroupTargetUrl(group);

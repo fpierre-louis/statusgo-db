@@ -16,8 +16,9 @@ import java.util.Set;
  * and unknown to another, and an unknown type fails SILENTLY — a null policy
  * category skips every lane branch and falls through to a full push (the
  * {@code post_mention} incident, 2026-08-22). Those three methods now delegate
- * here, and {@code NotificationEventTypeTest} fails the build when an emitted
- * type string is not registered.</p>
+ * here, and {@code NotificationPresentationTest} ({@code EMITTED_TYPES}) and
+ * {@code ReminderPushPolicyTest} fail the build when an emitted type string
+ * is not registered.</p>
  *
  * <p>{@code policy == null} is a recorded decision, not a gap: those types take
  * the legacy no-policy send path today, and giving them a lane changes who gets

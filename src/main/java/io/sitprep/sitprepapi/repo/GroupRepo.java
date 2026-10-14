@@ -100,13 +100,11 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     List<Group> findAuthorizedAgencies();
 
     /**
-     * Case-insensitive uniqueness check for the group-create flows.
-     * Replaces the FE pattern of pulling the entire groups table on
-     * every keystroke and filtering in memory. Returns true when at
-     * least one group already uses the supplied name / code.
+     * True when a group already uses this join code (case-insensitive): the
+     * server mints codes and checks them here. Group NAMES are not unique
+     * (D21, B5 2026-10-14): two churches may share a name, and a global
+     * check leaked household names to anyone who typed one.
      */
-    boolean existsByGroupNameIgnoreCase(String groupName);
-
     boolean existsByGroupCodeIgnoreCase(String groupCode);
 
     // ✅ Optional: For findByAdminEmailsContaining (alternative to @Query)

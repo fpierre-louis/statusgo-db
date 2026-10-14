@@ -58,14 +58,6 @@ public class GroupService {
         this.checkInRequestService = checkInRequestService;
     }
 
-    /**
-     * Backend no longer uses SecurityContext to determine the current admin.
-     * Frontend is responsible for filtering groups by admin email.
-     */
-    public List<Group> getGroupsForCurrentAdmin() {
-        return groupRepo.findAll();
-    }
-
     @org.springframework.beans.factory.annotation.Autowired
     public void setNotificationService(NotificationService notificationService) {
         this.notificationService = notificationService;
@@ -115,6 +107,15 @@ public class GroupService {
         this.liveActivities = liveActivities;
     }
 
+    // BE-13: drops a removed account's live socket subscriptions to the group.
+    // Setter-injected and optional like the hooks above; null in hand-built tests.
+    private io.sitprep.sitprepapi.websocket.GroupTopicEvictor topicEvictor;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTopicEvictor(io.sitprep.sitprepapi.websocket.GroupTopicEvictor topicEvictor) {
+        this.topicEvictor = topicEvictor;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setSupportService(EmergencySupportService supportService) {
         this.supportService = supportService;
@@ -135,46 +136,6 @@ public class GroupService {
         if (householdComposition == null || g == null) return;
         if (!HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) return;
         householdComposition.raiseToNamed(g.getGroupId(), false, null);
-    }
-
-    /*** Existing broadcast methods preserved below ***/
-
-    /**
-     * Presence-aware broadcast for generic group status changes (not the "Active alert" flow).
-     * Uses NotificationService.deliverPresenceAware so online members get an in-app banner
-     * and offline members get FCM / APNs.
-     */
-    public void broadcastGroupStatusChange(String groupId, String newStatus) {
-        Optional<Group> groupOpt = groupRepo.findByGroupId(groupId);
-        if (groupOpt.isEmpty()) return;
-
-        Group group = groupOpt.get();
-        List<String> memberEmails = group.getMemberEmails();
-        if (memberEmails == null || memberEmails.isEmpty()) return;
-
-        List<UserInfo> recipients = userInfoRepo.findByUserEmailIn(memberEmails);
-
-        String senderName = (group.getOwnerName() != null && !group.getOwnerName().isEmpty())
-                ? group.getOwnerName()
-                : "Group Admin";
-
-        String message = "🚨 " + senderName + " changed the group's status to " + newStatus;
-        String targetUrl = "/groups/" + groupId;
-
-        for (UserInfo recipient : recipients) {
-            notificationService.deliverPresenceAware(
-                    recipient.getUserEmail(),
-                    group.getGroupName(),
-                    message,
-                    senderName,
-                    "/images/group-alert-icon.png",
-                    "group_status",
-                    group.getGroupId(),
-                    targetUrl,
-                    null,
-                    recipient.getFcmtoken()
-            );
-        }
     }
 
     /**
@@ -292,24 +253,9 @@ public class GroupService {
         return saved;
     }
 
-    /**
-     * Case-insensitive uniqueness check for the group-create flows.
-     * Backs the {@code GET /api/groups/availability} endpoint;
-     * replaces the previous FE-side "fetch all + scan in memory"
-     * pattern that ran on every keystroke.
-     */
-    public boolean isGroupNameTaken(String name) {
-        if (name == null || name.isBlank()) return false;
-        return groupRepo.existsByGroupNameIgnoreCase(name);
-    }
-
     public boolean isGroupCodeTaken(String code) {
         if (code == null || code.isBlank()) return false;
         return groupRepo.existsByGroupCodeIgnoreCase(code);
-    }
-
-    public List<Group> getGroupsByAdminEmail(String adminEmail) {
-        return groupRepo.findByAdminEmailsContaining(adminEmail);
     }
 
     public Group getGroupByPublicId(String groupId) {
@@ -907,9 +853,170 @@ public class GroupService {
         return groupRepo.save(group);
     }
 
-    public void deleteGroupByPublicId(String groupId) {
-        Group group = getGroupByPublicId(groupId);
-        groupRepo.delete(group);
+    // ------------------------------------------------------------------
+    // Settings (AD-01, B5 2026-10-14)
+    // ------------------------------------------------------------------
+
+    /** Column widths of the fields settings may write (V1 baseline; V-business). */
+    static final int TEXT_MAX = 255;
+    static final int BUSINESS_CATEGORY_MAX = 64;
+    static final int WEBSITE_MAX = 512;
+
+    /**
+     * {@code PATCH /groups/{id}/settings}: write only the keys the caller sent.
+     *
+     * <p>The fix for AD-01. The settings Save PUT a whole group read when the
+     * page mounted, so it could end a check-in another admin had started,
+     * restart one that had ended, and revert roster and link changes made in
+     * between. This method can't: the alert, the rosters, the owner, the links,
+     * the code and {@code lastUpdatedBy} (which the alert frame reads as "who
+     * started the check-in") are not in its vocabulary
+     * ({@link io.sitprep.sitprepapi.dto.GroupSettingsRequest#SETTINGS_KEYS}),
+     * and the name has its own endpoint.</p>
+     *
+     * <p>Rules: a household stays Private and stays a household (409); nothing
+     * becomes a household here (409); privacy is Public or Private; latitude
+     * and longitude travel together; the website is http(s) or a bare domain,
+     * never another scheme (it renders as a link on the business card).</p>
+     *
+     * @throws ResponseStatusException 403 not admin/owner, 400 bad value,
+     *         409 household rule
+     */
+    @Transactional
+    public Group updateSettings(String groupId, io.sitprep.sitprepapi.dto.GroupSettingsRequest req, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        boolean household = isHouseholdGroup(g);
+        if (household && (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.BUSINESS_CATEGORY)
+                || req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.WEBSITE_URL))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A household has no business category or website");
+        }
+
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.GROUP_TYPE)) {
+            String type = req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.GROUP_TYPE);
+            boolean toHousehold = HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(type);
+            if (household) {
+                if (!toHousehold) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "A household's type can't change");
+                }
+            } else {
+                if (toHousehold) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "A group can't become a household");
+                }
+                if (type == null) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a group type");
+                }
+                g.setGroupType(bounded(type, TEXT_MAX, "groupType"));
+            }
+        }
+
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.PRIVACY)) {
+            String privacy = req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.PRIVACY);
+            boolean isPublic = "public".equalsIgnoreCase(privacy);
+            if (!isPublic && !"private".equalsIgnoreCase(privacy)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "privacy must be Public or Private");
+            }
+            if (household && isPublic) {
+                // D4: households are never listed or joinable by request.
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "A household can't be made public. Households are never listed "
+                        + "on the community map.");
+            }
+            g.setPrivacy(isPublic ? "Public" : "Private");
+        }
+
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.BUSINESS_CATEGORY)) {
+            g.setBusinessCategory(bounded(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.BUSINESS_CATEGORY),
+                    BUSINESS_CATEGORY_MAX, "businessCategory"));
+        }
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.WEBSITE_URL)) {
+            g.setWebsiteUrl(website(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.WEBSITE_URL)));
+        }
+        applyDetails(g, req);
+        g.setUpdatedAt(Instant.now());
+        return groupRepo.save(g);
+    }
+
+    /**
+     * {@code PATCH /groups/{id}/household-details}: the household's name,
+     * note and home location in one write. It replaces the fetch-merge-PUT
+     * CreateHouseholdGroup made when a member finishes setting up their base
+     * household (AD-01's second caller). Households only (409 otherwise);
+     * the same admin/owner gate as the PUT it replaces.
+     */
+    @Transactional
+    public Group updateHouseholdDetails(String groupId, io.sitprep.sitprepapi.dto.GroupSettingsRequest req, String caller) {
+        Group g = getGroupByPublicId(groupId);
+        requireAtLeastAdmin(g, caller);
+        if (!isHouseholdGroup(g)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Not a household. Group settings save through /settings.");
+        }
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.GROUP_NAME)) {
+            g.setGroupName(normalizeGroupName(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.GROUP_NAME)));
+        }
+        applyDetails(g, req);
+        g.setUpdatedAt(Instant.now());
+        return groupRepo.save(g);
+    }
+
+    /** Description, address, zip and the coordinate: shared by both PATCHes. */
+    private static void applyDetails(Group g, io.sitprep.sitprepapi.dto.GroupSettingsRequest req) {
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.DESCRIPTION)) {
+            g.setDescription(bounded(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.DESCRIPTION),
+                    TEXT_MAX, "description"));
+        }
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.ADDRESS)) {
+            g.setAddress(bounded(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.ADDRESS), TEXT_MAX, "address"));
+        }
+        if (req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.ZIP_CODE)) {
+            g.setZipCode(bounded(req.text(io.sitprep.sitprepapi.dto.GroupSettingsRequest.ZIP_CODE), TEXT_MAX, "zipCode"));
+        }
+        boolean hasLat = req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.LATITUDE);
+        boolean hasLng = req.has(io.sitprep.sitprepapi.dto.GroupSettingsRequest.LONGITUDE);
+        if (hasLat != hasLng) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send latitude and longitude together");
+        }
+        if (hasLat) {
+            Double lat = req.number(io.sitprep.sitprepapi.dto.GroupSettingsRequest.LATITUDE);
+            Double lng = req.number(io.sitprep.sitprepapi.dto.GroupSettingsRequest.LONGITUDE);
+            if ((lat == null) != (lng == null)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send latitude and longitude together");
+            }
+            if (lat != null && (lat < -90 || lat > 90 || lng < -180 || lng > 180)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That location is off the map");
+            }
+            g.setLatitude(lat);
+            g.setLongitude(lng);
+        }
+    }
+
+    private static String bounded(String value, int max, String key) {
+        if (value != null && value.length() > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    key + " can be up to " + max + " characters");
+        }
+        return value;
+    }
+
+    /** http(s) or a bare domain; any other scheme (javascript:, data:) is a 400. */
+    static String website(String raw) {
+        String v = bounded(raw, WEBSITE_MAX, "websiteUrl");
+        if (v == null) return null;
+        if (v.chars().anyMatch(Character::isWhitespace)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That website address isn't valid");
+        }
+        int colon = v.indexOf(':');
+        int slash = v.indexOf('/');
+        boolean hasScheme = colon > 0 && (slash < 0 || colon < slash);
+        if (hasScheme) {
+            String scheme = v.substring(0, colon).toLowerCase(Locale.ROOT);
+            if (!scheme.equals("http") && !scheme.equals("https")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The website must be an http or https address");
+            }
+        }
+        return v;
     }
 
     private void updateGroupFields(Group group, Group groupDetails) {
@@ -1331,6 +1438,7 @@ public class GroupService {
             // so the FCM fan-out (incl. iOS lock-screen Approve/Decline
             // action buttons) goes out to admins identically.
             notifyAdminsOfPendingMembers(saved, oldPending);
+            broadcastPendingChangedAfterCommit(saved);
             return saved;
         }
 
@@ -1352,6 +1460,72 @@ public class GroupService {
         syncHouseholdCountsAfterJoin(saved);
         broadcastMembershipAfterCommit(saved, "ADD", email, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
         return saved;
+    }
+
+    /**
+     * Join an org group through a link an owner or admin issued (JN-20, D19:
+     * the invite is the approval). The caller becomes a member at once, even
+     * when the group is private, exactly as if an admin had approved their
+     * request: the seat cap is checked (409), a pending request from them is
+     * answered, their joined-group ids are synced and the roster hears an ADD.
+     *
+     * <p>Org groups only: a household token redeems through
+     * {@link #joinHouseholdByInvite}, and a household id is the same 404 as
+     * an unknown one. The caller (the invite service) decides whether the
+     * token still counts as approval, i.e. whether its issuer is still an
+     * owner or admin; when not, it calls {@link #selfJoin} instead.</p>
+     */
+    @Transactional
+    public Group joinByInvite(String groupId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Caller email required");
+        }
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        Group g = getGroupByPublicId(groupId);
+        if (isHouseholdGroup(g)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found");
+        }
+        if (containsCaseInsensitive(g.getMemberEmails(), normalized)
+                || containsCaseInsensitive(g.getAdminEmails(), normalized)) {
+            syncJoinedGroup(normalized, g.getGroupId());
+            return g;
+        }
+        assertSeatAvailable(g, normalized); // 409 if a paid seat cap is full
+
+        List<String> members = safeList(g.getMemberEmails());
+        members.add(normalized);
+        g.setMemberEmails(members);
+        g.setMemberCount(members.size());
+        List<String> pending = safeList(g.getPendingMemberEmails());
+        boolean wasPending = pending.removeIf(e -> e.trim().equalsIgnoreCase(normalized));
+        if (wasPending) {
+            g.setPendingMemberEmails(pending);
+        }
+        g.setUpdatedAt(Instant.now());
+        syncJoinedGroup(normalized, g.getGroupId());
+
+        Group saved = groupRepo.save(g);
+        broadcastMembershipAfterCommit(saved, "ADD", normalized, GroupRole.MEMBER.wire(), saved.getUpdatedAt());
+        if (wasPending) broadcastPendingChangedAfterCommit(saved); // their request was answered
+        return saved;
+    }
+
+    /**
+     * A requester withdraws their own join request (JN-21, D3). True when a
+     * request was there to withdraw. The roster hears {@link #PENDING_CHANGED}.
+     */
+    @Transactional
+    public boolean withdrawPendingRequest(String groupId, String email) {
+        if (email == null || email.isBlank()) return false;
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        Group g = getGroupByPublicId(groupId);
+        List<String> pending = safeList(g.getPendingMemberEmails());
+        if (!pending.removeIf(e -> e.trim().equalsIgnoreCase(normalized))) return false;
+        g.setPendingMemberEmails(pending);
+        g.setUpdatedAt(Instant.now());
+        Group saved = groupRepo.save(g);
+        broadcastPendingChangedAfterCommit(saved);
+        return true;
     }
 
     /**
@@ -1723,6 +1897,14 @@ public class GroupService {
 
         if (wasMember) {
             broadcastMembershipAfterCommit(saved, "REMOVE", normalized, previousRole, saved.getUpdatedAt());
+        }
+        // BE-13: SUBSCRIBE was the only check, so a removed member's open page
+        // kept receiving the group's frames until it reconnected. Registered
+        // after the REMOVE broadcast, so their client still hears that it was
+        // removed, then hears nothing more.
+        if (topicEvictor != null && normalized != null) {
+            final io.sitprep.sitprepapi.websocket.GroupTopicEvictor evictor = topicEvictor;
+            afterCommitOrNow(() -> evictor.evict(groupId, normalized));
         }
         return saved;
     }
@@ -2192,6 +2374,23 @@ public class GroupService {
         );
         // After the commit when there is one; immediately otherwise
         // (registerSynchronization throws without one).
+        afterCommitOrNow(() -> webSocketMessageSender.sendGroupMembership(group.getGroupId(), frame));
+    }
+
+    /**
+     * Membership-frame action meaning "the join requests changed; re-read
+     * them". It carries no email and no role on purpose: the members topic
+     * reaches plain members, who never see who asked to join (D3, D6), so the
+     * frame says only that admins' pending list moved (a request arrived or
+     * was withdrawn). Clients that don't know the action ignore it
+     * ({@code useGroupMembershipStream} handles ADD and REMOVE only).
+     */
+    public static final String PENDING_CHANGED = "PENDING_CHANGED";
+
+    private void broadcastPendingChangedAfterCommit(Group group) {
+        if (group == null || group.getGroupId() == null || group.getGroupId().isBlank()) return;
+        GroupMembershipFrame frame = new GroupMembershipFrame(PENDING_CHANGED, null, null,
+                group.getUpdatedAt() != null ? group.getUpdatedAt() : Instant.now());
         afterCommitOrNow(() -> webSocketMessageSender.sendGroupMembership(group.getGroupId(), frame));
     }
 

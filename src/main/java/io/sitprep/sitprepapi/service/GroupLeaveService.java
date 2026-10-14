@@ -21,7 +21,9 @@ import java.util.Collection;
  * <ul>
  *   <li>The owner cannot leave (409): transfer ownership or delete first — a
  *       group with no owner has nobody who can manage it.</li>
- *   <li>Not a member or admin → 404, the same answer as an unknown group.</li>
+ *   <li>A pending requester withdraws their request (204; JN-21, D3). The
+ *       admins' views hear a {@code PENDING_CHANGED} frame.</li>
+ *   <li>Anyone else → 404, the same answer as an unknown group.</li>
  *   <li>Leaving your BASE household re-anchors you: the base is cleared and
  *       re-provisioned (another household you belong to, else a new personal
  *       one). Left pointing at the old id, {@code /api/me} would keep reading
@@ -58,6 +60,9 @@ public class GroupLeaveService {
                     "The owner can't leave. Transfer ownership or delete the group first.");
         }
         if (!contains(g.getMemberEmails(), email) && !contains(g.getAdminEmails(), email)) {
+            // A requester leaving is withdrawing their request (JN-21, D3).
+            // Anyone else: the same 404 as an unknown group.
+            if (groupService.withdrawPendingRequest(g.getGroupId(), email)) return;
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 

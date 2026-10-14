@@ -8,8 +8,10 @@ import java.util.regex.Pattern;
 /**
  * Canonical app routes a notification may point at — the gameplan's deep-link
  * registry. Every builder here returns a path the FE router (`App.js`) actually
- * mounts; {@code NotificationRoutesTest} pins each one against the router's
- * pattern so a renamed route fails a test instead of stranding a tap.
+ * mounts; {@code NotificationPresentationTest} checks the canonical routes
+ * against a copy of the router's patterns ({@code FE_ROUTES}), so a renamed
+ * route fails a test instead of stranding a tap. That copy is hand-kept: a
+ * route renamed in App.js must be renamed there too.
  *
  * <p>Decisions recorded here rather than re-made per emitter:</p>
  * <ul>

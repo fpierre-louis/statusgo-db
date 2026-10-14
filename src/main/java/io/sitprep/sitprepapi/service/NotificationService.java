@@ -900,6 +900,19 @@ public class NotificationService {
         }
     }
 
+    /** "First Last" of whoever started a check-in; the owner's name, then a neutral fallback. */
+    String initiatorName(String initiatedByEmail, Group group) {
+        if (initiatedByEmail != null && !initiatedByEmail.isBlank()) {
+            String name = userInfoRepo.findByUserEmailIgnoreCase(initiatedByEmail.trim())
+                    .map(u -> ((u.getUserFirstName() == null ? "" : u.getUserFirstName().trim()) + " "
+                            + (u.getUserLastName() == null ? "" : u.getUserLastName().trim())).trim())
+                    .orElse("");
+            if (!name.isEmpty()) return name;
+        }
+        if (group.getOwnerName() != null && !group.getOwnerName().isBlank()) return group.getOwnerName().trim();
+        return "Your group leader";
+    }
+
     /**
      * Presence-aware fan-out of a group alert (the Activate Check-in
      * trigger) to every member except the initiator.
@@ -930,9 +943,12 @@ public class NotificationService {
             return;
         }
 
-        String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
+        // The person who started the check-in, not the owner (BE-15): another
+        // admin often starts it, and the push used to sign it with the owner's
+        // name. Calm words, no emoji chrome; the policy lane carries urgency.
+        String owner = initiatorName(initiatedByEmail, group);
         String title = group.getGroupName();
-        String body = "🚨 Important: " + owner + " here! Checking in on you. Click here and let me know your status.";
+        String body = owner + " is checking in on you. Tap to let them know how you are.";
         String type = "alert";
         String referenceId = group.getGroupId();
         String targetUrl = "/status-now";

@@ -21,4 +21,7 @@ public interface GroupMutePrefRepo extends JpaRepository<GroupMutePref, Long> {
      * enforcement check.
      */
     Optional<GroupMutePref> findByUserEmailIgnoreCaseAndGroupId(String userEmail, String groupId);
+
+    /** Every member's mute pref for a group: the delete cleanup (BE-09). */
+    List<GroupMutePref> findByGroupId(String groupId);
 }

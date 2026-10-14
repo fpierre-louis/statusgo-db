@@ -38,4 +38,7 @@ public interface GroupInviteRepo extends JpaRepository<GroupInvite, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT i FROM GroupInvite i WHERE i.id = :id")
     Optional<GroupInvite> findByIdForUpdate(@Param("id") String id);
+
+    /** Every invite of a group, live or not: the delete cleanup (BE-09). */
+    List<GroupInvite> findByGroupId(String groupId);
 }
