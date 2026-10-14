@@ -29,9 +29,23 @@ import java.time.Instant;
 )
 public class CommunityReport {
 
+    /**
+     * {@code POST} / {@code COMMENT} are community-feed content.
+     * {@code GROUP_POST} / {@code GROUP_COMMENT} are a group's chat content
+     * (audit FD-01): {@code postId} then holds the group post's id (for a
+     * comment, the post it hangs off), so a group's queue is one subquery on
+     * the group post's group. The names fit the column's 16 characters
+     * ({@code GROUP_POST_COMMENT} would not), so no migration.
+     */
     public enum TargetType {
         POST,
-        COMMENT
+        COMMENT,
+        GROUP_POST,
+        GROUP_COMMENT;
+
+        public boolean isGroupContent() {
+            return this == GROUP_POST || this == GROUP_COMMENT;
+        }
     }
 
     public enum Reason {

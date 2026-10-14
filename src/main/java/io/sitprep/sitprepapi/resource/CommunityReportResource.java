@@ -48,6 +48,29 @@ public class CommunityReportResource {
         return ResponseEntity.ok(service.listReports(status));
     }
 
+    /**
+     * A group's report queue (audit FD-01, D23): reports on the group's chat
+     * posts and comments, for its owner and admins (403 otherwise). Rows carry
+     * no reporter email. {@code status} defaults to PENDING; ALL lists every row.
+     */
+    @GetMapping("/api/groups/{groupId}/reports")
+    public ResponseEntity<List<CommunityReportDto>> groupQueue(
+            @PathVariable String groupId,
+            @RequestParam(value = "status", required = false, defaultValue = "PENDING") String status) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.listGroupReports(groupId, status, caller));
+    }
+
+    /** A group admin dismisses or actions a report on the group's own content. */
+    @PatchMapping("/api/groups/{groupId}/reports/{id}")
+    public ResponseEntity<CommunityReportDto> reviewGroupReport(
+            @PathVariable String groupId,
+            @PathVariable Long id,
+            @RequestBody ReviewCommunityReportRequest req) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.reviewGroupReport(groupId, id, req, caller));
+    }
+
     @PatchMapping("/api/admin/community-reports/{id}")
     public ResponseEntity<CommunityReportDto> review(
             @PathVariable Long id,
