@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.util.GeoUtil;
+import io.sitprep.sitprepapi.util.Vtec;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -423,17 +424,13 @@ public class AlertIngestService {
      * means dedup keeps the most recent row's metadata; secondary rows
      * just contribute their county to the area list.
      *
-     * <p><b>Severity:</b> presidential disaster declarations are by
-     * definition major events (the trigger is "beyond state and local
-     * capacity"). We mark all FEMA alerts {@code "Severe"} so they
-     * pass CrisisBand's Severe+Extreme filter — but consumers can still
-     * route by {@code source} when they want different UX for
-     * recovery-phase declarations vs. NWS warning-phase ones.</p>
+     * <p><b>Severity:</b> {@code "Minor"} — a recovery declaration is not
+     * a threat to life (audit P1-2; see {@code normalizeFema}).</p>
      *
-     * <p><b>Geometry:</b> FEMA returns county/state names, not
-     * polygons. We emit {@code geometry = null}, which falls into
-     * {@code getSnapshotForPoint}'s "include unconditionally" branch.
-     * Coarse but safe — these are always broad-impact.</p>
+     * <p><b>Location:</b> no polygons and no UGC. Each designated county's
+     * FIPS pair becomes a SAME code ({@link #femaSameCode}), so the
+     * declaration matches the counties it names; one with no coded area
+     * matches no one ({@link #matchTypeFor}). It used to match everyone.</p>
      */
     private List<NormalizedAlert> pollFema() throws Exception {
         long started = System.currentTimeMillis();
@@ -466,6 +463,8 @@ public class AlertIngestService {
                 FemaAccum acc = byDecl.computeIfAbsent(key, k -> new FemaAccum(r));
                 String area = textOrNull(r, "designatedArea");
                 if (area != null && !acc.areas.contains(area)) acc.areas.add(area);
+                String same = femaSameCode(r);
+                if (same != null && !acc.same.contains(same)) acc.same.add(same);
             }
 
             if (rows.size() < FEMA_PAGE_SIZE) break;   // last page
@@ -633,9 +632,18 @@ public class AlertIngestService {
         // the SAME namespace as `properties.id` (both `urn:oid:2.49.0.1.840...`),
         // which is what makes the edge joinable at all.
         List<String> references = identifierList(p.path("references"));
+        // The whole tuple as well (S2 C1): the identifier alone joins the edge,
+        // but sender + sent are what let a reader say WHO issued the message
+        // being replaced and WHEN, without a second lookup.
+        List<CapReference> referenceTuples = referenceTupleList(p.path("references"));
         List<String> responseTypes = stringListFlexible(p.path("response"));
         String response = responseTypes.isEmpty() ? textOrNull(p, "response") : responseTypes.get(0);
         Map<String, List<String>> parameters = parameterMap(p.path("parameters"));
+        String sent = textOrNull(p, "sent");
+        // P-VTEC — NWS's own event thread (CON/EXT/CAN/EXP/UPG). Already inside
+        // `parameters` as raw strings; parsed here once so no consumer writes a
+        // second VTEC regex. Malformed entries are dropped, never thrown.
+        List<Vtec> vtec = Vtec.parseAll(parameters.get("VTEC"), sent);
 
         return new NormalizedAlert(
                 id,
@@ -658,13 +666,28 @@ public class AlertIngestService {
                 same,
                 references,
                 textOrNull(p, "sender"),
-                textOrNull(p, "sent"),
+                sent,
                 textOrNull(p, "scope"),
                 stringListDeep(p.path("eventCode")),
                 responseTypes,
                 unknownResponseTypes(responseTypes),
                 parameters,
-                "NWS_API"
+                "NWS_API",
+                textOrNull(p, "senderName"),
+                // The four raw CAP timings, verbatim. startedAt/endsAt above stay
+                // the collapsed pair every existing consumer reads.
+                textOrNull(p, "effective"),
+                textOrNull(p, "onset"),
+                textOrNull(p, "expires"),
+                textOrNull(p, "ends"),
+                referenceTuples,
+                vtec,
+                Vtec.eventKeysOf(vtec),
+                /* revisionUpdatedAt */ null,   // NWS revises by issuing a NEW id
+                /* magnitude */ null, /* pagerAlert */ null, /* tsunamiFlag */ null,
+                /* incidentEndsAt */ null, /* declaredAt */ null,
+                // Needs the template — see TrustedSourceRegistry.recordTypeOf.
+                /* recordType */ null
         );
     }
 
@@ -681,6 +704,26 @@ public class AlertIngestService {
         for (JsonNode n : arr) {
             String id = n.isObject() ? n.path("identifier").asText("") : n.asText("");
             if (!id.isEmpty()) out.add(id);
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * CAP {@code references} -> {@code (sender, identifier, sent)} tuples, empty
+     * when absent. A bare-string entry (raw CAP) keeps its identifier and
+     * nulls the rest rather than inventing them.
+     */
+    private static List<CapReference> referenceTupleList(JsonNode arr) {
+        if (arr == null || !arr.isArray() || arr.isEmpty()) return List.of();
+        List<CapReference> out = new ArrayList<>(arr.size());
+        for (JsonNode n : arr) {
+            if (n.isObject()) {
+                String id = textOrNull(n, "identifier");
+                if (id != null) out.add(new CapReference(textOrNull(n, "sender"), id, textOrNull(n, "sent")));
+            } else {
+                String id = n.asText("");
+                if (!id.isEmpty()) out.add(new CapReference(null, id, null));
+            }
         }
         return List.copyOf(out);
     }
@@ -762,7 +805,35 @@ public class AlertIngestService {
     private static final class FemaAccum {
         final JsonNode firstRow;
         final List<String> areas = new ArrayList<>();
+        /** SAME-form county codes, one per coded designated area — see {@link #femaSameCode}. */
+        final List<String> same = new ArrayList<>();
         FemaAccum(JsonNode firstRow) { this.firstRow = firstRow; }
+    }
+
+    /**
+     * One designated area as a SAME location code, or null when it has none.
+     *
+     * <p>OpenFEMA codes every area with {@code fipsStateCode} +
+     * {@code fipsCountyCode}, and a SAME code is exactly that with a
+     * whole-county prefix: Cleveland County, OK is {@code 40} + {@code 027}
+     * -> {@code 040027} -> {@code OKC027}, the county UGC the zone matcher
+     * already resolves for a point (see {@link SameCodes}). This is what scopes
+     * a declaration to the counties it names instead of to the whole country.</p>
+     *
+     * <p>County {@code 000} is NOT the whole state here. FEMA uses it for
+     * reservations and other non-county areas ({@code Crow Indian Reservation},
+     * measured on the 2026-08-22 page), so those contribute no code. Only FEMA's
+     * own {@code Statewide} designation becomes {@code SS000}.</p>
+     */
+    static String femaSameCode(JsonNode r) {
+        String state = textOrNull(r, "fipsStateCode");
+        String county = textOrNull(r, "fipsCountyCode");
+        if (state == null || county == null) return null;
+        state = state.trim();
+        county = county.trim();
+        if (!state.matches("\\d{2}") || !county.matches("\\d{3}")) return null;
+        if ("000".equals(county) && !"Statewide".equals(textOrNull(r, "designatedArea"))) return null;
+        return "0" + state + county;
     }
 
     private NormalizedAlert normalizeFema(FemaAccum acc) {
@@ -819,13 +890,14 @@ public class AlertIngestService {
                 /* instruction */ null,   // FEMA declarations carry no CAP instruction
                 area,
                 textOrNull(r, "incidentBeginDate"),
-                textOrNull(r, "incidentEndDate"),  // null for active declarations
+                femaEndsAt(r),
                 /* geometry */ null,
-                // FEMA rows carry county/state NAMES, not UGC or SAME codes.
-                // They are genuinely unlocated as far as this pipeline is
-                // concerned — see the FEMA branch of getSnapshotForPoint.
+                // No UGC: dispatch and member areas read UGC alone, so a
+                // declaration is never posted, pushed or "contains" anyone.
                 List.of(),
-                List.of(),
+                // The designated counties as SAME codes, which is what the feed,
+                // history and /active match on (femaSameCode).
+                List.copyOf(acc.same),
                 /* references */ List.of(),  // no CAP supersession vocabulary
                 /* sender */ null,
                 /* sent */ null,
@@ -834,8 +906,41 @@ public class AlertIngestService {
                 /* responseTypes */ List.of(),
                 /* unknownResponseTypes */ List.of(),
                 /* parameters */ Map.of(),
-                "FEMA_OPENFEMA"
+                "FEMA_OPENFEMA",
+                /* senderName */ null,
+                /* effective, onset, expires, ends */ null, null, null, null,
+                /* referenceTuples */ List.of(),
+                /* vtec */ List.of(),
+                /* vtecEventKeys */ List.of(),
+                /* revisionUpdatedAt */ null,
+                /* magnitude */ null, /* pagerAlert */ null, /* tsunamiFlag */ null,
+                // R13: the incident's end and the declaration's date are their own
+                // fields now, rather than being read off startedAt/endsAt.
+                textOrNull(r, "incidentEndDate"),
+                textOrNull(r, "declarationDate"),
+                TrustedSourceRegistry.RECORD_DISASTER_DECLARATION
         );
+    }
+
+    /**
+     * A FEMA declaration's {@code endsAt}: the end of its recovery window,
+     * {@code lastIAFilingDate}, or null when FEMA has not set one (R13).
+     *
+     * <p>This was {@code incidentEndDate}. Every Individual Assistance
+     * declaration's incident is over by the time help is offered, so the
+     * lifecycle check read all of them as expired: 0 of the active-recovery
+     * declarations on the 2026-08-22 page reached {@code /api/alerts/feed}. The
+     * incident's end is kept as {@code incidentEndsAt}.</p>
+     *
+     * <p>Surfacing them is safe only because each is now placed by its own
+     * counties ({@link #femaSameCode}) and an uncoded one by none
+     * ({@link #matchTypeFor}); before that, a FEMA row matched every coordinate
+     * as {@code BROADCAST}. And never as life-safety: FEMA templates are
+     * watch-tier and {@code feed}-only, and dispatch and member areas read UGC,
+     * which a declaration never has.</p>
+     */
+    static String femaEndsAt(JsonNode r) {
+        return textOrNull(r, "lastIAFilingDate");
     }
 
     /**
@@ -869,6 +974,20 @@ public class AlertIngestService {
         long timeMs = p.path("time").asLong(0L);
         if (timeMs > 0) startedAt = Instant.ofEpochMilli(timeMs).toString();
 
+        // USGS revises a quake IN PLACE — same id, new `updated` — so these are
+        // what tell one revision from the next (S2 C1). Each is null when the
+        // feed did not send it: an absent PAGER level is "not assessed", not
+        // green, and an absent tsunami flag is not a "no".
+        JsonNode magNode = p.path("mag");
+        Double magnitude = magNode.isNumber() ? magNode.asDouble() : null;
+        JsonNode tsunamiNode = p.path("tsunami");
+        // Spelled out: a `cond ? bool : null` ternary unboxes to boolean and NPEs.
+        Boolean tsunamiFlag = null;
+        if (tsunamiNode.isNumber()) tsunamiFlag = tsunamiNode.asInt() != 0;
+        else if (tsunamiNode.isBoolean()) tsunamiFlag = tsunamiNode.asBoolean();
+        long updatedMs = p.path("updated").asLong(0L);
+        String revisionUpdatedAt = updatedMs > 0 ? Instant.ofEpochMilli(updatedMs).toString() : null;
+
         // Quake geometry is a Point [lon, lat, depth].
         JsonNode geomNode = f.path("geometry");
         Object geometry = geomNode.isMissingNode() || geomNode.isNull()
@@ -901,7 +1020,18 @@ public class AlertIngestService {
                 /* responseTypes */ List.of("Assess"),
                 /* unknownResponseTypes */ List.of(),
                 /* parameters */ Map.of(),
-                "USGS_GEOJSON"
+                "USGS_GEOJSON",
+                /* senderName */ null,
+                /* effective, onset, expires, ends */ null, null, null, null,
+                /* referenceTuples */ List.of(),
+                /* vtec */ List.of(),
+                /* vtecEventKeys */ List.of(),
+                revisionUpdatedAt,
+                magnitude,
+                textOrNull(p, "alert"),   // PAGER: green | yellow | orange | red
+                tsunamiFlag,
+                /* incidentEndsAt */ null, /* declaredAt */ null,
+                TrustedSourceRegistry.RECORD_EARTHQUAKE_INFORMATION
         );
     }
 
@@ -989,11 +1119,12 @@ public class AlertIngestService {
      * county codes converted to county UGC, so a SAME-only alert (AMBER) is
      * matched by county like any other.</p>
      *
-     * <p>An alert with no geometry, no UGC and no SAME is still <b>included</b>. That is
-     * the FEMA case — those rows carry county and state <i>names</i>, never
-     * codes. But an alert with UGC that cannot be matched to the point is not
-     * promoted to broadcast; it had targeting metadata, and we failed to prove
-     * the viewer is inside it.</p>
+     * <p>An alert with no geometry, no UGC and no SAME is still <b>included</b>
+     * (broadcast) — except a FEMA declaration, which is placed by the SAME
+     * codes of its designated counties ({@code femaSameCode}) and, with none,
+     * placed nowhere. An alert with UGC that cannot be matched to the point is
+     * not promoted to broadcast either; it had targeting metadata, and we
+     * failed to prove the viewer is inside it.</p>
      */
     private static boolean matchesPoint(NormalizedAlert a,
                                         double lat,
@@ -1029,6 +1160,9 @@ public class AlertIngestService {
 
         List<String> ugc = targetCodes(a);
         if (ugc.isEmpty()) {
+            // A FEMA declaration names its areas, so one with no code (a
+            // reservation-only declaration) is unplaced, not everywhere.
+            if ("FEMA".equalsIgnoreCase(a.source())) return null;
             // Nothing to match on — see Javadoc. SAME codes that convert to
             // nothing (marine areas) are still targeting metadata, so they are
             // not promoted to broadcast, same as unmatched UGC.
@@ -1407,6 +1541,95 @@ public class AlertIngestService {
              */
             Map<String, List<String>> parameters,
             /** Feed/provider identity, e.g. NWS_API or USGS_GEOJSON. */
-            String sourceSystem
-    ) {}
+            String sourceSystem,
+
+            // ── S2 C1 additions. Each is additive; the 27-argument constructor
+            //    below keeps every existing caller compiling, and a history
+            //    payload written before them rehydrates with nulls/empties. ──
+
+            /** NWS issuing office as NWS names it — {@code "NWS Salt Lake City UT"}. Null elsewhere. */
+            String senderName,
+            /** CAP {@code effective}, verbatim. {@link #startedAt} is the collapsed onset|effective|sent. */
+            String effective,
+            /** CAP {@code onset}, verbatim. */
+            String onset,
+            /** CAP {@code expires}, verbatim — when this MESSAGE lapses. */
+            String expires,
+            /**
+             * CAP {@code ends}, verbatim — when the HAZARD is expected to end.
+             * {@link #endsAt} is the collapsed ends|expires.
+             */
+            String ends,
+            /**
+             * CAP {@code references} as whole tuples. {@link #references} stays
+             * the identifiers-only view every existing consumer reads.
+             */
+            List<CapReference> referenceTuples,
+            /**
+             * Parsed P-VTEC from {@code parameters.VTEC} — NWS's own event thread,
+             * and a <b>verified</b> lifecycle edge (S2 contract §2). Empty when
+             * absent or malformed; non-NWS sources never carry one.
+             */
+            List<Vtec> vtec,
+            /** {@link Vtec#eventKey()} per entry, distinct — {@code KSLC.FF.W.0042.2026}. */
+            List<String> vtecEventKeys,
+            /**
+             * USGS {@code properties.updated} as ISO-8601. USGS revises a quake
+             * under the SAME id, so this is the revision marker NWS does not need
+             * (NWS issues a new id per message). A string, not an Instant — see
+             * {@link Vtec} on why this record carries no java.time types.
+             */
+            String revisionUpdatedAt,
+            /** USGS {@code properties.mag}; null when not sent. */
+            Double magnitude,
+            /** USGS PAGER level ({@code properties.alert}): green | yellow | orange | red, or null. */
+            String pagerAlert,
+            /** USGS {@code properties.tsunami} (1/0); null when not sent — absence is not a "no". */
+            Boolean tsunamiFlag,
+            /** FEMA {@code incidentEndDate} (R13). Null for open incidents and non-FEMA sources. */
+            String incidentEndsAt,
+            /** FEMA {@code declarationDate} (R13) — no longer read off {@code incidentBeginDate}. */
+            String declaredAt,
+            /**
+             * The SOURCE-level record type: {@code earthquake_information} for
+             * USGS, {@code disaster_declaration} for FEMA. <b>Null for NWS</b>,
+             * whose type needs the template — {@code Evacuation Immediate} and
+             * {@code Flood Statement} are warning-tier by template, not by name —
+             * so anything user-facing asks
+             * {@link TrustedSourceRegistry#recordTypeOf(NormalizedAlert, AlertDispatchService.DispatchTemplate)}.
+             */
+            String recordType
+    ) {
+        public NormalizedAlert {
+            referenceTuples = referenceTuples == null ? List.of() : referenceTuples;
+            vtec = vtec == null ? List.of() : vtec;
+            vtecEventKeys = vtecEventKeys == null ? Vtec.eventKeysOf(vtec) : vtecEventKeys;
+            if (recordType == null) recordType = TrustedSourceRegistry.sourceRecordType(source);
+        }
+
+        /** The pre-S2 shape: every C1 addition absent. Kept so existing callers compile unchanged. */
+        public NormalizedAlert(
+                String id, String source, String event, String severity, String urgency,
+                String certainty, String messageType, String status, String response,
+                String headline, String description, String instruction, String area,
+                String startedAt, String endsAt, Object geometry, List<String> ugc,
+                List<String> same, List<String> references, String sender, String sent,
+                String scope, List<String> eventCodes, List<String> responseTypes,
+                List<String> unknownResponseTypes, Map<String, List<String>> parameters,
+                String sourceSystem) {
+            this(id, source, event, severity, urgency, certainty, messageType, status,
+                    response, headline, description, instruction, area, startedAt, endsAt,
+                    geometry, ugc, same, references, sender, sent, scope, eventCodes,
+                    responseTypes, unknownResponseTypes, parameters, sourceSystem,
+                    null, null, null, null, null, List.of(), List.of(), List.of(),
+                    null, null, null, null, null, null, null);
+        }
+    }
+
+    /**
+     * One CAP {@code references} entry: the message this one replaces, named
+     * by its issuer, identifier and send time. {@code identifier} shares the
+     * namespace of {@link NormalizedAlert#id()}.
+     */
+    public record CapReference(String sender, String identifier, String sent) {}
 }

@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.service.AlertIngestService.CapReference;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
+import io.sitprep.sitprepapi.util.Vtec;
 
 import java.util.List;
 import java.util.Map;
@@ -8,8 +10,8 @@ import java.util.Map;
 /**
  * One place tests build a {@link NormalizedAlert}.
  *
- * <p><b>Why this exists.</b> {@code NormalizedAlert} is a record with 17
- * positional components, and the alert epic added five of them in three
+ * <p><b>Why this exists.</b> {@code NormalizedAlert} is a record with 42
+ * positional components (17 when this was written; S2 C1 added fifteen), and the alert epic added five of them in three
  * sittings (P0-2 added {@code event}; P0-3 added {@code urgency},
  * {@code certainty}, {@code messageType}, {@code status}, {@code response};
  * P0-4 added {@code ugc} and {@code same}; the CAP-references pass added {@code references}). Each addition broke every ad-hoc
@@ -86,6 +88,21 @@ final class TestAlerts {
         private List<String> unknownResponseTypes = List.of();
         private Map<String, List<String>> parameters = Map.of();
         private String sourceSystem;
+        // S2 C1 additions
+        private String senderName;
+        private String effective;
+        private String onset;
+        private String expires;
+        private String ends;
+        private List<CapReference> referenceTuples = List.of();
+        private List<Vtec> vtec = List.of();
+        private String revisionUpdatedAt;
+        private Double magnitude;
+        private String pagerAlert;
+        private Boolean tsunamiFlag;
+        private String incidentEndsAt;
+        private String declaredAt;
+        private String recordType;
 
         Builder id(String v) { this.id = v; return this; }
         Builder source(String v) { this.source = v; return this; }
@@ -119,6 +136,26 @@ final class TestAlerts {
         Builder unknownResponseTypes(List<String> v) { this.unknownResponseTypes = v == null ? List.of() : v; return this; }
         Builder parameters(Map<String, List<String>> v) { this.parameters = v == null ? Map.of() : v; return this; }
         Builder sourceSystem(String v) { this.sourceSystem = v; return this; }
+        Builder senderName(String v) { this.senderName = v; return this; }
+        Builder effective(String v) { this.effective = v; return this; }
+        Builder onset(String v) { this.onset = v; return this; }
+        Builder expires(String v) { this.expires = v; return this; }
+        Builder ends(String v) { this.ends = v; return this; }
+        /** Sets the tuples AND the identifiers-only {@code references} view, as ingest does. */
+        Builder referenceTuples(List<CapReference> v) {
+            this.referenceTuples = v == null ? List.of() : v;
+            this.references = this.referenceTuples.stream().map(CapReference::identifier).toList();
+            return this;
+        }
+        /** Parsed VTEC; {@code vtecEventKeys} is derived from it. */
+        Builder vtec(List<Vtec> v) { this.vtec = v == null ? List.of() : v; return this; }
+        Builder revisionUpdatedAt(String v) { this.revisionUpdatedAt = v; return this; }
+        Builder magnitude(Double v) { this.magnitude = v; return this; }
+        Builder pagerAlert(String v) { this.pagerAlert = v; return this; }
+        Builder tsunamiFlag(Boolean v) { this.tsunamiFlag = v; return this; }
+        Builder incidentEndsAt(String v) { this.incidentEndsAt = v; return this; }
+        Builder declaredAt(String v) { this.declaredAt = v; return this; }
+        Builder recordType(String v) { this.recordType = v; return this; }
 
         NormalizedAlert build() {
             return new NormalizedAlert(
@@ -126,7 +163,11 @@ final class TestAlerts {
                     status, response, headline, description, instruction, area,
                     startedAt, endsAt, geometry, ugc, same, references,
                     sender, sent, scope, eventCodes, responseTypes,
-                    unknownResponseTypes, parameters, sourceSystem);
+                    unknownResponseTypes, parameters, sourceSystem,
+                    senderName, effective, onset, expires, ends, referenceTuples,
+                    vtec, Vtec.eventKeysOf(vtec), revisionUpdatedAt, magnitude,
+                    pagerAlert, tsunamiFlag, incidentEndsAt, declaredAt,
+                    recordType);
         }
     }
 }

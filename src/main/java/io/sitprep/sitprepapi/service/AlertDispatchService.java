@@ -270,8 +270,9 @@ public class AlertDispatchService {
                 // and Red Flag Warning in the country.
                 //
                 // FEMA rows still fall through here and that is correct: they
-                // carry county NAMES, not codes, so there is genuinely nothing
-                // to resolve. Their state-keyed flow is separate work.
+                // carry no geometry and no UGC (their counties ride as SAME
+                // codes, which this does not read), so a recovery declaration
+                // is never posted or pushed. Their state-keyed flow is separate work.
                 //
                 // TRY THE ZONES IN ORDER (2026-10-09). The first zone alone used
                 // to decide: if its centre reverse-geocoded to no zip the WHOLE

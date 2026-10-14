@@ -203,18 +203,40 @@ class AlertIngestZoneMatchingTest {
 
     @Test
     void alertsWithNothingToMatchOnAreStillIncluded() {
-        // The FEMA shape: no geometry, no UGC. Never the reason a real alert
-        // is hidden — narrowing that set is audit P1-2, at ingest.
-        NormalizedAlert fema = TestAlerts.fema("Fire — PINE TREE ROAD FIRE")
-                .id("FM-5673-AR").area("Union (County)").build();
+        // No geometry, no UGC, no SAME: nothing says where it applies, so it
+        // is not hidden.
+        NormalizedAlert bare = TestAlerts.nws("Administrative Message")
+                .id("urn:oid:ADMIN").ugc(List.of()).same(List.of()).build();
 
         NwsZoneService zones = new NwsZoneService();
         zones.seedPointZones(40.76, -111.89, SALT_LAKE_CITY);
         AlertIngestService svc = new AlertIngestService(zones);
-        svc.setSnapshotForTest(List.of(fema));
+        svc.setSnapshotForTest(List.of(bare));
 
         assertThat(svc.getSnapshotForPoint(40.76, -111.89, 250).alerts())
-                .containsExactly(fema);
+                .containsExactly(bare);
+    }
+
+    @Test
+    void aFemaDeclarationIsMatchedByItsCounties_neverBroadcast() {
+        // FEMA rows DO say where: ingest turns each designated county's FIPS
+        // into a SAME code (S2 C1). A declaration used to have none here and
+        // reached every coordinate in the country as BROADCAST.
+        NormalizedAlert arkansas = TestAlerts.fema("Fire — PINE TREE ROAD FIRE")
+                .id("FM-5673-AR").area("Union (County)").same(List.of("005139")).build();
+        NormalizedAlert saltLake = TestAlerts.fema("Flood — X")
+                .id("DR-1-UT").area("Salt Lake (County)").same(List.of("049035")).build();
+        // Reservation-only: no county code, so placed nowhere rather than everywhere.
+        NormalizedAlert uncoded = TestAlerts.fema("Flood — Y")
+                .id("DR-2-MT").area("Crow Indian Reservation").build();
+
+        NwsZoneService zones = new NwsZoneService();
+        zones.seedPointZones(40.76, -111.89, SALT_LAKE_CITY);
+        AlertIngestService svc = new AlertIngestService(zones);
+        svc.setSnapshotForTest(List.of(arkansas, saltLake, uncoded));
+
+        assertThat(svc.getSnapshotForPoint(40.76, -111.89, 250).alerts())
+                .containsExactly(saltLake);
     }
 
     // ------------------------------------------------------------------

@@ -204,12 +204,12 @@ class AlertHistoryServiceTest {
 
     @Test
     void anAlertWithNeitherGeometryNorZonesIsNeverExcludable() {
-        // matchTypeFor returns BROADCAST for such an alert at every coordinate
-        // — that is the FEMA case, whose rows carry county and state NAMES but
-        // never codes. A prefilter that dropped it would hide every federal
-        // declaration from history.
-        NormalizedAlert bare = TestAlerts.fema("Major disaster declared")
-                .id("fema-1").ugc(List.of()).geometry(null).build();
+        // matchTypeFor returns BROADCAST for such an alert at every coordinate,
+        // so a prefilter that dropped it would hide it from history. (FEMA rows
+        // are no longer this case: ingest places them by their counties' SAME
+        // codes, and an uncoded one matches no one — S2 C1.)
+        NormalizedAlert bare = TestAlerts.nws("Administrative Message")
+                .id("admin-1").ugc(List.of()).same(List.of()).geometry(null).build();
         AlertHistory row = history.toRow(bare, Instant.now());
 
         assertThat(row.isBroadcast()).isTrue();
@@ -700,8 +700,9 @@ class AlertHistoryServiceTest {
         // FEMA absent from the per-source map (it has not polled OK), its
         // absence proves nothing — unknown, and unknown labels nothing.
         Instant now = NOW;
+        // Gila County (004007 -> AZC007): FEMA rows are placed by their counties.
         NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
-                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+                .id("FEMA-GONE").ugc(List.of()).same(List.of("004007")).geometry(null).build();
         store(fema, now.minusSeconds(3_600));
 
         Snapshot femaNeverOk = new Snapshot(List.of(), now, now,
@@ -716,8 +717,9 @@ class AlertHistoryServiceTest {
         // FEMA on its own clock: a declaration last seen well before FEMA's
         // own last success, and not in the live snapshot, is no longer listed.
         Instant now = NOW;
+        // Gila County (004007 -> AZC007): FEMA rows are placed by their counties.
         NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
-                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+                .id("FEMA-GONE").ugc(List.of()).same(List.of("004007")).geometry(null).build();
         store(fema, now.minusSeconds(3_600));
 
         Snapshot femaOk = new Snapshot(List.of(), now, now,

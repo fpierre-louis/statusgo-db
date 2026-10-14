@@ -395,17 +395,25 @@ public class AlertFeedService {
 
     private static AlertCardDto.Detail detailOf(NormalizedAlert a) {
         if ("USGS".equalsIgnoreCase(a.source())) {
-            Double mag = AlertDispatchService.parseUsgsMagnitude(a.headline());
+            // The wire magnitude when ingest read one; the headline parse only
+            // for an alert built before it did (a rehydrated history payload).
+            Double mag = a.magnitude() != null
+                    ? a.magnitude()
+                    : AlertDispatchService.parseUsgsMagnitude(a.headline());
             Double depth = depthFromGeometry(a.geometry());
             if (mag == null && depth == null) return null;
-            // pagerLevel and tsunami are on the USGS wire and still dropped at
-            // the normalizer (audit P1-6) — null here rather than invented.
+            // PAGER and tsunami straight from the USGS wire (audit P1-6, S2 C1).
+            // `tsunami` is a primitive on the DTO, so "not sent" still reads
+            // false there — as it always has; the record keeps the null.
             return new AlertCardDto.Detail(
-                    new AlertCardDto.Earthquake(mag, depth, null, false), null);
+                    new AlertCardDto.Earthquake(mag, depth, a.pagerAlert(),
+                            Boolean.TRUE.equals(a.tsunamiFlag())), null);
         }
         if ("FEMA".equalsIgnoreCase(a.source())) {
+            // declarationDate (R13). This was startedAt — the INCIDENT's begin,
+            // which can be weeks before anything was declared.
             return new AlertCardDto.Detail(null, new AlertCardDto.Disaster(
-                    a.id(), a.startedAt(), List.of("Individual Assistance")));
+                    a.id(), a.declaredAt(), List.of("Individual Assistance")));
         }
         return null;
     }
