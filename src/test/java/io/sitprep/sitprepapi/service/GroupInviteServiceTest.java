@@ -63,6 +63,9 @@ class GroupInviteServiceTest {
 
         when(redemptionRepo.findByInviteIdAndUserEmail("invite-1", "new@x.com"))
                 .thenReturn(Optional.of(redemption));
+        // The token still stands (exhausted by this person's own use is fine).
+        when(inviteRepo.findById("invite-1")).thenReturn(Optional.of(invite("invite-1", "grp-1", 1, 1)));
+        when(groupService.getGroupByPublicId("grp-1")).thenReturn(group);
         when(groupService.selfJoin("grp-1", "new@x.com")).thenReturn(group);
 
         var result = service.redeem("invite-1", "NEW@X.COM");

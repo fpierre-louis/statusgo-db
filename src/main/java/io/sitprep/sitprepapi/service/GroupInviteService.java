@@ -185,7 +185,18 @@ public class GroupInviteService {
 
         var existingRedemption = redemptionRepo.findByInviteIdAndUserEmail(inviteId, normalizedEmail);
         if (existingRedemption.isPresent()) {
-            Group group = groupService.selfJoin(existingRedemption.get().getGroupId(), normalizedEmail);
+            // A repeat tap is idempotent, but only while the token still
+            // stands (JN-17). Without this, someone removed from the group
+            // could re-join from a link an admin had already revoked.
+            InviteState again = repeatStateFor(inviteId);
+            if (again != InviteState.OK) {
+                return new RedemptionResult(again, null, null, true);
+            }
+            String groupId = existingRedemption.get().getGroupId();
+            if (isHouseholdId(groupId)) {
+                return new RedemptionResult(InviteState.NOT_FOUND, null, null, true);
+            }
+            Group group = groupService.selfJoin(groupId, normalizedEmail);
             return new RedemptionResult(InviteState.OK, null, group, true);
         }
 
@@ -198,6 +209,11 @@ public class GroupInviteService {
         InviteState state = stateFor(invite, Instant.now());
         if (state != InviteState.OK) {
             return new RedemptionResult(state, invite, null, false);
+        }
+        // A household token is not a group invite (JN-17): it redeems through
+        // /household-invites, where the token is the admin's approval.
+        if (isHouseholdId(invite.getGroupId())) {
+            return new RedemptionResult(InviteState.NOT_FOUND, null, null, false);
         }
 
         Group group = groupService.selfJoin(invite.getGroupId(), normalizedEmail);
@@ -242,6 +258,12 @@ public class GroupInviteService {
 
         var existingRedemption = redemptionRepo.findByInviteIdAndUserEmail(inviteId, normalizedEmail);
         if (existingRedemption.isPresent()) {
+            // Same rule as the group path (JN-17): a revoked or expired link
+            // does not put a removed family member back.
+            InviteState again = repeatStateFor(inviteId);
+            if (again != InviteState.OK) {
+                return new RedemptionResult(again, null, null, true);
+            }
             Group group = groupService.joinHouseholdByInvite(
                     existingRedemption.get().getGroupId(), normalizedEmail);
             return new RedemptionResult(InviteState.OK, null, group, true);
@@ -314,6 +336,45 @@ public class GroupInviteService {
             return InviteState.EXHAUSTED;
         }
         return InviteState.OK;
+    }
+
+    /**
+     * {@link #validate} for a GROUP invite: a household token answers
+     * NOT_FOUND here (JN-17). Households resolve through
+     * {@link #previewHousehold}, which names the household only to a valid
+     * token holder.
+     */
+    @Transactional(readOnly = true)
+    public ValidationResult validateGroupInvite(String inviteId) {
+        ValidationResult v = validate(inviteId);
+        if (v.invite() != null && isHouseholdId(v.invite().getGroupId())) {
+            return new ValidationResult(InviteState.NOT_FOUND, null);
+        }
+        return v;
+    }
+
+    /**
+     * The state of a token someone has ALREADY redeemed. Revoked and expired
+     * still refuse; exhausted does not, because this person's own use is one
+     * of the uses counted.
+     */
+    private InviteState repeatStateFor(String inviteId) {
+        GroupInvite invite = inviteRepo.findById(inviteId).orElse(null);
+        if (invite == null) return InviteState.NOT_FOUND;
+        if (invite.getRevokedAt() != null) return InviteState.REVOKED;
+        if (invite.getExpiresAt() != null && Instant.now().isAfter(invite.getExpiresAt())) {
+            return InviteState.EXPIRED;
+        }
+        return InviteState.OK;
+    }
+
+    private boolean isHouseholdId(String groupId) {
+        if (groupId == null) return false;
+        try {
+            return isHousehold(groupService.getGroupByPublicId(groupId));
+        } catch (RuntimeException e) {
+            return false; // a missing group is refused by the join itself
+        }
     }
 
     private static boolean isHousehold(Group group) {

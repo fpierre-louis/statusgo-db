@@ -74,14 +74,15 @@ class UserInfoProfileBatchStatusScopeTest {
     }
 
     @Test
-    void coMembersAndSelfGetStatusAndPresence() {
+    void coMembersAndSelfGetStatus() {
         Map<String, ProfileSummaryDto> out = batch("Me@x.com");
         for (String email : List.of("me@x.com", "mate@x.com", "boss@x.com")) {
             ProfileSummaryDto p = out.get(email);
             assertEquals("SAFE", p.userStatus(), email);
             assertEquals(AT, p.userStatusLastUpdated(), email);
             assertNotNull(p.userStatusFreshUntil(), email);
-            assertEquals(AT, p.lastActiveAt(), email);
+            // lastActiveAt never ships from a batch (B2 / D7, 2026-10-14).
+            assertNull(p.lastActiveAt(), email);
         }
     }
 

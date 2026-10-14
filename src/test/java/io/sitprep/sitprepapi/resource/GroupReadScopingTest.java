@@ -36,10 +36,10 @@ import static org.mockito.Mockito.*;
  * they could not already read there — while roughly twenty member-facing
  * frontend call sites keep working.</p>
  *
- * <p>The pending-member test is the one worth keeping. GroupRole.fromGroup
- * resolves a pending request to NONE, so a predicate built on it alone would
- * strip the pending list from the one person it is about, and the roster CTA
- * would invite them to join a group they have already asked to join.</p>
+ * <p>A pending request is NOT a relationship (B2 / JN-02, 2026-10-14): anyone
+ * can self-join any id and land in pending. The requester gets the stranger
+ * projection plus their own pending row and {@code viewerStatus=PENDING}, so
+ * the roster CTA still reads "Request sent" without the roster.</p>
  */
 class GroupReadScopingTest {
 
@@ -62,7 +62,7 @@ class GroupReadScopingTest {
 
         resource = new GroupResource();
         ReflectionTestUtils.setField(resource, "groupService", groupService);
-        ReflectionTestUtils.setField(resource, "objectMapper", new ObjectMapper());
+        ReflectionTestUtils.setField(resource, "objectMapper", new ObjectMapper().findAndRegisterModules());
 
         readinessService = mock(GroupReadinessService.class);
         readinessResource = new GroupReadinessResource(readinessService, groupService);
@@ -153,11 +153,71 @@ class GroupReadScopingTest {
         }
     }
 
+    // ---- a pending requester (B2 / JN-02, D3) ----
+    //
+    // This test used to pin the leak as intended: pending counted as a
+    // relationship, and the fixture is a household, so anyone who self-joined
+    // (and landed in pending) read the family roster, the home address, the
+    // join code and the Stripe id. A requester now gets the stranger
+    // projection plus their own pending state.
+
     @Test
-    void pendingMemberStillSeesTheirOwnPendingState() {
-        // GroupRole.fromGroup returns NONE for a pending request, so this only
-        // passes because the predicate checks pendingMemberEmails separately.
-        assertTrue(read(PENDING).has("pendingMemberEmails"));
+    void aPendingRequesterGetsNoRosterAddressCodeOrBilling() {
+        JsonNode n = read(PENDING);
+        for (String f : List.of("memberEmails", "adminEmails", "ownerEmail", "address",
+                "latitude", "longitude", "zipCode", "groupCode", "stripeCustomerId",
+                "effectivePlanTier", "lastUpdatedBy", "alert")) {
+            assertFalse(n.has(f), "pending caller still sees " + f);
+        }
+    }
+
+    @Test
+    void aPendingRequesterSeesOnlyTheirOwnPendingRow() {
+        JsonNode n = read(PENDING);
+        assertEquals("PENDING", n.get("viewerStatus").asText());
+        assertEquals(1, n.get("pendingMemberEmails").size());
+        assertEquals(PENDING, n.get("pendingMemberEmails").get(0).asText());
+        // Identity still reads, so the page renders.
+        assertEquals("The Reyes household", n.get("groupName").asText());
+    }
+
+    @Test
+    void aStrangerHasNoViewerStatusAndNoPendingRows() {
+        JsonNode n = read(STRANGER);
+        assertFalse(n.has("viewerStatus"));
+        assertFalse(n.has("pendingMemberEmails"));
+    }
+
+    @Test
+    void strangerStripCoversTheMeasuredLeaks() {
+        // BE-05: measured on prod (AUDIT §16.2) — a non-member read kept
+        // lastUpdatedBy (an admin's email), the subgroup graph, the outreach
+        // and reminder counters; staff override fields carry an email + note.
+        Group g = household();
+        g.setLastUpdatedBy(ADMIN);
+        g.setSubGroupIDs(List.of("sub-1"));
+        g.setParentGroupIDs(List.of("parent-1"));
+        g.setCheckInRemindersFired(2);
+        g.setAlert("Active");
+        g.setAlertActivatedAt(java.time.Instant.parse("2026-10-13T12:00:00Z"));
+        g.setSubscriptionOverrideBy("staff@sitprep.app");
+        g.setSubscriptionOverrideReason("pilot");
+        g.setVersion(7L);
+        when(groupService.getGroupByPublicId(GROUP_ID)).thenReturn(g);
+
+        JsonNode n = read(STRANGER);
+        for (String f : List.of("lastUpdatedBy", "subGroupIDs", "parentGroupIDs",
+                "checkInRemindersFired", "alert", "alertActivatedAt", "subscriptionOverrideBy",
+                "subscriptionOverrideReason", "version", "ghostDemandSignal", "outreachOptOut",
+                "outreachCount")) {
+            assertFalse(n.has(f), "stranger still sees " + f);
+        }
+        assertFalse(n.toString().contains("@"), "an email survived: " + n);
+
+        SecurityContextHolder.clearContext();
+        JsonNode member = read(MEMBER);
+        assertEquals(ADMIN, member.get("lastUpdatedBy").asText());
+        assertEquals("Active", member.get("alert").asText());
     }
 
     // ---- readiness summary: a directory of which homes need help ----
@@ -205,7 +265,7 @@ class GroupReadScopingTest {
         io.sitprep.sitprepapi.dto.GroupPreviewDto dto =
                 new io.sitprep.sitprepapi.dto.GroupPreviewDto(
                         GROUP_ID, "The Reyes household", "Household", "desc", "Private",
-                        "Ana Reyes", 1, 3, null, null, null, null, false,
+                        "Ana Reyes", 1, 3, null, null, null, false,
                         io.sitprep.sitprepapi.dto.GroupPreviewDto.STATUS_NONE);
         when(groupService.getGroupPreview(eq(GROUP_ID), any())).thenReturn(dto);
 

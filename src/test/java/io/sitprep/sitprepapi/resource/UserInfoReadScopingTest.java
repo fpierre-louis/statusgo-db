@@ -195,18 +195,20 @@ class UserInfoReadScopingTest {
                 () -> resource.getProfilesBatch(new UserInfoResource.BatchProfilesRequest(tooMany)));
         // 400, not a silent truncation — a half-resolved roster looks complete.
         assertEquals(HttpStatus.BAD_REQUEST, e.getStatusCode());
-        verify(userInfoService, never()).getProfileSummariesByEmails(any(), any());
+        verify(userInfoService, never()).getRelatedProfileSummaries(any(), any());
     }
 
     @Test
     void aNormalSizedRosterStillResolves() {
         authenticateAs(STRANGER);
         List<String> roster = List.of("a@x.com", "b@x.com");
-        when(userInfoService.getProfileSummariesByEmails(eq(roster), any())).thenReturn(List.of());
+        when(userInfoService.getRelatedProfileSummaries(eq(roster), any())).thenReturn(List.of());
         assertEquals(HttpStatus.OK,
                 resource.getProfilesBatch(new UserInfoResource.BatchProfilesRequest(roster)).getStatusCode());
-        // The CALLER is passed, so the service can scope status to co-members.
-        verify(userInfoService).getProfileSummariesByEmails(eq(roster), eq(STRANGER));
+        // The CALLER is passed, and the batch goes through the relationship-
+        // scoped lookup (B2 / BE-04), not the server-chosen-list one.
+        verify(userInfoService).getRelatedProfileSummaries(eq(roster), eq(STRANGER));
+        verify(userInfoService, never()).getProfileSummariesByEmails(any(), any());
     }
 
     @Test

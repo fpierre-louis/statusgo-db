@@ -94,12 +94,10 @@ class PublicPayloadPrivacyTest {
         put("MeetingPlaceSnapshotDto.phoneNumber", "capability URL — who to call there");
         put("EvacuationPlanSnapshotDto.shelterAddress", "capability URL — where to go");
         put("EvacuationPlanSnapshotDto.shelterPhoneNumber", "capability URL — who to call there");
-        // Invite preview. Group ids are UUIDs, so this needs the link too, and
-        // the address is what someone deciding whether to join is looking at.
-        // The DTO is otherwise sanitised — no member or admin emails.
-        put("GroupPreviewDto.address", "invite preview — the thing being judged");
-        put("GroupPreviewDto.latitude", "invite preview — map pin for the same");
-        put("GroupPreviewDto.longitude", "invite preview — map pin for the same");
+        // (GroupPreviewDto.address / latitude / longitude were allowed here
+        // until 2026-10-14. They served a household's street address and
+        // coordinate to an anonymous GET; the preview now carries city + zip
+        // only, pinned by invitePreviewCarriesNoStreetOrCoordinate below.)
     }};
 
     /** The Ask family: the ones that leaked, now asserted to carry nothing. */
@@ -173,6 +171,19 @@ class PublicPayloadPrivacyTest {
     }
 
     @Test
+    @DisplayName("the invite preview carries no street address, coordinate or email")
+    void invitePreviewCarriesNoStreetOrCoordinate() {
+        // B2 / JN-04, owner decision D5: a record, so the components are the
+        // wire shape exactly.
+        List<String> offenders = new ArrayList<>();
+        for (RecordComponent rc : GroupPreviewDto.class.getRecordComponents()) {
+            String lower = rc.getName().toLowerCase(Locale.ROOT);
+            if (SENSITIVE.stream().anyMatch(lower::contains)) offenders.add(rc.getName());
+        }
+        assertThat(offenders).as("GET /api/groups/{id}/preview is public").isEmpty();
+    }
+
+    @Test
     @DisplayName("the search hit's email join key never serialises")
     void searchHitJoinKeyNeverSerialises() throws Exception {
         AskSearchHitDto h = new AskSearchHitDto();
@@ -214,7 +225,7 @@ class PublicPayloadPrivacyTest {
         List<String> covered = List.of(
                 "/api/ask/",                    // asserted clean above
                 "/api/plans/activations",       // capability URL, declared in ALLOWED
-                "/api/groups/*/preview",        // invite preview, declared in ALLOWED
+                "/api/groups/*/preview",        // invite preview: city + zip only, asserted above
                 "/api/invites/*/resolve",       // invite preview; no roster or member location
                 "/api/household-invites/*/resolve", // household invite preview; no roster
                 // Claim-your-spot preview (household roster EXEC-B): household
