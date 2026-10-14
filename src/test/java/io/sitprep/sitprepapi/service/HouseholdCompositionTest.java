@@ -187,12 +187,12 @@ class HouseholdCompositionTest {
 
     @Test
     void capabilitiesAreTheServersOwnGates() {
-        String owner = email("owner"), admin = email("admin"), member = email("member");
-        Group g = household(owner, owner, admin, member);
-        g.setAdminEmails(new ArrayList<>(List.of(owner, admin)));
+        String owner = email("owner"), admin = email("admin"), admin2 = email("admin2"), member = email("member");
+        Group g = household(owner, owner, admin, admin2, member);
+        g.setAdminEmails(new ArrayList<>(List.of(owner, admin, admin2)));
         groups.save(g);
         manualRow(g.getGroupId(), "Kid", false, 4, null);
-        demo(g.getGroupId(), 4, 0, 1, 0, 0, 0, 0); // one ADULT placeholder
+        demo(g.getGroupId(), 5, 0, 1, 0, 0, 0, 0); // one ADULT placeholder (4 accounts)
 
         HouseholdCompositionDto asAdmin = composition.compose(g.getGroupId(), admin);
         assertThat(asAdmin.viewer().role()).isEqualTo("ADMIN");
@@ -200,6 +200,10 @@ class HouseholdCompositionTest {
         assertThat(person(asAdmin, "user:" + owner).capabilities().canRemove()).isFalse();  // never the owner
         assertThat(person(asAdmin, "user:" + admin).capabilities().canRemove()).isFalse();  // never yourself
         assertThat(person(asAdmin, "user:" + member).capabilities().canRemove()).isTrue();
+        // Another admin is the owner's to remove (BE-08: the write answers 403).
+        assertThat(person(asAdmin, "user:" + admin2).capabilities().canRemove()).isFalse();
+        assertThat(person(composition.compose(g.getGroupId(), owner), "user:" + admin2)
+                .capabilities().canRemove()).isTrue();
         Person kid = person(asAdmin, "manual:" + manualId(g, "Kid"));
         assertThat(kid.capabilities().canInviteToClaim()).isTrue();
         assertThat(kid.capabilities().canRename()).isTrue();

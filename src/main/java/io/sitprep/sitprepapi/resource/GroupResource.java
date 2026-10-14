@@ -76,8 +76,15 @@ public class GroupResource {
      * tier is FREE and no check-in runs. Extra keys (the frontend still sends
      * a whole group) are ignored. 409 when the body names an existing id.
      * See {@code GroupService#createGroup(CreateGroupRequest, String)}.
+     *
+     * <p>{@code @Idempotent}: the server mints the id, so a replay of the same
+     * body would be a second group. The FE sends create through the offline
+     * outbox, which replays with one stable {@code Idempotency-Key} after a
+     * timeout or 5xx (possibly after the first attempt committed); the key is
+     * the only thing that makes that replay return the first group.</p>
      */
     @PostMapping
+    @io.sitprep.sitprepapi.web.Idempotent
     public Group createGroup(@RequestBody io.sitprep.sitprepapi.dto.CreateGroupRequest body) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         return groupService.createGroup(body, caller);
@@ -192,7 +199,10 @@ public class GroupResource {
             "groupCode",
             // Billing identity and the agency contact of record.
             "stripeCustomerId", "stripeSubscriptionId", "subscriptionStatus",
-            "subscriptionOverrideTier", "officialContactEmail"
+            "subscriptionOverrideTier", "officialContactEmail",
+            // The resolved tier names an active override tier, and the plan
+            // badge is a member surface (B1 review).
+            "effectivePlanTier", "planUnlocks"
     );
 
     @GetMapping("/{groupId}")

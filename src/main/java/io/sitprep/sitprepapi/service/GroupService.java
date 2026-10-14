@@ -343,7 +343,7 @@ public class GroupService {
      */
     public AskEveryoneResult requestCheckIn(String groupId, String callerEmail) {
         if (callerEmail == null || callerEmail.isBlank()) {
-            throw new SecurityException("Sign in to request a check-in");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in to request a check-in");
         }
         Group group = getGroupByPublicId(groupId);
         String me = callerEmail.trim().toLowerCase();
@@ -555,7 +555,7 @@ public class GroupService {
     @Transactional
     public NudgeResult nudgeMember(String groupId, String callerEmail, String subjectEmail) {
         if (callerEmail == null || callerEmail.isBlank()) {
-            throw new SecurityException("Sign in to nudge someone");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in to nudge someone");
         }
         if (subjectEmail == null || subjectEmail.isBlank()) return new NudgeResult(false, false);
         Group group = getGroupByPublicId(groupId);
