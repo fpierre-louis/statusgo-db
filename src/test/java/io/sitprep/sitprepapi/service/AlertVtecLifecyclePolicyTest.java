@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.dto.AlertCardDto;
+import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.AlertSafetyPolicy.Decision;
 import io.sitprep.sitprepapi.service.AlertSafetyPolicy.DispatchMode;
@@ -12,7 +14,9 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -192,5 +196,90 @@ class AlertVtecLifecyclePolicyTest {
                 new MemberAlertAreaService.AreaAlert(live, null, false, Set.of("AZZ560")));
         assertThat(MemberAlertAreaService.match(areas, 33.3, -110.5, Set.of("AZZ560"), NOW))
                 .containsExactly("urn:oid:con");
+    }
+
+    @Test
+    @DisplayName("feed: an all-CAN Update is dropped, CAN+CON stays, and the original it references stays superseded")
+    void feedDropsAllTerminalKeepsEdge() {
+        double lat = 33.3172, lng = -110.5297;
+        NwsZoneService zones = new NwsZoneService();
+        zones.seedPointZones(lat, lng, Set.of("AZZ560", "AZC007", "AZZ133"));
+        AlertIngestService ingest = new AlertIngestService(zones);
+        AlertDispatchService feedDispatch = new AlertDispatchService(null, null, null, null, null, null, zones, null);
+        feedDispatch.loadTemplates();
+
+        NormalizedAlert x = tornadoUpdate(vtec("NEW", "TO", "W", "0042")).id("urn:x").messageType("Alert").build();
+        NormalizedAlert y = tornadoUpdate(vtec("CAN", "TO", "W", "0042")).id("urn:y").references(List.of("urn:x")).build();
+        NormalizedAlert z = tornadoUpdate(vtec("CAN", "TO", "W", "0050"), vtec("CON", "TO", "W", "0051")).id("urn:z").build();
+        // Order matters to the regression this pins: the supersession index is
+        // built from the WHOLE snapshot, before the SUPPRESS filter drops y.
+        ingest.setSnapshotForTest(List.of(x, y, z));
+
+        AlertFeedResponse resp = new AlertFeedService(ingest, feedDispatch).feedForViewer(lat, lng, null, null);
+        Map<String, AlertCardDto> byUpstream = resp.alerts().stream()
+                .collect(Collectors.toMap(c -> c.id().substring(c.id().lastIndexOf("urn:")), c -> c, (a, b) -> a));
+
+        assertThat(byUpstream.keySet()).containsExactlyInAnyOrder("urn:x", "urn:z");
+        AlertCardDto xc = byUpstream.get("urn:x");
+        assertThat(xc.lifecycleState()).as("y's CAN edge still reaches x").isEqualTo(AlertDerivations.LIFECYCLE_SUPERSEDED);
+        assertThat(xc.lifecycleInfo().state()).isEqualTo(AlertDerivations.LIFECYCLE_CANCELLED);
+        assertThat(xc.lifecycleInfo().current()).isFalse();
+        assertThat(byUpstream.get("urn:z").lifecycleState()).isEqualTo(AlertDerivations.LIFECYCLE_UPDATED);
+    }
+
+    @Test
+    @DisplayName("an unparseable raw VTEC entry means 'every entry is terminal' is not known: not blocked")
+    void droppedEntryCannotMakeALiveMessageTerminal() {
+        // Ingest parses parameters.VTEC with Vtec.parseAll, which drops what it
+        // cannot read. A CAN beside an entry that did not parse must not be
+        // read as all-terminal: the dropped one may be the event carrying on.
+        String can = "/O.CAN.KPSR.TO.W.0042.000000T0000Z-261014T1800Z/";
+        String unreadableCon = "/O.CON.KPSR.TO.W.0043.000000T0000Z-261331T1800Z/";   // month 13
+        NormalizedAlert a = tornadoUpdate(vtec("CAN", "TO", "W", "0042"))
+                .parameters(Map.of("VTEC", List.of(can, unreadableCon))).build();
+        assertThat(Vtec.parseAll(List.of(can, unreadableCon), null)).hasSize(1);
+
+        assertThat(AlertDerivations.vtecEndingState(a)).isNull();
+        assertThat(AlertSafetyPolicy.lifecycleBlockReason(a)).isNull();
+        assertThat(evaluate(a).criticalPush()).isTrue();
+        assertThat(AlertDerivations.lifecycleState(a, NOW)).isEqualTo(AlertDerivations.LIFECYCLE_UPDATED);
+
+        // The same CAN with its raw string alone, all of it read: blocked.
+        NormalizedAlert whole = tornadoUpdate(vtec("CAN", "TO", "W", "0042"))
+                .parameters(Map.of("VTEC", List.of(can))).build();
+        assertThat(AlertSafetyPolicy.lifecycleBlockReason(whole)).isEqualTo("vtec_terminal");
+        assertThat(AlertDerivations.lifecycleState(whole, NOW)).isEqualTo(AlertDerivations.LIFECYCLE_CANCELLED);
+    }
+
+    @Test
+    @DisplayName("own UPG only: lifecycleInfo agrees with lifecycleState (superseded), ended when sent")
+    void upgOnlyLifecycleInfoAgrees() {
+        NormalizedAlert w = TestAlerts.nwsWatch("Flash Flood Watch").messageType("Update").endsAt(FUTURE)
+                .sent("2026-10-13T17:00:00Z").vtec(List.of(vtec("UPG", "FF", "A", "0007"))).build();
+        AlertCardDto.LifecycleInfo info = AlertInterpreter.liveLifecycle(w, null, Set.of(), NOW);
+        assertThat(info.state()).isEqualTo(AlertDerivations.lifecycleState(w, NOW))
+                .isEqualTo(AlertDerivations.LIFECYCLE_SUPERSEDED);
+        assertThat(info.current()).isFalse();
+        assertThat(info.endedAt()).isEqualTo("2026-10-13T17:00:00Z");
+    }
+
+    @Test
+    @DisplayName("all-CAN with no end time at all: blocked, cancelled in both readings")
+    void allCanNoEndsAt() {
+        NormalizedAlert a = tornadoUpdate(vtec("CAN", "TO", "W", "0042")).endsAt(null).build();
+        assertThat(AlertSafetyPolicy.lifecycleBlockReason(a)).isEqualTo("vtec_terminal");
+        assertThat(AlertDerivations.lifecycleState(a, NOW)).isEqualTo(AlertDerivations.LIFECYCLE_CANCELLED);
+        assertThat(AlertInterpreter.liveLifecycle(a, null, Set.of(), NOW).state())
+                .isEqualTo(AlertDerivations.LIFECYCLE_CANCELLED);
+    }
+
+    @Test
+    @DisplayName("all-CAN whose end time already passed: expired in both readings, ended at its end time")
+    void allCanPastEndStaysExpired() {
+        NormalizedAlert a = tornadoUpdate(vtec("CAN", "TO", "W", "0042")).endsAt("2026-10-14T11:00:00Z").build();
+        assertThat(AlertDerivations.lifecycleState(a, NOW)).isEqualTo(AlertDerivations.LIFECYCLE_EXPIRED);
+        AlertCardDto.LifecycleInfo info = AlertInterpreter.liveLifecycle(a, null, Set.of(), NOW);
+        assertThat(info.state()).isEqualTo(AlertDerivations.LIFECYCLE_EXPIRED);
+        assertThat(info.endedAt()).isEqualTo("2026-10-14T11:00:00Z");
     }
 }

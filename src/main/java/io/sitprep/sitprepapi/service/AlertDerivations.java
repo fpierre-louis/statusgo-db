@@ -56,9 +56,10 @@ public final class AlertDerivations {
     public static final String LIFECYCLE_SUPERSEDED = "superseded";
     public static final String LIFECYCLE_EXPIRED = "expired";
     /**
-     * {@code cancelled} — a Cancel (or an all-clear) naming this alert exists.
-     * Read off the replacing message, never off this one; see
-     * {@link #endingStateOf}.
+     * {@code cancelled} — the issuer called this alert off. Two readings say
+     * so: a Cancel (or an all-clear) naming this alert, read off the replacing
+     * message ({@link #endingStateOf}); or this message's own P-VTEC, every
+     * entry terminal and the first a {@code CAN} ({@link #vtecEndingState}, P1).
      */
     public static final String LIFECYCLE_CANCELLED = "cancelled";
     /**
@@ -133,8 +134,10 @@ public final class AlertDerivations {
     /**
      * Where this alert is in its own life, judged from <b>its own fields only</b>.
      *
-     * <p>Four values, and <b>{@code active} is the absence of a chip</b> on the
-     * surface — a chip on every card spends the slot that makes the three
+     * <p>Five values — {@code active}, {@code updated}, {@code superseded},
+     * {@code expired} and {@code cancelled} (the last only from the alert's own
+     * all-terminal VTEC, P1) — and <b>{@code active} is the absence of a chip</b>
+     * on the surface: a chip on every card spends the slot that makes the
      * exceptional states readable.</p>
      *
      * <p>Read in priority order, because they are not mutually exclusive on the
@@ -196,6 +199,14 @@ public final class AlertDerivations {
      * A message with no operational VTEC (USGS, FEMA, most non-NWS products,
      * test-class strings, which {@link Vtec#parse} drops) also returns null.</p>
      *
+     * <p><b>Every entry must have been read.</b> Ingest parses
+     * {@code parameters.VTEC} with {@link Vtec#parseAll}, which drops what it
+     * cannot read (a malformed date, a non-operational class). When the raw
+     * parameter carries more entries than were parsed, the dropped one may be
+     * the event carrying on, so "every entry is terminal" is not known and this
+     * returns null — the message keeps its CAP-shaped answer, as before P1. A
+     * message built without raw parameters is judged on its parsed list.</p>
+     *
      * <p>When every entry is terminal, the first one names the state —
      * {@code CAN} cancelled, {@code EXP} expired, {@code UPG} superseded — the
      * same entry {@code AlertInterpreter.primaryVtec} picks, so this and
@@ -210,11 +221,24 @@ public final class AlertDerivations {
             if (first == null) first = v;
         }
         if (first == null) return null;
+        if (rawVtecCount(a) > a.vtec().size()) return null;
         return switch (first.action()) {
             case "CAN" -> LIFECYCLE_CANCELLED;
             case "EXP" -> LIFECYCLE_EXPIRED;
             default -> LIFECYCLE_SUPERSEDED;
         };
+    }
+
+    /** Non-blank raw {@code parameters.VTEC} strings on the message; 0 when it carries none. */
+    private static int rawVtecCount(NormalizedAlert a) {
+        Map<String, List<String>> params = a.parameters();
+        List<String> raw = params == null ? null : params.get("VTEC");
+        if (raw == null) return 0;
+        int n = 0;
+        for (String r : raw) {
+            if (r != null && !r.isBlank()) n++;
+        }
+        return n;
     }
 
     /**
