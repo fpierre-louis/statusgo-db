@@ -588,11 +588,7 @@ public class GroupPostService {
     public Optional<GroupPostDto> getPostDtoById(Long id, String viewerEmail) {
         return postRepo.findById(id)
                 .filter(post -> canRead(post, viewerEmail))
-                .map(post -> {
-                    GroupPostDto dto = convertToPostDto(post);
-                    applyReadReceipts(List.of(dto), post.getGroupId());
-                    return dto;
-                });
+                .map(this::convertToPostDto); // carries the read receipts
     }
 
     /**
@@ -765,6 +761,14 @@ public class GroupPostService {
         }, () -> logger.warn("Group with ID {} not found (notify)", post.getGroupId()));
     }
 
+    /**
+     * The single-post DTO: what create, edit, pin, unpin and an admin removal
+     * broadcast and return, and what {@code GET /group-posts/{id}} reads. It
+     * carries the read receipts like the page DTOs do. Without them every
+     * edit or pin frame said {@code readCount: 0}, and the FE's merge turned
+     * "Sent · read by 3" back into "Sent" (F7 review 2). Receipts are per
+     * post, not per viewer, so one count is right for every subscriber.
+     */
     private GroupPostDto convertToPostDto(GroupPost post) {
         GroupPostDto dto = baseDto(post, reactionService.loadByPostId(post.getId()));
         userInfoRepo.findByUserEmail(post.getAuthor()).ifPresent(u -> {
@@ -774,6 +778,7 @@ public class GroupPostService {
             dto.setAuthorUserId(u.getId());
         });
         applyRemovals(List.of(dto));
+        applyReadReceipts(List.of(dto), post.getGroupId());
         return dto;
     }
 

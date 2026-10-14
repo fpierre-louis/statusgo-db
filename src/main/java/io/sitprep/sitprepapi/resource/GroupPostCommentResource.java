@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.dto.GroupPostCommentDto;
 import io.sitprep.sitprepapi.service.GroupPostCommentService;
 import io.sitprep.sitprepapi.service.ThreadAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.web.Idempotent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -50,8 +51,16 @@ public class GroupPostCommentResource {
      * ids are sequential, and the comment is delivered to every member of that
      * group as a push notification. Signing your own name to it was the only
      * constraint.</p>
+     *
+     * <p>{@code @Idempotent} (F7 review 2): the FE sends comments through the
+     * offline outbox, which replays the same body with one stable
+     * {@code Idempotency-Key} after a network error or a 5xx, possibly after
+     * the first attempt committed. Without the annotation the key was
+     * ignored and a replay made a second comment (and a second notification
+     * to the post's author).</p>
      */
     @PostMapping
+    @Idempotent
     public ResponseEntity<GroupPostCommentDto> createComment(@RequestBody GroupPostCommentDto dto) {
         String author = AuthUtils.requireAuthenticatedEmail();
         threadAccess.requireCanAccessGroupPost(dto == null ? null : dto.getPostId(), author);
