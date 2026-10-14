@@ -1,5 +1,6 @@
 package io.sitprep.sitprepapi.resource;
 
+import io.sitprep.sitprepapi.dto.AgencyAlertPreviewDto;
 import io.sitprep.sitprepapi.dto.AgencyAlertResultDto;
 import io.sitprep.sitprepapi.dto.AgencyAlertStatusDto;
 import io.sitprep.sitprepapi.dto.SendAgencyAlertRequest;
@@ -36,6 +37,16 @@ public class AgencyAlertResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         AgencyAlertResultDto result = service.send(groupId, caller, req);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
+    }
+
+    /**
+     * Reach before send (AG-07): how many people a send would reach right now.
+     * Count only, never emails. Same authority as the send itself.
+     */
+    @GetMapping("/api/groups/{groupId}/agency-alerts/preview")
+    public ResponseEntity<AgencyAlertPreviewDto> preview(@PathVariable String groupId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.preview(groupId, caller));
     }
 
     @GetMapping("/api/groups/{groupId}/agency-alerts")

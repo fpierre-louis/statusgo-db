@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostPriority;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.dto.AgencyAlertPreviewDto;
 import io.sitprep.sitprepapi.dto.AgencyAlertResultDto;
 import io.sitprep.sitprepapi.dto.AgencyAlertStatusDto;
 import io.sitprep.sitprepapi.dto.SendAgencyAlertRequest;
@@ -147,15 +148,7 @@ public class AgencyAlertService {
         Post savedPost = postRepo.save(post);
 
         // Recipients — radius when provisioned, legacy zip lookup otherwise.
-        Instant since = Instant.now().minus(RECENCY_DAYS, ChronoUnit.DAYS);
-        List<UserInfo> recipients = agencyAuthorizationService.recipients(group, since);
-        List<String> recipientSnapshot = recipients.stream()
-                .map(UserInfo::getUserEmail)
-                .filter(email -> email != null && !email.isBlank())
-                .map(email -> email.trim().toLowerCase(Locale.ROOT))
-                .distinct()
-                .sorted()
-                .toList();
+        List<String> recipientSnapshot = recipientSnapshot(group);
 
         alert.setPostId(savedPost.getId());
         alert.setRecipientCount(recipientSnapshot.size());
@@ -167,6 +160,35 @@ public class AgencyAlertService {
 
         return new AgencyAlertResultDto(alert.getId(), savedPost.getId(), recipientSnapshot.size(), targetZips, false,
                 alert.getDispatchStatus().name(), 0, 0);
+    }
+
+    /**
+     * The reach of a send, before it happens (group page AG-07): the number of
+     * people {@link #send} would snapshot right now. Same gate as a send (an
+     * admin of an authorized agency holding SEND_AREA_ALERTS, with a
+     * jurisdiction), same resolver, same normalisation, so the number on the
+     * confirm step is the number the send records. Returns a count only; no
+     * email ever leaves this method.
+     */
+    @Transactional(readOnly = true)
+    public AgencyAlertPreviewDto preview(String groupId, String callerEmail) {
+        Group group = groupRepo.findByGroupId(groupId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Group not found"));
+        agencyAuthorizationService.requireAgencyPostingAllowed(group, callerEmail);
+        return new AgencyAlertPreviewDto(recipientSnapshot(group).size(), RECENCY_DAYS);
+    }
+
+    /** One recipient snapshot for send and preview: lower-cased, distinct, sorted. */
+    private List<String> recipientSnapshot(Group group) {
+        Instant since = Instant.now().minus(RECENCY_DAYS, ChronoUnit.DAYS);
+        List<UserInfo> recipients = agencyAuthorizationService.recipients(group, since);
+        return recipients.stream()
+                .map(UserInfo::getUserEmail)
+                .filter(email -> email != null && !email.isBlank())
+                .map(email -> email.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     @Transactional(readOnly = true)
