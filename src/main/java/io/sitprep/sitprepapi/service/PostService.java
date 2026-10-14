@@ -2940,6 +2940,21 @@ public class PostService {
      */
     @Transactional
     public PostDto patch(Long postId, Post patch, String callerEmail) {
+        return patch(postId, patch, callerEmail, false);
+    }
+
+    /**
+     * {@link #patch(Long, Post, String)} with an opt-in merge for the
+     * work-order bag ({@code PATCH /api/posts/{id}?workDetails=merge}, lane
+     * B6 for F8's lost-update fix). With {@code mergeWorkDetails} only the
+     * keys the patch sends change: a value replaces that key, an explicit
+     * null removes it, and every other stored key stays. Two editors who each
+     * change a different field both keep their edit; the default replace
+     * dropped whichever bag was older. Photos and derived keys are handled
+     * exactly as on replace.
+     */
+    @Transactional
+    public PostDto patch(Long postId, Post patch, String callerEmail, boolean mergeWorkDetails) {
         Post t = mustExist(postId);
         // Captured before the edit so only mentions the edit ADDS are notified.
         final String descriptionBefore = t.getDescription();
@@ -3028,7 +3043,10 @@ public class PostService {
         // dedicated photos endpoint with its own per-phase RBAC is their sole
         // author), and the derived *PhotoUrls fields are stripped (wire-only).
         if (patch.getWorkDetails() != null) {
-            t.setWorkDetails(sanitizeWorkDetails(patch.getWorkDetails(), t.getWorkDetails()));
+            Map<String, Object> incoming = mergeWorkDetails
+                    ? mergeWorkDetailsKeys(t.getWorkDetails(), patch.getWorkDetails())
+                    : patch.getWorkDetails();
+            t.setWorkDetails(sanitizeWorkDetails(incoming, t.getWorkDetails()));
             // Preserve the denormalized need_type across a wholesale bag
             // replace: only overwrite when the patch actually carries a
             // discriminator (root needType or one inside the bag). A generic
@@ -3102,6 +3120,17 @@ public class PostService {
      * Preserves null-in → null-out ("absent === unknown") when there is
      * nothing stored to carry.
      */
+    /** Stored bag + the sent keys: a value replaces, an explicit null removes (merge mode). */
+    static Map<String, Object> mergeWorkDetailsKeys(Map<String, Object> stored, Map<String, Object> sent) {
+        Map<String, Object> out = stored == null ? new LinkedHashMap<>() : new LinkedHashMap<>(stored);
+        for (Map.Entry<String, Object> e : sent.entrySet()) {
+            if (e.getKey() == null) continue;
+            if (e.getValue() == null) out.remove(e.getKey());
+            else out.put(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
     private static Map<String, Object> sanitizeWorkDetails(Map<String, Object> incoming,
                                                            Map<String, Object> stored) {
         boolean storedHasPhotos = stored != null
