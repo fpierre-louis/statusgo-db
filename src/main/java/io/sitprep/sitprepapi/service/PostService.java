@@ -1442,10 +1442,12 @@ public class PostService {
                 .map(PostDto::fromEntity).collect(Collectors.toList());
         // withProjectRollup folds each project container's derived counts +
         // triage feed via one grouped child query (no-op when the page has no
-        // projects). No withAssignees here — the card uses the assignee_email
-        // mirror on the un-folded list (the roster folds only on detail/mutations).
+        // projects). withAssignees folds the task_assignee roster (audit
+        // TK-03): the assignee_email mirror names only the primary lead, so
+        // helpers and non-primary leads were invisible in "Assigned to me".
+        // Two batched queries for the page, no-op on non-task rows.
         return withProjectRollup(
-                withEngagement(withParentPosts(withAuthoredAsGroups(withAuthors(dtos))), viewerEmail));
+                withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(dtos)))), viewerEmail));
     }
 
     /**
@@ -2634,6 +2636,132 @@ public class PostService {
         return new PostDto.ProjectRollup(total, open, claimed, inProgress, done, cancelled,
                 buildRollupLabel(total, open, claimed, inProgress, done, cancelled),
                 topOpen, anyLifeSafety, mostUrgent == null ? null : mostUrgent.getId());
+    }
+
+    // -----------------------------------------------------------------------
+    // Lane B6 (group page epic): the cross-group manager board (TK-09) and a
+    // group's work-order counts (TK-11).
+    // -----------------------------------------------------------------------
+
+    /** How many newest rows the manager board triages (TK-09). */
+    public static final int MANAGED_BOARD_WINDOW = 500;
+    public static final int MANAGED_BOARD_DEFAULT_LIMIT = 50;
+
+    /**
+     * Life-safety for triage: a universal life-safety flag OR a do-not-enter
+     * site. The FE {@code isLifeSafety} rule (taskTriage.js), so the server
+     * triage and the old client triage agree row for row.
+     */
+    static boolean isLifeSafetyForTriage(Post t) {
+        if (hasLifeSafetyFlag(t)) return true;
+        Map<String, Object> wd = t == null ? null : t.getWorkDetails();
+        return wd != null && "unsafeDoNotEnter".equals(str(wd.get("siteSafeToEnter")));
+    }
+
+    /** Triage rank, lower first: 0 life-safety, 1 urgent, 2 the rest (FE {@code triageRank}). */
+    static int triageRank(Post t, PostDto.ProjectRollup rollup) {
+        if ("project".equals(t.getKind())) {
+            if (rollup != null && rollup.anyOpenLifeSafety()) return 0;
+            if (rollup != null && rollup.topOpenPriority() == Post.PostPriority.URGENT) return 1;
+            return 2;
+        }
+        if (isLifeSafetyForTriage(t)) return 0;
+        if (t.getPriority() == Post.PostPriority.URGENT) return 1;
+        return 2;
+    }
+
+    /**
+     * {@code GET /api/me/work-orders?scope=managed} (audit TK-09). Every group
+     * the caller owns or admins, top-level rows (project children ride their
+     * container), ARCHIVED only when {@code status=ARCHIVED} is asked for,
+     * triaged and paged on the server.
+     */
+    @Transactional(readOnly = true)
+    public io.sitprep.sitprepapi.dto.ManagedWorkOrdersDto listManagedWorkOrders(
+            String callerEmail, PostStatus status, Integer offset, Integer limit) {
+        int lim = (limit == null) ? MANAGED_BOARD_DEFAULT_LIMIT
+                : Math.max(1, Math.min(GROUP_BOARD_MAX_LIMIT, limit));
+        int off = (offset == null) ? 0 : Math.max(0, offset);
+
+        Map<String, io.sitprep.sitprepapi.domain.Group> managed = new LinkedHashMap<>();
+        if (callerEmail != null && !callerEmail.isBlank()) {
+            String me = callerEmail.trim();
+            for (var g : groupRepo.findByOwnerEmailIgnoreCase(me)) managed.putIfAbsent(g.getGroupId(), g);
+            for (var g : groupRepo.findByAdminEmail(me)) managed.putIfAbsent(g.getGroupId(), g);
+        }
+        List<io.sitprep.sitprepapi.dto.ManagedWorkOrdersDto.GroupRef> groups = managed.values().stream()
+                .map(g -> new io.sitprep.sitprepapi.dto.ManagedWorkOrdersDto.GroupRef(
+                        g.getGroupId(), g.getGroupName(), g.getGroupType()))
+                .collect(Collectors.toList());
+        if (managed.isEmpty()) {
+            return new io.sitprep.sitprepapi.dto.ManagedWorkOrdersDto(List.of(), groups, off, lim, 0, false, false);
+        }
+
+        org.springframework.data.domain.Pageable window =
+                org.springframework.data.domain.PageRequest.of(0, MANAGED_BOARD_WINDOW + 1);
+        List<Post> rows = (status == null)
+                ? taskRepo.findManagedBoard(managed.keySet(), PostStatus.ARCHIVED, window)
+                : taskRepo.findManagedBoardByStatus(managed.keySet(), status, window);
+        boolean truncated = rows.size() > MANAGED_BOARD_WINDOW;
+        if (truncated) rows = rows.subList(0, MANAGED_BOARD_WINDOW);
+
+        // Rollups first (projects rank by their hottest open child), then a
+        // stable sort: the query's newest-first order holds inside a rank.
+        List<Long> projectIds = rows.stream().filter(p -> "project".equals(p.getKind()))
+                .map(Post::getId).collect(Collectors.toList());
+        Map<Long, PostDto.ProjectRollup> rollups = new HashMap<>();
+        if (!projectIds.isEmpty()) {
+            Map<Long, List<Post>> kids = taskRepo.findByProjectIdIn(projectIds).stream()
+                    .filter(p -> p.getProjectId() != null)
+                    .collect(Collectors.groupingBy(Post::getProjectId));
+            for (Long id : projectIds) rollups.put(id, computeRollup(kids.getOrDefault(id, List.of())));
+        }
+        List<Post> triaged = new ArrayList<>(rows);
+        triaged.sort(Comparator.comparingInt(p -> triageRank(p, rollups.get(p.getId()))));
+
+        int total = triaged.size();
+        List<Post> page = off >= total ? List.of() : triaged.subList(off, Math.min(total, off + lim));
+        List<PostDto> dtos = page.stream().map(PostDto::fromEntity).collect(Collectors.toList());
+        dtos = withProjectRollup(withEngagement(
+                withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(dtos)))), callerEmail));
+        return new io.sitprep.sitprepapi.dto.ManagedWorkOrdersDto(
+                dtos, groups, off, lim, total, off + lim < total, truncated);
+    }
+
+    /**
+     * {@code GET /api/groups/{groupId}/work-order-summary} (audit TK-11):
+     * counts of real tasks by status, plus active life-safety and urgent
+     * rows. Members may read it (the same gate as the board).
+     */
+    @Transactional(readOnly = true)
+    public io.sitprep.sitprepapi.dto.WorkOrderSummaryDto workOrderSummary(String groupId, String viewerEmail) {
+        if (groupId == null || groupId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "groupId required");
+        }
+        requireGroupMembership(groupId, viewerEmail);
+        int total = 0, open = 0, claimed = 0, inProgress = 0, done = 0, cancelled = 0, archived = 0, active = 0;
+        for (Object[] row : taskRepo.countGroupTasksByStatus(groupId)) {
+            PostStatus st = (PostStatus) row[0];
+            int n = ((Number) row[1]).intValue();
+            total += n;
+            if (isActiveStatus(st)) active += n;
+            switch (st == null ? PostStatus.OPEN : st) {
+                case OPEN -> open += n;
+                case CLAIMED -> claimed += n;
+                case IN_PROGRESS -> inProgress += n;
+                case DONE, CLOSED -> done += n;
+                case CANCELLED -> cancelled += n;
+                case ARCHIVED -> archived += n;
+                default -> { /* DRAFT / LIABILITY_PENDING / VERIFICATION_PENDING: in active only */ }
+            }
+        }
+        int lifeSafetyOpen = 0, urgentOpen = 0;
+        for (Post t : taskRepo.findOpenGroupTasks(groupId, TERMINAL_STATUSES)) {
+            if (isLifeSafetyForTriage(t)) lifeSafetyOpen++;
+            if (t.getPriority() == Post.PostPriority.URGENT) urgentOpen++;
+        }
+        return new io.sitprep.sitprepapi.dto.WorkOrderSummaryDto(groupId, total, active, open, claimed,
+                inProgress, done, cancelled, archived, lifeSafetyOpen, urgentOpen);
     }
 
     /** "1/3 done · 1 in progress · 1 open" — only non-zero segments after the done fraction. */
