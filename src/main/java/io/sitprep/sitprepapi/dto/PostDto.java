@@ -428,8 +428,50 @@ public record PostDto(
             // other post, and on an alert post whose alert can no longer be
             // found (never guessed from the title).
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            String alertTier
+            String alertTier,
+            // S2 C6 (contract §7) — where the dispatched alert is in its life,
+            // as the post can know it: the live feed first, then the reason the
+            // dispatcher stored when it cleared the post (V110 resolved_reason).
+            // Lets the card tell an issuer's cancel from a replacement from a
+            // poll that simply stopped listing it (S1 F3). Folded with
+            // `alertTier` in PostService.withAlertAreas; NON_NULL: absent on
+            // every other post, and when the alert cannot be known (its source
+            // is down and nothing was stored) — never guessed.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            AlertLifecycle alertLifecycle,
+            // The alert's canonical key (AlertIdentity.dedupeKey — `NWS:urn:…`)
+            // and its source, beside the bare `alertId` the map selects by. The
+            // key is what /api/alerts/record and the feed card's dedupeKey use.
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String alertKey,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String alertSource,
+            // Post detail only (GET /api/posts/{id}). Carried here, serialized at
+            // the TOP level as `alertDiscussion` by PostDto.alertDiscussion(), so
+            // PostDto's own constructor is unchanged.
+            @com.fasterxml.jackson.annotation.JsonIgnore
+            AlertDiscussion alertDiscussion
     ) {
+        /**
+         * A dispatched alert's lifecycle on its post (S2 C6). {@code state} and
+         * {@code current} read as the feed card's {@code lifecycleInfo} does
+         * (active | updated | superseded | cancelled | expired |
+         * no_longer_listed; current only while active or updated).
+         * {@code reason} is the card's vocabulary when the issuer's message is
+         * in hand ({@code vtec_can}, {@code cap_cancel}, {@code all_clear},
+         * {@code vtec_con}, …), else the stored {@code resolved_reason}
+         * ({@code issuer_cancelled}, {@code replaced}, {@code expired},
+         * {@code not_listed}); omitted when neither says.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record AlertLifecycle(String state, boolean current, String reason) {}
+
+        /**
+         * The conversation about the alert across every readable post of its
+         * thread (S2 C6): the posts, and how many distinct people take part.
+         */
+        public record AlertDiscussion(List<String> postIds, int participants) {}
+
         /**
          * Region-specific content of the daily brief (owner, 2026-10-03:
          * "the high and low, the current air quality, and what to prepare
@@ -485,7 +527,9 @@ public record PostDto(
                     trim(t.getSourceKey()),
                     null /* area — folded from AlertPost by withHazardAreas */,
                     null /* hazard — folded from HazardReport by withHazardAreas */,
-                    t.isAuthorHidden(), null, null, null);
+                    t.isAuthorHidden(), null, null, null,
+                    null /* alertLifecycle, alertKey, alertSource — folded by withAlertAreas */, null, null,
+                    null /* alertDiscussion — post detail only */);
         }
 
         /** Derived discriminator the FE renders card chrome from. */
@@ -501,13 +545,13 @@ public record PostDto(
         public CommunityExtras withConfirms(int count, boolean viewer) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, count, viewer, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         public CommunityExtras withSaved(boolean saved) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, saved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold the tagged agency's display name + verified flag (Group lookup). */
@@ -516,20 +560,20 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     new TaggedAgency(taggedAgency.id(), name, verified, taggedAgency.note()),
                     source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Slice 2 — fold the full multi-agency tag list from the join. */
         public CommunityExtras withTaggedAgencies(List<CivicQueueDto.AgencyRef> tags) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    tags, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         public CommunityExtras withPinned(boolean p) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, p,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /**
@@ -543,49 +587,63 @@ public record PostDto(
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
                     taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus,
-                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    until, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Slice 3 — fold the survivor's status onto a merged duplicate (read-through, decision 1). */
         public CommunityExtras withCanonicalStatus(String status) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, status, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold a hazard report's map facts (V87). */
         public CommunityExtras withHazard(HazardFacts facts) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, facts, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold a dispatched alert's area (V89). */
         public CommunityExtras withArea(String geojson) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard, authorHidden, alertId, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, geojson, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold the viewer's daily brief (EXEC-3C). */
         public CommunityExtras withBrief(BriefView view) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, view, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, view, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold a dispatched alert's feed id (map entry points, 2026-10-03). */
         public CommunityExtras withAlertId(String id) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, id, brief, alertTier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, id, brief, alertTier, alertLifecycle, alertKey, alertSource, alertDiscussion);
         }
 
         /** Fold a dispatched alert's product tier (R9). */
         public CommunityExtras withAlertTier(String tier) {
             return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
                     taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
-                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, tier);
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, tier, alertLifecycle, alertKey, alertSource, alertDiscussion);
+        }
+
+        /** Fold a dispatched alert's canonical key, source and lifecycle (S2 C6). */
+        public CommunityExtras withAlertContext(String key, String keySource, AlertLifecycle lifecycle) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, lifecycle, key, keySource, alertDiscussion);
+        }
+
+        /** Fold the post detail's alert discussion (S2 C6). */
+        public CommunityExtras withAlertDiscussion(AlertDiscussion discussion) {
+            return new CommunityExtras(feedItemType, officialTier, civicCategory, civicStatus,
+                    taggedAgency, source, readMinutes, confirmsCount, viewerConfirmed, viewerSaved, pinned,
+                    taggedAgencies, claimState, claimingAgencyGroupId, mergedIntoPostId, canonicalStatus, effectiveUntil, condition, pickupNote, hazardTags, sourceKey, area, hazard, authorHidden, alertId, brief, alertTier, alertLifecycle, alertKey, alertSource, discussion);
         }
 
         private static boolean isBlank(String s) { return s == null || s.isBlank(); }
@@ -611,6 +669,21 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children, mentions);
+    }
+
+    /**
+     * The alert's discussion on a dispatched alert-update's DETAIL read (S2 C6,
+     * contract §7): {@code { postIds, participants }} across every readable post
+     * of the alert's thread. Serialized as the top-level {@code alertDiscussion}
+     * property from the value {@code community} carries, so the canonical
+     * constructor is unchanged; READ_ONLY, so a DTO read back from JSON ignores
+     * it. Null — and left out — on every list read and every other post.
+     */
+    @com.fasterxml.jackson.annotation.JsonProperty(value = "alertDiscussion",
+            access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public CommunityExtras.AlertDiscussion alertDiscussion() {
+        return community == null ? null : community.alertDiscussion();
     }
 
     public record ParentPostPreview(

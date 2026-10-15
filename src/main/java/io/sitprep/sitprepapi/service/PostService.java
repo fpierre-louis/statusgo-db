@@ -620,62 +620,82 @@ public class PostService {
         // map — and it is known even for a zone-only alert with no area.
         Map<Long, String> alertIds = new HashMap<>();
         Map<Long, String> dispatchKeys = new HashMap<>();
+        Map<Long, String> resolvedReasons = new HashMap<>();
         for (AlertPost ap : alertPostRepo.findByPostIdIn(ids)) {
             if (ap.getAreaGeojson() != null) areas.putIfAbsent(ap.getPostId(), ap.getAreaGeojson());
             String feedId = feedAlertIdOf(ap.getAlertId());
             if (feedId != null) alertIds.putIfAbsent(ap.getPostId(), feedId);
-            if (ap.getAlertId() != null) dispatchKeys.putIfAbsent(ap.getPostId(), ap.getAlertId());
+            if (ap.getAlertId() != null && dispatchKeys.putIfAbsent(ap.getPostId(), ap.getAlertId()) == null
+                    && ap.getResolvedReason() != null) {
+                resolvedReasons.put(ap.getPostId(), ap.getResolvedReason());
+            }
         }
         if (areas.isEmpty() && alertIds.isEmpty()) return dtos;
-        Map<Long, String> tiers = alertTiersOf(dispatchKeys);
+        // One lookup of the posts' alerts (live snapshot, then ONE history read)
+        // serves both the tier and the lifecycle.
+        AlertLookup found = alertsOf(new HashSet<>(dispatchKeys.values()));
+        Map<Long, String> tiers = alertTiersOf(dispatchKeys, found);
+        Map<Long, PostDto.CommunityExtras.AlertLifecycle> lifecycles =
+                alertLifecyclesOf(dispatchKeys, resolvedReasons, found);
         return dtos.stream()
                 .map(d -> {
                     PostDto.CommunityExtras c = d.community();
                     if (areas.containsKey(d.id())) c = c.withArea(areas.get(d.id()));
                     if (alertIds.containsKey(d.id())) c = c.withAlertId(alertIds.get(d.id()));
                     if (tiers.containsKey(d.id())) c = c.withAlertTier(tiers.get(d.id()));
+                    // S2 C6: the canonical key beside the bare alertId, and the
+                    // alert's lifecycle (absent when it cannot be known).
+                    io.sitprep.sitprepapi.util.AlertIdentity.Resolved ref =
+                            io.sitprep.sitprepapi.util.AlertIdentity.resolve(dispatchKeys.get(d.id()), null);
+                    if (ref.isResolved() || lifecycles.containsKey(d.id())) {
+                        c = c.withAlertContext(ref.dedupeKey(), ref.isResolved() ? ref.source() : null,
+                                lifecycles.get(d.id()));
+                    }
                     return c == d.community() ? d : d.withCommunity(c);
                 })
                 .collect(Collectors.toList());
     }
 
-    /** The tiers a post may say. Anything else the helper returns is no tier. */
-    private static final Set<String> ALERT_POST_TIERS = Set.of("warning", "watch", "advisory");
+    /**
+     * What the alert fold found for a set of dispatch keys: each key's alert
+     * (live snapshot first, else alert history), which keys the live snapshot
+     * lists right now, and that snapshot.
+     */
+    private record AlertLookup(Map<String, AlertIngestService.NormalizedAlert> byKey,
+                               Set<String> listed,
+                               AlertIngestService.Snapshot snapshot) {
+        static final AlertLookup NONE = new AlertLookup(Map.of(), Set.of(), null);
+
+        List<AlertIngestService.NormalizedAlert> liveAlerts() {
+            return snapshot == null || snapshot.alerts() == null ? List.of() : snapshot.alerts();
+        }
+    }
 
     /**
-     * Each dispatched post's product tier (R9), keyed by post id; a post whose
-     * alert cannot be found is absent.
-     *
-     * <p>The tier is the one the dispatcher acted on: the alert is found by the
-     * exact key the post was made from, then matched to its template and read
-     * through {@link AlertFeedService#tierOf} — the template's reviewed tier,
-     * else the product name for the few products with no template. Exact key
-     * only, never the CAP {@code references} chain the pin follows: an update
-     * can be a different product, and the post's words are the original's.</p>
-     *
-     * <p>Two reads at most, whatever the page size. The live snapshot is in
-     * memory; whatever has left it is looked up in alert history in ONE
-     * batched read. A dispatched alert post outlives its alert in the feed by
-     * days, so the snapshot alone would leave most of them without a tier.</p>
+     * The alerts behind a page of dispatched posts, found by the exact key each
+     * post was made from. Two reads at most, whatever the page size: the live
+     * snapshot is in memory; whatever has left it is looked up in alert history
+     * in ONE batched read. A dispatched alert post outlives its alert in the
+     * feed by days, so the snapshot alone would leave most of them unknown.
      */
-    private Map<Long, String> alertTiersOf(Map<Long, String> dispatchKeyByPost) {
-        AlertDispatchService dispatch = alertDispatch == null ? null : alertDispatch.getIfAvailable();
-        if (dispatchKeyByPost.isEmpty() || dispatch == null) return Map.of();
-        Set<String> wanted = new HashSet<>(dispatchKeyByPost.values());
+    private AlertLookup alertsOf(Set<String> wanted) {
+        if (wanted == null || wanted.isEmpty()) return AlertLookup.NONE;
         Map<String, AlertIngestService.NormalizedAlert> byKey = new HashMap<>();
+        Set<String> listed = new HashSet<>();
+        AlertIngestService.Snapshot snap = null;
 
         if (alertIngest != null) {
             try {
-                AlertIngestService.Snapshot snap = alertIngest.getSnapshot();
+                snap = alertIngest.getSnapshot();
                 if (snap != null && snap.alerts() != null) {
                     for (AlertIngestService.NormalizedAlert a : snap.alerts()) {
                         if (a == null || a.id() == null) continue;
                         String key = dispatchKey(a.source(), a.id());
-                        if (wanted.contains(key)) byKey.putIfAbsent(key, a);
+                        if (wanted.contains(key) && byKey.putIfAbsent(key, a) == null) listed.add(key);
                     }
                 }
             } catch (RuntimeException e) {
-                log.warn("Alert tier: snapshot lookup failed: {}", e.toString());
+                log.warn("Alert fold: snapshot lookup failed: {}", e.toString());
             }
         }
 
@@ -697,9 +717,120 @@ public class PostService {
                     if (wanted.contains(key)) byKey.putIfAbsent(key, a);
                 }
             } catch (RuntimeException e) {
-                log.warn("Alert tier: history lookup failed: {}", e.toString());
+                log.warn("Alert fold: history lookup failed: {}", e.toString());
             }
         }
+        return new AlertLookup(byKey, listed, snap);
+    }
+
+    /**
+     * Each dispatched post's {@code community.alertLifecycle} (S2 C6, contract
+     * §7), keyed by post id; a post whose alert's state cannot be known is
+     * absent. No query: it reads what {@link #alertsOf} already found, the live
+     * snapshot's own edges, and the reason {@code resolveOnce} stored on the
+     * post's AlertPost row. The rule is {@link AlertPostContext#lifecycle}.
+     */
+    private Map<Long, PostDto.CommunityExtras.AlertLifecycle> alertLifecyclesOf(
+            Map<Long, String> dispatchKeyByPost, Map<Long, String> resolvedReasons, AlertLookup found) {
+        if (dispatchKeyByPost.isEmpty()) return Map.of();
+        try {
+            AlertIngestService.Snapshot snap = found.snapshot();
+            List<AlertIngestService.NormalizedAlert> live = found.liveAlerts();
+            // Both edges, once per page: the replacement the feed card applies to
+            // a listed alert, and the messages that ended an unlisted one.
+            Map<String, AlertIngestService.NormalizedAlert> replacedInFeed = AlertDerivations.supersessionIndex(live);
+            Map<String, AlertIngestService.NormalizedAlert> endedBy = AlertPostContext.endingMessages(live);
+            Instant now = Instant.now();
+
+            Map<Long, PostDto.CommunityExtras.AlertLifecycle> out = new HashMap<>();
+            for (Map.Entry<Long, String> e : dispatchKeyByPost.entrySet()) {
+                String key = e.getValue();
+                io.sitprep.sitprepapi.util.AlertIdentity.Resolved ref =
+                        io.sitprep.sitprepapi.util.AlertIdentity.resolve(key, null);
+                AlertIngestService.NormalizedAlert alert = found.byKey().get(key);
+                boolean listed = found.listed().contains(key);
+                String canonical = ref.legacyDispatchKey();
+                PostDto.CommunityExtras.AlertLifecycle lifecycle = AlertPostContext.lifecycle(
+                        alert,
+                        listed,
+                        listed ? replacedInFeed.get(alert.id()) : null,
+                        listed ? null : endedBy.get(canonical == null ? key : canonical),
+                        resolvedReasons.get(e.getKey()),
+                        snap != null && ref.isResolved() && snap.freshlyPolled(ref.source()),
+                        now);
+                if (lifecycle != null) out.put(e.getKey(), lifecycle);
+            }
+            return out;
+        } catch (RuntimeException ex) {
+            log.warn("Alert fold: lifecycle failed; serving posts without it: {}", ex.toString());
+            return Map.of();
+        }
+    }
+
+    /** The kinds a stranger can never read groupless ({@link PostKind#isPersonalScope}). */
+    private static final List<String> PERSONAL_SCOPE_KINDS = Arrays.stream(PostKind.values())
+            .map(PostKind::wire)
+            .filter(PostKind::isPersonalScope)
+            .toList();
+
+    /**
+     * The post detail's {@code alertDiscussion} for a dispatched alert-update
+     * (S2 C6, contract §7): every readable post of the alert's thread — all
+     * geocells, every revision in hand ({@link AlertPostContext#threadDispatchKeys})
+     * — and how many distinct people take part, counted in ONE query
+     * ({@link AlertPostRepo#countThreadParticipants}, which owns the privacy:
+     * group-only posts and hidden authors add nothing).
+     *
+     * <p>Readable is {@link AlertPostRepo#findReadableThreadPosts}'s rule, the
+     * same list the feed card's {@code communityThreads} gives. A post that is
+     * not a dispatched alert post (a neighbour's alert-update) carries none. A
+     * failed lookup costs the discussion, never the post.</p>
+     */
+    private PostDto withAlertDiscussion(PostDto dto) {
+        PostDto.CommunityExtras c = dto.community();
+        if (c == null || c.alertKey() == null || alertPostRepo == null) return dto;
+        String key = io.sitprep.sitprepapi.util.AlertIdentity.resolve(c.alertKey(), null).legacyDispatchKey();
+        if (key == null) return dto;
+        try {
+            AlertLookup found = alertsOf(Set.of(key));
+            Set<String> threadKeys = AlertPostContext.threadDispatchKeys(
+                    key, found.byKey().get(key), found.liveAlerts());
+            TreeSet<Long> postIds = new TreeSet<>();
+            for (AlertPostRepo.ThreadPostRef r :
+                    alertPostRepo.findReadableThreadPosts(threadKeys, SystemAccounts.SITPREP_EMAIL)) {
+                if (r != null && r.getPostId() != null) postIds.add(r.getPostId());
+            }
+            long participants = postIds.isEmpty() ? 0 : alertPostRepo.countThreadParticipants(
+                    postIds, SystemAccounts.SITPREP_EMAIL, PERSONAL_SCOPE_KINDS);
+            return dto.withCommunity(c.withAlertDiscussion(new PostDto.CommunityExtras.AlertDiscussion(
+                    postIds.stream().map(String::valueOf).toList(), (int) participants)));
+        } catch (RuntimeException e) {
+            log.warn("Alert discussion: lookup failed for post {}; serving it without: {}", dto.id(), e.toString());
+            return dto;
+        }
+    }
+
+    /** The tiers a post may say. Anything else the helper returns is no tier. */
+    private static final Set<String> ALERT_POST_TIERS = Set.of("warning", "watch", "advisory");
+
+    /**
+     * Each dispatched post's product tier (R9), keyed by post id; a post whose
+     * alert cannot be found is absent.
+     *
+     * <p>The tier is the one the dispatcher acted on: the alert is found by the
+     * exact key the post was made from, then matched to its template and read
+     * through {@link AlertFeedService#tierOf} — the template's reviewed tier,
+     * else the product name for the few products with no template. Exact key
+     * only, never the CAP {@code references} chain the pin follows: an update
+     * can be a different product, and the post's words are the original's.</p>
+     *
+     * <p>No read of its own: the alerts come from {@link #alertsOf}, the same
+     * two-read lookup the lifecycle uses.</p>
+     */
+    private Map<Long, String> alertTiersOf(Map<Long, String> dispatchKeyByPost, AlertLookup found) {
+        AlertDispatchService dispatch = alertDispatch == null ? null : alertDispatch.getIfAvailable();
+        if (dispatchKeyByPost.isEmpty() || dispatch == null) return Map.of();
+        Map<String, AlertIngestService.NormalizedAlert> byKey = found.byKey();
 
         Map<Long, String> tiers = new HashMap<>();
         for (Map.Entry<Long, String> e : dispatchKeyByPost.entrySet()) {
@@ -3612,6 +3743,8 @@ public class PostService {
             List<PostDto> folded = withProjectRollup(
                     withEngagement(withAssignees(withParentPosts(withAuthoredAsGroups(withAuthors(List.of(base))))), viewerEmail));
             PostDto dto = folded.isEmpty() ? base : folded.get(0);
+            // S2 C6: a dispatched alert-update's detail carries its alert's discussion.
+            if (PostKind.ALERT_UPDATE.wire().equals(post.getKind())) dto = withAlertDiscussion(dto);
             // V51: the project-detail read additionally folds the full child task
             // list (the group list omits children + shows the roll-up childCount).
             if ("project".equals(post.getKind())) {

@@ -105,4 +105,63 @@ public interface AlertPostRepo extends JpaRepository<AlertPost, Long> {
            """)
     List<ThreadPostRef> findReadableThreadPosts(@Param("alertIds") Collection<String> alertIds,
                                                 @Param("systemEmail") String systemEmail);
+
+    /**
+     * How many distinct people take part in an alert's discussion — the post
+     * detail's {@code alertDiscussion.participants} (S2 C6). ONE query for the
+     * whole thread, however many posts and replies it spans.
+     *
+     * <p>{@code postIds} are the thread's readable dispatched posts
+     * ({@link #findReadableThreadPosts}). The discussion is the replies on
+     * them, plus the posts neighbours wrote quoting them
+     * ({@code parent_task_id}) and the replies on those. Counted
+     * case-insensitively by email; SitPrep's own account is not a
+     * participant.</p>
+     *
+     * <p><b>Only what any viewer may read</b> ({@code PostReadAuthorizer}'s
+     * groupless arm): a quote post shared into a group, or one of the
+     * personal-scope kinds, adds nothing — not its author, not its replies — so
+     * the number cannot reveal activity inside a group to a stranger.</p>
+     *
+     * <p><b>A hidden author (HR6) is never counted from the post they hid.</b>
+     * Counting them would need their identity, and counting them DISTINCTLY
+     * against named replies would tell a reader whether the "neighbor" is one
+     * of the named people. Their named replies still count, as anyone's do.</p>
+     *
+     * <p>Native SQL because JPQL cannot count over a {@code UNION}. Proved on
+     * Postgres in {@code AlertThreadParticipantsPostgresIT} ({@code task}'s
+     * jsonb column keeps it off H2).</p>
+     *
+     * @param postIds       readable dispatched posts of the thread (non-empty)
+     * @param systemEmail   {@code SystemAccounts.SITPREP_EMAIL}
+     * @param personalKinds the kinds {@code PostKind.isPersonalScope} names (non-empty)
+     */
+    @Query(value = """
+           SELECT COUNT(DISTINCT LOWER(TRIM(x.author)))
+             FROM (
+                   SELECT c.author AS author
+                     FROM task_comment c
+                    WHERE c.task_id IN (:postIds)
+                   UNION ALL
+                   SELECT q.requester_email AS author
+                     FROM task q
+                    WHERE q.parent_task_id IN (:postIds)
+                      AND (q.group_id IS NULL OR TRIM(q.group_id) = '')
+                      AND q.kind NOT IN (:personalKinds)
+                      AND q.author_hidden = FALSE
+                   UNION ALL
+                   SELECT qc.author AS author
+                     FROM task_comment qc
+                     JOIN task q2 ON q2.id = qc.task_id
+                    WHERE q2.parent_task_id IN (:postIds)
+                      AND (q2.group_id IS NULL OR TRIM(q2.group_id) = '')
+                      AND q2.kind NOT IN (:personalKinds)
+                  ) x
+            WHERE x.author IS NOT NULL
+              AND TRIM(x.author) <> ''
+              AND LOWER(TRIM(x.author)) <> LOWER(:systemEmail)
+           """, nativeQuery = true)
+    long countThreadParticipants(@Param("postIds") Collection<Long> postIds,
+                                 @Param("systemEmail") String systemEmail,
+                                 @Param("personalKinds") Collection<String> personalKinds);
 }

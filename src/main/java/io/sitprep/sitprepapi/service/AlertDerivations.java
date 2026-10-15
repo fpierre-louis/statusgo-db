@@ -357,7 +357,13 @@ public final class AlertDerivations {
         return Map.copyOf(out);
     }
 
-    private static boolean mayEndAnother(NormalizedAlert m) {
+    /**
+     * Whether {@code m} is the kind of message that may end another one: real
+     * ({@code Actual}), public, and not protocol ({@code Ack}/{@code Error}).
+     * Also read by {@code AlertPostContext}, so the dispatcher's resolve reason
+     * and history's reverse edge apply one rule.
+     */
+    static boolean mayEndAnother(NormalizedAlert m) {
         String status = lower(m.status());
         if (status != null && !status.isEmpty() && !"actual".equals(status)) return false;
         String scope = lower(m.scope());
