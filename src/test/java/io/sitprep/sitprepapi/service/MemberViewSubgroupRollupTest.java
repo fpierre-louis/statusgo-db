@@ -254,13 +254,25 @@ class MemberViewSubgroupRollupTest {
     }
 
     @Test
-    void everyRow_carriesItsRoleAndUserId() {
+    void everyRow_carriesItsRoleAndUserId_andAPlainMemberSeesNoCoMemberEmail_D6() {
+        // A plain org member: rows keyed by userId; only their OWN row keeps an email.
+        GroupMemberViewDto pv = view(MEMBER);
+        assertThat(pv.members()).isNotEmpty();
+        for (MemberSummary m : pv.members()) {
+            if (!"u-member".equals(m.userId())) assertThat(m.email()).as("co-member email").isNull();
+            else assertThat(m.email()).isEqualTo(MEMBER);
+        }
+        assertThat(pv.group().ownerEmail()).isNull();
+        assertThat(pv.group().adminEmails()).isEmpty();
+        assertThat(pv.members().stream().map(MemberSummary::role)).contains("owner", "admin", "member");
+        // An admin keeps every email.
         Map<String, MemberSummary> rows = new HashMap<>();
-        for (MemberSummary m : view(MEMBER).members()) rows.put(m.email(), m);
+        for (MemberSummary m : view(ADMIN).members()) rows.put(m.email(), m);
         assertThat(rows.get(OWNER).role()).isEqualTo("owner");
         assertThat(rows.get(ADMIN).role()).isEqualTo("admin");
         assertThat(rows.get(MEMBER).role()).isEqualTo("member");
         assertThat(rows.get(MEMBER).userId()).isEqualTo("u-member");
+        assertThat(view(ADMIN).group().ownerEmail()).isEqualTo(OWNER);
     }
 
     @Test

@@ -48,17 +48,12 @@ import java.util.Set;
  *       owner reads it from {@code /api/billing/status}.</li>
  * </ul>
  *
- * <h2>The roster email lists, for plain org members — transitional</h2>
+ * <h2>The roster email lists</h2>
  *
- * D6 says a plain organization member gets no co-member email. Three live
- * frontend readers still need the lists from THIS route for a plain member,
- * and none has a userId path yet: {@code MemberRail} (the faces + "N
- * members"), {@code MembersSheet → Members.js} (the roster and its per-row
- * {@code roleOf} pills), and {@code OrgGroupPage}'s own viewer role. Removing
- * them now would empty the page. They ship on {@link #MEMBER_ROSTER_TRANSITIONAL}
- * until F3 (MB-01) moves the roster onto the member view's {@code userId} /
- * {@code role} rows; that change deletes the set from {@link Scope#MEMBER}.
- * It is named so nobody mistakes it for the rule.
+ * D6: a plain organization member gets no co-member email. The lists
+ * ({@link #ROSTER_EMAILS}) ship to a household's members and to an
+ * organization's owner and admins only; a plain member reads the roster from
+ * the member view's {@code userId} / {@code role} rows (F3, B4b 2026-10-14).
  */
 public final class GroupPageDto {
 
@@ -107,11 +102,10 @@ public final class GroupPageDto {
     );
 
     /**
-     * The roster as email lists. Every scope above STRANGER that sees them
-     * lists them explicitly; see the class doc for why a plain org member
-     * still does.
+     * The roster as email lists: a household's members and an organization's
+     * owner and admins. Never a plain organization member (D6).
      */
-    public static final Set<String> MEMBER_ROSTER_TRANSITIONAL = Set.of(
+    public static final Set<String> ROSTER_EMAILS = Set.of(
             "memberEmails", "adminEmails", "ownerEmail"
     );
 
@@ -151,11 +145,10 @@ public final class GroupPageDto {
             case HOUSEHOLD_STRANGER, HOUSEHOLD_PENDING -> { /* returned above */ }
             case MEMBER -> {
                 out.addAll(MEMBER);
-                out.addAll(MEMBER_ROSTER_TRANSITIONAL);
             }
             case HOUSEHOLD, ADMIN -> {
                 out.addAll(MEMBER);
-                out.addAll(MEMBER_ROSTER_TRANSITIONAL);
+                out.addAll(ROSTER_EMAILS);
                 out.addAll(ADMIN);
                 if (scope == Scope.HOUSEHOLD) out.addAll(HOUSEHOLD_ONLY);
             }
