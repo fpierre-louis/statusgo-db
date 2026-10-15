@@ -146,7 +146,7 @@ class EarthquakePushTest {
     private List<UserInfo> pushedOnce(ArgumentCaptor<String> title) {
         ArgumentCaptor<List<UserInfo>> c = ArgumentCaptor.forClass(List.class);
         verify(notifications).sendHazardAlertBatch(c.capture(), title.capture(), anyString(), anyString(),
-                anyString(), any(), anyBoolean());
+                anyString(), any(), anyBoolean(), any(), any(), any());
         return c.getValue();
     }
 
@@ -179,7 +179,7 @@ class EarthquakePushTest {
         assertThat(dispatcher.dispatchOnce()).as("the feed post is still created").isEqualTo(1);
 
         verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), anyBoolean());
+                anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -195,7 +195,7 @@ class EarthquakePushTest {
         verify(posts).create(any(), anyString());
         verify(users, never()).findPushablesWithLocation(any());
         verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), anyBoolean());
+                anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -215,7 +215,7 @@ class EarthquakePushTest {
 
         verify(posts, times(1)).create(any(), anyString());
         verify(notifications, times(1)).sendHazardAlertBatch(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), anyBoolean());
+                anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -264,9 +264,9 @@ class EarthquakePushTest {
         dispatcher.dispatchOnce();
 
         verify(notifications, times(1)).sendHazardAlertBatch(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), anyBoolean());
+                anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
         verify(notifications, never()).logHazardAlertInboxOnly(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any());
+                anyString(), anyString(), any(), any(), any(), any());
     }
 
     /**
@@ -284,7 +284,7 @@ class EarthquakePushTest {
 
         verify(users, never()).findPushablesWithLocation(any());
         verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), anyBoolean());
+                anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test

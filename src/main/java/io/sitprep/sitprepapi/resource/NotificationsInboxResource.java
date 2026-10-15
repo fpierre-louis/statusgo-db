@@ -4,7 +4,10 @@ import io.sitprep.sitprepapi.dto.ApiMeta;
 import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.dto.NotificationInboxRowDto;
 import io.sitprep.sitprepapi.domain.NotificationLog;
+import io.sitprep.sitprepapi.notifications.NotificationInboxFilter;
 import io.sitprep.sitprepapi.notifications.NotificationPresentation;
+import io.sitprep.sitprepapi.repo.NotificationLogRepo;
+import io.sitprep.sitprepapi.service.NotificationAlertProjector;
 import io.sitprep.sitprepapi.notifications.NotificationPresentationBuilder;
 import io.sitprep.sitprepapi.service.NotificationInboxService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -32,11 +35,14 @@ public class NotificationsInboxResource {
 
     private final NotificationInboxService inbox;
     private final NotificationPresentationBuilder presentations;
+    private final NotificationAlertProjector alertProjector;
 
     public NotificationsInboxResource(NotificationInboxService inbox,
-                                      NotificationPresentationBuilder presentations) {
+                                      NotificationPresentationBuilder presentations,
+                                      NotificationAlertProjector alertProjector) {
         this.inbox = inbox;
         this.presentations = presentations;
+        this.alertProjector = alertProjector;
     }
 
     /**
@@ -53,19 +59,69 @@ public class NotificationsInboxResource {
     public ResponseEntity<ApiResponse<List<NotificationInboxRowDto>>> page(
             @RequestParam(value = "since", required = false) String sinceStr,
             @RequestParam(value = "before", required = false) String beforeStr,
+            @RequestParam(value = "beforeId", required = false) Long beforeId,
+            @RequestParam(value = "filter", required = false) String filterStr,
             @RequestParam(value = "limit", required = false) Integer limit
     ) {
         String email = AuthUtils.requireAuthenticatedEmail();
+        NotificationInboxFilter filter = NotificationInboxFilter.parse(filterStr);
+        if (filter == null) return ResponseEntity.badRequest().build();
         Instant since = parseInstantOrNull(sinceStr);
         Instant before = parseInstantOrNull(beforeStr);
-        List<NotificationLog> page = inbox.page(email, since, before, limit);
-        // Every row ships a presentation: stored for rows written since V95,
-        // built here (two batched lookups per page) for the ones before it.
+        List<NotificationLog> page = inbox.page(email, filter, since, before, beforeId, limit);
+        return ResponseEntity.ok(ApiResponse.ok(rowsOf(page), ApiMeta.now()));
+    }
+
+    /**
+     * S2 C5: {@code { all, unread, alerts, alertsUnread, needsResponse }} in one
+     * statement. {@code /unreadCount} is unchanged.
+     */
+    @GetMapping("/counts")
+    public ResponseEntity<ApiResponse<NotificationLogRepo.InboxCounts>> counts() {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(inbox.counts(email), ApiMeta.now()));
+    }
+
+    /**
+     * S2 C5: every row of one alert thread for the caller, newest first — the
+     * group a page shows as one item, across page boundaries.
+     */
+    @GetMapping("/threads/{threadKey:.+}")
+    public ResponseEntity<ApiResponse<List<NotificationInboxRowDto>>> thread(@PathVariable String threadKey) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(ApiResponse.ok(rowsOf(inbox.thread(email, threadKey)), ApiMeta.now()));
+    }
+
+    /**
+     * R15 read: {@code { threadKey, revisionRefs: [...shown], cutoff }}, the
+     * cutoff being the record response's {@code meta.serverTime}. Marks only
+     * the caller's rows in that thread whose revision was shown and that
+     * arrived by the cutoff; returns {@code { updated, count }}.
+     */
+    @PostMapping("/alert-read")
+    public ResponseEntity<Map<String, Object>> alertRead(@RequestBody(required = false) Map<String, Object> body) {
+        String email = AuthUtils.requireAuthenticatedEmail();
+        String threadKey = body == null || body.get("threadKey") == null ? null : String.valueOf(body.get("threadKey"));
+        Instant cutoff = body == null || body.get("cutoff") == null ? null
+                : parseInstantOrNull(String.valueOf(body.get("cutoff")));
+        List<String> refs = new java.util.ArrayList<>();
+        if (body != null && body.get("revisionRefs") instanceof java.util.Collection<?> c) {
+            for (Object o : c) if (o != null) refs.add(String.valueOf(o));
+        }
+        if (threadKey == null || threadKey.isBlank() || cutoff == null || refs.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        int updated = inbox.markAlertThreadRead(email, threadKey, refs, cutoff);
+        return ResponseEntity.ok(Map.of("updated", updated, "count", inbox.unreadCount(email)));
+    }
+
+    /** Every row ships a presentation (stored, or built in two batched lookups) and, for an official alert, {@code alert}. */
+    private List<NotificationInboxRowDto> rowsOf(List<NotificationLog> page) {
         Map<Long, NotificationPresentation> byId = presentations.forRows(page);
-        List<NotificationInboxRowDto> rows = page.stream()
-                .map(r -> NotificationInboxRowDto.from(r, byId.get(r.getId())))
+        Map<Long, NotificationInboxRowDto.AlertRow> alerts = alertProjector.forRows(page);
+        return page.stream()
+                .map(r -> NotificationInboxRowDto.from(r, byId.get(r.getId()), alerts.get(r.getId())))
                 .toList();
-        return ResponseEntity.ok(ApiResponse.ok(rows, ApiMeta.now()));
     }
 
     /**
@@ -99,11 +155,23 @@ public class NotificationsInboxResource {
      */
     @PostMapping("/markAllRead")
     public ResponseEntity<Map<String, Object>> markAllRead(
-            @RequestBody(required = false) Map<String, String> body
+            @RequestBody(required = false) Map<String, Object> body
     ) {
         String email = AuthUtils.requireAuthenticatedEmail();
-        Instant before = (body != null) ? parseInstantOrNull(body.get("before")) : null;
-        int updated = inbox.markAllReadBefore(email, before);
+        // S2 C5: { "newestId": <the newest row id the client saw> } — the
+        // server resolves it to that row's own timestamp. The old
+        // { "before": "<ISO-8601>" } body keeps working.
+        Object newest = body == null ? null : body.get("newestId");
+        int updated;
+        if (newest != null) {
+            Long id = parseLongOrNull(String.valueOf(newest));
+            updated = id == null ? -1 : inbox.markAllReadThrough(email, id);
+            if (updated < 0) return ResponseEntity.notFound().build();
+        } else {
+            Instant before = body == null || body.get("before") == null ? null
+                    : parseInstantOrNull(String.valueOf(body.get("before")));
+            updated = inbox.markAllReadBefore(email, before);
+        }
         return ResponseEntity.ok(Map.of(
                 "updated", updated,
                 "count", inbox.unreadCount(email)
@@ -121,6 +189,11 @@ public class NotificationsInboxResource {
         boolean ok = inbox.archive(id, email);
         if (!ok) return ResponseEntity.notFound().build();
         return ResponseEntity.noContent().build();
+    }
+
+    private static Long parseLongOrNull(String s) {
+        try { return Long.valueOf(s.trim()); }
+        catch (Exception ignored) { return null; }
     }
 
     private static Instant parseInstantOrNull(String s) {

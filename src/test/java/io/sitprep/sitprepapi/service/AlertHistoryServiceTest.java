@@ -204,12 +204,12 @@ class AlertHistoryServiceTest {
 
     @Test
     void anAlertWithNeitherGeometryNorZonesIsNeverExcludable() {
-        // matchTypeFor returns BROADCAST for such an alert at every coordinate
-        // — that is the FEMA case, whose rows carry county and state NAMES but
-        // never codes. A prefilter that dropped it would hide every federal
-        // declaration from history.
-        NormalizedAlert bare = TestAlerts.fema("Major disaster declared")
-                .id("fema-1").ugc(List.of()).geometry(null).build();
+        // matchTypeFor returns BROADCAST for such an alert at every coordinate,
+        // so a prefilter that dropped it would hide it from history. (FEMA rows
+        // are no longer this case: ingest places them by their counties' SAME
+        // codes, and an uncoded one matches no one — S2 C1.)
+        NormalizedAlert bare = TestAlerts.nws("Administrative Message")
+                .id("admin-1").ugc(List.of()).same(List.of()).geometry(null).build();
         AlertHistory row = history.toRow(bare, Instant.now());
 
         assertThat(row.isBroadcast()).isTrue();
@@ -700,8 +700,9 @@ class AlertHistoryServiceTest {
         // FEMA absent from the per-source map (it has not polled OK), its
         // absence proves nothing — unknown, and unknown labels nothing.
         Instant now = NOW;
+        // Gila County (004007 -> AZC007): FEMA rows are placed by their counties.
         NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
-                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+                .id("FEMA-GONE").ugc(List.of()).same(List.of("004007")).geometry(null).build();
         store(fema, now.minusSeconds(3_600));
 
         Snapshot femaNeverOk = new Snapshot(List.of(), now, now,
@@ -711,13 +712,123 @@ class AlertHistoryServiceTest {
                 .isNotEqualTo("no_longer_listed");
     }
 
+    // ------------------------------------------------------------------
+    // Stable-id sources: a relisted revision re-indexes its row (C1 review)
+    // ------------------------------------------------------------------
+
+    @Test
+    void aFemaRowRecordedBeforeCountyCodesIsReindexedWhenFemaRelistsIt() {
+        // Every FEMA row recorded before C1 carries no SAME codes (stored as
+        // BROADCAST). FEMA keeps one id per declaration, so the next sighting is
+        // the only chance to place it; leaving the old payload made the row
+        // match no one, even in its own county, while /feed showed it there.
+        Instant before = Instant.now().minusSeconds(3_600);
+        NormalizedAlert preC1 = TestAlerts.fema("Major disaster declared")
+                .id("DR-4932-AZ").ugc(List.of()).same(List.of()).geometry(null).build();
+        store(preC1, before);
+        assertThat(history.historyFor(LAT, LNG, 30).alerts())
+                .as("precondition: the uncoded row is placed nowhere")
+                .noneMatch(c -> "DR-4932-AZ".equals(c.id()));
+
+        // Gila County (004007 -> AZC007), the zone the fixture point resolves to.
+        NormalizedAlert relisted = TestAlerts.fema("Major disaster declared")
+                .id("DR-4932-AZ").ugc(List.of()).same(List.of("004007")).geometry(null).build();
+        assertThat(history.record(new Snapshot(List.of(relisted), Instant.now(), Instant.now())))
+                .as("a re-index is not a new row").isZero();
+
+        AlertHistory row = table.get("DR-4932-AZ");
+        assertThat(row.getTokens()).contains("AZC007");
+        assertThat(row.isBroadcast()).isFalse();
+        assertThat(row.getPayload()).contains("004007");
+        assertThat(row.getFirstSeenAt()).as("first seen is a fact about the alert").isEqualTo(before);
+        assertThat(history.historyFor(LAT, LNG, 30).alerts())
+                .extracting(AlertCardDto::id).contains("DR-4932-AZ");
+    }
+
+    @Test
+    void aDeclarationThatGainsACountyUnderTheSameIdGainsItInHistory() {
+        Instant before = Instant.now().minusSeconds(3_600);
+        store(TestAlerts.fema("Major disaster declared").id("DR-4940-AZ").ugc(List.of())
+                .same(List.of("004009")).geometry(null).build(), before);   // Graham only
+
+        NormalizedAlert amended = TestAlerts.fema("Major disaster declared").id("DR-4940-AZ")
+                .ugc(List.of()).same(List.of("004009", "004007")).geometry(null).build();
+        history.record(new Snapshot(List.of(amended), Instant.now(), Instant.now()));
+
+        assertThat(table.get("DR-4940-AZ").getTokens()).contains("AZC009", "AZC007");
+        assertThat(history.historyFor(LAT, LNG, 30).alerts())
+                .extracting(AlertCardDto::id).contains("DR-4940-AZ");
+    }
+
+    @Test
+    void aStableIdRowCarriedForwardFromAFailedPollIsNotRewritten() {
+        // FEMA failed this tick: its alerts ride forward from the last good
+        // poll and prove nothing — no re-index, and no sighting either.
+        Instant before = Instant.now().minusSeconds(3_600);
+        NormalizedAlert old = TestAlerts.fema("Major disaster declared")
+                .id("DR-4932-AZ").ugc(List.of()).same(List.of()).geometry(null).build();
+        store(old, before);
+        String payload = table.get("DR-4932-AZ").getPayload();
+
+        NormalizedAlert carried = TestAlerts.fema("Major disaster declared")
+                .id("DR-4932-AZ").ugc(List.of()).same(List.of("004007")).geometry(null).build();
+        Instant now = Instant.now();
+        history.record(new Snapshot(List.of(carried), now, now,
+                Map.of("NWS", now, "USGS", now), Set.of("NWS", "USGS")));
+
+        assertThat(table.get("DR-4932-AZ").getPayload()).isEqualTo(payload);
+        assertThat(table.get("DR-4932-AZ").getLastSeenAt()).isEqualTo(before);
+    }
+
+    @Test
+    void aUsgsRelistIsRewrittenOnlyWhenTheIssuerChangedIt() {
+        Map<String, Object> point = Map.of("type", "Point", "coordinates", List.of(-110.5, 33.3, 10.0));
+        Instant before = Instant.now().minusSeconds(3_600);
+        store(TestAlerts.usgs("M 5.9 - near San Carlos").id("us7000q1").geometry(point)
+                .magnitude(5.9).revisionUpdatedAt("2026-10-13T11:00:00Z").build(), before);
+        String stored = table.get("us7000q1").getPayload();
+
+        // Re-stamped (USGS `updated`) with nothing else changed: not a revision,
+        // so the stored payload is the very same string — no rewrite.
+        history.record(new Snapshot(List.of(TestAlerts.usgs("M 5.9 - near San Carlos").id("us7000q1")
+                .geometry(point).magnitude(5.9).revisionUpdatedAt("2026-10-13T11:30:00Z").build()),
+                Instant.now(), Instant.now()));
+        assertThat(table.get("us7000q1").getPayload()).isSameAs(stored);
+
+        // Magnitude revised under the same id: the row now holds the revision.
+        history.record(new Snapshot(List.of(TestAlerts.usgs("M 6.2 - near San Carlos").id("us7000q1")
+                .geometry(point).magnitude(6.2).revisionUpdatedAt("2026-10-13T12:00:00Z").build()),
+                Instant.now().plusSeconds(1), Instant.now()));
+        assertThat(history.rehydrate(table.get("us7000q1")).magnitude()).isEqualTo(6.2);
+        assertThat(table.get("us7000q1").getFirstSeenAt()).isEqualTo(before);
+    }
+
+    @Test
+    void anNwsRowIsNeverRewritten_itsIdNamesOneImmutableMessage() {
+        // A CAP id is one message; an update is a new id. A different payload
+        // under a recorded NWS id is not a revision, and the stored record of
+        // what was issued must not be overwritten by it.
+        Instant before = Instant.now().minusSeconds(3_600);
+        store(TestAlerts.nws("Flood Warning").id("urn:oid:IMMUTABLE")
+                .ugc(List.of("AZZ560")).headline("as issued").build(), before);
+        String payload = table.get("urn:oid:IMMUTABLE").getPayload();
+
+        history.record(new Snapshot(List.of(TestAlerts.nws("Flood Warning").id("urn:oid:IMMUTABLE")
+                .ugc(List.of("AZZ560", "AZZ133")).headline("something else").build()),
+                Instant.now(), Instant.now()));
+
+        assertThat(table.get("urn:oid:IMMUTABLE").getPayload()).isEqualTo(payload);
+        assertThat(table.get("urn:oid:IMMUTABLE").getLastSeenAt()).isAfter(before);
+    }
+
     @Test
     void aFemaDeclarationIsJudgedByFemasOwnPollTime() {
         // FEMA on its own clock: a declaration last seen well before FEMA's
         // own last success, and not in the live snapshot, is no longer listed.
         Instant now = NOW;
+        // Gila County (004007 -> AZC007): FEMA rows are placed by their counties.
         NormalizedAlert fema = TestAlerts.fema("Major disaster declared")
-                .id("FEMA-GONE").ugc(List.of()).geometry(null).build();
+                .id("FEMA-GONE").ugc(List.of()).same(List.of("004007")).geometry(null).build();
         store(fema, now.minusSeconds(3_600));
 
         Snapshot femaOk = new Snapshot(List.of(), now, now,

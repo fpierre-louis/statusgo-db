@@ -29,6 +29,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -74,7 +75,7 @@ class AgencyAlertDispatchServiceTest {
 
         service.dispatchNow(alert.getId());
 
-        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString());
+        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
         verifyNoInteractions(logRepo);   // a first attempt has no earlier rows to look up
 
         assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.SENT);
@@ -91,7 +92,7 @@ class AgencyAlertDispatchServiceTest {
         prepareClaim(alert);
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("b@example.com"), user("a@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(2, 1, 1, "token rejected"));
 
         service.dispatchNow(alert.getId());
@@ -113,7 +114,7 @@ class AgencyAlertDispatchServiceTest {
         prepareClaim(alert);
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(1, 0, 1, "provider unavailable"));
 
         service.dispatchNow(alert.getId());
@@ -136,15 +137,15 @@ class AgencyAlertDispatchServiceTest {
         quietNow("a@example.com");
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(1, 1, 0, null));
 
         service.dispatchNow(alert.getId());
 
         verify(notifications).sendHazardAlertBatch(argThat(l -> l.size() == 1), eq("Water advisory"),
-                anyString(), eq("agency-alert:17"), eq("/community/posts/17"));
+                anyString(), eq("agency-alert:17"), eq("/community/posts/17"), any(), anyBoolean(), any(), any(), any());
         verify(notifications, never()).logHazardAlertInboxOnly(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any());
+                anyString(), anyString(), any(), any(), any(), any());
         assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.SENT);
         assertThat(alert.getDeliveredCount()).isEqualTo(1);
     }
@@ -157,20 +158,20 @@ class AgencyAlertDispatchServiceTest {
         quietNow("a@example.com");                       // a: asleep; b: no quiet hours
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com"), user("b@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(1, 1, 0, null));
         when(notifications.logHazardAlertInboxOnly(anyList(), anyString(), anyString(), anyString(),
-                anyString(), any(), any(), any())).thenReturn(1);
+                anyString(), any(), any(), any(), any())).thenReturn(1);
 
         service.dispatchNow(alert.getId());
 
         verify(notifications).sendHazardAlertBatch(
                 argThat(l -> l.size() == 1 && "b@example.com".equals(l.get(0).getUserEmail())),
-                anyString(), anyString(), anyString(), anyString());
+                anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
         verify(notifications).logHazardAlertInboxOnly(
                 argThat(l -> l.size() == 1 && "a@example.com".equals(l.get(0).getUserEmail())),
                 eq("Water advisory"), anyString(), eq("agency-alert:17"), eq("/community/posts/17"),
-                isNull(), eq(Category.AGENCY_ALERT), eq(Set.of("a@example.com")));
+                isNull(), eq(Category.AGENCY_ALERT), eq(Set.of("a@example.com")), any());
         // Both reached the recipient: one push, one inbox row. Not a failure, not retried.
         assertThat(alert.getDispatchStatus()).isEqualTo(AgencyAlert.DispatchStatus.SENT);
         assertThat(alert.getDeliveredCount()).isEqualTo(2);
@@ -189,13 +190,13 @@ class AgencyAlertDispatchServiceTest {
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com")));
         when(notifications.logHazardAlertInboxOnly(anyList(), anyString(), anyString(), anyString(),
-                anyString(), any(), any(), any())).thenReturn(1);
+                anyString(), any(), any(), any(), any())).thenReturn(1);
 
         service.dispatchNow(alert.getId());
 
-        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString());
+        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any());
         verify(notifications).logHazardAlertInboxOnly(anyList(), anyString(), anyString(), anyString(),
-                anyString(), isNull(), eq(Category.AGENCY_ALERT), eq(Set.of()));
+                anyString(), isNull(), eq(Category.AGENCY_ALERT), eq(Set.of()), any());
         assertThat(alert.getDeliveredCount()).isEqualTo(1);
     }
 
@@ -207,7 +208,7 @@ class AgencyAlertDispatchServiceTest {
         prepareClaim(alert);
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com"), user("b@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(2, 0, 2, "No token", 2));
 
         service.dispatchNow(alert.getId());
@@ -237,7 +238,7 @@ class AgencyAlertDispatchServiceTest {
         prepareClaim(alert);
         when(userInfoRepo.findByUserEmailLowerIn(alert.getRecipientEmails()))
                 .thenReturn(List.of(user("a@example.com"), user("b@example.com")));
-        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(2, 0, 2, "provider unavailable", 1));
 
         service.dispatchNow(alert.getId());
@@ -272,7 +273,7 @@ class AgencyAlertDispatchServiceTest {
                         row("c@example.com", false, "No token", null),
                         row("e@example.com", false, "provider unavailable", null)));
         when(notifications.sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString(),
-                any(), anyBoolean(), any()))
+                any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new NotificationService.HazardBatchResult(2, 2, 0, null, 0));
 
         service.dispatchNow(alert.getId());
@@ -282,10 +283,10 @@ class AgencyAlertDispatchServiceTest {
                         && "a@example.com".equals(l.get(0).getUserEmail())
                         && "d@example.com".equals(l.get(1).getUserEmail())),
                 eq("Water advisory"), anyString(), eq("agency-alert:17"), eq("/community/posts/17"),
-                isNull(), eq(false), eq(Set.of("a@example.com")));
-        verify(notifications, never()).sendHazardAlertBatch(anyList(), anyString(), anyString(), anyString(), anyString());
+                isNull(), eq(false), eq(Set.of("a@example.com")), eq(PushPolicyService.Category.AGENCY_ALERT),
+                eq(new NotificationService.AlertRowRefs("AGENCY:17", null, "AGENCY:17", null)));
         verify(notifications, never()).logHazardAlertInboxOnly(anyList(), anyString(), anyString(),
-                anyString(), anyString(), any(), any(), any());
+                anyString(), anyString(), any(), any(), any(), any());
         // Whole-alert view: a, d pushed now; b, e reached earlier; c unreachable.
         assertThat(alert.getAttemptedCount()).isEqualTo(5);
         assertThat(alert.getDeliveredCount()).isEqualTo(4);

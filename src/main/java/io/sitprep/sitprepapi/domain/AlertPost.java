@@ -102,6 +102,16 @@ public class AlertPost {
     private Instant resolvedAt;
 
     /**
+     * Why the resolve tick cleared this post (V110): {@code issuer_cancelled},
+     * {@code replaced}, {@code expired} or {@code not_listed}. Lets the card
+     * tell an issuer's cancel from a replacement (S1 F3 follow-up). Written by
+     * {@code AlertDispatchService.resolveOnce} (C6); null on rows resolved
+     * before V110 and on every unresolved row.
+     */
+    @Column(name = "resolved_reason", length = 32)
+    private String resolvedReason;
+
+    /**
      * The alert's own area as GeoJSON (Polygon / MultiPolygon), written at
      * dispatch (V89). Null for zone-only alerts — NWS ships no polygon for
      * those — and for rows older than the column. Read by

@@ -183,6 +183,31 @@ class RiskProfileServiceTest {
     }
 
     @Test
+    void activeAlert_carriesGuidanceAttributionAndDedupeKey() {
+        // S2 C2 rule 7 (U5 follow-up): whatToDo travels with whose words it is,
+        // the same line the feed card puts in precautionsSource, and the alert
+        // carries the feed's dedupeKey so Home links to the same record.
+        AlertIngestService.NormalizedAlert guided = TestAlerts.nwsWatch("Flood Watch")
+                .id("urn:oid:FW1").endsAt(IN_FORCE_UNTIL).ugc(List.of("OKZ025")).build();
+        AlertIngestService.NormalizedAlert official = TestAlerts.nws("Fire Warning")
+                .id("FIRE1").severity("Extreme").response("Evacuate")
+                .instruction("Leave now.").endsAt(IN_FORCE_UNTIL).build();
+        homeWithAlerts(guided, official);
+
+        RiskProfileDto p = service().resolveFor(group(null));
+
+        ActiveAlertDto g = p.activeAlerts().get(0);
+        assertThat(g.whatToDo()).isNotNull();
+        assertThat(g.whatToDoSource()).isNotBlank().isEqualTo(cardFor(guided).precautionsSource());
+        assertThat(g.dedupeKey()).isEqualTo("NWS:urn:oid:FW1").isEqualTo(cardFor(guided).dedupeKey());
+
+        ActiveAlertDto o = p.activeAlerts().get(1);
+        assertThat(o.whatToDo()).isNull();
+        assertThat(o.whatToDoSource()).as("no attribution without guidance").isNull();
+        assertThat(o.dedupeKey()).isEqualTo("NWS:FIRE1");
+    }
+
+    @Test
     void officialOnlyWarning_verbatimInstruction_noWhatToDo_neutralActNow() {
         // Fire Warning is approved as official_only: the issuer's words, never ours.
         String verbatim = "Evacuate now via Highway 9 eastbound. Do not return until "

@@ -3,10 +3,12 @@ package io.sitprep.sitprepapi.resource;
 import io.sitprep.sitprepapi.constant.PlatformPermission;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
 import io.sitprep.sitprepapi.dto.AlertHistoryResponse;
+import io.sitprep.sitprepapi.dto.AlertRecordResponse;
 import io.sitprep.sitprepapi.service.AlertFeedService;
 import io.sitprep.sitprepapi.service.AlertHistoryService;
 import io.sitprep.sitprepapi.service.AlertIngestService;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
+import io.sitprep.sitprepapi.service.AlertRecordService;
 import io.sitprep.sitprepapi.service.PlatformAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>READS are unauthenticated — alert data is public and the response
  * carries no user-specific information. The WRITE ({@code POST /refresh})
- * is not: see its own note.</p>
+ * is not: see its own note. Nor is the canonical record lookup
+ * ({@code GET /record}, owner ruling R16): it is a deep-link resolver for
+ * signed-in surfaces (inbox, shared links), not a public alert API, and it is
+ * deliberately absent from the SecurityConfig allowlist.</p>
  *
  * <p>Phase 2a (current) supports lat/lng + radiusMi for coarse
  * point-radius filtering. Phase 3 (per docs/ALERTS_INTEGRATION.md)
@@ -45,15 +50,18 @@ public class AlertResource {
     private final AlertIngestService ingest;
     private final AlertFeedService feedService;
     private final AlertHistoryService historyService;
+    private final AlertRecordService recordService;
     private final PlatformAccessService platformAccessService;
 
     public AlertResource(AlertIngestService ingest,
                          AlertFeedService feedService,
                          AlertHistoryService historyService,
+                         AlertRecordService recordService,
                          PlatformAccessService platformAccessService) {
         this.ingest = ingest;
         this.feedService = feedService;
         this.historyService = historyService;
+        this.recordService = recordService;
         this.platformAccessService = platformAccessService;
     }
 
@@ -91,14 +99,22 @@ public class AlertResource {
      * official text, tier and life-threatening status passed through from the
      * dispatch pipeline, the match reason on every card, and the coverage
      * caveat on every response.</p>
+     *
+     * <p>{@code context} (S2 C2) says whose coordinate this is: {@code current}
+     * — the default — for the device's own location, {@code home} for the
+     * household's (Home sends it with household coordinates). It sets each
+     * card's {@code viewerContext.role} and is echoed in {@code meta.context}.
+     * Forgiving like {@code fixedAt}: an unknown value is {@code current}, not
+     * a 400.</p>
      */
     @GetMapping("/feed")
     public ResponseEntity<AlertFeedResponse> feed(
             @RequestParam("lat") double lat,
             @RequestParam("lng") double lng,
-            @RequestParam(value = "fixedAt", required = false) String fixedAt
+            @RequestParam(value = "fixedAt", required = false) String fixedAt,
+            @RequestParam(value = "context", required = false) String context
     ) {
-        return ResponseEntity.ok(feedService.feedFor(lat, lng, parseFixedAt(fixedAt)));
+        return ResponseEntity.ok(feedService.feedForViewer(lat, lng, parseFixedAt(fixedAt), context));
     }
 
     /**
@@ -145,6 +161,38 @@ public class AlertResource {
     ) {
         return ResponseEntity.ok(
                 historyService.historyFor(lat, lng, days, parseFixedAt(fixedAt)));
+    }
+
+    /**
+     * The canonical record of one alert (S2 contract §4) — what every link to an
+     * alert resolves through, whatever spelling it carries and whatever has
+     * happened to the alert since.
+     *
+     * <p>{@code key} is {@code SOURCE:id}, the legacy {@code SOURCE-id}, or a
+     * bare upstream id with {@code source}. A bare id with no {@code source}
+     * is answered {@code status: "ambiguous"}, never guessed. Every outcome is a
+     * 200 with a {@code status} (live | record | ambiguous | not_found): a
+     * stale link is a normal thing to follow, not an error.</p>
+     *
+     * <p>{@code lat}/{@code lng} are optional — the reader's point, for
+     * {@code viewerContext}; an alert that does not apply there still resolves
+     * and says so. {@code context} and {@code fixedAt} are forgiving, as on
+     * {@code /feed}.</p>
+     *
+     * <p><b>Authenticated</b> (R16): not on the allowlist, so an anonymous call
+     * is a 401 before it reaches here. {@code SecurityConfigAllowlistTest}
+     * holds that line.</p>
+     */
+    @GetMapping("/record")
+    public ResponseEntity<AlertRecordResponse> record(
+            @RequestParam("key") String key,
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "lat", required = false) Double lat,
+            @RequestParam(value = "lng", required = false) Double lng,
+            @RequestParam(value = "context", required = false) String context,
+            @RequestParam(value = "fixedAt", required = false) String fixedAt
+    ) {
+        return ResponseEntity.ok(recordService.lookup(key, source, lat, lng, context, parseFixedAt(fixedAt)));
     }
 
     /**

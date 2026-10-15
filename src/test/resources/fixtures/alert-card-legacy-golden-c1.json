@@ -1,0 +1,923 @@
+{
+  "live_flood_warning" : {
+    "id" : "urn:oid:FW",
+    "source" : "nws",
+    "eventType" : "Flood Warning",
+    "eventLabel" : "Flood warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "headline" : "Flood warning",
+    "whatToDo" : "Flooding is happening or expected. Avoid flood water and be ready to leave if water rises.",
+    "precautions" : [ "Move valuables above possible water if there is time.", "Never drive through a flooded road.", "Leave immediately if officials tell you to evacuate." ],
+    "precautionsSource" : "SitPrep guidance for Flood Warning, on an alert from the National Weather Service (NOAA) · not the issuer's wording",
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Flood Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Turn around, don't drown."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "attention",
+      "guidanceMode" : "supplement_official",
+      "compatibility" : "compatible",
+      "protectiveActions" : [ "AVOID" ],
+      "movementDirective" : "avoid_area",
+      "reason" : "template_compatible",
+      "asIssuedMovementDirective" : "avoid_area"
+    }
+  },
+  "watch" : {
+    "id" : "urn:oid:WA",
+    "source" : "nws",
+    "eventType" : "Flood Watch",
+    "eventLabel" : "Flood watch",
+    "tier" : "watch",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "headline" : "Flood watch",
+    "whatToDo" : "Flooding is possible. Plan a route to higher ground and avoid low roads.",
+    "precautions" : [ "Plan how you would reach higher ground.", "Move vehicles away from low spots if you can.", "Keep checking for warnings or evacuation orders." ],
+    "precautionsSource" : "SitPrep guidance for Flood Watch, on an alert from the National Weather Service (NOAA) · not the issuer's wording",
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Flood Watch issued for somewhere",
+      "description" : "Body."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "prepare",
+      "guidanceMode" : "supplement_official",
+      "compatibility" : "compatible",
+      "protectiveActions" : [ "PREPARE" ],
+      "movementDirective" : "none",
+      "reason" : "template_compatible",
+      "asIssuedMovementDirective" : "none"
+    }
+  },
+  "severe_watch" : {
+    "id" : "urn:oid:TA",
+    "source" : "nws",
+    "eventType" : "Tornado Watch",
+    "eventLabel" : "Tornado watch",
+    "tier" : "watch",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "headline" : "Tornado watch",
+    "whatToDo" : "Tornadoes are possible. Pick your shelter room now and keep alerts where you can hear them.",
+    "precautions" : [ "Choose a basement or inside room away from windows.", "Keep your phone charged and alerts on.", "Be ready to move there fast if a warning is issued." ],
+    "precautionsSource" : "SitPrep guidance for Tornado Watch, on an alert from the National Weather Service (NOAA) · not the issuer's wording",
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Watch issued for somewhere",
+      "description" : "Body."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "prepare",
+      "guidanceMode" : "supplement_official",
+      "compatibility" : "compatible",
+      "protectiveActions" : [ "PREPARE" ],
+      "movementDirective" : "none",
+      "reason" : "template_compatible",
+      "asIssuedMovementDirective" : "none"
+    }
+  },
+  "official_only" : {
+    "id" : "urn:oid:CD",
+    "source" : "nws",
+    "eventType" : "Civil Danger Warning",
+    "eventLabel" : "Civil Danger Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : true,
+    "evacuationRelated" : true,
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Civil Danger Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Shelter in place now."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "critical_push",
+      "guidanceMode" : "official_only",
+      "compatibility" : "compatible",
+      "protectiveActions" : [ "AVOID" ],
+      "movementDirective" : "follow_official_instruction",
+      "reason" : "template_not_safety_approved",
+      "asIssuedMovementDirective" : "follow_official_instruction"
+    }
+  },
+  "own_vtec_con_update" : {
+    "id" : "urn:oid:OCON",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : true,
+    "evacuationRelated" : false,
+    "lifecycleState" : "updated",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "critical_push",
+      "guidanceMode" : "official_only",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ "AVOID" ],
+      "movementDirective" : "shelter_in_place",
+      "reason" : "template_incompatible",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "own_vtec_ext_update" : {
+    "id" : "urn:oid:OEXT",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : true,
+    "evacuationRelated" : false,
+    "lifecycleState" : "updated",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "critical_push",
+      "guidanceMode" : "official_only",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ "AVOID" ],
+      "movementDirective" : "shelter_in_place",
+      "reason" : "template_incompatible",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "own_vtec_exp_update" : {
+    "id" : "urn:oid:OEXP",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "expired",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "vtec_terminal",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "own_vtec_can_update" : {
+    "id" : "urn:oid:OCAN",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "cancelled",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "vtec_terminal",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "own_vtec_con_alert" : {
+    "id" : "urn:oid:OCA",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : true,
+    "evacuationRelated" : false,
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "critical_push",
+      "guidanceMode" : "official_only",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ "AVOID" ],
+      "movementDirective" : "shelter_in_place",
+      "reason" : "template_incompatible",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_vtec_can" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "superseded",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:B",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_superseded",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_vtec_exp" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "superseded",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:B",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_superseded",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_vtec_upg" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "superseded",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:B",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_superseded",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_vtec_con" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "superseded",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:B",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_superseded",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_vtec_exp_cancel_msg" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "cancelled",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:B",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_cancelled",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_cap_cancel" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "cancelled",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:C",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_cancelled",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "replaced_by_allclear" : {
+    "id" : "urn:oid:A",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "cancelled",
+    "replacesAlertIds" : [ ],
+    "supersededBy" : {
+      "alertId" : "urn:oid:D",
+      "title" : "Tornado Warning"
+    },
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_cancelled",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "expired_evacuation" : {
+    "id" : "urn:oid:EV",
+    "source" : "nws",
+    "eventType" : "Evacuation Immediate",
+    "eventLabel" : "Evacuation Immediate",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : true,
+    "lifecycleState" : "expired",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Evacuation Immediate issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Leave now via Route 9."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2020-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "alert_expired",
+      "asIssuedMovementDirective" : "evacuate"
+    }
+  },
+  "usgs" : {
+    "id" : "us7000abc",
+    "source" : "usgs",
+    "tier" : "information",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "M 6.1 - 10 km N of Somewhere"
+    },
+    "location" : {
+      "matchType" : "polygon",
+      "confidence" : "exact"
+    },
+    "radiusMi" : 50,
+    "sourceAttribution" : "U.S. Geological Survey",
+    "detail" : {
+      "earthquake" : {
+        "magnitude" : 6.1,
+        "depthKm" : 10.0,
+        "tsunami" : false
+      }
+    },
+    "safety" : {
+      "dispatchMode" : "feed",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "unknown",
+      "protectiveActions" : [ "UNKNOWN" ],
+      "movementDirective" : "none",
+      "reason" : "no_template",
+      "asIssuedMovementDirective" : "none"
+    }
+  },
+  "fema" : {
+    "id" : "DR-4932-WV",
+    "source" : "fema",
+    "tier" : "watch",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Severe Storms (DR-4932-WV)"
+    },
+    "location" : {
+      "matchType" : "broadcast",
+      "confidence" : "none"
+    },
+    "radiusMi" : 50,
+    "sourceAttribution" : "FEMA OpenFEMA",
+    "detail" : {
+      "disaster" : {
+        "disasterNumber" : "DR-4932-WV",
+        "programsAvailable" : [ "Individual Assistance" ]
+      }
+    },
+    "safety" : {
+      "dispatchMode" : "feed",
+      "guidanceMode" : "official_only",
+      "compatibility" : "unknown",
+      "protectiveActions" : [ "UNKNOWN" ],
+      "movementDirective" : "none",
+      "reason" : "template_unknown",
+      "asIssuedMovementDirective" : "none"
+    }
+  },
+  "record_active" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "active",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_active",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_updated" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "updated",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_updated",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_expired" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "expired",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_expired",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_cancelled" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "cancelled",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_cancelled",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_superseded" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "superseded",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_superseded",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_no_longer_listed" : {
+    "id" : "urn:oid:R",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "no_longer_listed",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "record_no_longer_listed",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  },
+  "record_own_vtec_can_no_longer_listed" : {
+    "id" : "urn:oid:RC",
+    "source" : "nws",
+    "eventType" : "Tornado Warning",
+    "eventLabel" : "Tornado Warning",
+    "tier" : "warning",
+    "isLifeThreatening" : false,
+    "evacuationRelated" : false,
+    "lifecycleState" : "no_longer_listed",
+    "replacesAlertIds" : [ ],
+    "official" : {
+      "headline" : "Tornado Warning issued for somewhere",
+      "description" : "Body.",
+      "instruction" : "Take cover now in a basement or interior room."
+    },
+    "location" : {
+      "label" : "Area",
+      "matchType" : "zone",
+      "confidence" : "region",
+      "areaLabel" : "Area"
+    },
+    "radiusMi" : 50,
+    "expiresAt" : "2099-01-01T00:00:00Z",
+    "sourceAttribution" : "National Weather Service (NOAA)",
+    "safety" : {
+      "dispatchMode" : "suppress",
+      "guidanceMode" : "no_guidance",
+      "compatibility" : "incompatible",
+      "protectiveActions" : [ ],
+      "movementDirective" : "none",
+      "reason" : "vtec_terminal",
+      "asIssuedMovementDirective" : "shelter_in_place"
+    }
+  }
+}

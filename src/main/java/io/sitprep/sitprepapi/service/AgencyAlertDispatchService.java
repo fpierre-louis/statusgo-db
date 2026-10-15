@@ -170,18 +170,14 @@ public class AgencyAlertDispatchService {
             }
         }
 
-        NotificationService.HazardBatchResult result;
-        if (push.isEmpty()) {
-            result = new NotificationService.HazardBatchResult(0, 0, 0, null);
-        } else if (alreadyLogged.isEmpty()) {
-            result = notifications.sendHazardAlertBatch(push, payload.title(), body, referenceId, targetUrl);
-        } else {
-            result = notifications.sendHazardAlertBatch(push, payload.title(), body, referenceId, targetUrl,
-                    null, false, alreadyLogged);
-        }
+        NotificationService.AlertRowRefs alert = alertRefsOf(payload);
+        NotificationService.HazardBatchResult result = push.isEmpty()
+                ? new NotificationService.HazardBatchResult(0, 0, 0, null)
+                : notifications.sendHazardAlertBatch(push, payload.title(), body, referenceId, targetUrl,
+                        null, false, alreadyLogged, PushPolicyService.Category.AGENCY_ALERT, alert);
         int inboxed = inboxOnly.isEmpty() ? 0
                 : notifications.logHazardAlertInboxOnly(inboxOnly, payload.title(), body, referenceId,
-                        targetUrl, null, PushPolicyService.Category.AGENCY_ALERT, quiet);
+                        targetUrl, null, PushPolicyService.Category.AGENCY_ALERT, quiet, alert);
         if (inboxed + suppressed > 0) {
             log.info("Agency alert {} ({}): {} pushed, {} inbox-only, {} suppressed by recipient settings",
                     payload.id(), payload.officialTier(), push.size(), inboxed, suppressed);
@@ -233,6 +229,21 @@ public class AgencyAlertDispatchService {
         failedPush.removeAll(noToken);
         return new PriorRows(reached, noToken, failedPush);
     }
+
+    /**
+     * The alert columns on an agency alert's rows (S2 C5): {@code AGENCY:<id>}
+     * as both key and thread — one agency alert is one thread. No source
+     * revision and no interpretation snapshot exist for it, so those stay null.
+     * Keyed by the agency post, as the row's {@code referenceId} is.
+     */
+    static NotificationService.AlertRowRefs alertRefsOf(DispatchPayload payload) {
+        if (payload == null || payload.postId() == null) return NotificationService.AlertRowRefs.NONE;
+        String key = AGENCY_KEY_PREFIX + payload.postId();
+        return new NotificationService.AlertRowRefs(key, null, key, null);
+    }
+
+    /** {@code alert_key} / {@code alert_thread_key} prefix of an agency alert's rows. */
+    static final String AGENCY_KEY_PREFIX = "AGENCY:";
 
     private static String lower(String email) {
         return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);

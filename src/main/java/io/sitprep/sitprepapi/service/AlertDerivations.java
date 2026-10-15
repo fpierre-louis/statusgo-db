@@ -1,6 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
+import io.sitprep.sitprepapi.util.Vtec;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The four facts the alert surfaces need that the wire does not state directly.
@@ -54,9 +56,10 @@ public final class AlertDerivations {
     public static final String LIFECYCLE_SUPERSEDED = "superseded";
     public static final String LIFECYCLE_EXPIRED = "expired";
     /**
-     * {@code cancelled} — a Cancel (or an all-clear) naming this alert exists.
-     * Read off the replacing message, never off this one; see
-     * {@link #endingStateOf}.
+     * {@code cancelled} — the issuer called this alert off. Two readings say
+     * so: a Cancel (or an all-clear) naming this alert, read off the replacing
+     * message ({@link #endingStateOf}); or this message's own P-VTEC, every
+     * entry terminal and the first a {@code CAN} ({@link #vtecEndingState}, P1).
      */
     public static final String LIFECYCLE_CANCELLED = "cancelled";
     /**
@@ -131,8 +134,10 @@ public final class AlertDerivations {
     /**
      * Where this alert is in its own life, judged from <b>its own fields only</b>.
      *
-     * <p>Four values, and <b>{@code active} is the absence of a chip</b> on the
-     * surface — a chip on every card spends the slot that makes the three
+     * <p>Five values — {@code active}, {@code updated}, {@code superseded},
+     * {@code expired} and {@code cancelled} (the last only from the alert's own
+     * all-terminal VTEC, P1) — and <b>{@code active} is the absence of a chip</b>
+     * on the surface: a chip on every card spends the slot that makes the
      * exceptional states readable.</p>
      *
      * <p>Read in priority order, because they are not mutually exclusive on the
@@ -140,6 +145,13 @@ public final class AlertDerivations {
      * needed and no more — {@code messageType} distinguishes an Update from the
      * original, {@code response: AllClear} and {@code messageType: Cancel} both
      * mean called off, and {@code expires} in the past means over.</p>
+     *
+     * <p><b>Except where NWS says more in VTEC (P1, handoff §27).</b> NWS ships
+     * the end of a warning as a CAP {@code Update} whose own P-VTEC is
+     * {@code CAN} or {@code EXP}, still carrying the original end time — so by
+     * CAP shape alone it read {@code updated}, and the safety readers kept it
+     * live. {@link #vtecEndingState} reads that statement; it sits after the
+     * CAP Cancel / AllClear answer (unchanged) and before {@code updated}.</p>
      *
      * <p><b>This is not the whole answer for a card.</b> An alert cannot see its
      * own replacement: CAP {@code references} live on the NEW message, naming
@@ -162,8 +174,71 @@ public final class AlertDerivations {
         if ("cancel".equals(messageType) || "allclear".equals(response)) {
             return LIFECYCLE_SUPERSEDED;
         }
+        String vtecEnding = vtecEndingState(a);
+        if (vtecEnding != null) return vtecEnding;
         if ("update".equals(messageType)) return LIFECYCLE_UPDATED;
         return LIFECYCLE_ACTIVE;
+    }
+
+    /**
+     * VTEC actions that end, for that event, the event their entry names:
+     * {@code CAN} cancels, {@code EXP} expires, and {@code UPG} — on the OLD
+     * product's own entry — hands the event to the product that upgraded it.
+     */
+    static final Set<String> TERMINAL_VTEC = Set.of("CAN", "EXP", "UPG");
+
+    /**
+     * How this message's OWN P-VTEC ends it, or null when it does not.
+     *
+     * <p><b>Every entry must be terminal.</b> One NWS product can speak for
+     * several events (segments, or an upgrade that also issues the new
+     * warning: {@code UPG} on the watch plus {@code NEW} on the warning). While
+     * any entry still carries an event on — {@code NEW}, {@code CON},
+     * {@code EXT}, {@code EXA}, {@code EXB}, or anything else — the message is
+     * still in force for that event, so this returns null and nothing changes.
+     * A message with no operational VTEC (USGS, FEMA, most non-NWS products,
+     * test-class strings, which {@link Vtec#parse} drops) also returns null.</p>
+     *
+     * <p><b>Every entry must have been read.</b> Ingest parses
+     * {@code parameters.VTEC} with {@link Vtec#parseAll}, which drops what it
+     * cannot read (a malformed date, a non-operational class). When the raw
+     * parameter carries more entries than were parsed, the dropped one may be
+     * the event carrying on, so "every entry is terminal" is not known and this
+     * returns null — the message keeps its CAP-shaped answer, as before P1. A
+     * message built without raw parameters is judged on its parsed list.</p>
+     *
+     * <p>When every entry is terminal, the first one names the state —
+     * {@code CAN} cancelled, {@code EXP} expired, {@code UPG} superseded — the
+     * same entry {@code AlertInterpreter.primaryVtec} picks, so this and
+     * {@code lifecycleInfo} give one answer.</p>
+     */
+    public static String vtecEndingState(NormalizedAlert a) {
+        if (a == null || a.vtec() == null || a.vtec().isEmpty()) return null;
+        Vtec first = null;
+        for (Vtec v : a.vtec()) {
+            if (v == null) continue;
+            if (v.action() == null || !TERMINAL_VTEC.contains(v.action())) return null;
+            if (first == null) first = v;
+        }
+        if (first == null) return null;
+        if (rawVtecCount(a) > a.vtec().size()) return null;
+        return switch (first.action()) {
+            case "CAN" -> LIFECYCLE_CANCELLED;
+            case "EXP" -> LIFECYCLE_EXPIRED;
+            default -> LIFECYCLE_SUPERSEDED;
+        };
+    }
+
+    /** Non-blank raw {@code parameters.VTEC} strings on the message; 0 when it carries none. */
+    private static int rawVtecCount(NormalizedAlert a) {
+        Map<String, List<String>> params = a.parameters();
+        List<String> raw = params == null ? null : params.get("VTEC");
+        if (raw == null) return 0;
+        int n = 0;
+        for (String r : raw) {
+            if (r != null && !r.isBlank()) n++;
+        }
+        return n;
     }
 
     /**
@@ -266,20 +341,57 @@ public final class AlertDerivations {
      *         {@link #LIFECYCLE_SUPERSEDED}
      */
     public static Map<String, String> reverseEdgeIndex(Collection<NormalizedAlert> messages) {
-        if (messages == null || messages.isEmpty()) return Map.of();
+        Map<String, NormalizedAlert> ending = reverseEdgeMessages(messages);
+        if (ending.isEmpty()) return Map.of();
         Map<String, String> out = new HashMap<>();
+        ending.forEach((id, m) -> out.put(id, endingStateOf(m)));
+        return Map.copyOf(out);
+    }
+
+    /**
+     * The same reverse edge, keeping the MESSAGE that ended each alert rather
+     * than only its state — what {@code lifecycleInfo} needs to say how it
+     * ended ({@code all_clear} versus {@code cap_cancel}, the VTEC action) and
+     * what replaced it (S2 C4).
+     *
+     * <p>When several messages name the same alert the choice is deterministic,
+     * whatever order the rows came back in: a Cancel or all-clear wins (the
+     * same rule as {@link #reverseEdgeIndex}, so the two always agree on the
+     * state); otherwise the EARLIEST sent — the alert's immediate successor.
+     * NWS names every earlier message of a chain on each update, so the
+     * original is named by the first update and by every one after it; the
+     * first is the one that replaced it. Ties fall to the smaller id.</p>
+     *
+     * @return replaced-alert id -&gt; the message that ended it
+     */
+    public static Map<String, NormalizedAlert> reverseEdgeMessages(Collection<NormalizedAlert> messages) {
+        if (messages == null || messages.isEmpty()) return Map.of();
+        Map<String, NormalizedAlert> out = new HashMap<>();
         for (NormalizedAlert m : messages) {
             if (m == null || m.references() == null || m.references().isEmpty()) continue;
             if (!mayEndAnother(m)) continue;
-            String state = endingStateOf(m);
             for (String replacedId : m.references()) {
                 if (replacedId == null || replacedId.isBlank()) continue;
                 if (replacedId.equals(m.id())) continue;
-                out.merge(replacedId, state,
-                        (was, now) -> LIFECYCLE_CANCELLED.equals(was) ? was : now);
+                out.merge(replacedId, m, AlertDerivations::strongerEnding);
             }
         }
         return Map.copyOf(out);
+    }
+
+    /** Of two messages that both end one alert, the one that speaks for how it ended. */
+    private static NormalizedAlert strongerEnding(NormalizedAlert a, NormalizedAlert b) {
+        boolean aCancels = LIFECYCLE_CANCELLED.equals(endingStateOf(a));
+        boolean bCancels = LIFECYCLE_CANCELLED.equals(endingStateOf(b));
+        if (aCancels != bCancels) return aCancels ? a : b;
+        Instant aSent = parseInstant(a.sent());
+        Instant bSent = parseInstant(b.sent());
+        if (aSent != null && bSent != null && !aSent.equals(bSent)) return aSent.isBefore(bSent) ? a : b;
+        if (aSent != null && bSent == null) return a;
+        if (bSent != null && aSent == null) return b;
+        String aId = a.id() == null ? "" : a.id();
+        String bId = b.id() == null ? "" : b.id();
+        return aId.compareTo(bId) <= 0 ? a : b;
     }
 
     private static boolean mayEndAnother(NormalizedAlert m) {

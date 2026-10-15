@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
-public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long> {
+public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long>, NotificationLogInboxQuery {
 
     List<NotificationLog> findByRecipientEmailAndTimestampAfterOrderByTimestampAsc(
             String recipientEmail, Instant since
@@ -161,6 +161,58 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     int markAllReadBefore(@Param("email") String email,
                           @Param("before") Instant before,
                           @Param("at") Instant at);
+
+    /**
+     * Mark-all-read through a row the client saw (S2 C5): everything unread up
+     * to and including {@code (timestamp, id)} — by the server's own clock on
+     * that row, never the device's. A row that arrived after it, even in the
+     * same millisecond, has a larger id and stays unread.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.readAt = :at
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.archivedAt IS NULL
+              AND n.readAt IS NULL
+              AND (n.timestamp < :ts OR (n.timestamp = :ts AND n.id <= :id))
+           """)
+    int markAllReadThrough(@Param("email") String email,
+                           @Param("ts") Instant ts,
+                           @Param("id") Long id,
+                           @Param("at") Instant at);
+
+    /**
+     * Alert thread read (R15): only this recipient's rows in the thread whose
+     * revision was SHOWN, and only up to the server time the reader saw. A
+     * newer arrival — a newer revision, or one after the cutoff — stays unread.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.readAt = :at
+            WHERE LOWER(n.recipientEmail) = LOWER(:email)
+              AND n.alertThreadKey = :threadKey
+              AND n.alertRevisionRef IN :refs
+              AND n.timestamp <= :cutoff
+              AND n.archivedAt IS NULL
+              AND n.readAt IS NULL
+           """)
+    int markAlertThreadRead(@Param("email") String email,
+                            @Param("threadKey") String threadKey,
+                            @Param("refs") Collection<String> refs,
+                            @Param("cutoff") Instant cutoff,
+                            @Param("at") Instant at);
+
+    /** One row, only if it is this recipient's — the markAllRead cursor's lookup. */
+    @Query("""
+           SELECT n FROM NotificationLog n
+            WHERE n.id = :id
+              AND LOWER(n.recipientEmail) = LOWER(:email)
+           """)
+    java.util.Optional<NotificationLog> findByIdForUser(@Param("id") Long id, @Param("email") String email);
 
     @Transactional
     @Modifying
