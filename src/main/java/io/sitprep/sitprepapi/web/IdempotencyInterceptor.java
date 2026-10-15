@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.IdempotencyKey;
+import io.sitprep.sitprepapi.dto.ApiResponse;
 import io.sitprep.sitprepapi.repo.IdempotencyKeyRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
 import jakarta.servlet.FilterChain;
@@ -36,10 +37,16 @@ import java.util.Optional;
  *   <li>If the header is present and the (caller, endpoint, key) tuple has
  *       a fresh cached entry, write the cached status + body verbatim and
  *       skip the controller entirely.</li>
- *   <li>Otherwise, execute the handler. If the response is 2xx, persist
- *       the status + body before letting it propagate to the client.
- *       Non-2xx responses are not cached — clients should be free to retry
- *       past a transient failure without being locked into it.</li>
+ *   <li>Otherwise, claim the key first ({@link IdempotencyKeyRepo#reserve},
+ *       an insert the primary key makes atomic), then execute the handler.
+ *       If the response is 2xx, store the status + body on the claim.
+ *       Non-2xx responses and exceptions release the claim — clients should
+ *       be free to retry past a transient failure without being locked into it.</li>
+ *   <li>A request that finds the key claimed but not yet answered (a
+ *       concurrent first attempt, e.g. an outbox replay while the original
+ *       is still running) gets 409 {@code IDEMPOTENCY_IN_PROGRESS} with
+ *       {@code Retry-After}; it never runs the handler a second time. The FE
+ *       outbox retries that code instead of dropping the job.</li>
  * </ol>
  *
  * <p>Implemented as a {@link OncePerRequestFilter} so we can wrap the
@@ -58,6 +65,16 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
 
     /** Cap on header value length to keep PK index pages small. */
     private static final int MAX_KEY_LEN = 200;
+
+    /** Error code for a key whose first request is still running. */
+    public static final String IN_PROGRESS = "IDEMPOTENCY_IN_PROGRESS";
+
+    /**
+     * How long an unanswered claim holds the key. Longer than any request
+     * runs (Heroku's router gives up at 30 s); after it, the claim is treated
+     * as a request that died and the key can be claimed again.
+     */
+    static final Duration CLAIM_LEASE = Duration.ofMinutes(2);
 
     private final IdempotencyKeyRepo repo;
     private final ObjectMapper objectMapper;
@@ -126,24 +143,52 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
             return;
         }
 
-        Instant cutoff = Instant.now().minus(Duration.ofHours(ttlHours));
-        if (hit.isPresent() && hit.get().getCreatedAt().isAfter(cutoff)) {
-            // Cache hit — short-circuit. Write the original body verbatim.
-            IdempotencyKey cached = hit.get();
-            response.setStatus(cached.getResponseStatusCode());
-            response.setContentType("application/json");
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            byte[] body = cached.getResponseBody().getBytes(StandardCharsets.UTF_8);
-            response.setContentLength(body.length);
-            response.getOutputStream().write(body);
-            response.flushBuffer();
+        Instant now = Instant.now();
+        if (hit.isPresent()) {
+            IdempotencyKey row = hit.get();
+            boolean answered = row.getResponseStatusCode() != 0;
+            if (answered && row.getCreatedAt().isAfter(now.minus(Duration.ofHours(ttlHours)))) {
+                // Cache hit — short-circuit. Write the original body verbatim.
+                writeBody(response, row.getResponseStatusCode(),
+                        row.getResponseBody().getBytes(StandardCharsets.UTF_8));
+                return;
+            }
+            if (!answered && row.getCreatedAt().isAfter(now.minus(CLAIM_LEASE))) {
+                writeInProgress(response);
+                return;
+            }
+            // An answer past the TTL, or a claim whose request died: clear it
+            // and claim the key afresh below.
+            try {
+                repo.deleteExpired(caller, endpoint, key, row.getCreatedAt());
+            } catch (Exception e) {
+                log.warn("Idempotency expired-row delete failed: {}", e.getMessage());
+            }
+        }
+
+        int claimed;
+        try {
+            claimed = repo.reserve(caller, endpoint, key, now);
+        } catch (Exception e) {
+            log.warn("Idempotency claim failed; proceeding without cache: {}", e.getMessage());
+            try { Sentry.captureException(e); } catch (Throwable ignored) {}
+            chain.doFilter(request, response);
+            return;
+        }
+        if (claimed == 0) {
+            // A concurrent request with the same key claimed it first.
+            writeInProgress(response);
             return;
         }
 
-        // Cache miss (or stale entry). Run the handler, capture the
-        // response, and persist on success.
+        // Run the handler, capture the response, and answer the claim.
         ContentCachingResponseWrapper wrapped = new ContentCachingResponseWrapper(response);
-        chain.doFilter(request, wrapped);
+        try {
+            chain.doFilter(request, wrapped);
+        } catch (IOException | ServletException | RuntimeException e) {
+            release(caller, endpoint, key);
+            throw e;
+        }
 
         int status = wrapped.getStatus();
         byte[] bodyBytes = wrapped.getContentAsByteArray();
@@ -156,12 +201,39 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
                 persist(caller, endpoint, key, status, bodyBytes);
             } catch (Exception e) {
                 // Persistence failure shouldn't fail the user's request —
-                // they already got a 2xx. Worst case: a future replay
-                // re-runs the work.
+                // they already got a 2xx. Release the claim; worst case a
+                // future replay re-runs the work.
                 log.warn("Idempotency persist failed: {}", e.getMessage());
                 try { Sentry.captureException(e); } catch (Throwable ignored) {}
+                release(caller, endpoint, key);
             }
+        } else {
+            release(caller, endpoint, key);
         }
+    }
+
+    private void release(String caller, String endpoint, String key) {
+        try {
+            repo.release(caller, endpoint, key);
+        } catch (Exception e) {
+            // The claim then expires after CLAIM_LEASE.
+            log.warn("Idempotency claim release failed: {}", e.getMessage());
+        }
+    }
+
+    private void writeInProgress(HttpServletResponse response) throws IOException {
+        response.setHeader("Retry-After", "2");
+        writeBody(response, HttpServletResponse.SC_CONFLICT, objectMapper.writeValueAsBytes(
+                ApiResponse.error(IN_PROGRESS, "This request is still being processed. Retry shortly.")));
+    }
+
+    private static void writeBody(HttpServletResponse response, int status, byte[] body) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
+        response.flushBuffer();
     }
 
     /**
@@ -196,9 +268,9 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
     // final init() method, so the generated subclass is instantiated without
     // GenericFilterBean's logger field being set, and the first init() call
     // NPEs ("Cannot invoke ... isDebugEnabled() because this.logger is null").
-    // Spring Data JPA's SimpleJpaRepository.save() is already @Transactional,
-    // so a bare repo.save() opens its own short tx — exactly what we want for
-    // the idempotency cache insert (independent of the controller's tx).
+    // The repo's claim/complete/release methods are @Transactional themselves,
+    // so each opens its own short tx — exactly what we want for the
+    // idempotency cache (independent of the controller's tx).
     protected void persist(String caller, String endpoint, String key,
                            int status, byte[] body) {
         // Normalize through Jackson when possible so the stored shape is
@@ -211,13 +283,6 @@ public class IdempotencyInterceptor extends OncePerRequestFilter {
         } catch (Exception e) {
             json = new String(body, StandardCharsets.UTF_8);
         }
-        IdempotencyKey row = new IdempotencyKey();
-        row.setCallerEmail(caller);
-        row.setEndpoint(endpoint);
-        row.setKey(key);
-        row.setResponseStatusCode(status);
-        row.setResponseBody(json);
-        row.setCreatedAt(Instant.now());
-        repo.save(row);
+        repo.complete(caller, endpoint, key, status, json);
     }
 }
