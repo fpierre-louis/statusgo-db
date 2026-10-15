@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.hibernate.annotations.Fetch;
+import org.hibernate.annotations.FetchMode;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -138,11 +140,13 @@ public class UserInfo {
     private Boolean searchable;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT) // one statement per collection for a whole roster read (build-10 backlog)
     @CollectionTable(name = "user_managed_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "managed_group_id")
     private Set<String> managedGroupIDs;
 
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT) // one statement per collection for a whole roster read (build-10 backlog)
     @CollectionTable(name = "user_joined_group_ids", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "joined_group_id")
     private Set<String> joinedGroupIDs;
@@ -343,6 +347,7 @@ public class UserInfo {
      * computes the same way.</p>
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT) // one statement per collection for a whole roster read (build-10 backlog)
     @CollectionTable(name = "user_info_group_location_sharing",
             joinColumns = @JoinColumn(name = "user_info_id"))
     @MapKeyColumn(name = "group_id", length = 64)
