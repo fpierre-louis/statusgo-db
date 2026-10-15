@@ -166,7 +166,7 @@ public final class GoBagDtos {
             String bagName,
             String storageLabel,
             boolean commerceSuppressed,
-            /** null | household_checkin | deployed_plan | area_alert */
+            /** null | household_checkin | deployed_plan (an official alert alone no longer suppresses, 2026-10-15) */
             String suppressedReason,
             /** Not fully packed — qtyRemaining to gather/buy. Priority-sorted. */
             List<ShoppingItemDto> toBuy,

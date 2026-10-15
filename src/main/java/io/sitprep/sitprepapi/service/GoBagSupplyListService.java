@@ -24,18 +24,10 @@ import java.util.stream.Stream;
  * construction, zero math.
  *
  * <p><b>Suppression (Decision D):</b> links are nulled (payload still ships as
- * action guidance) when any of, in precedence order:</p>
- * <ol>
- *   <li>{@code household_checkin} — the household's check-in is Active;</li>
- *   <li>{@code deployed_plan} — the household owner or any household member
- *       has an unexpired plan activation;</li>
- *   <li>{@code area_alert} — the persisted {@link io.sitprep.sitprepapi.domain.AlertModeState}
- *       for the household's zip bucket is {@code alert}/{@code crisis}. Read
- *       straight from the state table by PK — deliberately NOT
- *       {@code AlertModeService.getForLatLng}, which reverse-geocodes via
- *       Nominatim on the request thread (rate-limited network call). A missing
- *       row means calm, same semantics as the lazy-create-on-read design.</li>
- * </ol>
+ * action guidance) only during the household's own active response:
+ * {@code household_checkin} or {@code deployed_plan}. An official alert alone
+ * no longer pauses them (owner ruling 2026-10-14). The rule lives in
+ * {@link CommerceSuppressionService}.</p>
  */
 @Service
 public class GoBagSupplyListService {

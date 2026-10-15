@@ -65,7 +65,7 @@ public final class HomeStockpileDtos {
              * Drawer swaps its buy buttons for a calm "focus on your plan" state
              * and every item's retailer links ship null. Reason mirrors
              * {@link io.sitprep.sitprepapi.service.CommerceSuppressionService}
-             * (household_checkin | deployed_plan | area_alert | null).
+             * (household_checkin | deployed_plan | null; an official alert alone no longer suppresses, 2026-10-15).
              */
             boolean commerceSuppressed,
             String suppressionReason

@@ -1,12 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
-import io.sitprep.sitprepapi.domain.AlertModeState;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.PlanActivation;
-import io.sitprep.sitprepapi.dto.RiskProfileDtos.ActiveAlertDto;
-import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskAdjustedRequirementDto;
-import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto;
-import io.sitprep.sitprepapi.repo.AlertModeStateRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PlanActivationRepo;
 import org.junit.jupiter.api.Test;
@@ -21,24 +16,22 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Commerce suppression must agree with Ready for More's active response
- * (release audit 2026-10-07): a live activation (owner, member, or keyed to the
- * household), an open check-in, or an official alert at home all pause buy links.
+ * Commerce suppression (owner ruling 2026-10-14, applied 2026-10-15): only the
+ * household's own active response — an open check-in or a live plan activation
+ * — pauses buy links. An official alert at home no longer does: shopping stays
+ * available, and an alert must never read as a reason to hide gear.
  */
 @ExtendWith(MockitoExtension.class)
 class CommerceSuppressionServiceTest {
 
     @Mock GroupRepo groupRepo;
     @Mock PlanActivationRepo activationRepo;
-    @Mock AlertModeStateRepo alertModeRepo;
-    @Mock RiskProfileService riskProfileService;
 
     private CommerceSuppressionService service() {
-        return new CommerceSuppressionService(groupRepo, activationRepo, alertModeRepo, riskProfileService);
+        return new CommerceSuppressionService(groupRepo, activationRepo);
     }
 
     @Test
@@ -48,7 +41,6 @@ class CommerceSuppressionServiceTest {
         when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
 
         assertThat(service().suppressionReason("hh-1")).isEqualTo("household_checkin");
-        verifyNoInteractions(riskProfileService, alertModeRepo);
     }
 
     @Test
@@ -59,81 +51,32 @@ class CommerceSuppressionServiceTest {
                 .thenReturn(List.of(new PlanActivation()));
 
         assertThat(service().suppressionReason("hh-1")).isEqualTo("deployed_plan");
-        verifyNoInteractions(riskProfileService, alertModeRepo);
     }
 
     @Test
-    void officialAlertAtHomeSuppressesEvenWhenTheZipBucketIsCalm() {
-        Group household = household();
-        when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
-        when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(new ActiveAlertDto("a1", "NWS", "Severe", "flood", "Flash Flood Warning", "Home", "Move to higher ground", null, null, "Flash Flood Warning")), List.of()));
-
-        assertThat(service().suppressionReason("hh-1")).isEqualTo("area_alert");
-        verifyNoInteractions(alertModeRepo);
-    }
-
-    @Test
-    void urgentPrecautionAtHomeSuppresses() {
-        Group household = household();
-        when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
-        when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        RiskAdjustedRequirementDto upgraded = new RiskAdjustedRequirementDto(
-                "active_alert_flood", "flood", "Flood alert in effect — act now", "Move to higher ground",
-                0, "Safety steps", "/hazards?scope=home", "active_alert_upgraded");
-        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(), List.of(upgraded)));
-
-        assertThat(service().suppressionReason("hh-1")).isEqualTo("area_alert");
-    }
-
-    @Test
-    void zipBucketAlertStillSuppresses() {
+    void anOfficialAlertAloneLeavesCommerceOn() {
+        // The household is calm in its own response; whatever is in force at home
+        // or in its zip bucket, the links stay (there is no alert lookup at all).
         Group household = household();
         household.setZipCode("84043");
         when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
         when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(), List.of()));
-        AlertModeState state = new AlertModeState();
-        state.setState(AlertModeService.ALERT);
-        when(alertModeRepo.findById("840")).thenReturn(Optional.of(state));
-
-        assertThat(service().suppressionReason("hh-1")).isEqualTo("area_alert");
-    }
-
-    @Test
-    void calmEverywhereLeavesCommerceOn() {
-        Group household = household();
-        household.setZipCode("84043");
-        when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
-        when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        when(riskProfileService.resolveFor(household)).thenReturn(risk(List.of(), List.of()));
-        when(alertModeRepo.findById("840")).thenReturn(Optional.empty());
 
         assertThat(service().suppressionReason("hh-1")).isNull();
+        assertThat(service().isSuppressed("hh-1")).isFalse();
     }
 
     @Test
-    void riskProfileFailureFallsThroughToTheZipCheck() {
-        Group household = household();
-        household.setZipCode("84043");
-        when(groupRepo.findByGroupId("hh-1")).thenReturn(Optional.of(household));
-        when(activationRepo.findLiveForHousehold(eq(household), any(Instant.class))).thenReturn(List.of());
-        when(riskProfileService.resolveFor(household)).thenThrow(new IllegalStateException("snapshot down"));
-        when(alertModeRepo.findById("840")).thenReturn(Optional.empty());
-
-        assertThat(service().suppressionReason("hh-1")).isNull();
-    }
-
-    private static RiskProfileDto risk(List<ActiveAlertDto> alerts, List<RiskAdjustedRequirementDto> reqs) {
-        return new RiskProfileDto("saved_home", "840", "Utah", List.of(), reqs, alerts, Instant.now(), "test");
+    void unknownHouseholdIsNotSuppressed() {
+        when(groupRepo.findByGroupId("nope")).thenReturn(Optional.empty());
+        assertThat(service().suppressionReason("nope")).isNull();
+        assertThat(service().suppressionReason(null)).isNull();
     }
 
     private static Group household() {
-        Group group = new Group();
-        group.setGroupId("hh-1");
-        group.setGroupType("Household");
-        group.setOwnerEmail("owner@example.com");
-        group.setMemberEmails(List.of("owner@example.com", "member@example.com"));
-        return group;
+        Group g = new Group();
+        g.setGroupId("hh-1");
+        g.setGroupType("Household");
+        return g;
     }
 }
