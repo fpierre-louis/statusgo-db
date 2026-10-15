@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import io.sitprep.sitprepapi.domain.Group;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -147,6 +148,18 @@ public class LiveActivityPushService {
         this.coalescer = new LiveActivityUpdateCoalescer(scheduler, window, this::flushKey);
     }
 
+    // ── P2 collaborators (2026-10-14). Setter-injected and optional, so the
+    // test seam constructor stays as it is; absent means push-to-start is off.
+    private io.sitprep.sitprepapi.repo.GroupRepo groupRepo;
+    private PushPolicyService pushPolicy;
+
+    @Autowired(required = false)
+    void setCheckInRequestCollaborators(io.sitprep.sitprepapi.repo.GroupRepo groupRepo,
+                                        PushPolicyService pushPolicy) {
+        this.groupRepo = groupRepo;
+        this.pushPolicy = pushPolicy;
+    }
+
     private static ScheduledExecutorService newExecutor() {
         ScheduledThreadPoolExecutor ex = new ScheduledThreadPoolExecutor(1, r -> {
             Thread t = new Thread(r, "live-activity-push");
@@ -192,7 +205,21 @@ public class LiveActivityPushService {
      * after the start returns.
      */
     public void situationStarted(String groupId) {
+        situationStarted(groupId, null);
+    }
+
+    /**
+     * A new check-in started, by {@code actorEmail} (null: unknown). Besides
+     * retiring the earlier check-in's tokens, every OTHER member gets the
+     * "You were asked to check in" card by push-to-start (GAMEPLAN §4 P2).
+     */
+    public void situationStarted(String groupId, String actorEmail) {
         if (groupId == null || groupId.isBlank()) return;
+        retireSituationTokens(groupId);
+        run("start check-in requests for " + groupId, () -> sendCheckInRequestStarts(groupId, actorEmail));
+    }
+
+    private void retireSituationTokens(String groupId) {
         run("retire tokens for " + groupId, () -> {
             lastSent.remove(groupId);
             int n = tokens.endLiveUpdateTokens(LiveActivityToken.KIND_SITUATION, groupId, Instant.now());
@@ -241,6 +268,23 @@ public class LiveActivityPushService {
             coalescer.cancel(LiveActivityUpdateCoalescer.key(LiveActivityToken.KIND_SITUATION, groupId));
         } catch (RuntimeException ignored) { }
         run("end " + groupId, () -> sendSituationEnd(groupId, startedAt, reason, actorEmail, snapshot));
+        run("end check-in requests for " + groupId, () -> endCheckInRequests(
+                tokens.findLiveUpdateTokens(LiveActivityToken.KIND_CHECKIN_REQUEST, groupId),
+                CHECKIN_PHASE_ENDED, null, "The check-in ended."));
+    }
+
+    /**
+     * {@code email} just wrote their status (any surface: the app, the
+     * notification, the Watch, the card's own button). Their "asked to check
+     * in" cards end as answered, so a card never keeps asking someone who
+     * already said how they are.
+     */
+    public void memberAnswered(String email, String status) {
+        if (email == null || email.isBlank()) return;
+        String e = email.trim().toLowerCase(java.util.Locale.ROOT);
+        run("end check-in requests for " + e, () -> endCheckInRequests(
+                tokens.findLiveUpdateTokensForUser(LiveActivityToken.KIND_CHECKIN_REQUEST, e),
+                CHECKIN_PHASE_SENT, status, null));
     }
 
     private void run(String what, Runnable task) {
@@ -338,6 +382,103 @@ public class LiveActivityPushService {
             deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_HIGH), now);
         }
         tokens.endByIds(ids, now);
+    }
+
+    // ── "You were asked to check in" (P2) ─────────────────────────────────
+
+    static final String CHECKIN_PHASE_ASKED = "asked";
+    static final String CHECKIN_PHASE_SENT = "sent";
+    static final String CHECKIN_PHASE_ENDED = "ended";
+    /** Must match the Swift type name exactly: push-to-start names it. */
+    static final String CHECKIN_ATTRIBUTES_TYPE = "CheckInRequestAttributes";
+
+    /**
+     * Push-to-start one card per OTHER member's live push-to-start token.
+     * Gated per member by {@link PushPolicyService#wouldPush} on the same
+     * category the GROUP_ALERT push uses (household check-ins break quiet
+     * hours, org ones respect them), without spending a second rate token.
+     * Silent (D6): the GROUP_ALERT push beside it carries the sound.
+     */
+    void sendCheckInRequestStarts(String groupId, String actorEmail) {
+        if (groupRepo == null || pushPolicy == null) return;
+        Group g = groupRepo.findByGroupId(groupId).orElse(null);
+        if (g == null || !"Active".equalsIgnoreCase(g.getAlert())) return;
+        String actor = actorEmail == null ? null : actorEmail.trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<String> members = new java.util.LinkedHashSet<>();
+        if (g.getMemberEmails() != null) {
+            for (String m : g.getMemberEmails()) {
+                if (m == null || m.isBlank()) continue;
+                String e = m.trim().toLowerCase(java.util.Locale.ROOT);
+                if (!e.equals(actor)) members.add(e);
+            }
+        }
+        if (members.isEmpty()) return;
+        boolean household = io.sitprep.sitprepapi.service.HouseholdEventService.HOUSEHOLD_GROUP_TYPE
+                .equalsIgnoreCase(g.getGroupType());
+        PushPolicyService.Category category = household
+                ? PushPolicyService.Category.GROUP_ALERT_HOUSEHOLD
+                : PushPolicyService.Category.GROUP_ALERT_ORG;
+        Instant now = Instant.now();
+        Instant askedAt = g.getAlertActivatedAt() != null ? g.getAlertActivatedAt() : now;
+        Map<String, Object> attributes = checkInRequestAttributes(g, household, askedAt);
+        Map<String, Object> state = checkInRequestState(CHECKIN_PHASE_ASKED, null, now, null);
+        String name = g.getGroupName() == null || g.getGroupName().isBlank() ? "Your group" : g.getGroupName();
+
+        for (LiveActivityToken t : tokens.findLivePushToStart(LiveActivityToken.KIND_CHECKIN_REQUEST, members)) {
+            boolean push;
+            try {
+                push = pushPolicy.wouldPush(t.getUserEmail(), category, null);
+            } catch (RuntimeException e) {
+                push = false;   // refusing to decide is not consent to interrupt
+            }
+            if (!push) continue;
+            Map<String, Object> aps = aps("start", state, now, null, null, 0,
+                    silentAlert(name, "You were asked to check in."));
+            aps.put("attributes-type", CHECKIN_ATTRIBUTES_TYPE);
+            aps.put("attributes", attributes);
+            deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_HIGH), now);
+        }
+    }
+
+    /** End request cards: final state, dismissed {@link #DISMISS_AFTER} later, tokens retired. */
+    private void endCheckInRequests(List<LiveActivityToken> live, String phase, String status, String note) {
+        if (live == null || live.isEmpty()) return;
+        Instant now = Instant.now();
+        Map<String, Object> state = checkInRequestState(phase, status, now, note);
+        for (LiveActivityToken t : live) {
+            Map<String, Object> aps = aps("end", state, now, null, now.plus(DISMISS_AFTER), 0, null);
+            deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_LOW), now);
+        }
+        tokens.endByIds(live.stream().map(LiveActivityToken::getId).toList(), now);
+    }
+
+    /** The static attributes. Keys are the Swift property names (Shared/ActivityAttributes.swift). */
+    static Map<String, Object> checkInRequestAttributes(Group g, boolean household, Instant askedAt) {
+        Map<String, Object> a = new LinkedHashMap<>();
+        a.put("scope", household ? "household" : "group");
+        a.put("groupId", g.getGroupId());
+        a.put("groupName", g.getGroupName() == null ? "" : g.getGroupName());
+        a.put("deepLink", io.sitprep.sitprepapi.notifications.NotificationRoutes.group(g.getGroupId(), household));
+        a.put("askedAtEpoch", askedAt.getEpochSecond());
+        return a;
+    }
+
+    /** The content state. Keys are the Swift property names; no names of people, ever. */
+    static Map<String, Object> checkInRequestState(String phase, String status, Instant asOf, String note) {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("phase", phase);
+        s.put("status", status);
+        s.put("asOfEpoch", asOf.getEpochSecond());
+        s.put("note", note);
+        return s;
+    }
+
+    /** Apple requires an alert on push-to-start; it carries no sound (the GROUP_ALERT push has it). */
+    static Map<String, Object> silentAlert(String title, String body) {
+        Map<String, Object> a = new LinkedHashMap<>();
+        a.put("title", title);
+        a.put("body", body);
+        return a;
     }
 
     private boolean isSilenced(String email) {

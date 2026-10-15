@@ -1136,7 +1136,9 @@ public class GroupService {
             final String gid = group.getGroupId();
             final LiveActivityPushService la = liveActivities;
             if (becameActive) {
-                afterCommitOrNow(() -> la.situationStarted(gid));
+                // The actor, so the "asked to check in" push-to-start skips
+                // the person who started it (Live Activities P2).
+                afterCommitOrNow(() -> la.situationStarted(gid, actor));
             } else {
                 afterCommitOrNow(() -> la.situationEnded(gid, endedCheckInStart,
                         LiveActivityStateBuilder.REASON_MANUAL, actor));

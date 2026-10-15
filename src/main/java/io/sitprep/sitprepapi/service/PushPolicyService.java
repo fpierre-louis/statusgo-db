@@ -119,6 +119,25 @@ public class PushPolicyService {
      */
     @Transactional
     public Decision decide(String userEmail, Category category, String severity) {
+        return steps(userEmail, category, severity, true);
+    }
+
+    /**
+     * Would this event be an interruptive push (Lane A) for this user right
+     * now? The same steps as {@link #decide}, through the one shared
+     * {@link #steps} function so the two can never drift, but WITHOUT spending
+     * a rate-limit token. For a companion signal riding beside a push already
+     * decided once (Live Activities push-to-start next to the GROUP_ALERT push,
+     * 2026-10-14): it obeys the user's mute, push-off and quiet hours, and it
+     * does not cost them a second token.
+     */
+    @Transactional
+    public boolean wouldPush(String userEmail, Category category, String severity) {
+        return steps(userEmail, category, severity, false).lane() == Lane.A;
+    }
+
+    /** The lane decision. {@code consumeRate} false: the rate cap is checked by nobody (see {@link #wouldPush}). */
+    private Decision steps(String userEmail, Category category, String severity, boolean consumeRate) {
         if (userEmail == null || userEmail.isBlank() || category == null) return Decision.of(Lane.DROP);
         UserAlertPreference pref = getOrCreate(userEmail);
 
@@ -154,7 +173,7 @@ public class PushPolicyService {
         //    Critical-bypass categories are exempt — a hurricane
         //    warning shouldn't get rate-limited because the user
         //    already saw a quake notification 2min ago.
-        if (base == Lane.A && !isCriticalBypass(category, severity)) {
+        if (consumeRate && base == Lane.A && !isCriticalBypass(category, severity)) {
             if (!rateLimiter.tryConsume(userEmail, category)) {
                 base = Lane.B;
             }

@@ -698,6 +698,9 @@ public class UserInfoService {
                 if (la != null) {
                     // Coalesced and asynchronous; never throws.
                     activeCheckInGroupIds.forEach(la::situationChanged);
+                    // Their "asked to check in" card (P2) ends as answered,
+                    // whichever surface the answer came from.
+                    la.memberAnswered(frame.email(), frame.status());
                 }
             };
             if (TransactionSynchronizationManager.isSynchronizationActive()) {

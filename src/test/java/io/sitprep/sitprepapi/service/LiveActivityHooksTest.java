@@ -139,7 +139,8 @@ class LiveActivityHooksTest {
 
         groupService(groups, mock(UserInfoRepo.class), la).setAlert("hh-1", true, ADMIN);
 
-        verify(la).situationStarted("hh-1");
+        // With the actor (Live Activities P2): the "asked to check in" push skips the starter.
+        verify(la).situationStarted("hh-1", ADMIN);
         verify(la, never()).situationEnded(any(), any(), any(), any());
     }
 

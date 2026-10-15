@@ -29,6 +29,20 @@ public interface LiveActivityTokenRepo extends JpaRepository<LiveActivityToken, 
     boolean existsLiveUpdateToken(@Param("kind") String kind,
                                   @Param("referenceId") String referenceId);
 
+    /** Live push-to-start tokens of one kind for a set of users (emails are stored lower-cased). */
+    @Query("SELECT t FROM LiveActivityToken t " +
+           "WHERE t.kind = :kind AND t.tokenType = 'push_to_start' AND t.endedAt IS NULL " +
+           "AND t.userEmail IN :emails ORDER BY t.id ASC")
+    List<LiveActivityToken> findLivePushToStart(@Param("kind") String kind,
+                                                @Param("emails") java.util.Collection<String> emails);
+
+    /** One user's live per-activity tokens of one kind (their request cards). */
+    @Query("SELECT t FROM LiveActivityToken t " +
+           "WHERE t.kind = :kind AND t.tokenType = 'update' AND t.endedAt IS NULL " +
+           "AND t.userEmail = :userEmail ORDER BY t.id ASC")
+    List<LiveActivityToken> findLiveUpdateTokensForUser(@Param("kind") String kind,
+                                                        @Param("userEmail") String userEmail);
+
     /** The caller's live rows for one activity (DELETE, and a token rotation). */
     @Query("SELECT t FROM LiveActivityToken t " +
            "WHERE t.userEmail = :userEmail AND t.activityId = :activityId AND t.endedAt IS NULL")
