@@ -97,12 +97,6 @@ public class GroupResource {
      * (B5); it stays until its last two FE callers (ManageGroup.js,
      * CreateHouseholdGroup.js) move in F5, then it is deleted (BE-01 step 2).
      */
-    @PutMapping("/{groupId}")
-    public ResponseEntity<Group> updateGroup(@PathVariable String groupId, @RequestBody Group groupDetails) {
-        requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.updateGroupByPublicId(groupId, groupDetails));
-    }
-
     /**
      * Set the group's alert, and nothing else.
      *
@@ -391,7 +385,7 @@ public class GroupResource {
 
     /**
      * Send a non-emergency "please check in" ping to a group's members.
-     * Phase 1 of docs/BUSINESS_MODEL.md — the family check-in primitive.
+     * Phase 1 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md — the family check-in primitive.
      * Does NOT flip the group's alert state (that's {@code PUT /api/groups}
      * with {@code alert: "Active"}). Authorization lives in
      * {@code GroupService.requestCheckIn} — any member for households,
@@ -670,7 +664,7 @@ public class GroupResource {
 
     /**
      * Set or clear the group's custom logo — Phase 4 of
-     * docs/BUSINESS_MODEL.md ("co-branded page"). Admin or owner only.
+     * SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md ("co-branded page"). Admin or owner only.
      * Body: {@code {"logoImageUrl": "https://…"}}; a null / blank value
      * reverts the group to its default type emblem. The image itself is
      * uploaded separately via {@code POST /api/images}.

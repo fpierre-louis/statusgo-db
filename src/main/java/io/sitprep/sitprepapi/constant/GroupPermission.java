@@ -3,7 +3,7 @@ package io.sitprep.sitprepapi.constant;
 /**
  * Discrete things a member can be allowed to do inside a group.
  *
- * <p>Phase 4 of docs/BUSINESS_MODEL.md — formalized Owner / Admin /
+ * <p>Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md — formalized Owner / Admin /
  * Member RBAC. Each {@link GroupRole} carries a fixed permission set;
  * both the backend authorization helpers and the frontend UI gating
  * read from that one matrix.</p>

@@ -29,7 +29,7 @@ import java.util.Optional;
 
 /**
  * Stripe subscription billing for organization plans — Phase 4 of
- * docs/BUSINESS_MODEL.md.
+ * SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md.
  *
  * <p>Flow (hosted, minimal PCI surface — no card fields in SitPrep):</p>
  * <ol>

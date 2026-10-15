@@ -15,7 +15,7 @@ import java.util.Map;
  * helps people prepare for or get through an emergency: a cooling
  * center, an evacuation shelter, a food bank, a CPR class, a hotline.
  *
- * <p>Phase 2 of docs/BUSINESS_MODEL.md ("community feed retention").
+ * <p>Phase 2 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md ("community feed retention").
  * Three sources feed the same board:</p>
  * <ul>
  *   <li>{@code COMMUNITY} — submitted by residents on the ground.</li>

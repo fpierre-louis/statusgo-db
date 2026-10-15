@@ -52,7 +52,7 @@ import java.util.List;
  *
  * <h2>What if an admin ends the alert mid-window?</h2>
  *
- * {@link GroupService#updateGroupFields} resets the counter to 0
+ * the alert transition in {@link GroupService} resets the counter to 0
  * AND clears {@code alertActivatedAt} on the Inactive transition.
  * The next tick filters out the row (alertActivatedAt is null OR
  * alert isn't Active), so no stale reminder fires.

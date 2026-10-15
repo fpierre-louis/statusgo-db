@@ -67,7 +67,7 @@ public class Group {
      * clear the alert and auto-resolve them after a threshold. Null when
      * the alert has never been activated, or was cleared by an admin.
      *
-     * <p>Set in {@code GroupService.updateGroupFields} on the
+     * <p>Set in {@code GroupService.applyAlertTransition} on the
      * {@code alertBecameActive} branch, cleared on {@code alertBecameInactive}.
      * Pre-existing Active alerts at deploy time will have this null and
      * therefore won't auto-decay until they're flipped manually once —
@@ -161,7 +161,7 @@ public class Group {
      * Organization plan tier — the enum name of
      * {@link io.sitprep.sitprepapi.constant.PlanTier}
      * ({@code FREE} / {@code GROUP} / {@code BUSINESS} / {@code AGENCY}
-     * / {@code PREMIUM_AGENCY}). Phase 4 of docs/BUSINESS_MODEL.md.
+     * / {@code PREMIUM_AGENCY}). Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md.
      *
      * <p>Null on legacy rows — always read it through
      * {@code PlanTier.fromWire(...)}, which maps null/blank/unknown to
@@ -190,7 +190,7 @@ public class Group {
 
     /**
      * Custom organization logo — a public image URL (Cloudflare R2).
-     * Phase 4 of docs/BUSINESS_MODEL.md, the "co-branded page"
+     * Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md, the "co-branded page"
      * capability. When set, the group page renders this in place of
      * the default group-type emblem; null falls back to the emblem.
      * Uploaded via {@code POST /api/images}, then PATCHed here.
@@ -321,7 +321,7 @@ public class Group {
     private int outreachCount = 0;
 
     /**
-     * Stripe billing identifiers — Phase 4 of docs/BUSINESS_MODEL.md.
+     * Stripe billing identifiers — Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md.
      * {@code stripeCustomerId} is the group's Stripe Customer (the
      * billing account); {@code stripeSubscriptionId} the active org-
      * plan subscription; {@code subscriptionStatus} mirrors Stripe's

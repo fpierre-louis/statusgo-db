@@ -266,7 +266,7 @@ public class GroupService {
     /**
      * Send a non-emergency "please check in" ping to a group's members
      * without flipping the group's alert state. Phase 1 of
-     * {@code docs/BUSINESS_MODEL.md} — the family check-in primitive.
+     * {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md} — the family check-in primitive.
      *
      * <p>Authorization: the caller must be a member of the group. For
      * <b>household</b> groups any member can ping (it's the family —
@@ -829,30 +829,6 @@ public class GroupService {
     }
 
 
-    /**
-     * The whole-group PUT, narrowed to the fields an admin may edit (BE-01).
-     *
-     * <p>It used to copy every field from the body, which let any admin set
-     * {@code ownerEmail} to themselves and become OWNER, inject or drop a
-     * roster, flip the alert, write sub/parent links past the no-loop walk,
-     * and retype a household. Those fields each have a narrow, gated path now
-     * (owner transfer, member and admin ops, {@code POST /alert},
-     * {@code PUT /subgroups}); this one leaves them alone. Both frontend
-     * callers still send a whole group, and the extra keys are ignored
-     * rather than refused. The PUT itself goes in B5, once the frontend
-     * moves to {@code PATCH /settings}.</p>
-     *
-     * <p>Not written here: owner (email and name), admins, members, pending,
-     * alert, sub/parent ids, createdAt, lastUpdatedBy, memberCount, and a
-     * household's type (AD-06).</p>
-     */
-    @Transactional
-    public Group updateGroupByPublicId(String groupId, Group groupDetails) {
-        Group group = getGroupByPublicId(groupId);
-        updateGroupFields(group, groupDetails);
-        return groupRepo.save(group);
-    }
-
     // ------------------------------------------------------------------
     // Settings (AD-01, B5 2026-10-14)
     // ------------------------------------------------------------------
@@ -1019,47 +995,6 @@ public class GroupService {
         return v;
     }
 
-    private void updateGroupFields(Group group, Group groupDetails) {
-        final boolean isHousehold =
-                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(group.getGroupType());
-
-        group.setDescription(groupDetails.getDescription());
-        group.setGroupName(groupDetails.getGroupName());
-        // A household stays a household, and nothing becomes one here: the type
-        // decides location defaults and phone exposure (AD-06).
-        String incomingType = groupDetails.getGroupType();
-        boolean becomingHousehold =
-                HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(incomingType);
-        if (!isHousehold && !becomingHousehold && incomingType != null && !incomingType.isBlank()) {
-            group.setGroupType(incomingType);
-        }
-        // A household is never eligible for the public community map, and the
-        // privacy flag was the only thing that ever put one there. `GroupRepo`
-        // now excludes households from that query outright; this closes the
-        // write side so the flag cannot be flipped from the general group
-        // settings screen.
-        //
-        // GUARDS THE TRANSITION, DOES NOT COERCE THE VALUE. Forcing a household
-        // to "Private" here would flip existing public rows lazily, on whatever
-        // unrelated save touched them next. That is a change to records and the
-        // owner's call (B2 / D4 back-fills it). So an already-public household
-        // still saves, and only a NEW private→public move is refused.
-        final boolean wasPublic = "public".equalsIgnoreCase(group.getPrivacy());
-        final boolean wantsPublic = "public".equalsIgnoreCase(groupDetails.getPrivacy());
-        if (isHousehold && wantsPublic && !wasPublic) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "A household cannot be made public. Households are never listed "
-                    + "on the community map.");
-        }
-        group.setPrivacy(groupDetails.getPrivacy());
-        group.setUpdatedAt(Instant.now());
-        group.setZipCode(groupDetails.getZipCode());
-        group.setGroupCode(groupDetails.getGroupCode());
-        group.setAddress(groupDetails.getAddress());
-        group.setLongitude(groupDetails.getLongitude());
-        group.setLatitude(groupDetails.getLatitude());
-    }
-
     private static <T> List<T> safeList(List<T> list) {
         // Never return null, and strip out null elements so removeIf/equality checks are safe
         List<T> out = new ArrayList<>();
@@ -1082,7 +1017,7 @@ public class GroupService {
      * end cannot leave a pending tick to fire a stale reminder), the member
      * notification, and — for a household — the check-in event log.</p>
      *
-     * <p>This was inline in {@link #updateGroupFields} and reachable only by
+     * <p>This was inline in the removed whole-group PUT and reachable only by
      * PUT-ing an entire group. {@link #setAlert} needed the same five, and
      * copying them is how two paths that must agree stop agreeing — so the
      * transition is extracted rather than duplicated. Callers set
@@ -1982,7 +1917,7 @@ public class GroupService {
 
     /**
      * Set (or clear) the group's custom logo URL — Phase 4 of
-     * docs/BUSINESS_MODEL.md ("co-branded page"). A null / blank value
+     * SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md ("co-branded page"). A null / blank value
      * reverts the group to its default type emblem. Caller
      * authorization (admin/owner) is enforced at the resource layer.
      */
