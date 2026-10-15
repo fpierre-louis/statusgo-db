@@ -635,6 +635,7 @@ public class PostService {
         // serves both the tier and the lifecycle.
         AlertLookup found = alertsOf(new HashSet<>(dispatchKeys.values()));
         Map<Long, String> tiers = alertTiersOf(dispatchKeys, found);
+        Map<Long, String> bodyAuthors = alertBodyAuthorsOf(dtos, dispatchKeys, found);
         Map<Long, PostDto.CommunityExtras.AlertLifecycle> lifecycles =
                 alertLifecyclesOf(dispatchKeys, resolvedReasons, found);
         return dtos.stream()
@@ -643,6 +644,7 @@ public class PostService {
                     if (areas.containsKey(d.id())) c = c.withArea(areas.get(d.id()));
                     if (alertIds.containsKey(d.id())) c = c.withAlertId(alertIds.get(d.id()));
                     if (tiers.containsKey(d.id())) c = c.withAlertTier(tiers.get(d.id()));
+                    if (bodyAuthors.containsKey(d.id())) c = c.withAlertBodyAuthor(bodyAuthors.get(d.id()));
                     // S2 C6: the canonical key beside the bare alertId, and the
                     // alert's lifecycle (absent when it cannot be known).
                     io.sitprep.sitprepapi.util.AlertIdentity.Resolved ref =
@@ -827,6 +829,28 @@ public class PostService {
      * <p>No read of its own: the alerts come from {@link #alertsOf}, the same
      * two-read lookup the lifecycle uses.</p>
      */
+    /**
+     * Who wrote each dispatched post's body (S3 CM), by
+     * {@link AlertDispatchService#bodyAuthorOf}: exact comparison against the
+     * two bodies the dispatcher could have written for the post's own alert.
+     * No read of its own — the alerts come from the same lookup as the tier.
+     */
+    private Map<Long, String> alertBodyAuthorsOf(List<PostDto> dtos, Map<Long, String> dispatchKeyByPost,
+                                                 AlertLookup found) {
+        AlertDispatchService dispatch = alertDispatch == null ? null : alertDispatch.getIfAvailable();
+        if (dispatchKeyByPost.isEmpty() || dispatch == null) return Map.of();
+        Map<String, AlertIngestService.NormalizedAlert> byKey = found.byKey();
+        Map<Long, String> out = new HashMap<>();
+        for (PostDto d : dtos) {
+            String key = dispatchKeyByPost.get(d.id());
+            AlertIngestService.NormalizedAlert a = key == null ? null : byKey.get(key);
+            if (a == null) continue;
+            String author = AlertDispatchService.bodyAuthorOf(d.description(), a, dispatch.matchForAlert(a).orElse(null));
+            if (author != null) out.put(d.id(), author);
+        }
+        return out;
+    }
+
     private Map<Long, String> alertTiersOf(Map<Long, String> dispatchKeyByPost, AlertLookup found) {
         AlertDispatchService dispatch = alertDispatch == null ? null : alertDispatch.getIfAvailable();
         if (dispatchKeyByPost.isEmpty() || dispatch == null) return Map.of();

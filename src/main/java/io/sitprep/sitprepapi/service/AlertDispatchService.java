@@ -569,6 +569,34 @@ public class AlertDispatchService {
         return resolvedCount;
     }
 
+    /** Body author values for {@link #bodyAuthorOf}. */
+    static final String BODY_SITPREP = "sitprep";
+    static final String BODY_ISSUER = "issuer";
+
+    /**
+     * Who wrote a dispatched post's body (S3 CM): rebuild the two bodies
+     * {@link #buildAutoPostTask} could have written for this alert — the
+     * template's guidance, or the issuer's own text — and say which one the
+     * stored description IS. Null when neither matches exactly (the alert was
+     * revised since, or the post predates the current templates): the card
+     * then shows the body unattributed rather than guess whose words they are.
+     */
+    static String bodyAuthorOf(String description, NormalizedAlert a, DispatchTemplate tpl) {
+        if (description == null || description.isBlank() || a == null) return null;
+        String stored = description.trim();
+        try {
+            if (tpl != null) {
+                String guidance = fitDescription(fillBody(tpl, a));
+                if (guidance != null && stored.equals(guidance.trim())) return BODY_SITPREP;
+            }
+            String official = fitDescription(officialBody(a));
+            if (official != null && stored.equals(official.trim())) return BODY_ISSUER;
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return null;
+    }
+
     /** {@code "NWS"} from {@code "NWS-urn:oid:..."} — the inverse of the {@code source + "-" + id} key. */
     static String sourceOfAlertId(String alertId) {
         if (alertId == null) return null;
@@ -1497,7 +1525,7 @@ public class AlertDispatchService {
         return "Alert nearby";
     }
 
-    private static String officialBody(NormalizedAlert a) {
+    static String officialBody(NormalizedAlert a) {
         if (a == null) return "Open the official alert for details.";
         if (a.instruction() != null && !a.instruction().isBlank()) return a.instruction();
         if (a.description() != null && !a.description().isBlank()) return a.description();
