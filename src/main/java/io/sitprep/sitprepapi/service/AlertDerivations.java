@@ -341,20 +341,57 @@ public final class AlertDerivations {
      *         {@link #LIFECYCLE_SUPERSEDED}
      */
     public static Map<String, String> reverseEdgeIndex(Collection<NormalizedAlert> messages) {
-        if (messages == null || messages.isEmpty()) return Map.of();
+        Map<String, NormalizedAlert> ending = reverseEdgeMessages(messages);
+        if (ending.isEmpty()) return Map.of();
         Map<String, String> out = new HashMap<>();
+        ending.forEach((id, m) -> out.put(id, endingStateOf(m)));
+        return Map.copyOf(out);
+    }
+
+    /**
+     * The same reverse edge, keeping the MESSAGE that ended each alert rather
+     * than only its state — what {@code lifecycleInfo} needs to say how it
+     * ended ({@code all_clear} versus {@code cap_cancel}, the VTEC action) and
+     * what replaced it (S2 C4).
+     *
+     * <p>When several messages name the same alert the choice is deterministic,
+     * whatever order the rows came back in: a Cancel or all-clear wins (the
+     * same rule as {@link #reverseEdgeIndex}, so the two always agree on the
+     * state); otherwise the EARLIEST sent — the alert's immediate successor.
+     * NWS names every earlier message of a chain on each update, so the
+     * original is named by the first update and by every one after it; the
+     * first is the one that replaced it. Ties fall to the smaller id.</p>
+     *
+     * @return replaced-alert id -&gt; the message that ended it
+     */
+    public static Map<String, NormalizedAlert> reverseEdgeMessages(Collection<NormalizedAlert> messages) {
+        if (messages == null || messages.isEmpty()) return Map.of();
+        Map<String, NormalizedAlert> out = new HashMap<>();
         for (NormalizedAlert m : messages) {
             if (m == null || m.references() == null || m.references().isEmpty()) continue;
             if (!mayEndAnother(m)) continue;
-            String state = endingStateOf(m);
             for (String replacedId : m.references()) {
                 if (replacedId == null || replacedId.isBlank()) continue;
                 if (replacedId.equals(m.id())) continue;
-                out.merge(replacedId, state,
-                        (was, now) -> LIFECYCLE_CANCELLED.equals(was) ? was : now);
+                out.merge(replacedId, m, AlertDerivations::strongerEnding);
             }
         }
         return Map.copyOf(out);
+    }
+
+    /** Of two messages that both end one alert, the one that speaks for how it ended. */
+    private static NormalizedAlert strongerEnding(NormalizedAlert a, NormalizedAlert b) {
+        boolean aCancels = LIFECYCLE_CANCELLED.equals(endingStateOf(a));
+        boolean bCancels = LIFECYCLE_CANCELLED.equals(endingStateOf(b));
+        if (aCancels != bCancels) return aCancels ? a : b;
+        Instant aSent = parseInstant(a.sent());
+        Instant bSent = parseInstant(b.sent());
+        if (aSent != null && bSent != null && !aSent.equals(bSent)) return aSent.isBefore(bSent) ? a : b;
+        if (aSent != null && bSent == null) return a;
+        if (bSent != null && aSent == null) return b;
+        String aId = a.id() == null ? "" : a.id();
+        String bId = b.id() == null ? "" : b.id();
+        return aId.compareTo(bId) <= 0 ? a : b;
     }
 
     private static boolean mayEndAnother(NormalizedAlert m) {

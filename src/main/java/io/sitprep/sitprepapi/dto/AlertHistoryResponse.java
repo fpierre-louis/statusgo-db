@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 
 /**
@@ -12,9 +14,43 @@ import java.util.List;
  * Advisory — and Oklahoma City's entire month of history is Heat Advisories.
  * This is the location's record, not the reader's.</p>
  *
+ * <p><b>{@code groups} (S2 C4, additive).</b> The same cards, organised by
+ * thread: every card is in exactly one {@code lifecycle} group — the messages
+ * the issuer linked by VTEC event key or CAP references, a lone message being
+ * a thread of one — and lifecycle groups come first. Then, optionally,
+ * {@code cluster} groups: cards from DIFFERENT threads that share a
+ * presentation {@code clusterKey}. A cluster is a presentation hint only; it
+ * never removes a card from {@code alerts} or from its lifecycle group. The row
+ * limit is applied after grouping, whole groups at a time, so a displayed group
+ * never loses a member (handoff §23).</p>
+ *
  * @see AlertCardDto
  */
-public record AlertHistoryResponse(List<AlertCardDto> alerts, Meta meta) {
+public record AlertHistoryResponse(List<AlertCardDto> alerts, Meta meta, List<Group> groups) {
+
+    /** Without groups — the shape before S2 C4. */
+    public AlertHistoryResponse(List<AlertCardDto> alerts, Meta meta) {
+        this(alerts, meta, null);
+    }
+
+    public static final String GROUP_LIFECYCLE = "lifecycle";
+    public static final String GROUP_CLUSTER = "cluster";
+
+    /**
+     * One thread (or one presentation cluster) of the cards in {@code alerts}.
+     *
+     * @param threadKey  for a lifecycle group, the thread's key ({@code VTEC:<event key>},
+     *                   {@code CAP:<root>}, or a lone alert's dedupeKey) — the key of its
+     *                   oldest member, which is the furthest back the thread is known;
+     *                   for a cluster, the shared {@code clusterKey}
+     * @param kind       {@link #GROUP_LIFECYCLE} or {@link #GROUP_CLUSTER}
+     * @param members    the members' dedupeKeys, oldest first
+     * @param headMember the newest member's dedupeKey — the message the thread
+     *                   now rests on
+     * @param count      {@code members.size()}
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Group(String threadKey, String kind, List<String> members, String headMember, int count) {}
 
     /**
      * @param recordingSince ISO-8601 instant of the oldest alert still held,

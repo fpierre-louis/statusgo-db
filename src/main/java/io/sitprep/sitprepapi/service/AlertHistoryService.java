@@ -11,6 +11,7 @@ import io.sitprep.sitprepapi.resource.AppConfigResource;
 import io.sitprep.sitprepapi.service.AlertIngestService.MatchType;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.AlertIngestService.Snapshot;
+import io.sitprep.sitprepapi.util.AlertIdentity;
 import io.sitprep.sitprepapi.util.AlertSourceFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -91,6 +93,12 @@ public class AlertHistoryService {
      * busiest point measured, produced 23 alerts in thirty days.
      */
     static final int MAX_ROWS_PER_QUERY = 500;
+
+    /**
+     * The display limit, applied after grouping (S2 C4); a field so a test can
+     * shrink it.
+     */
+    int maxRows = MAX_ROWS_PER_QUERY;
 
     private final AlertHistoryRepo repo;
     private final AlertIngestService ingest;
@@ -391,39 +399,51 @@ public class AlertHistoryService {
         Set<String> userZones = ingest.zoneCodesForPoint(lat, lng);
         Set<String> userStates = AlertIngestService.statePrefixesOf(userZones);
 
+        // Twice the display limit: the limit cuts between whole groups below,
+        // and a thread's older members sort after its newest sighting, so the
+        // extra rows are what lets a displayed group arrive whole.
         List<AlertHistory> rows = repo.findCandidates(
                 since,
                 latMin(lat, radiusKm), latMax(lat, radiusKm),
                 lngMin(lat, lng, radiusKm), lngMax(lat, lng, radiusKm),
                 candidateTokens(userZones, userStates),
-                PageRequest.of(0, MAX_ROWS_PER_QUERY));
+                PageRequest.of(0, Math.max(1, maxRows) * 2));
 
-        // Rehydrate once; the edge index and the cards both read these.
+        // Rehydrate once; the edge index, the threads and the cards all read these.
         List<Map.Entry<AlertHistory, NormalizedAlert>> loaded = new ArrayList<>(rows.size());
-        List<NormalizedAlert> evidence = new ArrayList<>(rows.size());
+        List<NormalizedAlert> stored = new ArrayList<>(rows.size());
         for (AlertHistory row : rows) {
             NormalizedAlert a = rehydrate(row);
             if (a == null) continue;
             loaded.add(Map.entry(row, a));
-            evidence.add(a);
+            stored.add(a);
         }
 
         // The REVERSE edge, batched: every message already in memory that names
         // an earlier alert — the rows just loaded (Cancels included: they are
         // filtered from the cards below, not from the evidence) plus the live
         // snapshot, which holds the newest Updates even before the recorder has
-        // written them. No query per row; no query at all.
+        // written them. No query per row; no query at all. It keeps the MESSAGE
+        // that ended each alert, so a record says how it ended (all_clear versus
+        // cap_cancel, the VTEC action) and what replaced it.
         Snapshot live = ingest.getSnapshot();
         List<NormalizedAlert> liveAlerts = live == null || live.alerts() == null
                 ? List.of() : live.alerts();
+        List<NormalizedAlert> evidence = new ArrayList<>(stored.size() + liveAlerts.size());
+        evidence.addAll(stored);
         evidence.addAll(liveAlerts);
-        Map<String, String> endedBy = AlertDerivations.reverseEdgeIndex(evidence);
+        Map<String, NormalizedAlert> endedBy = AlertDerivations.reverseEdgeMessages(evidence);
         Set<String> listedNow = new HashSet<>();
+        Set<String> knownIds = new HashSet<>();
+        for (NormalizedAlert a : evidence) {
+            if (a != null && a.id() != null) knownIds.add(a.id());
+        }
         for (NormalizedAlert a : liveAlerts) {
             if (a != null && a.id() != null) listedNow.add(a.id());
         }
 
         List<AlertCardDto> cards = new ArrayList<>();
+        List<NormalizedAlert> cardAlerts = new ArrayList<>();
         for (Map.Entry<AlertHistory, NormalizedAlert> e : loaded) {
             AlertHistory row = e.getKey();
             NormalizedAlert a = e.getValue();
@@ -446,51 +466,160 @@ public class AlertHistoryService {
                     a, lat, lng, radiusKm, userZones, userStates);
             if (match == null) continue;
 
-            // `supersededBy` (the {id, title} link) stays null here: the index
-            // above knows THAT this alert was replaced, which is what lifecycle
-            // needs, and a linked title is a separate surface decision. The
-            // forward `references` edge on the card still carries the chain.
-            String lifecycle = recordLifecycle(a, row, endedBy, listedNow, live, now);
-            cards.add(feedService.toRecordCard(a, match, radiusMi, lifecycle));
+            // `supersededBy` (the {id, title} link) stays null here: a linked
+            // title is a separate surface decision. `lifecycleInfo.replacedBy`
+            // names the replacing message's dedupeKey when it is in hand.
+            NormalizedAlert ender = endingMessageOf(a, endedBy);
+            String lifecycle = recordLifecycle(a, ender,
+                    noLongerListed(a, row, listedNow, live), now);
+            cards.add(feedService.toRecordCard(a, match, radiusMi, lifecycle, null, ender, knownIds));
+            cardAlerts.add(a);
         }
+
+        Grouped grouped = group(cards, cardAlerts, stored, maxRows);
 
         Instant recordingSince = repo.findRecordingSince();
         return new AlertHistoryResponse(
-                List.copyOf(cards),
+                grouped.alerts(),
                 new AlertHistoryResponse.Meta(
                         recordingSince == null ? null : recordingSince.toString(),
                         days,
                         AlertFeedResponse.COVERAGE_CAVEAT,
-                        AlertFeedService.locationAgeFor(fixedAt)));
+                        AlertFeedService.locationAgeFor(fixedAt)),
+                grouped.groups());
+    }
+
+    /** The displayed cards and their groups. */
+    record Grouped(List<AlertCardDto> alerts, List<AlertHistoryResponse.Group> groups) {}
+
+    /**
+     * Organise the cards into {@code groups} and apply the row limit — after
+     * grouping, so a displayed group never loses a member (handoff §23).
+     *
+     * <ol>
+     *   <li><b>Lifecycle groups</b> — {@link AlertThreads#components}: the
+     *       messages the issuer linked by VTEC event or CAP references. The
+     *       partition is computed over every LOADED message, Cancels and
+     *       out-of-area rows included, so a chain joined through a message that
+     *       is not itself a card still holds together; each group lists only
+     *       cards. Ordered by the thread's most recent sighting — the order
+     *       the rows arrive in — so the newest activity leads.</li>
+     *   <li><b>The limit</b> takes whole groups in that order until the next one
+     *       would not fit, and stops there: it never skips ahead to a smaller,
+     *       older group, which would show an older thread while hiding a newer
+     *       one. A first group larger than the limit is shown whole rather than
+     *       not at all.</li>
+     *   <li><b>Clusters</b> — displayed cards from at least two DIFFERENT threads
+     *       sharing a {@code clusterKey}. Listed after every lifecycle group, a
+     *       presentation hint only: no card leaves {@code alerts} or its
+     *       lifecycle group for being in one.</li>
+     * </ol>
+     *
+     * <p>{@code alerts} keeps its order (most recently seen first); only the
+     * cards past the limit are gone. No query — everything is in hand.</p>
+     */
+    static Grouped group(List<AlertCardDto> cards, List<NormalizedAlert> cardAlerts,
+                         Collection<NormalizedAlert> loaded, int limit) {
+        List<NormalizedAlert> universe = new ArrayList<>(cardAlerts);
+        if (loaded != null) universe.addAll(loaded);
+        Map<String, String> component = AlertThreads.components(universe);
+
+        // Each thread's cards, in row order; threads in order of first card.
+        Map<String, List<Integer>> threads = new LinkedHashMap<>();
+        for (int i = 0; i < cards.size(); i++) {
+            String key = AlertThreads.dedupeKeyOf(cardAlerts.get(i));
+            String root = key == null ? "#" + i : component.getOrDefault(key, key);
+            threads.computeIfAbsent(root, k -> new ArrayList<>()).add(i);
+        }
+
+        int budget = Math.max(0, limit);
+        int shown = 0;
+        Set<Integer> keep = new HashSet<>();
+        List<AlertHistoryResponse.Group> groups = new ArrayList<>();
+        Map<Integer, String> threadOf = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> t : threads.entrySet()) {
+            List<Integer> idx = t.getValue();
+            if (shown > 0 && shown + idx.size() > budget) break;
+            shown += idx.size();
+            keep.addAll(idx);
+            for (Integer i : idx) threadOf.put(i, t.getKey());
+            groups.add(groupOf(AlertHistoryResponse.GROUP_LIFECYCLE, null, idx, cardAlerts));
+        }
+
+        // Presentation clusters across threads, over what is displayed.
+        Map<String, List<Integer>> clusters = new LinkedHashMap<>();
+        for (int i = 0; i < cards.size(); i++) {
+            if (!keep.contains(i)) continue;
+            String ck = cards.get(i).clusterKey();
+            if (ck != null) clusters.computeIfAbsent(ck, k -> new ArrayList<>()).add(i);
+        }
+        for (Map.Entry<String, List<Integer>> c : clusters.entrySet()) {
+            Set<String> spanned = new HashSet<>();
+            for (Integer i : c.getValue()) spanned.add(threadOf.get(i));
+            if (spanned.size() < 2) continue;
+            groups.add(groupOf(AlertHistoryResponse.GROUP_CLUSTER, c.getKey(), c.getValue(), cardAlerts));
+        }
+
+        List<AlertCardDto> shownCards = new ArrayList<>(keep.size());
+        for (int i = 0; i < cards.size(); i++) if (keep.contains(i)) shownCards.add(cards.get(i));
+        return new Grouped(List.copyOf(shownCards), List.copyOf(groups));
     }
 
     /**
-     * Where a recorded alert got to, strongest evidence first.
+     * One group: members oldest first, headed by the newest. A lifecycle
+     * group's key is its oldest member's thread key — the furthest back the
+     * thread is known; a cluster's is the shared {@code clusterKey}.
+     */
+    private static AlertHistoryResponse.Group groupOf(String kind, String clusterKey, List<Integer> idx,
+                                                      List<NormalizedAlert> cardAlerts) {
+        List<NormalizedAlert> members = new ArrayList<>(idx.size());
+        for (Integer i : idx) members.add(cardAlerts.get(i));
+        members.sort(AlertThreads.OLDEST_FIRST);
+        List<String> keys = members.stream().map(AlertThreads::dedupeKeyOf).toList();
+        String threadKey = clusterKey != null ? clusterKey : AlertThreads.threadKeyOf(members.get(0));
+        return new AlertHistoryResponse.Group(threadKey, kind, keys, keys.get(keys.size() - 1), keys.size());
+    }
+
+    /**
+     * The message that ended {@code a}, from a reverse-edge index keyed by bare
+     * upstream id — only when it comes from the same source, so an id that two
+     * sources happen to share can never end the wrong alert.
+     */
+    static NormalizedAlert endingMessageOf(NormalizedAlert a, Map<String, NormalizedAlert> endedBy) {
+        if (a == null || a.id() == null || endedBy == null) return null;
+        NormalizedAlert m = endedBy.get(a.id());
+        if (m == null) return null;
+        String mine = AlertIdentity.knownSource(a.source());
+        return mine != null && mine.equals(AlertIdentity.knownSource(m.source())) ? m : null;
+    }
+
+    /**
+     * Where a recorded alert got to, strongest evidence first. Shared with
+     * {@code AlertRecordService}, so a link to a record and the history page
+     * never disagree about one alert.
      *
      * <ol>
-     *   <li><b>A stored or live message naming it</b> — {@code cancelled} for a
-     *       Cancel or all-clear, {@code superseded} for any other replacement.
-     *       This outranks the alert's own {@code expires}: an order called off
-     *       at noon that was due to run until midnight was cancelled, and saying
-     *       "expired" would lose that.</li>
+     *   <li><b>A stored or live message naming it</b> ({@code endedBy}) —
+     *       {@code cancelled} for a Cancel or all-clear, {@code superseded} for
+     *       any other replacement. This outranks the alert's own
+     *       {@code expires}: an order called off at noon that was due to run
+     *       until midnight was cancelled, and saying "expired" would lose
+     *       that.</li>
      *   <li><b>Its own fields</b> — {@link AlertDerivations#lifecycleState}:
      *       past {@code expires} is {@code expired}.</li>
-     *   <li><b>Gone from a successful poll</b> — {@code no_longer_listed}, for
-     *       an alert that by its own fields is still on. Never
-     *       {@code cancelled}: absence is not an issuer statement.</li>
+     *   <li><b>Gone from a successful poll</b> ({@code notListed}) —
+     *       {@code no_longer_listed}, for an alert that by its own fields is
+     *       still on. Never {@code cancelled}: absence is not an issuer
+     *       statement.</li>
      * </ol>
      */
-    String recordLifecycle(NormalizedAlert a, AlertHistory row, Map<String, String> endedBy,
-                           Set<String> listedNow, Snapshot live, Instant now) {
-        String edge = a.id() == null ? null : endedBy.get(a.id());
-        if (edge != null) return edge;
+    static String recordLifecycle(NormalizedAlert a, NormalizedAlert endedBy, boolean notListed, Instant now) {
+        if (endedBy != null) return AlertDerivations.endingStateOf(endedBy);
 
         String own = AlertDerivations.lifecycleState(a, now);
         boolean stillOn = AlertDerivations.LIFECYCLE_ACTIVE.equals(own)
                 || AlertDerivations.LIFECYCLE_UPDATED.equals(own);
-        if (stillOn && noLongerListed(a, row, listedNow, live)) {
-            return AlertDerivations.LIFECYCLE_NO_LONGER_LISTED;
-        }
+        if (stillOn && notListed) return AlertDerivations.LIFECYCLE_NO_LONGER_LISTED;
         return own;
     }
 
@@ -531,7 +660,7 @@ public class AlertHistoryService {
      * {@code lastSuccessAt()}: a FEMA poll can fail while NWS succeeds, and a
      * declaration must not read as gone when FEMA was simply not asked.</p>
      */
-    private static Instant sourceLastSuccessAt(Snapshot live, NormalizedAlert a) {
+    static Instant sourceLastSuccessAt(Snapshot live, NormalizedAlert a) {
         if (live == null || a == null || a.source() == null) return null;
         // Each source on its own clock: FEMA is timed by FEMA's last success,
         // never by NWS/USGS. A source that has never succeeded is absent from

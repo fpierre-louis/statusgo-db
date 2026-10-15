@@ -13,7 +13,16 @@ import java.util.Collection;
 import java.util.List;
 
 /** V110 source revisions — see {@link AlertSourceRevision} and {@code InterpretationRecorder}. */
-public interface AlertSourceRevisionRepo extends JpaRepository<AlertSourceRevision, String> {
+public interface AlertSourceRevisionRepo extends JpaRepository<AlertSourceRevision, String>,
+        AlertSourceRevisionThreadQuery {
+
+    /**
+     * Every stored revision of these alerts, payloads included — the canonical
+     * lookup's {@code revisions} list and the record it falls back to
+     * ({@code AlertRecordService}, S2 C4). One statement per batch; an NWS
+     * message has one revision, a USGS quake or FEMA declaration a handful.
+     */
+    List<AlertSourceRevision> findByDedupeKeyIn(Collection<String> dedupeKeys);
 
     /** Ref and {@code lastSeenAt} only — what the recorder's cache holds. */
     interface LastSeenByRef {

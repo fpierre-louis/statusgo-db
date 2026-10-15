@@ -350,6 +350,24 @@ public class AlertFeedService {
     }
 
     /**
+     * One LIVE alert as a person's feed would show it, re-evaluated now — the
+     * canonical record lookup's live answer (S2 C4). The same path as
+     * {@link #feedForViewer}: the same decision, the same replacing message
+     * ({@code replacedBy}, from the snapshot's supersession index), the same
+     * community-thread lookup (one repository call). Two differences, both
+     * because the caller asked for this alert by key rather than by point:
+     * {@code match} may be null (the alert does not apply at the reader's
+     * point, or no point was given), and {@code knownIds} also holds the
+     * stored messages of the alert's thread.
+     */
+    AlertCardDto viewerLiveCard(NormalizedAlert a, MatchType match, NormalizedAlert replacedBy,
+                                AlertInterpreter.Viewer viewer, Set<String> knownIds) {
+        List<Long> posts = communityThreadsFor(List.of(a)).getOrDefault(a.id(), List.of());
+        return liveCard(a, match, AppConfigResource.alertsRadiusMi(), replacedBy, assess(a),
+                new Reader(viewer, knownIds == null ? Set.of() : knownIds, posts));
+    }
+
+    /**
      * The all-clear reading a card's tone and its snapshot fingerprint share:
      * CAP AllClear on the alert or on the message that ended it.
      */
@@ -423,9 +441,23 @@ public class AlertFeedService {
      */
     AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState,
                               AlertInterpreter.Viewer viewer, NormalizedAlert endedBy) {
+        return toRecordCard(a, match, radiusMi, lifecycleState, viewer, endedBy, Set.of());
+    }
+
+    /**
+     * As above, with the upstream ids of the messages the caller holds, so
+     * {@code lifecycleInfo.references[].resolved} says which of the alert's
+     * references are in hand (S2 C4: history's loaded rows, the record
+     * lookup's thread). {@code match} may be null — a record looked up by key
+     * from a point it does not apply at.
+     */
+    AlertCardDto toRecordCard(NormalizedAlert a, MatchType match, int radiusMi, String lifecycleState,
+                              AlertInterpreter.Viewer viewer, NormalizedAlert endedBy,
+                              Set<String> knownIds) {
         Instant now = clock.instant();
         Interpretation interpretation = new Interpretation(
-                AlertInterpreter.recordLifecycle(a, lifecycleState, endedBy, Set.of(), now),
+                AlertInterpreter.recordLifecycle(a, lifecycleState, endedBy,
+                        knownIds == null ? Set.of() : knownIds, now),
                 allClearOf(a, endedBy),
                 viewer, List.of(), now);
         return card(a, match, radiusMi, null, assess(a), lifecycleState, true, interpretation);
@@ -496,7 +528,9 @@ public class AlertFeedService {
                 officialOf(a),
                 new AlertCardDto.Location(
                         a.area(),
-                        match.wire(),
+                        // Null only on a card looked up by key (S2 C4) from a
+                        // point the alert does not apply at: not relevant here.
+                        match == null ? null : match.wire(),
                         AlertDerivations.geometryConfidence(a),
                         AlertDerivations.areaLabel(a),
                         placeOf(a)),

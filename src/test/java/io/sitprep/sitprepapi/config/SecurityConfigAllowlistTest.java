@@ -128,6 +128,9 @@ class SecurityConfigAllowlistTest {
             "GET,  /api/geocode/reverse?lat=40&lng=-111",
             "GET,  /api/alerts/active",
             "POST, /api/alerts/refresh",
+            // S2 C4 (R16): the canonical record lookup is authenticated. It is
+            // not on the allowlist and must never quietly join it.
+            "GET,  /api/alerts/record?key=NWS:urn:oid:x",
             "GET,  /api/config/defaults",
             "GET,  /api/verified-publishers",
             "GET,  /api/alert-mode?lat=40&lng=-111",
