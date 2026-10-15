@@ -50,9 +50,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -111,9 +111,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 4,
+        "version": 5,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -163,9 +163,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -223,9 +223,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -283,9 +283,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -316,7 +316,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "avoid_area",
+        "movementDirective": "follow_official_instruction",
         "impactAware": true
       },
       "evidence": [
@@ -343,9 +343,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -403,9 +403,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -564,7 +564,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "official_only",
-        "movementDirective": "avoid_area",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -583,9 +583,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -615,7 +615,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "shelter_in_place",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -634,9 +634,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -669,7 +669,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "avoid_area",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -688,9 +688,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -740,9 +740,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -772,7 +772,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "shelter_in_place",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -791,9 +791,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -842,9 +842,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -877,7 +877,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "avoid_area",
+        "movementDirective": "none",
         "impactAware": false
       },
       "evidence": [
@@ -908,9 +908,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1004,7 +1004,7 @@
       "sitprep": {
         "dispatchMode": "attention",
         "guidanceMode": "supplement_official",
-        "movementDirective": "shelter_in_place",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -1035,9 +1035,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1088,9 +1088,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1140,9 +1140,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1203,9 +1203,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1299,7 +1299,7 @@
       "sitprep": {
         "dispatchMode": "critical_push",
         "guidanceMode": "supplement_official",
-        "movementDirective": "shelter_in_place",
+        "movementDirective": "follow_official_instruction",
         "impactAware": false
       },
       "evidence": [
@@ -1318,9 +1318,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1328,7 +1328,7 @@
       "eventAny": [
         "Air Quality Alert"
       ],
-      "tier": "warning",
+      "tier": "advisory",
       "hazardType": "smoke",
       "headline": "Air quality alert",
       "body": "Air quality may be unhealthy. Check the official alert and reduce heavy outdoor activity.",
@@ -1351,7 +1351,7 @@
       "sitprep": {
         "dispatchMode": "feed",
         "guidanceMode": "official_only",
-        "movementDirective": "avoid_area",
+        "movementDirective": "none",
         "impactAware": false
       },
       "evidence": [
@@ -1370,9 +1370,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -1380,7 +1380,7 @@
       "eventAny": [
         "Dense Smoke Advisory"
       ],
-      "tier": "warning",
+      "tier": "advisory",
       "hazardType": "smoke",
       "headline": "Dense smoke advisory",
       "body": "Smoke may make the air unhealthy. Stay indoors when you can and keep smoky air out.",
@@ -1422,9 +1422,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 2,
+        "version": 3,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -2349,8 +2349,7 @@
     {
       "source": "NWS",
       "eventAny": [
-        "Freeze Watch",
-        "Freeze Warning"
+        "Freeze Watch"
       ],
       "tier": "watch",
       "hazardType": "blizzard",
@@ -2394,9 +2393,61 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
+      }
+    },
+    {
+      "source": "NWS",
+      "eventAny": [
+        "Freeze Warning"
+      ],
+      "tier": "advisory",
+      "hazardType": "blizzard",
+      "headline": "Freeze watch or warning",
+      "body": "Freezing temperatures may damage pets, plants, pipes, or outdoor water systems.",
+      "steps": [
+        "Bring pets inside.",
+        "Cover sensitive plants if there is time.",
+        "Protect pipes and outdoor water lines."
+      ],
+      "askTag": "Blizzard",
+      "protectiveAction": "PREPARE",
+      "compatibleResponseTypes": [
+        "Prepare",
+        "Monitor"
+      ],
+      "incompatibleResponseTypes": [
+        "Evacuate",
+        "Shelter",
+        "AllClear"
+      ],
+      "sitprep": {
+        "dispatchMode": "prepare",
+        "guidanceMode": "supplement_official",
+        "movementDirective": "none",
+        "impactAware": false
+      },
+      "evidence": [
+        {
+          "agency": "NOAA / National Weather Service",
+          "title": "Prepare for Cold Weather",
+          "url": "https://www.weather.gov/safety/cold-before",
+          "checkedAt": "2026-08-27",
+          "supports": [
+            "body",
+            "steps[0]",
+            "steps[1]",
+            "steps[2]"
+          ]
+        }
+      ],
+      "safetyReview": {
+        "status": "approved",
+        "version": 4,
+        "sourceVerifiedAt": "2026-08-27",
+        "approvedAt": "2026-10-15"
       }
     },
     {
@@ -2798,9 +2849,9 @@
       ],
       "safetyReview": {
         "status": "approved",
-        "version": 3,
+        "version": 4,
         "sourceVerifiedAt": "2026-08-27",
-        "approvedAt": "2026-08-27"
+        "approvedAt": "2026-10-15"
       },
       "minMag": 5.5
     },

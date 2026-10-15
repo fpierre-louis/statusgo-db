@@ -88,7 +88,11 @@ Pass 2B adds `sitprep.movementDirective` and exposes it through
 `AlertSafetyPolicy.Decision` / `AlertCardDto.Safety`. `protectiveAction` remains
 the SitPrep guidance action; `movementDirective` is the narrower official
 movement claim. General indoor-safety guidance, smoke/heat exposure reduction,
-and earthquake Drop/Cover/Hold return `none`, while `Evacuation Immediate`
+and earthquake Drop/Cover/Hold return `none` (superseded for templates that carry
+a protective action: owner review R1, 2026-10-15, sets Earthquake Warning and the
+indoor-safety weather warnings to `follow_official_instruction`, because `none`
+lets a saved route stand as the action during shaking; see
+`SitPrep FE/docs/epics/alerts/alerts_and_warnings-completed/R1_directive_review.md`), while `Evacuation Immediate`
 returns `evacuate` and `Shelter In Place Warning` returns `shelter_in_place`.
 Ambiguous official-only civil/hazmat/nuclear/radiological rows return
 `follow_official_instruction`.

@@ -662,7 +662,13 @@ class AlertSafetyPolicyTest {
      * directive is not — that is what the test below catches.</p>
      */
     private static final Map<String, String> MOVEMENT_DIRECTIVE_EXEMPT = Map.of(
-            "Tsunami Advisory", "watch tier — a watch is not a movement instruction");
+            "Tsunami Advisory", "watch tier — a watch is not a movement instruction",
+            // Owner R1 (2026-10-15): fire-WEATHER and air-quality CONDITIONS, not an
+            // area to leave. "Avoid the affected area" for a whole metro, or hiding
+            // the evacuation route a Red Flag template itself tells people to review,
+            // was untrue. These command no movement, so `none` is the truthful value.
+            "Red Flag Warning", "R1 2026-10-15 — a fire-weather condition commands no movement",
+            "Air Quality Alert", "R1 2026-10-15 — a metro-wide air-quality condition commands no movement");
 
     private static final Set<AlertSafetyPolicy.ProtectiveAction> MOVEMENT_BEARING_ACTIONS = Set.of(
             AlertSafetyPolicy.ProtectiveAction.EVACUATE,

@@ -350,6 +350,41 @@ class AlertDispatchMaterialityTest {
         pushes(1);
     }
 
+    // ── a template review is not news (R1, 2026-10-15) ───────────────────
+
+    private void deliveredUnder(Integer reviewVersion, String directive) {
+        AlertInterpretationSnapshotRepo snaps =
+                (AlertInterpretationSnapshotRepo) ReflectionTestUtils.getField(dispatcher, "snapshots");
+        when(snaps.findById(any())).thenAnswer(inv -> {
+            io.sitprep.sitprepapi.domain.AlertInterpretationSnapshot snap =
+                    new io.sitprep.sitprepapi.domain.AlertInterpretationSnapshot();
+            snap.setId(inv.getArgument(0));
+            snap.setTemplateReviewVersion(reviewVersion);
+            snap.setDecisionJson("{\"dispatchMode\":\"critical_push\",\"movementDirective\":\"" + directive + "\"}");
+            return Optional.of(snap);
+        });
+    }
+
+    private Integer currentTornadoReview() {
+        return dispatcher.matchForAlert(tornado("urn:oid:x", "NEW").build()).orElseThrow().safetyReview.version;
+    }
+
+    @Test
+    void aDirectiveChangedByATemplateReview_isNotMaterial() {
+        deliveredUnder(currentTornadoReview() - 1, "evacuate");   // delivered under the OLD review
+        tick(tornado("urn:oid:w1", "NEW").build());
+        tick(tornado("urn:oid:w2", "CON").references(List.of("urn:oid:w1")).build());
+        pushes(1);
+    }
+
+    @Test
+    void aDirectiveChangeUnderTheSameReview_isStillMaterial() {
+        deliveredUnder(currentTornadoReview(), "evacuate");       // same review, different directive
+        tick(tornado("urn:oid:w1", "NEW").build());
+        tick(tornado("urn:oid:w2", "CON").references(List.of("urn:oid:w1")).build());
+        pushes(2);
+    }
+
     // ── verified endings ────────────────────────────────────────────────
 
     @Test

@@ -251,7 +251,7 @@ class AlertTemplateCoverageTest {
         for (DispatchTemplate t : allTemplates()) {
             assertThat(t.headline).as("headline").isNotBlank();
             assertThat(t.body).as("body for %s", t.headline).isNotBlank();
-            assertThat(t.tier).as("tier for %s", t.headline).isIn("warning", "watch");
+            assertThat(t.tier).as("tier for %s", t.headline).isIn("warning", "watch", "advisory");
             assertThat(HazardType.parse(t.hazardType))
                     .as("hazardType \"%s\" on \"%s\" is not in the HazardType vocabulary",
                             t.hazardType, t.headline)
@@ -360,8 +360,8 @@ class AlertTemplateCoverageTest {
             }
         }
 
-        assertThat(count).as("production template count after Pass 2B splits").isEqualTo(52);
-        assertThat(approvedCount).as("human-approved production templates").isEqualTo(48);
+        assertThat(count).as("production template count after Pass 2B splits and the R1 Freeze split").isEqualTo(53);
+        assertThat(approvedCount).as("human-approved production templates").isEqualTo(49);
         assertThat(blockedCount).as("blocked production templates").isEqualTo(4);
         assertThat(sourceVerifiedOnlyCount).as("source-verified but unapproved production templates")
                 .isZero();
@@ -377,9 +377,11 @@ class AlertTemplateCoverageTest {
             String name = templateName(node);
             if ("approved".equals(t.safetyReview.status)) {
                 approvedCount++;
+                // 2026-08-27: the original human review. 2026-10-15: owner review R1
+                // (directives + tiers), which re-approved the rows it covered.
                 assertThat(t.safetyReview.approvedAt)
                         .as("%s approvedAt", name)
-                        .isEqualTo("2026-08-27");
+                        .isIn("2026-08-27", "2026-10-15");
             } else {
                 if ("blocked".equals(t.safetyReview.status)) {
                     blockedCount++;
@@ -396,7 +398,7 @@ class AlertTemplateCoverageTest {
             }
         }
 
-        assertThat(approvedCount).as("templates approved by the 2026-08-27 human review").isEqualTo(48);
+        assertThat(approvedCount).as("templates approved by the 2026-08-27 human review and the 2026-10-15 R1 review").isEqualTo(49);
         assertThat(blockedCount).as("templates intentionally left blocked").isEqualTo(4);
     }
 
@@ -521,7 +523,10 @@ class AlertTemplateCoverageTest {
         DispatchTemplate t = dispatcher.matchForAlert(freeze).orElseThrow();
         AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(freeze, t);
 
-        assertThat(t.tier).isEqualTo("watch");
+        // R1 (owner, 2026-10-15): its own template, tier `advisory` — not "Watch" (it
+        // is not a watch), and not `warning`, which would give a Severe freeze an
+        // act-now row on Home. Still never critical.
+        assertThat(t.tier).isEqualTo("advisory");
         assertThat(decision.dispatchMode()).isEqualTo(AlertSafetyPolicy.DispatchMode.PREPARE);
     }
 

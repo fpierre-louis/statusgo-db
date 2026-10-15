@@ -21,7 +21,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: shelter_in_place
 
 Dispatch mode: critical_push
 
@@ -31,7 +31,7 @@ Compatible CAP response types: Shelter, Execute
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; What to Do During a Tornado; https://www.weather.gov/safety/tornado-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -42,6 +42,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 ## 2. Extreme Wind Warning
 
 Source: NWS
@@ -57,7 +58,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: shelter_in_place
 
 Dispatch mode: critical_push
 
@@ -67,7 +68,7 @@ Compatible CAP response types: Shelter, Execute
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 5; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Extreme Wind Warning Wireless Emergency Alert; https://www.weather.gov/wrn/wea360; checked 2026-08-27; supports eventAny, sitprep.dispatchMode
@@ -79,6 +80,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 3. Severe Thunderstorm Warning
 
@@ -95,7 +97,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention (impact-aware)
 
@@ -105,7 +107,7 @@ Compatible CAP response types: Shelter, Avoid, Execute
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; What to Do During Severe Weather; https://www.weather.gov/safety/thunderstorm-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -116,6 +118,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 4. Flash Flood Warning
 
@@ -132,7 +135,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: avoid_area
 
 Dispatch mode: attention (impact-aware)
 
@@ -142,7 +145,7 @@ Compatible CAP response types: Avoid, Evacuate, Execute
 
 Incompatible CAP response types: Shelter, AllClear
 
-Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a Flood; https://www.weather.gov/safety/flood-during; checked 2026-08-27; supports body, steps[0], steps[2]
@@ -154,6 +157,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 5. Flash Flood Statement
 
@@ -180,7 +184,7 @@ Compatible CAP response types: Monitor, Avoid
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a Flood; https://www.weather.gov/safety/flood-during; checked 2026-08-27; supports body, steps[0], steps[2]
@@ -192,6 +196,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 6. Flood Warning
 
@@ -208,7 +213,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention (impact-aware)
 
@@ -218,7 +223,7 @@ Compatible CAP response types: Avoid, Evacuate, Monitor
 
 Incompatible CAP response types: Shelter, AllClear
 
-Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a Flood; https://www.weather.gov/safety/flood-during; checked 2026-08-27; supports body, steps[0], steps[2]
@@ -230,6 +235,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 7. Flood Statement
 
@@ -256,7 +262,7 @@ Compatible CAP response types: Monitor, Avoid
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a Flood; https://www.weather.gov/safety/flood-during; checked 2026-08-27; supports body, steps[0], steps[2]
@@ -268,6 +274,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 8. Hurricane Warning / Typhoon Warning
 
@@ -360,7 +367,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -370,7 +377,7 @@ Compatible CAP response types: Avoid, Monitor
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Wind Warnings, Watches and Advisories; https://www.weather.gov/safety/wind-ww; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -381,6 +388,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 11. Blizzard Warning
 
@@ -397,7 +405,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: critical_push
 
@@ -407,7 +415,7 @@ Compatible CAP response types: Shelter, Avoid
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Winter Weather Warnings, Watches and Advisories; https://www.weather.gov/safety/winter-ww; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -418,6 +426,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 12. Winter Storm Warning / Ice Storm Warning / Lake Effect Snow Warning
 
@@ -434,7 +443,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -444,7 +453,7 @@ Compatible CAP response types: Avoid, Prepare, Monitor
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Winter Weather Warnings, Watches and Advisories; https://www.weather.gov/safety/winter-ww; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -455,6 +464,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 13. Snow Squall Warning
 
@@ -471,7 +481,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: avoid_area
 
 Dispatch mode: attention (impact-aware)
 
@@ -481,7 +491,7 @@ Compatible CAP response types: Avoid, Execute
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Snow Squall; https://www.weather.gov/safety/winter-snow-squall; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -492,6 +502,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 14. Extreme Cold Warning
 
@@ -508,7 +519,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -518,7 +529,7 @@ Compatible CAP response types: Shelter, Avoid
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During Extremely Cold Weather; https://www.weather.gov/safety/cold-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -529,6 +540,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 15. Extreme Heat Warning
 
@@ -545,7 +557,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -555,7 +567,7 @@ Compatible CAP response types: Shelter, Avoid
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Heat Safety; https://www.weather.gov/safety/heat; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -566,6 +578,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 16. Red Flag Warning / Extreme Fire Danger
 
@@ -592,7 +605,7 @@ Compatible CAP response types: Avoid, Prepare, Monitor
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Understanding Wildfire Warnings, Watches and Behavior; https://www.weather.gov/safety/wildfire-ww; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -604,6 +617,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 17. Fire Warning
 
@@ -658,7 +672,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -668,7 +682,7 @@ Compatible CAP response types: Shelter, Avoid
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a High Wind Event; https://www.weather.gov/safety/wind-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -680,6 +694,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 19. Dust Storm Warning / Blowing Dust Warning
 
@@ -696,7 +711,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: avoid_area
 
 Dispatch mode: critical_push
 
@@ -706,7 +721,7 @@ Compatible CAP response types: Avoid, Execute
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a High Wind Event; https://www.weather.gov/safety/wind-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -717,6 +732,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 20. Avalanche Warning
 
@@ -733,7 +749,7 @@ Steps:
 
 Protective action: AVOID
 
-Movement directive: none
+Movement directive: avoid_area
 
 Dispatch mode: attention
 
@@ -743,7 +759,7 @@ Compatible CAP response types: Avoid, Execute
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Avalanche Safety; https://www.weather.gov/safety/winter-avalanche; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -754,6 +770,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 21. Tsunami Warning
 
@@ -770,7 +787,7 @@ Steps:
 
 Protective action: EVACUATE
 
-Movement directive: none
+Movement directive: evacuate
 
 Dispatch mode: critical_push
 
@@ -780,7 +797,7 @@ Compatible CAP response types: Evacuate, Execute
 
 Incompatible CAP response types: Shelter, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; During a Tsunami; https://www.weather.gov/safety/tsunami-during; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -792,6 +809,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 22. Volcano Warning
 
@@ -846,7 +864,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: critical_push
 
@@ -856,7 +874,7 @@ Compatible CAP response types: Shelter, Execute
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - U.S. Geological Survey; Earthquake Facts and Earthquake Fantasy; https://www.usgs.gov/programs/earthquake-hazards/earthquake-facts-earthquake-fantasy; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -867,6 +885,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 24. Air Quality Alert
 
@@ -893,7 +912,7 @@ Compatible CAP response types: Avoid, Monitor
 
 Incompatible CAP response types: Shelter, Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - AirNow / U.S. EPA; Using the Air Quality Index; https://www.airnow.gov/aqi/aqi-basics/using-air-quality-index/; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -904,6 +923,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 25. Dense Smoke Advisory
 
@@ -920,7 +940,7 @@ Steps:
 
 Protective action: SHELTER
 
-Movement directive: none
+Movement directive: follow_official_instruction
 
 Dispatch mode: attention
 
@@ -930,7 +950,7 @@ Compatible CAP response types: Shelter, Avoid, Monitor
 
 Incompatible CAP response types: Evacuate, AllClear
 
-Safety review: approved; version 2; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - U.S. Environmental Protection Agency; Reduce Your Smoke Exposure; https://www.epa.gov/wildfires/reduce-your-smoke-exposure; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -941,6 +961,7 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
 ## 26. Evacuation Immediate
 
@@ -1552,7 +1573,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 42. Freeze Watch / Freeze Warning
+## 42. Freeze Watch
 
 Source: NWS
 
@@ -1577,7 +1598,7 @@ Compatible CAP response types: Prepare, Monitor
 
 Incompatible CAP response types: Evacuate, Shelter, AllClear
 
-Safety review: approved; version 3; source-verified 2026-08-27; approved 2026-08-27
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
 
 Evidence:
 - NOAA / National Weather Service; Prepare for Cold Weather; https://www.weather.gov/safety/cold-before; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
@@ -1588,8 +1609,46 @@ Human review checklist:
 - [ ] CAP compatibility and incompatibility are correct.
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
 
-## 43. Extreme Heat Watch
+## 43. Freeze Warning
+
+Source: NWS
+
+Current headline: Freeze watch or warning
+
+Current body: Freezing temperatures may damage pets, plants, pipes, or outdoor water systems.
+
+Steps:
+- Bring pets inside.
+- Cover sensitive plants if there is time.
+- Protect pipes and outdoor water lines.
+
+Protective action: PREPARE
+
+Movement directive: none
+
+Dispatch mode: prepare
+
+Guidance mode: supplement_official
+
+Compatible CAP response types: Prepare, Monitor
+
+Incompatible CAP response types: Evacuate, Shelter, AllClear
+
+Safety review: approved; version 4; source-verified 2026-08-27; approved 2026-10-15 (owner review R1)
+
+Evidence:
+- NOAA / National Weather Service; Prepare for Cold Weather; https://www.weather.gov/safety/cold-before; checked 2026-08-27; supports body, steps[0], steps[1], steps[2]
+
+Human review checklist:
+- [ ] Source supports the body claim where `supports[]` names `body`.
+- [ ] Source supports each cited step where `supports[]` names that step.
+- [ ] CAP compatibility and incompatibility are correct.
+- [ ] Movement directive is not overstated.
+- [x] This template was approved by a human reviewer on 2026-08-27.
+- [x] Re-approved by the owner in review R1 on 2026-10-15 (directive and tier).
+## 44. Extreme Heat Watch
 
 Source: NWS
 
@@ -1626,7 +1685,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 44. Fire Weather Watch
+## 45. Fire Weather Watch
 
 Source: NWS
 
@@ -1663,7 +1722,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 45. High Wind Watch
+## 46. High Wind Watch
 
 Source: NWS
 
@@ -1700,7 +1759,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 46. Avalanche Watch
+## 47. Avalanche Watch
 
 Source: NWS
 
@@ -1737,7 +1796,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 47. Tsunami Watch
+## 48. Tsunami Watch
 
 Source: NWS
 
@@ -1775,7 +1834,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 48. Tsunami Advisory
+## 49. Tsunami Advisory
 
 Source: NWS
 
@@ -1813,7 +1872,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 49. USGS Earthquake reported nearby
+## 50. USGS Earthquake reported nearby
 
 Source: USGS
 
@@ -1852,7 +1911,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 50. FEMA Hurricane / Severe Storm / Severe Storm(s) / Coastal Storm
+## 51. FEMA Hurricane / Severe Storm / Severe Storm(s) / Coastal Storm
 
 Source: FEMA
 
@@ -1891,7 +1950,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 51. FEMA Fire
+## 52. FEMA Fire
 
 Source: FEMA
 
@@ -1930,7 +1989,7 @@ Human review checklist:
 - [ ] Movement directive is not overstated.
 - [x] This template was approved by a human reviewer on 2026-08-27.
 
-## 52. FEMA fallback
+## 53. FEMA fallback
 
 Source: FEMA
 

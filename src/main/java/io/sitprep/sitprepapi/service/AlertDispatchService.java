@@ -1245,10 +1245,21 @@ public class AlertDispatchService {
         }
         if (payload == null) return null;
         String mode = null, directive = null;
+        DispatchTemplate payloadTpl = matchForAlert(payload).orElse(null);
         if (row.getInterpretationSnapshotId() != null && snapshots != null) {
             try {
                 var snap = snapshots.findById(row.getInterpretationSnapshotId()).orElse(null);
-                if (snap != null && snap.getDecisionJson() != null) {
+                // A TEMPLATE REVIEW IS NOT NEWS. When the delivered decision was
+                // made under another review version of the template (an owner
+                // review changed a directive or a tier, e.g. R1 2026-10-15), the
+                // decision fields are left out of the comparison: the hazard did
+                // not change, our reading of it did, and re-pushing every live
+                // warning because of it would be noise.
+                Integer deliveredReview = snap == null ? null : snap.getTemplateReviewVersion();
+                Integer currentReview = payloadTpl == null || payloadTpl.safetyReview == null
+                        ? null : payloadTpl.safetyReview.version;
+                boolean sameReview = java.util.Objects.equals(deliveredReview, currentReview);
+                if (snap != null && sameReview && snap.getDecisionJson() != null) {
                     JsonNode d = json.readTree(snap.getDecisionJson());
                     mode = d.hasNonNull("dispatchMode") ? d.get("dispatchMode").asText() : null;
                     directive = d.hasNonNull("movementDirective") ? d.get("movementDirective").asText() : null;
@@ -1257,7 +1268,7 @@ public class AlertDispatchService {
                 log.debug("AlertDispatch: snapshot {} unreadable: {}", row.getInterpretationSnapshotId(), e.getMessage());
             }
         }
-        return AlertMateriality.of(payload, matchForAlert(payload).orElse(null), mode, directive);
+        return AlertMateriality.of(payload, payloadTpl, mode, directive);
     }
 
     /**

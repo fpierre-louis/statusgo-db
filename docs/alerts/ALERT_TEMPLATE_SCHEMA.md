@@ -103,7 +103,12 @@ response type alone no longer escalate an `impactAware` weather warning.
 actually telling people to evacuate, shelter in place, avoid an area, or follow
 an official action that SitPrep must not infer. General indoor-safety guidance,
 heat exposure reduction, smoke avoidance, and Drop/Cover/Hold do not become
-official shelter-in-place directives.
+official shelter-in-place directives. Where such a template still carries a
+protective action, its honest directive is `follow_official_instruction`: it is
+not a shelter order, yet it keeps a saved route from standing as the action
+(owner review R1, 2026-10-15). A template whose hazard is a CONDITION with no
+movement at all (Red Flag Warning, Air Quality Alert) declares `none` and is
+listed in `MOVEMENT_DIRECTIVE_EXEMPT` with its reason.
 
 ## Fallback Rules
 
