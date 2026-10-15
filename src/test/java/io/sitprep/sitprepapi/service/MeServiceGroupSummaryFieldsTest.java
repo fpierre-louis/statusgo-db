@@ -120,4 +120,32 @@ class MeServiceGroupSummaryFieldsTest {
         assertThat(service.assignedOpenTaskCounts(ME, Set.of())).isEmpty();
         verifyNoInteractions(assigneeRepo);
     }
+
+    @Test
+    void alertActivatedAt_groupSummary_isTheStartWhileActive_nullWhenCalm() {
+        Instant start = Instant.parse("2026-10-14T15:00:00Z");
+        MeDto.GroupSummary active = service.toGroupSummary(group("g1", "Active", start, ME, "a@x.com"),
+                ME, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Map.of(), Map.of());
+        // A cleared check-in may still hold its old start: calm is null, whatever the column says.
+        MeDto.GroupSummary calm = service.toGroupSummary(group("g2", "Not Active", start, ME, "a@x.com"),
+                ME, Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Map.of(), Map.of());
+
+        assertThat(active.alertActivatedAt()).isEqualTo(start);
+        assertThat(calm.alertActivatedAt()).isNull();
+    }
+
+    @Test
+    void alertActivatedAt_household_isTheStartWhileActive_nullWhenCalm() {
+        Instant start = Instant.parse("2026-10-14T15:00:00Z");
+        Group hh = group("hh", "Active", start, ME);
+        hh.setGroupType("Household");
+        MeDto.HouseholdDto active = service.toHouseholdDto(hh, null,
+                Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+        hh.setAlert("Not Active");
+        MeDto.HouseholdDto calm = service.toHouseholdDto(hh, null,
+                Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+
+        assertThat(active.alertActivatedAt()).isEqualTo(start);
+        assertThat(calm.alertActivatedAt()).isNull();
+    }
 }

@@ -900,7 +900,7 @@ public class MeService {
         }
     }
 
-    private HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Map<String, java.time.Instant> memberLastActiveMap) {
+    HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Map<String, java.time.Instant> memberLastActiveMap) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getTeens(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -980,7 +980,8 @@ public class MeService {
                 householdState.challengeLastShownWeek(),
                 householdState.challengeProgress(),
                 householdState.drillLog(),
-                compositionSummaryFor(g, d)
+                compositionSummaryFor(g, d),
+                alertActivatedAtOf(g)
         );
     }
 
@@ -1076,7 +1077,7 @@ public class MeService {
         return groups;
     }
 
-    private GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds, java.util.Map<String, MeDto.CheckInRollup> checkInRollups, java.util.Map<String, Integer> assignedOpen) {
+    GroupSummary toGroupSummary(Group g, String userEmail, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Set<String> staffGroupIds, java.util.Map<String, MeDto.CheckInRollup> checkInRollups, java.util.Map<String, Integer> assignedOpen) {
         String role = resolveRole(g, userEmail);
         // Always derive from the member-email list — the denormalized
         // Group.memberCount drifts (set to 1 at creation, not kept in
@@ -1115,8 +1116,19 @@ public class MeService {
                 g.getSmsAllowanceMonthly(),
                 BillingService.effectivePlanTier(g).name(),
                 g.getGroupId() == null || checkInRollups == null ? null : checkInRollups.get(g.getGroupId()),
-                g.getGroupId() == null || assignedOpen == null ? 0 : assignedOpen.getOrDefault(g.getGroupId(), 0)
+                g.getGroupId() == null || assignedOpen == null ? 0 : assignedOpen.getOrDefault(g.getGroupId(), 0),
+                alertActivatedAtOf(g)
         );
+    }
+
+    /**
+     * When the running check-in started, or null when none is running. The
+     * group's own {@code alertActivatedAt}, never a fallback: Home keys a
+     * dismissed banner by it, and a stand-in would make that key lie.
+     */
+    static java.time.Instant alertActivatedAtOf(Group g) {
+        if (g == null || !"Active".equalsIgnoreCase(g.getAlert())) return null;
+        return g.getAlertActivatedAt();
     }
 
     /**
@@ -1224,7 +1236,8 @@ public class MeService {
                 g.getSmsAllowanceMonthly(),
                 BillingService.effectivePlanTier(g).name(),
                 null,
-                0
+                0,
+                alertActivatedAtOf(g)
         );
     }
 

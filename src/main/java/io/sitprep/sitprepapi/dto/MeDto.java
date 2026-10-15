@@ -307,7 +307,15 @@ public record MeDto(
              * and the readiness "demographics" step, so they cannot disagree.
              * Null only when the derivation failed (degraded, logged).
              */
-            io.sitprep.sitprepapi.dto.HouseholdCompositionDto.Summary composition
+            io.sitprep.sitprepapi.dto.HouseholdCompositionDto.Summary composition,
+            /**
+             * When the running household check-in started
+             * ({@code Group.alertActivatedAt}); null when none is running
+             * ({@code alert} is not "Active"). Home keys a dismissed check-in
+             * banner by this, so a new check-in shows again (B4c, 2026-10-14).
+             * Appended last: positional record.
+             */
+            Instant alertActivatedAt
     ) {}
 
     public record DrillCompletionDto(
@@ -488,7 +496,15 @@ public record MeDto(
              * done / closed / cancelled / archived rows don't count. 0 for a
              * pending row.
              */
-            int assignedOpenTaskCount
+            int assignedOpenTaskCount,
+            /**
+             * When this group's running check-in started
+             * ({@code Group.alertActivatedAt}); null when none is running
+             * ({@code alert} is not "Active"). Same rule as
+             * {@link HouseholdDto#alertActivatedAt()} (B4c, 2026-10-14).
+             * Appended last: positional record.
+             */
+            Instant alertActivatedAt
     ) {}
 
     /**
