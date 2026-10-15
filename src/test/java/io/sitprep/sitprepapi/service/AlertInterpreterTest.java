@@ -393,9 +393,11 @@ class AlertInterpreterTest {
     @DisplayName("rule 3: priority — life_safety, urgent, prepare, info, record")
     void priority() {
         assertThat(card(live("Tornado Warning").build()).presentation().priority()).isEqualTo("life_safety");
-        // attention mode but a movement directive (avoid_area) → life safety
+        // attention mode but a movement directive → life safety. Since owner
+        // review R1 (2026-10-15) Flood Warning's directive is
+        // follow_official_instruction; any directive but `none` is life safety.
         AlertCardDto flood = card(live("Flood Warning").build());
-        assertThat(flood.safety().movementDirective()).isEqualTo("avoid_area");
+        assertThat(flood.safety().movementDirective()).isEqualTo("follow_official_instruction");
         assertThat(flood.presentation().priority()).isEqualTo("life_safety");
         // warning tier, attention, no directive
         AlertCardDto statement = card(live("Flood Statement").responseTypes(List.of("Monitor")).build());

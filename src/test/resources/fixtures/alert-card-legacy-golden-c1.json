@@ -32,9 +32,9 @@
       "guidanceMode" : "supplement_official",
       "compatibility" : "compatible",
       "protectiveActions" : [ "AVOID" ],
-      "movementDirective" : "avoid_area",
+      "movementDirective" : "follow_official_instruction",
       "reason" : "template_compatible",
-      "asIssuedMovementDirective" : "avoid_area"
+      "asIssuedMovementDirective" : "follow_official_instruction"
     }
   },
   "watch" : {

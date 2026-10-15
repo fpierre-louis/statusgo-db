@@ -61,11 +61,12 @@ class TrustedSourceRegistryTest {
     @Test
     void nwsRecordTypeIsTheTemplateTierWhenOneCoversTheProduct() {
         // Template tier, not the product name: Evacuation Immediate and Flood
-        // Statement are warning-tier by review; Freeze Warning is watch-tier.
+        // Statement are warning-tier by review; Freeze Warning is advisory-tier (R1,
+        // 2026-10-15: its own template, split from Freeze Watch).
         for (String[] c : new String[][] {
                 { "Evacuation Immediate", "warning" },
                 { "Flood Statement", "warning" },
-                { "Freeze Warning", "watch" },
+                { "Freeze Warning", "advisory" },
                 { "Flood Warning", "warning" },
                 { "Flood Watch", "watch" } }) {
             var a = TestAlerts.nws(c[0]).build();
