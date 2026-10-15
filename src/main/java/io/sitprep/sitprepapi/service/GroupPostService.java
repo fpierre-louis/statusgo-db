@@ -577,6 +577,11 @@ public class GroupPostService {
         Map<String, UserInfo> userByEmail = userInfoRepo.findByUserEmailIn(new ArrayList<>(emails)).stream()
                 .collect(Collectors.toMap(UserInfo::getUserEmail, Function.identity()));
 
+        // FD-06: a removed post's text is already blanked; say it was removed
+        // rather than ship an empty preview (one batched lookup).
+        Map<Long, Instant> removed = removals.removedPosts(
+                bestByGroup.values().stream().map(GroupPost::getId).toList());
+
         Map<String, GroupPostSummaryDto> out = new HashMap<>();
         for (var e : bestByGroup.entrySet()) {
             GroupPost p = e.getValue();
@@ -595,7 +600,9 @@ public class GroupPostService {
                 // instead of a broken-image glyph.
                 dto.setAuthorProfileImageUrl(DtoImages.avatar(u.getProfileImageUrl()));
             }
-            dto.setContent(p.getContent());
+            boolean wasRemoved = removed != null && removed.containsKey(p.getId());
+            dto.setRemovedByAdmin(wasRemoved);
+            dto.setContent(wasRemoved ? null : p.getContent());
             dto.setTimestamp(p.getTimestamp());
 
             out.put(e.getKey(), dto);
