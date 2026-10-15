@@ -1983,11 +1983,11 @@ public class NotificationService {
 
     /**
      * FD-06: after an admin removes a post, its inbox rows (post + mention
-     * notifications, referenceId = post id) stop quoting it. Rows are kept.
+     * notifications, referenceId = group id, additionalData = post id) stop quoting it. Rows are kept.
      */
-    public int scrubRemovedPostNotifications(Long postId) {
-        if (postId == null) return 0;
-        return notificationLogRepo.replaceBodyForReference(String.valueOf(postId),
+    public int scrubRemovedPostNotifications(String groupId, Long postId) {
+        if (postId == null || groupId == null || groupId.isBlank()) return 0;
+        return notificationLogRepo.replaceBodyForGroupPost(groupId, String.valueOf(postId),
                 List.of("post_notification", TYPE_POST_MENTION), POST_REMOVED_BODY);
     }
 }

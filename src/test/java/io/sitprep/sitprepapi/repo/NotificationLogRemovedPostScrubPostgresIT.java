@@ -29,22 +29,24 @@ class NotificationLogRemovedPostScrubPostgresIT {
     @Autowired private NotificationLogRepo repo;
     @Autowired private jakarta.persistence.EntityManager em;
 
-    private NotificationLog row(String who, String type, String ref, String body) {
-        NotificationLog n = new NotificationLog(who, type, null, "Ridge Watch", body, ref, "/x", null,
+    private NotificationLog row(String who, String type, String ref, String addl, String body) {
+        NotificationLog n = new NotificationLog(who, type, null, "Ridge Watch", body, ref, "/x", addl,
                 Instant.now(), true, null);
         em.persist(n);
         return n;
     }
 
     @Test
-    void postAndMentionRowsForThatPostLoseTheirBody_everythingElseKeepsIt() {
-        NotificationLog a = row("a@x.com", "post_notification", "7", "Ann posted in Ridge Watch: 'rude words'");
-        NotificationLog b = row("b@x.com", "post_mention", "7", "Ann mentioned you: 'rude words'");
-        NotificationLog otherPost = row("a@x.com", "post_notification", "8", "keep me");
-        NotificationLog otherType = row("a@x.com", "hazard_alert", "7", "keep me too");
+    void onlyThatGroupPostsRowsLoseTheirBody_collidingIdsElsewhereKeepIt() {
+        NotificationLog a = row("a@x.com", "post_notification", "g1", "7", "Ann posted in Ridge Watch: 'rude words'");
+        NotificationLog b = row("b@x.com", "post_mention", "g1", "7", "Ann mentioned you: 'rude words'");
+        NotificationLog otherPost = row("a@x.com", "post_notification", "g1", "8", "keep me");
+        NotificationLog otherGroup = row("a@x.com", "post_notification", "g2", "7", "keep me too");
+        NotificationLog communityMention = row("a@x.com", "post_mention", "7", null, "community post 7");
+        NotificationLog otherType = row("a@x.com", "hazard_alert", "g1", "7", "keep me three");
         em.flush();
 
-        int n = repo.replaceBodyForReference("7", List.of("post_notification", "post_mention"),
+        int n = repo.replaceBodyForGroupPost("g1", "7", List.of("post_notification", "post_mention"),
                 NotificationService.POST_REMOVED_BODY);
         em.clear();
 
@@ -53,6 +55,8 @@ class NotificationLogRemovedPostScrubPostgresIT {
         assertThat(repo.findById(b.getId()).orElseThrow().getBody()).isEqualTo("Post removed by an admin");
         assertThat(repo.findById(a.getId()).orElseThrow().getTitle()).isEqualTo("Ridge Watch"); // row kept
         assertThat(repo.findById(otherPost.getId()).orElseThrow().getBody()).isEqualTo("keep me");
-        assertThat(repo.findById(otherType.getId()).orElseThrow().getBody()).isEqualTo("keep me too");
+        assertThat(repo.findById(otherGroup.getId()).orElseThrow().getBody()).isEqualTo("keep me too");
+        assertThat(repo.findById(communityMention.getId()).orElseThrow().getBody()).isEqualTo("community post 7");
+        assertThat(repo.findById(otherType.getId()).orElseThrow().getBody()).isEqualTo("keep me three");
     }
 }

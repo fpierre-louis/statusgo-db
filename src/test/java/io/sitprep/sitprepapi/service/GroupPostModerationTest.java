@@ -120,7 +120,7 @@ class GroupPostModerationTest {
 
         verify(postRepo, never()).delete(any());
         verify(removals).recordPost(eq(ADMIN), eq(7L), contains("rude words"));
-        verify(notifications).scrubRemovedPostNotifications(7L); // FD-06: inbox rows stop quoting it
+        verify(notifications).scrubRemovedPostNotifications(any(), eq(7L)); // FD-06: inbox rows stop quoting it
         assertEquals("", p.getContent());
         assertNull(p.getImageKey());
         assertNull(p.getLatitude());

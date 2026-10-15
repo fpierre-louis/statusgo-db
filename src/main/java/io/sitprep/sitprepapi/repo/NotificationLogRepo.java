@@ -277,17 +277,21 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
 
     /**
      * FD-06: replace the body of every inbox row that quotes a post an admin
-     * removed. The row stays (it is still a record that something happened).
+     * removed. Group-post sends store referenceId = groupId and
+     * additionalData = postId, so both are matched (a bare post id collides with
+     * community Post / task ids). The row stays (it is still a record that something happened).
      */
     @Transactional
     @Modifying
     @Query("""
            UPDATE NotificationLog n
               SET n.body = :body
-            WHERE n.referenceId = :referenceId
+            WHERE n.referenceId = :groupId
+              AND n.additionalData = :postId
               AND n.type IN :types
            """)
-    int replaceBodyForReference(@Param("referenceId") String referenceId,
+    int replaceBodyForGroupPost(@Param("groupId") String groupId,
+                                @Param("postId") String postId,
                                 @Param("types") Collection<String> types,
                                 @Param("body") String body);
 }
