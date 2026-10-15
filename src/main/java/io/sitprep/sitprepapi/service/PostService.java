@@ -1626,7 +1626,7 @@ public class PostService {
         int off = (offset == null) ? 0 : Math.max(0, offset);
         org.springframework.data.domain.Pageable page = new io.sitprep.sitprepapi.util.OffsetPageRequest(off, lim);
         List<Post> rows = (status == null)
-                ? taskRepo.findGroupBoard(groupId, page)
+                ? taskRepo.findGroupBoard(groupId, PostStatus.ARCHIVED, page)
                 : taskRepo.findGroupBoardByStatus(groupId, status, page);
         // V51: children (project_id != null) are excluded by the query — the
         // project container card represents them (plus its roll-up childCount).

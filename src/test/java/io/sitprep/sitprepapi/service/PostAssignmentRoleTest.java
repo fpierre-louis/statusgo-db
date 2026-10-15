@@ -138,7 +138,7 @@ class PostAssignmentRoleTest {
     void helpersRowOnTheBoardCarriesTheRosterWithTheirRole() {
         Post t = task(101L, GROUP, Post.PostPriority.MEDIUM, null, "2026-10-13T10:00:00Z");
         t.setAssigneeEmail(LEAD);
-        when(taskRepo.findGroupBoard(eq(GROUP), any())).thenReturn(List.of(t));
+        when(taskRepo.findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any())).thenReturn(List.of(t));
         when(assigneeRepo.findByPostIdIn(anyList())).thenReturn(List.of(
                 assignee(101L, LEAD, TaskAssignee.Role.LEAD, true),
                 assignee(101L, HELPER, TaskAssignee.Role.HELPER, false)));

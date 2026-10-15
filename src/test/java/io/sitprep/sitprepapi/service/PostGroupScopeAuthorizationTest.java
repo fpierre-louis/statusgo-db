@@ -229,14 +229,14 @@ class PostGroupScopeAuthorizationTest {
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.listByGroup(GROUP, null, AUTHOR));
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
-        verify(taskRepo, never()).findGroupBoard(anyString(), any());
+        verify(taskRepo, never()).findGroupBoard(anyString(), any(), any());
     }
 
     @Test
     void listByGroup_allowsMember() {
-        when(taskRepo.findGroupBoard(eq(GROUP), any())).thenReturn(List.of());
+        when(taskRepo.findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any())).thenReturn(List.of());
         assertTrue(service.listByGroup(GROUP, null, MEMBER).isEmpty());
-        verify(taskRepo).findGroupBoard(eq(GROUP), any());
+        verify(taskRepo).findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any());
     }
 
     // ------------------------------------------------------------------
@@ -271,17 +271,31 @@ class PostGroupScopeAuthorizationTest {
 
     @Test
     void listByGroup_isPaged_withADefaultAndAClampedLimit() {
-        when(taskRepo.findGroupBoard(eq(GROUP), any())).thenReturn(List.of());
+        when(taskRepo.findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any())).thenReturn(List.of());
         org.mockito.ArgumentCaptor<org.springframework.data.domain.Pageable> page =
                 org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
 
         service.listByGroup(GROUP, null, MEMBER);
         service.listByGroup(GROUP, null, MEMBER, 40, 5000);
-        verify(taskRepo, times(2)).findGroupBoard(eq(GROUP), page.capture());
+        verify(taskRepo, times(2)).findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), page.capture());
 
         assertEquals(0, page.getAllValues().get(0).getOffset());
         assertEquals(PostService.GROUP_BOARD_DEFAULT_LIMIT, page.getAllValues().get(0).getPageSize());
         assertEquals(40, page.getAllValues().get(1).getOffset());
         assertEquals(PostService.GROUP_BOARD_MAX_LIMIT, page.getAllValues().get(1).getPageSize());
+    }
+
+    @Test
+    void listByGroup_allLeavesArchivedOut_andTheArchiveTabAsksForIt() {
+        // TK-08: "All" (no status) excludes ARCHIVED in the query, so archived
+        // rows never spend the page window; the Archive tab names the status.
+        when(taskRepo.findGroupBoard(eq(GROUP), any(), any())).thenReturn(List.of());
+        when(taskRepo.findGroupBoardByStatus(eq(GROUP), any(), any())).thenReturn(List.of());
+
+        service.listByGroup(GROUP, null, MEMBER);
+        service.listByGroup(GROUP, Post.PostStatus.ARCHIVED, MEMBER);
+
+        verify(taskRepo).findGroupBoard(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any());
+        verify(taskRepo).findGroupBoardByStatus(eq(GROUP), eq(Post.PostStatus.ARCHIVED), any());
     }
 }

@@ -269,17 +269,23 @@ public interface PostRepo extends JpaRepository<Post, Long> {
      * A page of a group's board, newest first (audit TK-08). Project children
      * ({@code projectId != null}) are excluded here, in SQL, so a page is
      * full whenever more top-level rows exist; the project container card
-     * represents its children.
+     * represents its children. ARCHIVED is left out (pass
+     * {@code PostStatus.ARCHIVED}) so "All" never spends its window on the
+     * archive; the Archive tab asks for that status explicitly, the same rule
+     * as {@link #findManagedBoard}.
      */
     @Query("""
            SELECT p FROM Post p
             WHERE p.groupId = :groupId
               AND p.projectId IS NULL
+              AND p.status <> :archived
             ORDER BY p.createdAt DESC, p.id DESC
            """)
-    List<Post> findGroupBoard(@Param("groupId") String groupId, Pageable page);
+    List<Post> findGroupBoard(@Param("groupId") String groupId,
+                              @Param("archived") PostStatus archived,
+                              Pageable page);
 
-    /** {@link #findGroupBoard} filtered by status. */
+    /** {@link #findGroupBoard} for one status (ARCHIVED included when asked). */
     @Query("""
            SELECT p FROM Post p
             WHERE p.groupId = :groupId
