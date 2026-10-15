@@ -15,9 +15,10 @@ import java.util.regex.Pattern;
  *
  * <p>Decisions recorded here rather than re-made per emitter:</p>
  * <ul>
- *   <li><b>Org group</b> → {@code /Linked/lg/4D-FwtX/{id}} (GroupUrlUtil's
- *       form; {@code /groups/{id}} renders the same page but the service worker
- *       already normalizes to this one, so new payloads emit only this).</li>
+ *   <li><b>Org group</b> → {@code /groups/{id}}, the canonical group URL
+ *       (owner ruling D16, group page SH-12, 2026-10-14; GroupUrlUtil emits the
+ *       same). The old {@code /Linked/lg/4D-FwtX/{id}} still lands: the app
+ *       redirects it, and {@link #canonicalize} rewrites it on old rows.</li>
  *   <li><b>Household</b> → {@code /household/h/4D-FwtX/household/{id}/{tab}}.
  *       A household post lands on {@code chat}: the household page has no
  *       per-post focus, so the honest target is the conversation it is in.</li>
@@ -53,7 +54,7 @@ public final class NotificationRoutes {
     public static final String WORK_ORDERS = "/work-orders";
 
     private static final String HOUSEHOLD_PREFIX = "/household/h/4D-FwtX/household/";
-    private static final String GROUP_PREFIX = "/Linked/lg/4D-FwtX/";
+    private static final String GROUP_PREFIX = "/groups/";
 
     public static String hazard(String alertRef) {
         return blank(alertRef) ? HAZARDS : HAZARDS + "?alert=" + enc(alertRef);
@@ -141,6 +142,8 @@ public final class NotificationRoutes {
     // ── Legacy targetUrl → canonical ─────────────────────────────────────
 
     private static final Pattern BARE_GROUP = Pattern.compile("^/groups/([^/?#]+)/?([?#].*)?$");
+    /** The pre-D16 org group route, on rows written before the flip. */
+    private static final Pattern LEGACY_LINKED_GROUP = Pattern.compile("^/Linked/lg/4D-FwtX/([^/?#]+)/?([?#].*)?$");
     private static final Pattern TASK_ALIAS = Pattern.compile("^/community/tasks/([^/?#]+)/?([?#].*)?$");
     private static final Pattern HOUSEHOLD_POST = Pattern.compile("^/household/h/4D-FwtX/household/([^/?#]+)/?\\?postId=.*$");
 
@@ -154,6 +157,8 @@ public final class NotificationRoutes {
         String url = targetUrl.trim();
         Matcher g = BARE_GROUP.matcher(url);
         if (g.matches()) return GROUP_PREFIX + g.group(1) + (g.group(2) == null ? "" : g.group(2));
+        Matcher lg = LEGACY_LINKED_GROUP.matcher(url);
+        if (lg.matches()) return GROUP_PREFIX + lg.group(1) + (lg.group(2) == null ? "" : lg.group(2));
         Matcher t = TASK_ALIAS.matcher(url);
         if (t.matches()) return "/community/posts/" + t.group(1) + (t.group(2) == null ? "" : t.group(2));
         if (url.equals("/Fema") || url.startsWith("/Fema?")) return HAZARDS + url.substring("/Fema".length());
@@ -180,9 +185,12 @@ public final class NotificationRoutes {
         return m.find() ? m.group(1) : null;
     }
 
-    private static final Pattern LINKED_GROUP = Pattern.compile("^/Linked/lg/4D-FwtX/([^/?#]+)");
+    private static final Pattern LINKED_GROUP = Pattern.compile("^/(?:Linked/lg/4D-FwtX|groups)/([^/?#]+)");
 
-    /** {@code /Linked/lg/4D-FwtX/{groupId}...} → groupId (group post / comment targets). */
+    /**
+     * {@code /groups/{groupId}...} → groupId (group post / comment targets), and
+     * the pre-D16 {@code /Linked/lg/4D-FwtX/{groupId}...} on old rows.
+     */
     public static String linkedGroupIdFrom(String url) {
         if (blank(url)) return null;
         Matcher m = LINKED_GROUP.matcher(url);

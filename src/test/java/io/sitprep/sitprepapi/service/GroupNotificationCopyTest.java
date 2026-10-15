@@ -87,6 +87,6 @@ class GroupNotificationCopyTest {
         GroupPost org = new GroupPost();
         org.setId(8L);
         org.setGroupId("g-1");
-        assertThat(comments.postRoute(org)).isEqualTo("/Linked/lg/4D-FwtX/g-1?view=post&postId=8");
+        assertThat(comments.postRoute(org)).isEqualTo("/groups/g-1?view=post&postId=8");
     }
 }

@@ -48,7 +48,7 @@ class NotificationPresentationTest {
      */
     static final List<Pattern> FE_ROUTES = List.of(
             "^/hazards(\\?alert=[^&]+)?$", "^/community/posts/[^/?#]+(#comments)?$", "^/community$",
-            "^/Linked/lg/4D-FwtX/[^/?]+(\\?view=post(&postId=[^&]+)?|\\?view=admin&members=1)?$", "^/my-groups$",
+            "^/groups/[^/?]+(\\?view=post(&postId=[^&]+)?|\\?view=admin&members=1)?$", "^/my-groups$",
             "^/Groupstatus/[^/?]+$",
             "^/household/h/4D-FwtX/household/[^/?]+/(chat(\\?postId=[^&]+)?|family(\\?checkin=1)?|plan|timeline|about)$",
             "^/household/[^/]+/invite-requests/[^/?]+$", "^/work-orders(/[^/?]+)?$",
@@ -179,6 +179,13 @@ class NotificationPresentationTest {
         assertThat(hhReply.deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/chat?postId=9");
         assertRoutable(hhReply);
 
+        // The same reply written after the D16 flip (GroupUrlUtil emits
+        // /groups/{id}): still the household's chat.
+        NotificationPresentation hhReplyNew = builder.build(row("comment_on_post", null, "9",
+                "/groups/hh1?postId=9", null, "u_maya"));
+        assertThat(hhReplyNew.deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/chat?postId=9");
+        assertRoutable(hhReplyNew);
+
         NotificationPresentation token = builder.build(row("token_unlocked", "TOKEN_UNLOCKED", null,
                 "/profile?tab=tokens", "{\"tokenKey\":\"meeting_place\"}", null));
         assertThat(token.source().entityType()).isEqualTo("TOKEN");
@@ -224,6 +231,33 @@ class NotificationPresentationTest {
         assertThat(page.get(1L).source().name()).isEqualTo("Chen Household");
         assertThat(page.get(2L).source().name()).isEqualTo("Chen Household");
         assertThat(page.get(2L).deepLink().route()).isEqualTo("/household/h/4D-FwtX/household/hh1/family");
+    }
+
+    /**
+     * D16 / SH-12 (2026-10-14): {@code /groups/{id}} is the canonical org group
+     * URL. New rows carry it; a row written before the flip still lands on it,
+     * query and all, and its group id is still read for the household check.
+     */
+    @Test
+    void orgGroupRoutes_areCanonicalGroups_andOldLinkedRowsRewriteOntoThem() {
+        assertThat(NotificationRoutes.group("g1", false)).isEqualTo("/groups/g1");
+        assertThat(NotificationRoutes.groupPost("g1", "5", false)).isEqualTo("/groups/g1?view=post&postId=5");
+        assertThat(NotificationRoutes.groupMembers("g1")).isEqualTo("/groups/g1?view=admin&members=1");
+        assertThat(NotificationRoutes.canonicalize("/Linked/lg/4D-FwtX/g1")).isEqualTo("/groups/g1");
+        assertThat(NotificationRoutes.canonicalize("/Linked/lg/4D-FwtX/g1?view=post&postId=5"))
+                .isEqualTo("/groups/g1?view=post&postId=5");
+        assertThat(NotificationRoutes.canonicalize("/groups/g1?postId=5")).isEqualTo("/groups/g1?postId=5");
+        assertThat(NotificationRoutes.linkedGroupIdFrom("/groups/g1?postId=5")).isEqualTo("g1");
+        assertThat(NotificationRoutes.linkedGroupIdFrom("/Linked/lg/4D-FwtX/g1?postId=5")).isEqualTo("g1");
+
+        Group org = new Group();
+        org.setGroupId("g-org");
+        org.setGroupType("HOA/Neighborhood");
+        assertThat(io.sitprep.sitprepapi.util.GroupUrlUtil.getGroupTargetUrl(org)).isEqualTo("/groups/g-org");
+
+        NotificationPresentation legacy = builder.build(row("new_member", null, "g1", "/Linked/lg/4D-FwtX/g1", null, null));
+        assertThat(legacy.deepLink().route()).startsWith("/groups/g1");
+        assertRoutable(legacy);
     }
 
     @Test
