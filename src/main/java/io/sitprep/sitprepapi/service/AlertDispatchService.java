@@ -469,7 +469,11 @@ public class AlertDispatchService {
      *       that delivered the create. Connected clients drop the task
      *       from their list per {@code useCommunityTasks}'s WS handler.</li>
      *   <li>Mark {@code AlertPost.resolvedAt = now} so the next
-     *       resolve tick skips this row.</li>
+     *       resolve tick skips this row, and record why in
+     *       {@code resolvedReason} (V110, S2 C6): {@code issuer_cancelled} or
+     *       {@code replaced} when a live message names the alert, else
+     *       {@code expired} or {@code not_listed}
+     *       ({@link AlertPostContext#resolvedReason}).</li>
      * </ol>
      *
      * <p><b>Resolution criteria</b> (any one triggers):</p>
@@ -506,6 +510,12 @@ public class AlertDispatchService {
                 }
             }
         }
+        // Why each post is cleared (V110 resolved_reason, S2 C6): the live
+        // messages that name an earlier alert, so an issuer's Cancel/CAN or a
+        // replacing Update is recorded as such — not as "it left the feed" —
+        // while the post can still say which after that message has gone too.
+        Map<String, NormalizedAlert> endedBy =
+                AlertPostContext.endingMessages(snap == null ? null : snap.alerts());
 
         Instant now = Instant.now();
         int resolvedCount = 0;
@@ -525,6 +535,12 @@ public class AlertDispatchService {
                 boolean confirmedGone = !inActiveSet
                         && snap != null && snap.freshlyPolled(sourceOfAlertId(alertId));
                 if (!confirmedGone && !expired) continue;
+                // The issuer's naming message first, else the end time, else
+                // absence from a fresh poll — never "cancelled" from absence.
+                String canonicalKey = io.sitprep.sitprepapi.util.AlertIdentity.resolve(alertId, null)
+                        .legacyDispatchKey();
+                String reason = AlertPostContext.resolvedReason(expired,
+                        endedBy.get(canonicalKey == null ? alertId : canonicalKey));
 
                 for (AlertPost ap : rows) {
                     try {
@@ -541,6 +557,7 @@ public class AlertDispatchService {
                                 ap.getPostId(), inner.getMessage());
                     }
                     ap.setResolvedAt(now);
+                    ap.setResolvedReason(reason);
                     alertPostRepo.save(ap);
                     resolvedCount++;
                 }
