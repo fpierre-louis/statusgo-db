@@ -1335,6 +1335,23 @@ public class AlertDispatchService {
             if (!seen.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT))) continue;
             nearby.add(u);
         }
+
+        // R19 DRY RUN (owner, 2026-10-15): log who a containment rule would
+        // reach beside who the proximity rule above reaches. Counts only, and
+        // delivery is unchanged — the owner reviews a few days of real alerts
+        // before the rule switches. NWS only: quakes stay on proximity.
+        if ("NWS".equalsIgnoreCase(a.source()) && candidates.size() <= PushTargetingDryRun.MAX_CANDIDATES) {
+            try {
+                Set<String> reached = new HashSet<>();
+                for (UserInfo u : nearby) reached.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT));
+                log.info(PushTargetingDryRun.compare(a, candidates, reached,
+                        (lat, lng) -> zoneService == null ? java.util.Optional.empty()
+                                : zoneService.cachedZoneCodesForPoint(lat, lng))
+                        .logLine(a.source() + "-" + a.id()));
+            } catch (RuntimeException e) {
+                log.debug("AlertDispatch: R19 dry run skipped for {}-{}: {}", a.source(), a.id(), e.getMessage());
+            }
+        }
         if (nearby.isEmpty()) return;
 
         // ── PUSH POLICY (audit P1-4; Lane B added 2026-10-07) ─────────────
