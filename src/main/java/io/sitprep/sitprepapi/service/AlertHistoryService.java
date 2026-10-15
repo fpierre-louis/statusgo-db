@@ -152,6 +152,12 @@ public class AlertHistoryService {
     @Scheduled(
             fixedDelayString = "${alerts.history.intervalMs:150000}",
             initialDelayString = "${alerts.history.initialDelayMs:90000}")
+    // The transaction lives HERE, on the method the scheduler enters through
+    // the proxy. record()'s own @Transactional never applied on this path (a
+    // self-call), so C1's reindex of a revised USGS/FEMA row touched the lazy
+    // token collection with no session and every tick failed on prod
+    // (2026-10-15, LazyInitializationException). AlertHistoryScheduledTickTest.
+    @Transactional
     public void scheduledRecord() {
         if (!enabled) return;
         try {
