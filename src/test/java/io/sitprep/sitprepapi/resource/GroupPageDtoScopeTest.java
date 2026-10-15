@@ -161,17 +161,18 @@ class GroupPageDtoScopeTest {
     }
 
     @Test
-    void plainOrgMember_keepsTheRosterListsTheLivePageStillReads() {
-        // TRANSITIONAL (GroupPageDto.MEMBER_ROSTER_TRANSITIONAL): MemberRail,
-        // MembersSheet → Members.js and OrgGroupPage's roleOf read these for a
-        // plain member until F3 moves them onto the member view's userId rows.
-        // This test is the tripwire: when F3 lands, flip these to assertFalse.
+    void plainOrgMember_getsNoCoMemberEmail() {
+        // D6 (B4b): the roster lists ship to households and org admins only; a
+        // plain member reads the roster from the member view's userId/role rows.
         JsonNode n = read(MEMBER);
-        assertEquals(3, n.get("memberEmails").size());
-        assertEquals(ADMIN, n.get("adminEmails").get(0).asText());
-        assertEquals(OWNER, n.get("ownerEmail").asText());
-        // roleOf path 2 resolves the viewer from them; path 1 must stay unused.
-        assertFalse(n.has("viewerRole"));
+        for (String f : List.of("memberEmails", "adminEmails", "ownerEmail")) {
+            assertFalse(n.has(f), "plain member sees " + f);
+        }
+        assertFalse(n.toString().contains(ADMIN), "an admin's email reached a plain member");
+        assertFalse(n.toString().contains(OWNER), "the owner's email reached a plain member");
+        assertTrue(n.has("ownerName"));
+        assertTrue(n.has("memberCount"));
+        assertEquals("MEMBER", n.get("viewer").get("role").asText());
     }
 
     @Test
@@ -270,7 +271,7 @@ class GroupPageDtoScopeTest {
         Set<String> classified = new HashSet<>();
         classified.addAll(GroupPageDto.PUBLIC);
         classified.addAll(GroupPageDto.MEMBER);
-        classified.addAll(GroupPageDto.MEMBER_ROSTER_TRANSITIONAL);
+        classified.addAll(GroupPageDto.ROSTER_EMAILS);
         classified.addAll(GroupPageDto.ADMIN);
         classified.addAll(GroupPageDto.HOUSEHOLD_ONLY);
         classified.addAll(GroupPageDto.NEVER);

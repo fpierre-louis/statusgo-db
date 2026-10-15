@@ -178,6 +178,12 @@ public class GroupViewService {
         Instant checkInStartedAt = alertActive ? StatusRollups.anchorFor(g) : null;
         Instant checkInEndsAt = checkInEndsAt(g);
         Instant now = Instant.now();
+        // D6 (B4b): a plain member of an ORGANIZATION reads the roster by
+        // userId + role; co-members' emails stay out of the payload. Their own
+        // row keeps its email (the client patches own status by it), and
+        // households, admins and platform readers are unchanged.
+        boolean plainOrgMember = viewerRole == GroupRole.MEMBER && !isHousehold;
+        String viewerNorm = normalize(viewerEmail);
         List<MemberSummary> members = memberEmails.stream()
                 .map(email -> toMemberSummary(
                         email, byEmail.get(normalize(email)),
@@ -186,7 +192,8 @@ public class GroupViewService {
                         askedAt.get(normalize(email)),
                         dispatch.get(normalize(email)),
                         currentPlaces, includePhones, activeAreas,
-                        setByNames, GroupRole.fromGroup(g, email).wire()))
+                        setByNames, GroupRole.fromGroup(g, email).wire(),
+                        !plainOrgMember || (viewerNorm != null && viewerNorm.equals(normalize(email)))))
                 .toList();
 
         List<HouseholdManualMemberDto> manualMembers = isHousehold
@@ -221,7 +228,7 @@ public class GroupViewService {
                 alertActive, StatusRollups.anchorFor(g));
 
         return new GroupMemberViewDto(
-                toGroupInfo(g, viewerIsAdmin || (isHousehold && viewerRole != GroupRole.NONE)),
+                toGroupInfo(g, viewerIsAdmin || (isHousehold && viewerRole != GroupRole.NONE), !plainOrgMember),
                 viewerRole.wire(),
                 resolveViewerPlatformRole(viewerEmail),
                 members,
@@ -366,8 +373,10 @@ public class GroupViewService {
      * @param includeCode whether the join code ships: owner and admins, and
      *                    any member of a household (BE-06 / D6 — a plain
      *                    member of an organization gets none).
+     * @param includeEmails whether the owner and admin emails ship (D6, B4b:
+     *                    not to a plain member of an organization).
      */
-    private GroupInfo toGroupInfo(Group g, boolean includeCode) {
+    private GroupInfo toGroupInfo(Group g, boolean includeCode, boolean includeEmails) {
         // Accurate count from the member list (the denormalized
         // Group.memberCount drifts and isn't kept in sync on join/leave).
         int memberCount = g.getMemberEmails() == null ? 0 : g.getMemberEmails().size();
@@ -387,8 +396,8 @@ public class GroupViewService {
                 g.getPrivacy(),
                 includeCode ? g.getGroupCode() : null,
                 g.getOwnerName(),
-                g.getOwnerEmail(),
-                g.getAdminEmails() == null ? List.of() : List.copyOf(g.getAdminEmails()),
+                includeEmails ? g.getOwnerEmail() : null,
+                includeEmails && g.getAdminEmails() != null ? List.copyOf(g.getAdminEmails()) : List.of(),
                 g.getSubGroupIDs() == null ? List.of() : List.copyOf(g.getSubGroupIDs()),
                 g.getPlanTier(),
                 checkInEndsAt(g),
@@ -529,12 +538,13 @@ public class GroupViewService {
                                   boolean includePhone,
                                   List<MemberAlertAreaService.AreaAlert> activeAreas,
                                   Map<String, String> setByNames,
-                                  String role) {
+                                  String role,
+                                  boolean showEmail) {
         String dispatchWire = (dispatch == null
                 ? GroupMemberViewDto.DispatchOutcome.UNKNOWN
                 : dispatch).wire();
         if (u == null) {
-            return new MemberSummary(normalize(email), null, null, null, null,
+            return new MemberSummary(showEmail ? normalize(email) : null, null, null, null, null,
                     null, null, null, null, checkInRequestedAt, dispatchWire,
                     null, null, null, null, null, null,
                     CheckInState.of(checkInRequestedAt, null, null, null,
@@ -591,7 +601,7 @@ public class GroupViewService {
         }
 
         return new MemberSummary(
-                normalize(u.getUserEmail()),
+                showEmail ? normalize(u.getUserEmail()) : null,
                 u.getUserFirstName(),
                 u.getUserLastName(),
                 DtoImages.avatar(u.getProfileImageUrl()),
