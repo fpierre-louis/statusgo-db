@@ -132,7 +132,7 @@ class HazardQuietHoursInboxTest {
     private List<UserInfo> pushed() {
         ArgumentCaptor<List<UserInfo>> c = ArgumentCaptor.forClass(List.class);
         verify(notifications).sendHazardAlertBatch(c.capture(), anyString(), anyString(), anyString(),
-                anyString(), any(), anyBoolean());
+                anyString(), any(), anyBoolean(), any(), any(), any());
         return c.getValue();
     }
 
@@ -144,7 +144,7 @@ class HazardQuietHoursInboxTest {
         ArgumentCaptor<List<UserInfo>> c = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<java.util.Set<String>> quiet = ArgumentCaptor.forClass(java.util.Set.class);
         verify(notifications).logHazardAlertInboxOnly(c.capture(), anyString(), anyString(), anyString(),
-                anyString(), any(), eq(expectedCategory), quiet.capture());
+                anyString(), any(), eq(expectedCategory), quiet.capture(), any());
         quietMarked = quiet.getValue();
         return c.getValue();
     }
@@ -166,7 +166,7 @@ class HazardQuietHoursInboxTest {
         assertThat(emails(inboxed(Category.WILDFIRE_NEAR))).containsExactly("night@x.com");
         assertThat(quietMarked).as("marked for the morning catch-up").containsExactly("night@x.com");
         verify(notifications, never()).sendHazardAlertBatch(anyList(), any(), any(), any(), any(), any(),
-                anyBoolean());
+                anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -179,7 +179,7 @@ class HazardQuietHoursInboxTest {
 
         assertThat(emails(inboxed(Category.NWS_SEVERE_EXTREME))).containsExactly("night@x.com");
         verify(notifications, never()).sendHazardAlertBatch(anyList(), any(), any(), any(), any(), any(),
-                anyBoolean());
+                anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -193,7 +193,7 @@ class HazardQuietHoursInboxTest {
 
         assertThat(emails(inboxed(Category.USGS_QUAKE_MAJOR))).containsExactly("night@x.com");
         verify(notifications, never()).sendHazardAlertBatch(anyList(), any(), any(), any(), any(), any(),
-                anyBoolean());
+                anyBoolean(), any(), any(), any());
     }
 
     // ── rate cap: deferred hazard → inbox row ────────────────────────────
@@ -238,7 +238,7 @@ class HazardQuietHoursInboxTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserInfo>> pTo = ArgumentCaptor.forClass(List.class);
         verify(notifications, times(1)).sendHazardAlertBatch(pTo.capture(), pTitle.capture(), pBody.capture(),
-                pRef.capture(), pUrl.capture(), pData.capture(), anyBoolean());
+                pRef.capture(), pUrl.capture(), pData.capture(), anyBoolean(), any(), any(), any());
 
         ArgumentCaptor<String> iTitle = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> iBody = ArgumentCaptor.forClass(String.class);
@@ -249,7 +249,7 @@ class HazardQuietHoursInboxTest {
         ArgumentCaptor<List<UserInfo>> iTo = ArgumentCaptor.forClass(List.class);
         verify(notifications, times(1)).logHazardAlertInboxOnly(iTo.capture(), iTitle.capture(),
                 iBody.capture(), iRef.capture(), iUrl.capture(), iData.capture(), eq(Category.WILDFIRE_NEAR),
-                any());
+                any(), any());
 
         assertThat(emails(pTo.getValue())).as("Lane A: push (+ its own row), once").containsExactly("day@x.com");
         assertThat(emails(iTo.getValue())).as("Lane B: inbox only").containsExactly("night@x.com");
@@ -280,7 +280,7 @@ class HazardQuietHoursInboxTest {
 
         assertThat(emails(pushed())).containsExactly("night@x.com");
         verify(notifications, never()).logHazardAlertInboxOnly(anyList(), any(), any(), any(), any(), any(),
-                any(), any());
+                any(), any(), any());
     }
 
     // ── the row itself: same shape as the pushed row, no FCM ─────────────

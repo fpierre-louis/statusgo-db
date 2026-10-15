@@ -104,6 +104,45 @@ public class NotificationService {
     /** The batched hazard path's type — the push and its Lane B inbox twin. */
     public static final String TYPE_HAZARD_ALERT = "hazard_alert";
 
+    /**
+     * The alert a hazard row is about (S2 contract §5, V110 columns), written on
+     * every row of one delivery. Any part may be null: an agency alert has no
+     * source revision, and a snapshot the recorder has not cached yet is left
+     * out rather than guessed.
+     *
+     * @param alertKey    the {@code dedupeKey} ({@code SOURCE:id}), or {@code AGENCY:<id>}
+     * @param revisionRef {@code dedupeKey@fp12}
+     * @param threadKey   the lifecycle thread the row groups under
+     * @param snapshotId  the {@code alert_interpretation_snapshot} delivered with it
+     */
+    public record AlertRowRefs(String alertKey, String revisionRef, String threadKey, String snapshotId) {
+        public static final AlertRowRefs NONE = new AlertRowRefs(null, null, null, null);
+
+        void applyTo(NotificationLog row) {
+            row.setAlertKey(clip(alertKey, 300));
+            row.setAlertRevisionRef(clip(revisionRef, 320));
+            row.setAlertThreadKey(clip(threadKey, 200));
+            row.setInterpretationSnapshotId(uuidOrNull(snapshotId));
+        }
+
+        /**
+         * A value too long for its column is dropped, never cut: a truncated key
+         * would name some other alert's thread.
+         */
+        private static String clip(String v, int max) {
+            return v == null || v.isBlank() || v.length() > max ? null : v;
+        }
+
+        private static java.util.UUID uuidOrNull(String id) {
+            if (id == null || id.isBlank()) return null;
+            try {
+                return java.util.UUID.fromString(id.trim());
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+    }
+
     /** Error marker on a Lane B row: written to the inbox, deliberately not pushed. */
     static final String LANE_B_SILENT_INBOX = "Lane B (silent inbox)";
 
@@ -225,11 +264,6 @@ public class NotificationService {
                 /* deferredReason */ null);
     }
 
-    /**
-     * The one writer. {@code deferredReason} marks a Lane B row that the
-     * recipient's own quiet hours held (PushPolicyService.Decision) so the
-     * morning catch-up can count it; null everywhere else.
-     */
     private void saveLogRow(String recipientEmail,
                             String notificationType,
                             String token,
@@ -245,6 +279,33 @@ public class NotificationService {
                             String actorUserId,
                             Map<String, Object> presentation,
                             PushPolicyService.DeferReason deferredReason) {
+        saveLogRow(recipientEmail, notificationType, token, title, body, referenceId, targetUrl,
+                additionalData, success, errorMessage, lane, category, actorUserId, presentation,
+                deferredReason, /* alert */ null);
+    }
+
+    /**
+     * The one writer. {@code deferredReason} marks a Lane B row that the
+     * recipient's own quiet hours held (PushPolicyService.Decision) so the
+     * morning catch-up can count it; null everywhere else. {@code alert} is
+     * the alert a hazard row is about (V110); null on every other row.
+     */
+    private void saveLogRow(String recipientEmail,
+                            String notificationType,
+                            String token,
+                            String title,
+                            String body,
+                            String referenceId,
+                            String targetUrl,
+                            String additionalData,
+                            boolean success,
+                            String errorMessage,
+                            Lane lane,
+                            Category category,
+                            String actorUserId,
+                            Map<String, Object> presentation,
+                            PushPolicyService.DeferReason deferredReason,
+                            AlertRowRefs alert) {
         NotificationLog row = new NotificationLog(
                 recipientEmail,
                 notificationType,
@@ -262,6 +323,7 @@ public class NotificationService {
         if (category != null) row.setCategory(category.name());
         if (actorUserId != null) row.setActorUserId(actorUserId);
         if (deferredReason != null) row.setDeferredReason(deferredReason.name());
+        if (alert != null) alert.applyTo(row);
         row.setPresentationJson(presentation != null ? presentation : presentationOf(row));
         NotificationLog saved = notificationLogRepo.save(row);
 
@@ -1228,6 +1290,25 @@ public class NotificationService {
                                                   String additionalData,
                                                   boolean concealmentSensitive,
                                                   Set<String> alreadyLogged) {
+        return sendHazardAlertBatch(recipients, title, body, referenceId, targetUrl, additionalData,
+                concealmentSensitive, alreadyLogged, /* category */ null, /* alert */ null);
+    }
+
+    /**
+     * The full form (S2 C5). {@code category} is the push-policy category the
+     * caller evaluated these Lane A recipients under; {@code alert} names the
+     * alert every row is about. Both land on the rows.
+     */
+    public HazardBatchResult sendHazardAlertBatch(List<UserInfo> recipients,
+                                                  String title,
+                                                  String body,
+                                                  String referenceId,
+                                                  String targetUrl,
+                                                  String additionalData,
+                                                  boolean concealmentSensitive,
+                                                  Set<String> alreadyLogged,
+                                                  Category category,
+                                                  AlertRowRefs alert) {
         if (recipients == null || recipients.isEmpty()) {
             return new HazardBatchResult(0, 0, 0, null);
         }
@@ -1272,7 +1353,7 @@ public class NotificationService {
             if (token == null || token.isEmpty()) {
                 if (!logged.contains(lowerEmail(email))) {
                     saveLogRow(email, type, null, title, body, referenceId, targetUrl,
-                            additionalData, false, HAZARD_NO_TOKEN, null, null, null, presentation);
+                            additionalData, false, HAZARD_NO_TOKEN, Lane.A, category, null, presentation, null, alert);
                 }
                 failed++;
                 noToken++;
@@ -1320,7 +1401,7 @@ public class NotificationService {
                         delivered++;
                         if (writeRow) {
                             saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                    additionalData, true, null, null, null, null, presentation);
+                                    additionalData, true, null, Lane.A, category, null, presentation, null, alert);
                         }
                     } else {
                         failed++;
@@ -1329,7 +1410,7 @@ public class NotificationService {
                         lastError = err;
                         if (writeRow) {
                             saveLogRow(u.getUserEmail(), type, token, title, body, referenceId, targetUrl,
-                                    additionalData, false, err, null, null, null, presentation);
+                                    additionalData, false, err, Lane.A, category, null, presentation, null, alert);
                         }
                         handleFcmDeliveryError(ex, u.getUserEmail(), token);
                     }
@@ -1345,7 +1426,7 @@ public class NotificationService {
                     if (logged.contains(lowerEmail(users.get(i).getUserEmail()))) continue;
                     saveLogRow(users.get(i).getUserEmail(), type, tokens.get(i),
                             title, body, referenceId, targetUrl, additionalData,
-                            false, e.getMessage(), null, null, null, presentation);
+                            false, e.getMessage(), Lane.A, category, null, presentation, null, alert);
                 }
             }
         }
@@ -1406,6 +1487,20 @@ public class NotificationService {
                                        String additionalData,
                                        Category category,
                                        Set<String> quietHoursDeferred) {
+        return logHazardAlertInboxOnly(recipients, title, body, referenceId, targetUrl, additionalData,
+                category, quietHoursDeferred, /* alert */ null);
+    }
+
+    /** @param alert the alert every row is about (S2 C5); null when unknown. */
+    public int logHazardAlertInboxOnly(List<UserInfo> recipients,
+                                       String title,
+                                       String body,
+                                       String referenceId,
+                                       String targetUrl,
+                                       String additionalData,
+                                       Category category,
+                                       Set<String> quietHoursDeferred,
+                                       AlertRowRefs alert) {
         if (recipients == null || recipients.isEmpty()) return 0;
         Map<String, Object> presentation = hazardPresentation(title, body,
                 referenceId, targetUrl, additionalData);
@@ -1421,7 +1516,7 @@ public class NotificationService {
                         /* success */ false,
                         /* error */ LANE_B_SILENT_INBOX,
                         Lane.B, category, /* actorUserId */ null, presentation,
-                        quiet ? PushPolicyService.DeferReason.QUIET_HOURS : null);
+                        quiet ? PushPolicyService.DeferReason.QUIET_HOURS : null, alert);
                 written++;
             } catch (Exception e) {
                 // One recipient's failed write must not cost the others theirs.

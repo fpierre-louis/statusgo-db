@@ -6,6 +6,7 @@ import io.sentry.Sentry;
 import io.sitprep.sitprepapi.constant.HazardType;
 import io.sitprep.sitprepapi.constant.LocationFreshness;
 import io.sitprep.sitprepapi.domain.AlertPost;
+import io.sitprep.sitprepapi.domain.NotificationLog;
 import io.sitprep.sitprepapi.domain.Post;
 import io.sitprep.sitprepapi.domain.Post.PostPriority;
 import io.sitprep.sitprepapi.domain.Post.PostStatus;
@@ -15,6 +16,7 @@ import io.sitprep.sitprepapi.repo.AlertPostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.service.AlertIngestService.NormalizedAlert;
 import io.sitprep.sitprepapi.service.NominatimGeocodeService.Place;
+import io.sitprep.sitprepapi.util.AlertSourceFingerprint;
 import io.sitprep.sitprepapi.util.GeoUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,6 +123,33 @@ public class AlertDispatchService {
     private final ObjectMapper json = new ObjectMapper();
 
     private List<DispatchTemplate> templates = List.of();
+
+    // ── S2 C5: delivery records + materiality. Optional (setter-injected) so
+    //    the many hand-built test dispatchers keep their constructor; without
+    //    them dispatch keeps the pre-C5 once-per-alert rule (see notifyIfDue). ──
+
+    /** The thread's delivered rows — what materiality compares against. */
+    private io.sitprep.sitprepapi.repo.NotificationLogRepo deliveries;
+    /** Source revisions — the payload a delivered row's revision ref names. */
+    private io.sitprep.sitprepapi.repo.AlertSourceRevisionRepo revisions;
+    /** Interpretation snapshots — the decision a delivered row was sent under. */
+    private io.sitprep.sitprepapi.repo.AlertInterpretationSnapshotRepo snapshots;
+    /** The snapshot id stamped on a row (cache read, never a query). */
+    private InterpretationRecorder recorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDeliveryRecords(io.sitprep.sitprepapi.repo.NotificationLogRepo deliveries,
+                            io.sitprep.sitprepapi.repo.AlertSourceRevisionRepo revisions,
+                            io.sitprep.sitprepapi.repo.AlertInterpretationSnapshotRepo snapshots) {
+        this.deliveries = deliveries;
+        this.revisions = revisions;
+        this.snapshots = snapshots;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setInterpretationRecorder(@org.springframework.context.annotation.Lazy InterpretationRecorder recorder) {
+        this.recorder = recorder;
+    }
 
     public AlertDispatchService(AlertIngestService ingest,
                                 AlertPostRepo alertPostRepo,
@@ -249,13 +278,22 @@ public class AlertDispatchService {
         // Severe-alert push recipient pool — loaded lazily on the first
         // push-worthy alert so a quiet tick does zero extra DB work.
         List<UserInfo> pushCandidates = null;
+        // What replaced what in this snapshot — the snapshot id a row names
+        // is the one the feed recorded for the same (alert, replacedBy) pair.
+        Map<String, NormalizedAlert> replacedByIndex = deliveries == null
+                ? Map.of() : AlertDerivations.supersessionIndex(snap.alerts());
         for (NormalizedAlert a : snap.alerts()) {
             try {
                 if (a.id() == null || a.id().isBlank()) continue;
 
                 // An alert can arrive carrying its own retraction. Skip those
-                // before anything else — see isStillInForce.
-                if (!isStillInForce(a)) continue;
+                // before anything else — see isStillInForce. A verified
+                // cancel/supersede of a thread someone was told about earns
+                // them one silent inbox row (R14), never a push.
+                if (!isStillInForce(a)) {
+                    if (deliveries != null) deliverEnding(a);
+                    continue;
+                }
 
                 String alertId = a.source() + "-" + a.id();
 
@@ -306,6 +344,25 @@ public class AlertDispatchService {
                     // V89 backfill: a post dispatched before its area was kept
                     // gets it on the next tick while the alert is still live.
                     backfillArea(existing.get(), a.geometry());
+                    // A USGS/FEMA revision keeps its id, so it lands here, on
+                    // the post it already has. R14 decides whether the new
+                    // revision is news (a magnitude step, PAGER, tsunami).
+                    if (deliveries != null && revisesInPlace(a)) {
+                        DispatchTemplate rt = matchForAlert(a).orElse(null);
+                        AlertSafetyPolicy.Decision rd = rt == null ? null : AlertSafetyPolicy.evaluate(a, rt);
+                        if (rd != null && rd.dispatchMode() != AlertSafetyPolicy.DispatchMode.SUPPRESS
+                                && pushEligible(a, rt, rd)) {
+                            NotificationService.AlertRowRefs refs =
+                                    deliveryDue(a, rt, rd, replacedByIndex.get(a.id()), false);
+                            if (refs != null) {
+                                if (pushCandidates == null) {
+                                    pushCandidates = userInfoRepo.findPushablesWithLocation(
+                                            LocationFreshness.cutoff(Instant.now()));
+                                }
+                                pushSevereAlert(a, rt, rd, coord, pushCandidates, refs);
+                            }
+                        }
+                    }
                     continue;
                 }
 
@@ -348,12 +405,23 @@ public class AlertDispatchService {
                 // revision can land in a different zip bucket — a new geocell,
                 // a new AlertPost, and (before 2026-10-07) a second push of the
                 // same quake. firstDispatchOfAlert keys the push on alertId.
-                if (firstDispatchOfAlert && pushEligible(a, tpl, decision)) {
-                    if (pushCandidates == null) {
-                        pushCandidates = userInfoRepo.findPushablesWithLocation(
-                                LocationFreshness.cutoff(Instant.now()));
+                //
+                // S2 C5 (R14): with delivery records wired, the thread's last
+                // DELIVERED message decides instead — a CON that changes
+                // nothing gets a new CAP id (so a new post) but no new row and
+                // no push; an EXT, an area change, a severity change does.
+                if (pushEligible(a, tpl, decision)) {
+                    NotificationService.AlertRowRefs refs = deliveries == null
+                            ? (firstDispatchOfAlert ? NotificationService.AlertRowRefs.NONE : null)
+                            : deliveryDue(a, tpl, decision, replacedByIndex.get(a.id()), firstDispatchOfAlert);
+                    if (refs != null) {
+                        if (pushCandidates == null) {
+                            pushCandidates = userInfoRepo.findPushablesWithLocation(
+                                    LocationFreshness.cutoff(Instant.now()));
+                        }
+                        pushSevereAlert(a, tpl, decision, coord, pushCandidates,
+                                refs == NotificationService.AlertRowRefs.NONE ? null : refs);
                     }
-                    pushSevereAlert(a, tpl, decision, coord, pushCandidates);
                 }
 
                 created++;
@@ -918,6 +986,235 @@ public class AlertDispatchService {
         return decision.criticalPush();
     }
 
+    // ------------------------------------------------------------------
+    // S2 C5 — delivery records and R14 materiality
+    // ------------------------------------------------------------------
+
+    /** How far back a thread's deliveries are looked for (bounds the indexed scan). */
+    static final Duration DELIVERY_LOOKBACK = Duration.ofDays(7);
+
+    /**
+     * Ending revisions already handled by this process — a cancel stays in
+     * the snapshot for many ticks, and the delivery records already say it was
+     * written; this only saves the repeat lookups. Bounded, and lossy on
+     * purpose: forgetting costs one indexed query, never a duplicate row.
+     */
+    private final Set<String> endingsHandled = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final int ENDINGS_HANDLED_MAX = 5_000;
+
+    /** USGS and FEMA revise an alert under the same id; NWS issues a new id per message. */
+    static boolean revisesInPlace(NormalizedAlert a) {
+        return a != null && a.source() != null
+                && ("USGS".equalsIgnoreCase(a.source().trim()) || "FEMA".equalsIgnoreCase(a.source().trim()));
+    }
+
+    /** The V110 columns for a row about {@code a}. */
+    NotificationService.AlertRowRefs rowRefsFor(NormalizedAlert a, DispatchTemplate tpl,
+                                                AlertSafetyPolicy.Decision decision, NormalizedAlert replacedBy) {
+        String snapshotId = null;
+        if (recorder != null && decision != null) {
+            try {
+                snapshotId = recorder.liveSnapshotId(a, replacedBy, new AlertFeedService.Assessment(tpl, decision));
+            } catch (Exception e) {
+                log.debug("AlertDispatch: no snapshot id for {}-{}: {}", a.source(), a.id(), e.getMessage());
+            }
+        }
+        return new NotificationService.AlertRowRefs(
+                AlertThreads.dedupeKeyOf(a),
+                AlertSourceFingerprint.revisionRef(a),
+                AlertThreads.threadKeyOf(a),
+                snapshotId);
+    }
+
+    /**
+     * R14 (S2 contract §5): the row refs when {@code a} should deliver — a new
+     * row and, policy permitting, a push — else null.
+     *
+     * <ul>
+     *   <li>Nothing delivered in the thread yet → due (it is the first word).</li>
+     *   <li>The thread's last delivery IS this revision → not due (once, even
+     *       across a restart: the records are the memory, not this process).</li>
+     *   <li>The last delivery's facts can't be rebuilt (a pre-V110 row, or a
+     *       pruned revision) → the pre-C5 once-per-alert rule: due only on a
+     *       different message's first post.
+     *       Its facts can't be rebuilt, and guessing "changed" would push
+     *       every live warning again on deploy day.</li>
+     *   <li>Otherwise {@link AlertMateriality#compare} decides.</li>
+     * </ul>
+     */
+    NotificationService.AlertRowRefs deliveryDue(NormalizedAlert a, DispatchTemplate tpl,
+                                                 AlertSafetyPolicy.Decision decision,
+                                                 NormalizedAlert replacedBy, boolean firstDispatchOfAlert) {
+        NotificationService.AlertRowRefs refs = rowRefsFor(a, tpl, decision, replacedBy);
+        Optional<NotificationLog> last = lastDelivered(a, refs);
+        if (last.isEmpty()) return refs;
+        NotificationLog row = last.get();
+        if (refs.revisionRef() != null && refs.revisionRef().equals(row.getAlertRevisionRef())) return null;
+        AlertMateriality.Facts delivered = deliveredFacts(row);
+        if (delivered == null) {
+            log.info("AlertDispatch: {}-{} follows a delivery with no recorded revision ({}); once-per-alert rule",
+                    a.source(), a.id(), row.getReferenceId());
+            return firstDispatchOfAlert && !sameAlert(a, row) ? refs : null;
+        }
+        AlertMateriality.Verdict verdict = AlertMateriality.compare(delivered, AlertMateriality.of(a, tpl, decision));
+        if (!verdict.material()) {
+            log.info("AlertDispatch: {}-{} not material against {} — no row, no push",
+                    a.source(), a.id(), row.getAlertRevisionRef());
+            return null;
+        }
+        log.info("AlertDispatch: {}-{} material ({}) against {}",
+                a.source(), a.id(), String.join(",", verdict.reasons()), row.getAlertRevisionRef());
+        return refs;
+    }
+
+    private static boolean sameAlert(NormalizedAlert a, NotificationLog row) {
+        String ref = a.source() + "-" + a.id();
+        return ref.equals(row.getReferenceId())
+                || (row.getAlertKey() != null && row.getAlertKey().equals(AlertThreads.dedupeKeyOf(a)));
+    }
+
+    /**
+     * A verified cancel or supersede (VTEC CAN/UPG, CAP Cancel, an AllClear):
+     * every recipient the thread reached gets one inbox row with the issuer's
+     * own words — silent, no push. Nobody told → nothing. An expiry is not an
+     * ending row: the schedule ran out, and the live projection shows it.
+     */
+    void deliverEnding(NormalizedAlert a) {
+        String ending = AlertMateriality.verifiedEndingOf(a);
+        if (ending == null) return;
+        String revisionRef = AlertSourceFingerprint.revisionRef(a);
+        if (revisionRef == null || endingsHandled.contains(revisionRef)) return;
+        DispatchTemplate tpl = matchForAlert(a).orElse(null);
+        AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(a, tpl);
+        NotificationService.AlertRowRefs refs = rowRefsFor(a, tpl, decision, null);
+        Optional<NotificationLog> last = lastDelivered(a, refs);
+        if (last.isEmpty() || revisionRef.equals(last.get().getAlertRevisionRef())) {
+            remember(revisionRef);
+            return;
+        }
+        List<String> reached = deliveries.findThreadRecipients(refs.threadKey(), alertKeysOf(a),
+                legacyRefsOf(a), Instant.now().minus(DELIVERY_LOOKBACK));
+        List<UserInfo> to = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String email : reached) {
+            if (email == null || email.isBlank() || !seen.add(email.trim().toLowerCase(Locale.ROOT))) continue;
+            UserInfo u = new UserInfo();
+            u.setUserEmail(email);
+            to.add(u);
+            if (to.size() >= MAX_PUSH_RECIPIENTS) break;
+        }
+        if (!to.isEmpty()) {
+            PushPolicyService.Category category = tpl != null ? pushCategoryFor(a, tpl) : categoryOf(last.get());
+            notificationService.logHazardAlertInboxOnly(to, endingTitle(a, ending), endingBody(a),
+                    a.source() + "-" + a.id(), HAZARD_TARGET_URL, hazardNotificationData(a, decision),
+                    category, Set.of(), refs);
+            log.info("AlertDispatch: {} {}-{} — inbox row for {} recipient(s) of {}",
+                    ending, a.source(), a.id(), to.size(), refs.threadKey());
+        }
+        remember(revisionRef);
+    }
+
+    private void remember(String revisionRef) {
+        if (endingsHandled.size() >= ENDINGS_HANDLED_MAX) endingsHandled.clear();
+        endingsHandled.add(revisionRef);
+    }
+
+    /** "Tornado Warning cancelled" — the issuer's product name and the verified fact, nothing more. */
+    static String endingTitle(NormalizedAlert a, String ending) {
+        String event = a.event() == null || a.event().isBlank() ? "Alert" : a.event().trim();
+        return event + (AlertMateriality.ENDING_SUPERSEDED.equals(ending) ? " replaced" : " cancelled");
+    }
+
+    /** The issuer's words, verbatim: its description, else its headline. */
+    static String endingBody(NormalizedAlert a) {
+        if (a.description() != null && !a.description().isBlank()) return fitDescription(a.description().trim());
+        if (a.headline() != null && !a.headline().isBlank()) return a.headline().trim();
+        return officialTitle(a);
+    }
+
+    private static PushPolicyService.Category categoryOf(NotificationLog row) {
+        if (row.getCategory() == null) return PushPolicyService.Category.NWS_SEVERE_EXTREME;
+        try {
+            return PushPolicyService.Category.valueOf(row.getCategory());
+        } catch (IllegalArgumentException e) {
+            return PushPolicyService.Category.NWS_SEVERE_EXTREME;
+        }
+    }
+
+    private Optional<NotificationLog> lastDelivered(NormalizedAlert a, NotificationService.AlertRowRefs refs) {
+        return deliveries.findLatestDeliveredInThread(refs.threadKey(), alertKeysOf(a), legacyRefsOf(a),
+                Instant.now().minus(DELIVERY_LOOKBACK));
+    }
+
+    /** This message's dedupeKey and those of the messages it names (same source). */
+    static List<String> alertKeysOf(NormalizedAlert a) {
+        List<String> out = new ArrayList<>();
+        String own = AlertThreads.dedupeKeyOf(a);
+        if (own != null) out.add(own);
+        if (a.references() != null) {
+            for (String ref : a.references()) {
+                String k = io.sitprep.sitprepapi.util.AlertIdentity.dedupeKey(a.source(), ref);
+                if (k != null && !out.contains(k)) out.add(k);
+            }
+        }
+        return out;
+    }
+
+    /** The pre-V110 {@code referenceId} form ({@code SOURCE-id}) of the same messages. */
+    static List<String> legacyRefsOf(NormalizedAlert a) {
+        List<String> out = new ArrayList<>();
+        out.add(a.source() + "-" + a.id());
+        if (a.references() != null) {
+            for (String ref : a.references()) {
+                if (ref != null && !ref.isBlank()) {
+                    String r = a.source() + "-" + ref.trim();
+                    if (!out.contains(r)) out.add(r);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The facts the thread last delivered: the stored revision's payload, under
+     * the decision its snapshot recorded (unknown → left out of the
+     * comparison). Null when the row names no stored revision.
+     */
+    AlertMateriality.Facts deliveredFacts(NotificationLog row) {
+        if (row.getAlertRevisionRef() == null || revisions == null) return null;
+        NormalizedAlert payload;
+        try {
+            payload = revisions.findById(row.getAlertRevisionRef())
+                    .map(r -> r.getPayload())
+                    .map(js -> {
+                        try {
+                            return json.readValue(js, NormalizedAlert.class);
+                        } catch (Exception e) {
+                            return null;
+                        }
+                    })
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("AlertDispatch: revision {} unreadable: {}", row.getAlertRevisionRef(), e.getMessage());
+            return null;
+        }
+        if (payload == null) return null;
+        String mode = null, directive = null;
+        if (row.getInterpretationSnapshotId() != null && snapshots != null) {
+            try {
+                var snap = snapshots.findById(row.getInterpretationSnapshotId()).orElse(null);
+                if (snap != null && snap.getDecisionJson() != null) {
+                    JsonNode d = json.readTree(snap.getDecisionJson());
+                    mode = d.hasNonNull("dispatchMode") ? d.get("dispatchMode").asText() : null;
+                    directive = d.hasNonNull("movementDirective") ? d.get("movementDirective").asText() : null;
+                }
+            } catch (Exception e) {
+                log.debug("AlertDispatch: snapshot {} unreadable: {}", row.getInterpretationSnapshotId(), e.getMessage());
+            }
+        }
+        return AlertMateriality.of(payload, matchForAlert(payload).orElse(null), mode, directive);
+    }
+
     /**
      * Fan a life-threatening alert out to every located, push-enabled
      * user within {@link #SEVERE_PUSH_RADIUS_KM} of the alert's
@@ -947,6 +1244,16 @@ public class AlertDispatchService {
                          AlertSafetyPolicy.Decision decision,
                          double[] coord,
                          List<UserInfo> candidates) {
+        pushSevereAlert(a, tpl, decision, coord, candidates, null);
+    }
+
+    /** @param alert the alert every row is about (S2 C5 — V110 columns); null when unknown. */
+    void pushSevereAlert(NormalizedAlert a,
+                         DispatchTemplate tpl,
+                         AlertSafetyPolicy.Decision decision,
+                         double[] coord,
+                         List<UserInfo> candidates,
+                         NotificationService.AlertRowRefs alert) {
         if (candidates == null || candidates.isEmpty()) return;
 
         double alertLat = coord[1];
@@ -1019,7 +1326,10 @@ public class AlertDispatchService {
                     referenceId,
                     HAZARD_TARGET_URL,
                     data,
-                    tpl != null && tpl.sitprep != null && tpl.sitprep.concealmentSensitive);
+                    tpl != null && tpl.sitprep != null && tpl.sitprep.concealmentSensitive,
+                    Set.of(),
+                    category,
+                    alert);
         }
         if (!split.inboxOnly().isEmpty()) {
             notificationService.logHazardAlertInboxOnly(
@@ -1030,7 +1340,8 @@ public class AlertDispatchService {
                     HAZARD_TARGET_URL,
                     data,
                     category,
-                    split.quietHoursDeferred());
+                    split.quietHoursDeferred(),
+                    alert);
         }
         log.info("AlertDispatch: severe alert {} pushed to {} and inboxed silently for {} nearby user(s)",
                 referenceId, split.push().size(), split.inboxOnly().size());

@@ -7,7 +7,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.sitprep.sitprepapi.notifications.NotificationInboxFilter;
+
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -106,6 +109,88 @@ public class NotificationInboxService {
             ws.sendInboxEvent(email, Map.of(
                     "kind", "all-read",
                     "before", cutoff,
+                    "readAt", readAt
+            ));
+        }
+        return updated;
+    }
+
+    // ── S2 C5: server filters, counts, alert threads, cutoff reads ──
+
+    /** Most rows one alert thread returns. A thread is one hazard's updates — tens, not thousands. */
+    static final int MAX_THREAD_ROWS = 200;
+
+    /**
+     * One page under a server filter, keyset {@code (timestamp, id)}: pass the
+     * last row's timestamp as {@code before} and its id as {@code beforeId}
+     * and a row sharing that millisecond is no longer skipped.
+     */
+    public List<NotificationLog> page(String email, NotificationInboxFilter filter,
+                                      Instant since, Instant before, Long beforeId, Integer limit) {
+        int size = (limit == null || limit <= 0) ? 50 : Math.min(limit, MAX_PAGE_SIZE);
+        return repo.findInboxPage(email, filter == null ? NotificationInboxFilter.ALL : filter,
+                since, before, beforeId, size);
+    }
+
+    public NotificationLogRepo.InboxCounts counts(String email) {
+        return repo.countInbox(email);
+    }
+
+    /** Every row of one alert thread for this recipient, newest first. */
+    public List<NotificationLog> thread(String email, String threadKey) {
+        return repo.findThreadRows(email, threadKey, MAX_THREAD_ROWS);
+    }
+
+    /**
+     * R15: read the revisions the reader was SHOWN, up to the server time the
+     * record response gave them. A revision that arrived after it, or one the
+     * screen never rendered, stays unread. The cutoff can't be later than now.
+     *
+     * @return rows marked read
+     */
+    @Transactional
+    public int markAlertThreadRead(String email, String threadKey, Collection<String> revisionRefs,
+                                   Instant cutoff) {
+        if (threadKey == null || threadKey.isBlank() || revisionRefs == null || cutoff == null) return 0;
+        List<String> refs = revisionRefs.stream()
+                .filter(r -> r != null && !r.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (refs.isEmpty()) return 0;
+        Instant now = Instant.now();
+        Instant bound = cutoff.isAfter(now) ? now : cutoff;
+        int updated = repo.markAlertThreadRead(email, threadKey, refs, bound, now);
+        if (updated > 0) {
+            ws.sendInboxEvent(email, Map.of(
+                    "kind", "thread-read",
+                    "threadKey", threadKey,
+                    "before", bound,
+                    "readAt", now
+            ));
+        }
+        return updated;
+    }
+
+    /**
+     * Mark-all-read through the newest row the client saw, by that row's
+     * SERVER timestamp — the device clock never decides. A row that arrived
+     * after it stays unread.
+     *
+     * @return rows marked read, or -1 when the id is not this recipient's row
+     */
+    @Transactional
+    public int markAllReadThrough(String email, Long newestId) {
+        if (newestId == null) return -1;
+        NotificationLog seen = repo.findByIdForUser(newestId, email).orElse(null);
+        if (seen == null || seen.getTimestamp() == null) return -1;
+        Instant readAt = Instant.now();
+        int updated = repo.markAllReadThrough(email, seen.getTimestamp(), seen.getId(), readAt);
+        if (updated > 0) {
+            ws.sendInboxEvent(email, Map.of(
+                    "kind", "all-read",
+                    "before", seen.getTimestamp(),
+                    "throughId", seen.getId(),
                     "readAt", readAt
             ));
         }
