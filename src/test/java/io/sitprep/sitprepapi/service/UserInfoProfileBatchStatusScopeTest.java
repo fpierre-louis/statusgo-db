@@ -107,7 +107,9 @@ class UserInfoProfileBatchStatusScopeTest {
     }
 
     @Test
-    void anOwnerSeesTheSubgroupsBelowTheirGroupButAMemberDoesNot() {
+    void runningAParentGroupIsNotMembershipOfItsSubgroups() {
+        // D14: subgroup counts come from the parent member view's subGroups[];
+        // the batch walks no subgroups, for owners or anyone.
         Group sub = new Group();
         sub.setGroupId("g2");
         sub.setOwnerEmail("lead@x.com");
@@ -120,11 +122,10 @@ class UserInfoProfileBatchStatusScopeTest {
         parent.setAdminEmails(List.of());
         parent.setSubGroupIDs(List.of("g2"));
         when(groupRepo.findByMemberEmail(anyString())).thenReturn(List.of(parent));
-        when(groupRepo.findById("g2")).thenReturn(java.util.Optional.of(sub));
 
-        assertEquals("SAFE", batch("boss@x.com").get("stranger@x.com").userStatus());
-        // A plain member of the parent does not oversee its subgroups.
+        assertNull(batch("boss@x.com").get("stranger@x.com").userStatus());
         assertNull(batch("me@x.com").get("stranger@x.com").userStatus());
+        verify(groupRepo, never()).findById("g2");
     }
 
     @Test

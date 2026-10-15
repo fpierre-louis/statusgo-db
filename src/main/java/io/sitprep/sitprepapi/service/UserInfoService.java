@@ -329,17 +329,18 @@ public class UserInfoService {
      * has a relationship with; anyone else is simply absent, as an unknown
      * address always was (B2 / BE-04, owner decision D7, 2026-10-14).
      *
-     * <p>The relationship set is {@link #statusAudienceFor} (self, everyone
-     * they share a group or household with, and the subgroup walk below groups
-     * they run) plus the join requesters and agency staff of the groups they
-     * run, because the admin roster names both. Until this change the batch
+     * <p>The relationship set is {@link #statusAudienceFor} (self and everyone
+     * they share a group or household with) plus the join requesters and
+     * agency staff of the groups they run, because the admin roster names
+     * both. Until this change the batch
      * answered names and avatars for any 500 addresses to any signed-in
      * account: an "is this address a SitPrep user, and who" oracle.</p>
      *
      * <p>{@code lastActiveAt} never ships. Status still ships to co-members
-     * only (ad4c56a): three live surfaces read it from here and have no
-     * member-view path yet (SubGroups, the map's subgroup rows, the household
-     * crisis timeline). D7's full removal lands when they move.</p>
+     * only (ad4c56a): the household crisis timeline reads it from here. A
+     * parent admin reads subgroups through the member view's
+     * {@code subGroups[]} rollups (counts, no roster), not through this batch
+     * (D14, 2026-10-14).</p>
      */
     @Transactional(readOnly = true)
     public List<ProfileSummaryDto> getRelatedProfileSummaries(List<String> emails, String viewerEmail) {
@@ -425,9 +426,10 @@ public class UserInfoService {
 
     /**
      * The viewer plus everyone they share a group with (member, admin or
-     * owner, in any group including their households), plus everyone in the
-     * subgroups below a group they admin or own. A pending request is not
-     * membership. Lower-cased. Empty for an unknown viewer.
+     * owner, in any group including their households). Running a parent group
+     * is not membership of its subgroups: their counts come from the member
+     * view (D14). A pending request is not membership. Lower-cased. Empty for
+     * an unknown viewer.
      */
     Set<String> statusAudienceFor(String viewerEmail) {
         if (viewerEmail == null || viewerEmail.isBlank()) return Set.of();
@@ -438,26 +440,6 @@ public class UserInfoService {
                 groupRepo.findByAdminEmail(v), groupRepo.findByOwnerEmailIgnoreCase(v))) {
             if (found != null) for (Group g : found) if (g != null) groups.putIfAbsent(g.getGroupId(), g);
         }
-        // An admin or owner also oversees the subgroups below the groups they
-        // run: the subgroup board is how a parent's admin reads those members,
-        // and they are often not members themselves. Walk DOWN only, bounded
-        // like GroupService's no-loop walk.
-        java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
-        for (Group g : groups.values()) {
-            String owner = g.getOwnerEmail() == null ? "" : g.getOwnerEmail().trim().toLowerCase(Locale.ROOT);
-            boolean runs = v.equals(owner) || containsLower(g.getAdminEmails(), v);
-            if (runs && g.getSubGroupIDs() != null) queue.addAll(g.getSubGroupIDs());
-        }
-        int visits = 0;
-        while (!queue.isEmpty() && visits < STATUS_SUBGROUP_WALK_LIMIT) {
-            String id = queue.poll();
-            if (id == null || groups.containsKey(id)) continue;
-            visits++;
-            Group sub = groupRepo.findById(id).orElse(null);
-            if (sub == null) continue;
-            groups.put(id, sub);
-            if (sub.getSubGroupIDs() != null) queue.addAll(sub.getSubGroupIDs());
-        }
         Set<String> out = new HashSet<>();
         out.add(v);
         for (Group g : groups.values()) {
@@ -466,14 +448,6 @@ public class UserInfoService {
             if (g.getOwnerEmail() != null) out.add(g.getOwnerEmail().trim().toLowerCase(Locale.ROOT));
         }
         return out;
-    }
-
-    private static final int STATUS_SUBGROUP_WALK_LIMIT = 500;
-
-    private static boolean containsLower(java.util.Collection<String> emails, String v) {
-        if (emails == null) return false;
-        for (String e : emails) if (e != null && v.equals(e.trim().toLowerCase(Locale.ROOT))) return true;
-        return false;
     }
 
     private static void addAllLower(Set<String> out, java.util.Collection<String> emails) {
