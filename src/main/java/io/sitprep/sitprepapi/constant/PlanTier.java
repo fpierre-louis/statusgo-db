@@ -8,7 +8,7 @@ import java.util.Set;
 
 /**
  * Organization plan tiers — the paid ladder above the free safety
- * experience. See {@code docs/BUSINESS_MODEL.md} "Pricing ladder".
+ * experience. See {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md} "Pricing ladder".
  *
  * <p>Personal / household plans (Free, Family) live on
  * {@code UserInfo.subscription}; THIS enum is the org/group axis,

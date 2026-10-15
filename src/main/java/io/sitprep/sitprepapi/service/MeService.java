@@ -1372,7 +1372,7 @@ public class MeService {
         long done = steps.stream().filter(ReadinessStep::done).count();
         int percent = (int) Math.round((done * 100.0) / steps.size());
 
-        // Personal-task pillar rollup — Phase 1 of BUSINESS_MODEL.md.
+        // Personal-task pillar rollup — Phase 1 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md.
         // Drives the My Readiness card on /home. We count user's
         // personal Post rows (kind="task", groupId=null) grouped by
         // their "pillar:X" tag. FE computes displayed percent using

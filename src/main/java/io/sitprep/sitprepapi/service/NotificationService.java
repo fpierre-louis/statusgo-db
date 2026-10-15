@@ -1071,7 +1071,7 @@ public class NotificationService {
 
     /**
      * Fan out a non-emergency "please check in" ping to a group's
-     * members. Phase 1 of {@code docs/BUSINESS_MODEL.md} — the family
+     * members. Phase 1 of {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md} — the family
      * check-in primitive.
      *
      * <p>Distinct from {@link #notifyGroupAlertChange}: this does NOT

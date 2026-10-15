@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Supply-reminder sweep — Phase 1 of {@code BUSINESS_MODEL.md}.
+ * Supply-reminder sweep — Phase 1 of {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md}.
  *
  * <p>Personal preparedness tasks created from a template with a
  * refresh cadence (water every 6 months, batteries every 12, go-bag

@@ -11,7 +11,7 @@ import java.util.Set;
 
 /**
  * A viewer's role within a group — the formalized Owner / Admin /
- * Member ladder (Phase 4 of docs/BUSINESS_MODEL.md). Resolved from the
+ * Member ladder (Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md). Resolved from the
  * group's {@code ownerEmail} / {@code adminEmails} / {@code memberEmails}.
  *
  * <p>Each role carries a fixed {@link GroupPermission} set; OWNER

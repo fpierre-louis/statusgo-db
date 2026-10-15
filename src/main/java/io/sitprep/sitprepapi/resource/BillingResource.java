@@ -19,7 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 
 /**
- * Stripe billing endpoints — Phase 4 of docs/BUSINESS_MODEL.md.
+ * Stripe billing endpoints — Phase 4 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md.
  *
  * <ul>
  *   <li>{@code POST /api/billing/checkout} — owner starts a subscription;

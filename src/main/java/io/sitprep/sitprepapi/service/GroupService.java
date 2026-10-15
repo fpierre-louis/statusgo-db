@@ -266,7 +266,7 @@ public class GroupService {
     /**
      * Send a non-emergency "please check in" ping to a group's members
      * without flipping the group's alert state. Phase 1 of
-     * {@code docs/BUSINESS_MODEL.md} — the family check-in primitive.
+     * {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md} — the family check-in primitive.
      *
      * <p>Authorization: the caller must be a member of the group. For
      * <b>household</b> groups any member can ping (it's the family —
@@ -1917,7 +1917,7 @@ public class GroupService {
 
     /**
      * Set (or clear) the group's custom logo URL — Phase 4 of
-     * docs/BUSINESS_MODEL.md ("co-branded page"). A null / blank value
+     * SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md ("co-branded page"). A null / blank value
      * reverts the group to its default type emblem. Caller
      * authorization (admin/owner) is enforced at the resource layer.
      */

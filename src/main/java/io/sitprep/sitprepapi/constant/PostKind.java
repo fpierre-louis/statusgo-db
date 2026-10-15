@@ -75,7 +75,7 @@ public enum PostKind {
 
     /**
      * Personal preparedness task. Phase 1 Week 2 of the
-     * {@code BUSINESS_MODEL.md} roadmap — the consolidated personal
+     * {@code SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md} roadmap — the consolidated personal
      * task list at {@code /me/tasks}. Always {@code groupId=null}
      * and {@code requesterEmail=author}. Tagged with
      * {@code pillar:supplies|plan|practice|family} so completion

@@ -113,7 +113,7 @@ public class Post {
      * a group admin. Distinct from {@link #claimedByEmail}: claim is
      * pull (a member takes an open task), assignment is push (an admin
      * gives a specific member a task). Null when unassigned. Phase 3 of
-     * docs/BUSINESS_MODEL.md — "tasks become operational".
+     * SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md — "tasks become operational".
      */
     @Column(name = "assignee_email")
     private String assigneeEmail;
@@ -209,7 +209,7 @@ public class Post {
      * already set. Null until the reminder fires (the common state);
      * null on every non-task row.
      *
-     * <p>Phase 1 of BUSINESS_MODEL.md — supply reminders. A personal
+     * <p>Phase 1 of SitPrep FE docs/guidelines/product/BUSINESS_MODEL.md — supply reminders. A personal
      * task created from a template with a refresh cadence (water every
      * 6 months, batteries every 12) carries a future {@code dueAt};
      * when that date passes, the sweep notifies the owner and stamps
