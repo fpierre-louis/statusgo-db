@@ -11,6 +11,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -195,6 +196,20 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleAllUncaughtException(Exception ex, HttpServletRequest req) {
+        // Spring MVC's own failures carry their status: an unknown route is
+        // NoResourceFoundException (404), a wrong verb is
+        // HttpRequestMethodNotSupportedException (405). Without this they read
+        // as 500 here (build-10 backlog). Unknown group ids already 404 via
+        // ResponseStatusException above; that path is unchanged.
+        if (ex instanceof ErrorResponse er && er.getStatusCode().is4xxClientError()) {
+            HttpStatusCode status = er.getStatusCode();
+            log.warn("Client error {} on {} {}: {}", status.value(),
+                    req.getMethod(), req.getRequestURI(), ex.getClass().getSimpleName());
+            HttpStatus known = HttpStatus.resolve(status.value());
+            String message = known != null ? known.getReasonPhrase() : "Client error";
+            return ResponseEntity.status(status)
+                    .body(buildErrorBody("HTTP_" + status.value(), message, req));
+        }
         // Catch-all for anything that escaped the more-specific handlers above.
         // ResponseStatusException is handled separately so 401/403/404/etc.
         // surface with their real status codes — see handleResponseStatus.

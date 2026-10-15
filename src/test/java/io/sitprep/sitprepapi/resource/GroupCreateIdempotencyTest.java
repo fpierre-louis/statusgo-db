@@ -6,6 +6,7 @@ import io.sitprep.sitprepapi.domain.IdempotencyKey;
 import io.sitprep.sitprepapi.dto.CreateGroupRequest;
 import io.sitprep.sitprepapi.repo.IdempotencyKeyRepo;
 import io.sitprep.sitprepapi.service.GroupService;
+import io.sitprep.sitprepapi.web.FakeIdempotencyRepo;
 import io.sitprep.sitprepapi.web.IdempotencyInterceptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -70,14 +71,7 @@ class GroupCreateIdempotencyTest {
         mapping.setApplicationContext(ctx);
         mapping.afterPropertiesSet();
 
-        Map<IdempotencyKey.PK, IdempotencyKey> store = new HashMap<>();
-        IdempotencyKeyRepo repo = mock(IdempotencyKeyRepo.class);
-        when(repo.findById(any())).thenAnswer(i -> Optional.ofNullable(store.get(i.getArgument(0))));
-        when(repo.save(any(IdempotencyKey.class))).thenAnswer(i -> {
-            IdempotencyKey k = i.getArgument(0);
-            store.put(new IdempotencyKey.PK(k.getCallerEmail(), k.getEndpoint(), k.getKey()), k);
-            return k;
-        });
+        IdempotencyKeyRepo repo = FakeIdempotencyRepo.create();
         IdempotencyInterceptor filter = new IdempotencyInterceptor(repo, new ObjectMapper(),
                 List.<HandlerMapping>of(mapping));
         ReflectionTestUtils.setField(filter, "ttlHours", 24L);
