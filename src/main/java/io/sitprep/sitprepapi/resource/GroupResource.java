@@ -97,12 +97,6 @@ public class GroupResource {
      * (B5); it stays until its last two FE callers (ManageGroup.js,
      * CreateHouseholdGroup.js) move in F5, then it is deleted (BE-01 step 2).
      */
-    @PutMapping("/{groupId}")
-    public ResponseEntity<Group> updateGroup(@PathVariable String groupId, @RequestBody Group groupDetails) {
-        requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.updateGroupByPublicId(groupId, groupDetails));
-    }
-
     /**
      * Set the group's alert, and nothing else.
      *

@@ -67,7 +67,7 @@ public class Group {
      * clear the alert and auto-resolve them after a threshold. Null when
      * the alert has never been activated, or was cleared by an admin.
      *
-     * <p>Set in {@code GroupService.updateGroupFields} on the
+     * <p>Set in {@code GroupService.applyAlertTransition} on the
      * {@code alertBecameActive} branch, cleared on {@code alertBecameInactive}.
      * Pre-existing Active alerts at deploy time will have this null and
      * therefore won't auto-decay until they're flipped manually once —
