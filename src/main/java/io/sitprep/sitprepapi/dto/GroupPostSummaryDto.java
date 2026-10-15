@@ -35,4 +35,11 @@ public class GroupPostSummaryDto {
      * the matching member is found in the group's roster.
      */
     private String pinnedBy;
+
+    /**
+     * True when an owner/admin removed this post (FD-06). The content is then
+     * null, so My Groups can say "Post removed by an admin" instead of a blank
+     * preview line (group page F6, 2026-10-14).
+     */
+    private boolean removedByAdmin;
 }

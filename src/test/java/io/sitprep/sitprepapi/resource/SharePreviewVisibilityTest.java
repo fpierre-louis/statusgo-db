@@ -106,7 +106,7 @@ class SharePreviewVisibilityTest {
         when(groupService.getGroupByPublicId("hh-1")).thenReturn(hh);
         ResponseEntity<?> res = resource.shareGroup("hh-1", "Mozilla/5.0 (iPhone)");
         assertEquals(302, res.getStatusCode().value());
-        assertTrue(String.valueOf(res.getHeaders().getLocation()).contains("/joingroup?groupId=hh-1"));
+        assertTrue(String.valueOf(res.getHeaders().getLocation()).contains("/join-group?groupId=hh-1"));
     }
 
     @Test
@@ -126,8 +126,20 @@ class SharePreviewVisibilityTest {
 
         String location = String.valueOf(res.getHeaders().getLocation());
         assertEquals(302, res.getStatusCode().value());
-        assertTrue(location.contains("/joingroup?groupId=grp-3"));
+        assertTrue(location.contains("/join-group?groupId=grp-3"));
         assertTrue(location.contains("&invite=invite-123"));
+    }
+
+    @Test
+    void aDeadInviteSendsAPersonToTheJoinPagesStoppedWorkingCard() {
+        // F6 / JN-07: the one join page reads ?inviteError=; /joingroup ignored it.
+        when(inviteService.validate("dead-1"))
+                .thenReturn(new io.sitprep.sitprepapi.service.GroupInviteService.ValidationResult(
+                        io.sitprep.sitprepapi.service.GroupInviteService.InviteState.REVOKED,
+                        null));
+        ResponseEntity<?> res = resource.shareByInvite("dead-1", "Mozilla/5.0 (iPhone)");
+        assertEquals(302, res.getStatusCode().value());
+        assertTrue(String.valueOf(res.getHeaders().getLocation()).endsWith("/join-group?inviteError=revoked"));
     }
 
     @Test

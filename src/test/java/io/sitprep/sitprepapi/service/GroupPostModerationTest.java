@@ -30,6 +30,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -243,5 +244,35 @@ class GroupPostModerationTest {
 
         comments.deleteOrRemoveAsCaller(11L, MEMBER);
         verify(commentRepo).deleteById(11L);
+    }
+
+    @Test
+    void myGroupsLatestPreviewSaysARemovedPostWasRemoved() {
+        // F6 / FD-06: the latest-post summary carries removedByAdmin and no text.
+        GroupPost p = memberPost();
+        p.setContent("");
+        p.setTimestamp(Instant.now());
+        when(postRepo.findLatestPostsByGroupIds(List.of(GROUP_ID))).thenReturn(List.of(p));
+        when(userInfoRepo.findByUserEmailIn(anyList())).thenReturn(List.of());
+        when(removals.removedPosts(anyCollection())).thenReturn(Map.of(7L, Instant.now()));
+
+        var out = service.getLatestPostsForGroups(List.of(GROUP_ID), MEMBER);
+
+        assertTrue(out.get(GROUP_ID).isRemovedByAdmin());
+        assertNull(out.get(GROUP_ID).getContent());
+    }
+
+    @Test
+    void myGroupsLatestPreviewKeepsAnOrdinaryPost() {
+        GroupPost p = memberPost();
+        p.setTimestamp(Instant.now());
+        when(postRepo.findLatestPostsByGroupIds(List.of(GROUP_ID))).thenReturn(List.of(p));
+        when(userInfoRepo.findByUserEmailIn(anyList())).thenReturn(List.of());
+        when(removals.removedPosts(anyCollection())).thenReturn(Map.of());
+
+        var out = service.getLatestPostsForGroups(List.of(GROUP_ID), MEMBER);
+
+        assertFalse(out.get(GROUP_ID).isRemovedByAdmin());
+        assertEquals("rude words", out.get(GROUP_ID).getContent());
     }
 }

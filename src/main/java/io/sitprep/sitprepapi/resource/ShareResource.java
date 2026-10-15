@@ -37,9 +37,9 @@ import java.util.regex.Pattern;
  *       HTML. No redirect — Facebook treats meta-refresh as a redirect
  *       and re-scrapes the destination, which would lose our tags.</li>
  *   <li><b>Humans</b> (real browsers + the SPA) → 302 redirect to the
- *       SPA's {@code /joingroup?groupId=...} handler. The SPA reads
- *       the groupId, prompts auth if needed, lands the user on the
- *       join-confirmation page.</li>
+ *       SPA's one join page, {@code /join-group?groupId=...[&invite=...]}
+ *       (group page F6, JN-07). It shows the preview before sign-in, then
+ *       one Join. {@code /joingroup} is only an SPA alias now.</li>
  * </ul>
  *
  * <h3>Why not just redirect everyone</h3>
@@ -184,7 +184,7 @@ public class ShareResource {
             if (!isBot) {
                 HttpHeaders h = new HttpHeaders();
                 h.setLocation(URI.create(baseOrigin
-                        + "/joingroup?inviteError=" + result.state().name().toLowerCase()));
+                        + "/join-group?inviteError=" + result.state().name().toLowerCase()));
                 h.setCacheControl("no-store");
                 return ResponseEntity.status(302).headers(h).build();
             }
@@ -196,7 +196,7 @@ public class ShareResource {
                     "This invite is no longer valid. Ask whoever sent it to share a fresh one.",
                     baseOrigin + "/images/sitprep-share-default.png",
                     baseOrigin + "/share/i/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8),
-                    baseOrigin + "/joingroup"
+                    baseOrigin + "/join-group"
             );
             HttpHeaders h = new HttpHeaders();
             h.setContentType(MediaType.TEXT_HTML);
@@ -427,7 +427,7 @@ public class ShareResource {
      * Common rendering pipeline for both share entry points
      * ({@code /share/group/{id}} and {@code /share/i/{token}}).
      * Looks up the group, then either:
-     *   - 302s humans to the SPA's {@code /joingroup?groupId=...} handler
+     *   - 302s humans to the SPA's one join page, {@code /join-group?groupId=...}
      *   - emits OG-tagged HTML for bots
      *
      * <p>If {@code inviteId} is non-null, the {@code shareUrl} embedded
@@ -441,9 +441,9 @@ public class ShareResource {
                                            String baseOrigin) {
         String safeGroupId = URLEncoder.encode(groupId == null ? "" : groupId, StandardCharsets.UTF_8);
         String spaUrl = inviteId == null
-                ? baseOrigin + "/joingroup?groupId=" + safeGroupId
+                ? baseOrigin + "/join-group?groupId=" + safeGroupId
                 : baseOrigin
-                + "/joingroup?groupId=" + safeGroupId
+                + "/join-group?groupId=" + safeGroupId
                 + "&invite=" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8);
         String shareUrl = inviteId != null
                 ? baseOrigin + "/share/i/" + URLEncoder.encode(inviteId, StandardCharsets.UTF_8)
