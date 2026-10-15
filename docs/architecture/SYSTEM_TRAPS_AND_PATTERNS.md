@@ -170,6 +170,29 @@ immutable once applied.)
 
 ---
 
+### T-5 · A long dynamic JPQL predicate can OOM the 256 MB prod heap in Hibernate's HQL parser
+
+**Symptom / context:** S2 alerts deploy v699 (`a23239c`, 2026-10-15) went down about 2 minutes after boot.
+The first `GET /api/notifications/counts` never returned (H12 after 30 s), then `OutOfMemoryError: Java heap
+space`. Rolled back to v698. Full `mvnw test` (2498/0) and the Postgres IT had both passed.
+
+**Mechanism:** the inbox `needs_response` predicate was a long OR of `IN :list` clauses, built at runtime
+and nested four times inside `SUM(CASE WHEN … )` in one JPQL string. Hibernate 6 parses HQL with ANTLR, and
+that shape pushed it into full-context prediction: the heap filled with `org.antlr.v4.runtime.atn.ATNConfig`
+(284k instances in the histogram). Tests never saw it because surefire runs on a default heap (about a
+quarter of RAM). Prod runs `-Xmx256m` with about 120 MB live after boot.
+
+**Fix / standing rule:**
+- Write long or dynamically assembled predicates as **native SQL** (`em.createNativeQuery`); they are never
+  HQL-parsed. Keep JPQL for short, static queries.
+- Before pushing a BE change that adds a new query shape, run the app or IT at the prod heap. Either
+  `-DargLine="-Xmx256m"` on the IT, or `spring-boot:run` with
+  `-Dspring-boot.run.jvmArguments="-Xmx256m -XX:+UseSerialGC"` against a local throwaway DB (never the
+  `local` profile). Hit the new endpoints and watch `-Xlog:gc`.
+- `jcmd <pid> GC.class_histogram` names the culprit in seconds.
+
+---
+
 ## Template for new entries
 
 ### T-N · <one-line trap name>
