@@ -205,15 +205,42 @@ public class LiveActivityPushService {
      * dismissed {@link #DISMISS_AFTER} later; the tokens are then retired.
      *
      * @param startedAt the ended check-in's start, captured before the clear
-     * @param reason    {@link LiveActivityStateBuilder#REASON_MANUAL} or {@link LiveActivityStateBuilder#REASON_DECAY}
+     * @param reason    {@link LiveActivityStateBuilder#REASON_MANUAL}, {@link LiveActivityStateBuilder#REASON_DECAY}
+     *                  or {@link LiveActivityStateBuilder#REASON_DELETED}
      * @param actorEmail who ended it (null for the sweep); only ever rendered as "you"
      */
     public void situationEnded(String groupId, Instant startedAt, String reason, String actorEmail) {
+        endSituation(groupId, startedAt, reason, actorEmail, null);
+    }
+
+    /**
+     * The check-in ended because its group is being deleted (BE-09, B5 review
+     * 2026-10-14). {@code ended} was built inside the delete, before the row
+     * went ({@link LiveActivityStateBuilder#endedSituation}): by the time this
+     * runs the group is gone, the builder finds nothing, and without the
+     * snapshot each card would only be retired, never ended (it would go stale
+     * and stay on the lock screen until the app was opened). Register it
+     * before the ordinary end hook: the first end retires the tokens, so the
+     * second finds none and does nothing.
+     */
+    public void situationEnded(Situation ended, String reason, String actorEmail) {
+        if (ended == null) return;
+        endSituation(ended.groupId(), ended.startedAt(), reason, actorEmail, ended);
+    }
+
+    /**
+     * Both end paths, one housekeeping: the pending coalesced update is
+     * cancelled here, and {@code lastSent} is cleared by
+     * {@link #sendSituationEnd} on this service's thread. {@code snapshot}
+     * null reads the ended situation at send time.
+     */
+    private void endSituation(String groupId, Instant startedAt, String reason, String actorEmail,
+                              Situation snapshot) {
         if (groupId == null || groupId.isBlank()) return;
         try {
             coalescer.cancel(LiveActivityUpdateCoalescer.key(LiveActivityToken.KIND_SITUATION, groupId));
         } catch (RuntimeException ignored) { }
-        run("end " + groupId, () -> sendSituationEnd(groupId, startedAt, reason, actorEmail));
+        run("end " + groupId, () -> sendSituationEnd(groupId, startedAt, reason, actorEmail, snapshot));
     }
 
     private void run(String what, Runnable task) {
@@ -270,13 +297,21 @@ public class LiveActivityPushService {
     }
 
     void sendSituationEnd(String groupId, Instant startedAt, String reason, String actorEmail) {
+        sendSituationEnd(groupId, startedAt, reason, actorEmail, null);
+    }
+
+    /** {@code snapshot}: the ended situation built before its group was deleted; null reads it now. */
+    private void sendSituationEnd(String groupId, Instant startedAt, String reason, String actorEmail,
+                                  Situation snapshot) {
         Sent prev = lastSent.remove(groupId);
         List<LiveActivityToken> live = tokens.findLiveUpdateTokens(LiveActivityToken.KIND_SITUATION, groupId);
         if (live.isEmpty()) return;
         Instant now = Instant.now();
         List<Long> ids = live.stream().map(LiveActivityToken::getId).toList();
 
-        Optional<Situation> found = builder.get().endedSituation(groupId, startedAt);
+        Optional<Situation> found = snapshot != null
+                ? Optional.of(snapshot)
+                : builder.get().endedSituation(groupId, startedAt);
         if (found.isEmpty()) {
             // The group is gone: there are no honest numbers to end on. Retire
             // the tokens; the card goes stale and says so, and the app ends it.

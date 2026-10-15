@@ -57,6 +57,8 @@ public class LiveActivityStateBuilder {
     public static final String REASON_MANUAL = "manual";
     /** The 48 h decay sweep ended it. */
     public static final String REASON_DECAY = "decay";
+    /** The group was deleted while its check-in ran (BE-09). */
+    public static final String REASON_DELETED = "deleted";
 
     /** {@code SituationAttributes.ContentState}'s keys, in declaration order. */
     public static final List<String> CONTENT_STATE_KEYS = List.of(
@@ -215,6 +217,8 @@ public class LiveActivityStateBuilder {
             if (secs > 0) after = " after " + formatDuration(secs);
         }
         if (REASON_DECAY.equals(reason)) return "Ended automatically" + after + ".";
+        // Never says who removed it, the viewer included: the card only says why it ended.
+        if (REASON_DELETED.equals(reason)) return "This group was removed.";
         if (endedByViewer) return "Ended by you" + after + ".";
         return "Ended" + after + ".";
     }

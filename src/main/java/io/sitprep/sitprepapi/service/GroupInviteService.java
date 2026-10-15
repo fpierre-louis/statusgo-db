@@ -257,13 +257,29 @@ public class GroupInviteService {
     }
 
     private boolean issuerStillAdmin(GroupInvite invite, String groupId) {
-        String issuer = invite.getIssuedByEmail();
-        if (issuer == null || issuer.isBlank()) return false;
         try {
-            return GroupRole.fromGroup(groupService.getGroupByPublicId(groupId), issuer).isAtLeastAdmin();
+            return issuerStillAdmin(invite, groupService.getGroupByPublicId(groupId));
         } catch (RuntimeException e) {
             return false; // a missing group is refused by the join itself
         }
+    }
+
+    /** The same rule against a group already in hand (the share link and its list read it per row). */
+    private static boolean issuerStillAdmin(GroupInvite invite, Group g) {
+        String issuer = invite.getIssuedByEmail();
+        if (issuer == null || issuer.isBlank() || g == null) return false;
+        return GroupRole.fromGroup(g, issuer).isAtLeastAdmin();
+    }
+
+    /**
+     * Whether redeeming this token joins directly. A household token always
+     * does ({@link #redeemHousehold}: the token is the admin's approval); an
+     * org token only while its issuer is still an owner or admin
+     * ({@link #join}). The share link and the list report THIS, so they can
+     * never call a link "approving" that the redeem would treat as a request.
+     */
+    private static boolean approves(GroupInvite invite, Group g) {
+        return isHousehold(g) || issuerStillAdmin(invite, g);
     }
 
     // ------------------------------------------------------------------
@@ -276,11 +292,17 @@ public class GroupInviteService {
      * collected live tokens nobody could see or revoke.
      *
      * <ul>
-     *   <li><b>Owner/admin:</b> the group's current link, reused while it is
-     *       live and minted when there is none; its expiry slides out to
-     *       {@link #CURRENT_TTL} on each call. An org link is unlimited; a
-     *       household link is single-use (the household rule: one person per
-     *       token), so the next call after it is used mints the next one.</li>
+     *   <li><b>Owner/admin of an org:</b> the group's current link, reused
+     *       while it is live and still approving, minted when there is none;
+     *       its expiry slides out to {@link #CURRENT_TTL} on each call. A live
+     *       link whose issuer has since stepped down is never handed out as
+     *       current: redeeming it is only a request (JN-20), so a fresh one is
+     *       minted (the old one stays live, as a request link, until it
+     *       expires or a Reset revokes it).</li>
+     *   <li><b>Owner/admin of a household:</b> a NEW single-use link on every
+     *       call (the household rule: one person per token). Reusing one would
+     *       hand the same one-person link to the spouse and then the teen, and
+     *       the second would hit EXHAUSTED (B5 review 2026-10-14).</li>
      *   <li><b>Org member:</b> the plain {@code /share/group/{id}} link, no
      *       token and no write. It doesn't approve anyone: a private group
      *       still asks an admin (D20).</li>
@@ -301,9 +323,12 @@ public class GroupInviteService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Ask an admin for the invite link");
         }
         Instant now = Instant.now();
+        if (household) {
+            return linkDto(mint(g.getGroupId(), caller, CURRENT_TTL, 1), g, true, true);
+        }
         GroupInvite current = currentOf(g, now);
         if (current == null) {
-            current = mint(g.getGroupId(), caller, CURRENT_TTL, household ? 1 : null);
+            current = mint(g.getGroupId(), caller, CURRENT_TTL, null);
         } else if (current.getExpiresAt() == null || current.getExpiresAt().isBefore(now.plus(CURRENT_TTL))) {
             current.setExpiresAt(now.plus(CURRENT_TTL));
             current = inviteRepo.save(current);
@@ -349,11 +374,17 @@ public class GroupInviteService {
                 .toList();
     }
 
-    /** The newest live share link of the group's kind, or null. */
+    /**
+     * The newest live share link of the group's kind that still approves
+     * ({@link #approves}), or null. A link from a former admin is skipped: it
+     * would be handed out as the group's link while every redeem of it lands
+     * in the request queue.
+     */
     private GroupInvite currentOf(Group g, Instant now) {
         boolean household = isHousehold(g);
         return inviteRepo.findActiveByGroup(g.getGroupId(), now).stream() // newest first
                 .filter(i -> isShareLink(i, household))
+                .filter(i -> approves(i, g))
                 .findFirst()
                 .orElse(null);
     }
@@ -365,7 +396,7 @@ public class GroupInviteService {
 
     private static GroupInviteLinkDto linkDto(GroupInvite i, Group g, boolean current, boolean canReset) {
         String path = (isHousehold(g) ? "/share/household/" : "/share/i/") + i.getId();
-        return new GroupInviteLinkDto(i.getId(), path, true, current, canReset,
+        return new GroupInviteLinkDto(i.getId(), path, approves(i, g), current, canReset,
                 i.getIssuedAt(), i.getExpiresAt(), i.getMaxUses(),
                 i.getUsedCount() == null ? 0 : i.getUsedCount());
     }

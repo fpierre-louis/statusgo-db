@@ -22,6 +22,15 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import io.sitprep.sitprepapi.resource.GroupResource;
 import io.sitprep.sitprepapi.websocket.GroupTopicEvictor;
 import io.sitprep.sitprepapi.websocket.WebSocketMessageSender;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.api.client.json.gson.GsonFactory;
+import com.google.firebase.messaging.Message;
+import io.sitprep.sitprepapi.domain.LiveActivityToken;
+import io.sitprep.sitprepapi.dto.CheckInRollupDto;
+import io.sitprep.sitprepapi.repo.LiveActivityTokenRepo;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,9 +124,7 @@ class GroupDeleteLifecycleTest {
         groupService.setLiveActivities(liveActivities);
         ObjectProvider<GroupTopicEvictor> evictorProvider = mock(ObjectProvider.class);
         when(evictorProvider.getIfAvailable()).thenReturn(evictor);
-        deletion = new GroupDeletionService(groupRepo, userInfoRepo, groupService, provisioning,
-                inviteRepo, redemptionRepo, muteRepo, readRepo, postRepo, commentRepo,
-                postReactionRepo, commentReactionRepo, evictorProvider);
+        deletion = newDeletion(evictorProvider, null, null);
 
         when(groupRepo.save(any(Group.class))).thenAnswer(i -> i.getArgument(0));
         when(userInfoRepo.save(any(UserInfo.class))).thenAnswer(i -> i.getArgument(0));
@@ -154,6 +161,21 @@ class GroupDeleteLifecycleTest {
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private GroupDeletionService newDeletion(ObjectProvider<GroupTopicEvictor> evictorProvider,
+                                             LiveActivityStateBuilder state, LiveActivityPushService la) {
+        ObjectProvider<LiveActivityStateBuilder> stateProvider = mock(ObjectProvider.class);
+        when(stateProvider.getIfAvailable()).thenReturn(state);
+        ObjectProvider<LiveActivityPushService> laProvider = mock(ObjectProvider.class);
+        when(laProvider.getIfAvailable()).thenReturn(la);
+        return new GroupDeletionService(groupRepo, userInfoRepo, groupService, provisioning,
+                inviteRepo, redemptionRepo, muteRepo, readRepo, postRepo, commentRepo,
+                postReactionRepo, commentReactionRepo, evictorProvider, stateProvider, laProvider);
     }
 
     private static UserInfo user(String email, String base, Set<String> joined, Set<String> managed) {
@@ -181,6 +203,75 @@ class GroupDeleteLifecycleTest {
         // The Live Activity end hook fires with the start of the check-in that ended.
         verify(liveActivities).situationEnded("hh-1", started, LiveActivityStateBuilder.REASON_MANUAL, OWNER);
         verify(groupRepo).delete(hh);
+    }
+
+    /**
+     * The real push service, with a real commit order: both end hooks run
+     * after the commit, when the row is gone. The card must still get an
+     * APNs "end" (B5 review: before the fix the group-gone branch retired the
+     * tokens and sent nothing, so the card stayed on the lock screen).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void deletingMidCheckInSendsTheLockScreenCardItsEnd() throws Exception {
+        Instant started = Instant.now().minusSeconds(20 * 60);
+        hh.setAlert("Active");
+        hh.setAlertActivatedAt(started);
+
+        // The builder answers only while the row exists, like the real one.
+        boolean[] deleted = {false};
+        org.mockito.Mockito.doAnswer(i -> { deleted[0] = true; return null; }).when(groupRepo).delete(hh);
+        LiveActivityStateBuilder state = mock(LiveActivityStateBuilder.class);
+        CheckInRollupDto rollup = new CheckInRollupDto("hh-1", "The Ruiz household", true, started, 3, 2,
+                2, 0, 0, 1, List.of(), null);
+        LiveActivityStateBuilder.Situation situation = new LiveActivityStateBuilder.Situation(
+                "hh-1", "The Ruiz household", "Household", rollup, started, null, false, null);
+        when(state.endedSituation(eq("hh-1"), any())).thenAnswer(i ->
+                deleted[0] ? Optional.empty() : Optional.of(situation));
+
+        LiveActivityTokenRepo tokenRepo = mock(LiveActivityTokenRepo.class);
+        LiveActivityToken t = new LiveActivityToken();
+        t.setId(7L);
+        t.setUserEmail(KID);
+        t.setKind("situation");
+        t.setTokenType("update");
+        t.setReferenceId("hh-1");
+        t.setApnsToken("abcdef0123456789");
+        t.setFcmToken("fcm-7");
+        List<LiveActivityToken> live = new ArrayList<>(List.of(t));
+        when(tokenRepo.findLiveUpdateTokens("situation", "hh-1")).thenAnswer(i -> new ArrayList<>(live));
+        org.mockito.Mockito.doAnswer(i -> { live.clear(); return 1; })
+                .when(tokenRepo).endByIds(anyList(), any());
+        List<Message> sent = new ArrayList<>();
+        LiveActivityPushService la = new LiveActivityPushService(tokenRepo, () -> state, email -> false,
+                m -> { sent.add(m); return "ok"; },
+                (task, delay) -> { }, Runnable::run, java.time.Duration.ofSeconds(10),
+                LiveActivityPushService.DEFAULT_APNS_TOPIC, null);
+        groupService.setLiveActivities(la);
+        ObjectProvider<GroupTopicEvictor> evictorProvider = mock(ObjectProvider.class);
+        deletion = newDeletion(evictorProvider, state, la);
+
+        // A transaction: hooks wait for the commit.
+        TransactionSynchronizationManager.initSynchronization();
+        deletion.delete("hh-1", OWNER, GroupDeletionService.Posts.KEEP);
+        assertThat(sent).as("nothing goes out before the commit").isEmpty();
+        assertThat(deleted[0]).isTrue();
+        for (TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
+            sync.afterCommit();
+        }
+
+        assertThat(sent).hasSize(1);
+        JsonNode msg = new ObjectMapper().readTree(GsonFactory.getDefaultInstance().toString(sent.get(0)));
+        // The end reaches the token that existed before the delete: the delete
+        // leaves live_activity_token alone, the end path reads and retires it.
+        assertThat(msg.path("token").asText()).isEqualTo("fcm-7");
+        assertThat(msg.path("apns").path("live_activity_token").asText()).isEqualTo("abcdef0123456789");
+        JsonNode aps = msg.path("apns").path("payload").path("aps");
+        assertThat(aps.path("event").asText()).isEqualTo("end");
+        assertThat(aps.path("content-state").path("phase").asText()).isEqualTo("ended");
+        assertThat(aps.path("content-state").path("accounted").asInt()).isEqualTo(2);
+        assertThat(aps.path("content-state").path("note").asText()).isEqualTo("This group was removed.");
+        verify(tokenRepo).endByIds(eq(List.of(7L)), any()); // once: the ordinary hook then finds no tokens
     }
 
     @Test

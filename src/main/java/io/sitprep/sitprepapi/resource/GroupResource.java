@@ -251,7 +251,9 @@ public class GroupResource {
     @GetMapping("/{groupId}")
     public com.fasterxml.jackson.databind.JsonNode getGroupById(@PathVariable String groupId) {
         String caller = AuthUtils.requireAuthenticatedEmail();
-        return pageFor(groupService.getGroupByPublicId(groupId), caller);
+        // An unknown id (and the deleted /groups/admin, which now lands here)
+        // is a 404, the same conversion the PATCHes below use; it was a 500.
+        return pageFor(notFoundIfMissing(() -> groupService.getGroupByPublicId(groupId)), caller);
     }
 
     /** The group page projection for {@code caller}: what GET answers, and what the PATCHes return. */

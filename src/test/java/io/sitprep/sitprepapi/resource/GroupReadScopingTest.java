@@ -104,6 +104,17 @@ class GroupReadScopingTest {
         return resource.getGroupById(GROUP_ID);
     }
 
+    /** An unknown id (and the deleted /groups/admin, which now routes here) is a 404, not a 500 (B5 review). */
+    @Test
+    void anUnknownIdIsNotFound() {
+        when(groupService.getGroupByPublicId("no-such-group"))
+                .thenThrow(new RuntimeException("Group not found for groupId: no-such-group"));
+        authenticateAs(STRANGER);
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> resource.getGroupById("no-such-group"));
+        assertEquals(HttpStatus.NOT_FOUND, e.getStatusCode());
+    }
+
     @Test
     void strangerGetsNoRoster() {
         JsonNode n = read(STRANGER);

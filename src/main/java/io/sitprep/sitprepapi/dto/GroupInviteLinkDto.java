@@ -14,10 +14,12 @@ import java.time.Instant;
  * does, so a native shell and the web build share one answer.</p>
  *
  * @param id        the token; null for the non-approving group link
- * @param approving true when redeeming it lets the person straight in (an
- *                  owner/admin issued it, D19); false for the plain group
- *                  link a member shares, which is still a request for a
- *                  private group (D20)
+ * @param approving true when redeeming it lets the person straight in: a
+ *                  household token, or an org token whose issuer is STILL an
+ *                  owner/admin (D19, read at answer time, the same rule the
+ *                  redeem applies); false for the plain group link a member
+ *                  shares (D20) and for a token from a former admin, both of
+ *                  which are only a request for a private group
  * @param current   the group's one share link (the one the sheet shows and
  *                  "Reset" replaces)
  * @param canReset  whether the caller may reset it (owner/admin)

@@ -48,8 +48,14 @@ import java.util.Set;
  * <p>Now, in order:</p>
  * <ol>
  *   <li>A running check-in ends through {@link GroupService#setAlert} — the
- *       one alert path, so the frame, the household log and the Live
- *       Activity end hook all happen exactly as for a manual end.</li>
+ *       one alert path, so the frame and the household log happen exactly
+ *       as for a manual end. The Live Activity is the exception: its end
+ *       hook reads the group AFTER the commit, when the row is gone, and
+ *       would only retire the tokens (no "end" push; the card stays on the
+ *       lock screen, stale). So the ended situation is built here first,
+ *       while the group still exists, and handed to
+ *       {@link LiveActivityPushService#situationEnded(LiveActivityStateBuilder.Situation, String, String)}
+ *       ahead of the ordinary hook (B5 review 2026-10-14).</li>
  *   <li>Parent and child groups drop the link on their side.</li>
  *   <li>Everyone on the roster loses the id from their joined/managed ids.</li>
  *   <li>Invites and their redemptions, mute prefs and read state are
@@ -99,6 +105,8 @@ public class GroupDeletionService {
     private final GroupPostReactionRepo postReactionRepo;
     private final GroupPostCommentReactionRepo commentReactionRepo;
     private final ObjectProvider<GroupTopicEvictor> topicEvictor;
+    private final ObjectProvider<LiveActivityStateBuilder> liveActivityState;
+    private final ObjectProvider<LiveActivityPushService> liveActivities;
 
     public GroupDeletionService(GroupRepo groupRepo,
                                 UserInfoRepo userInfoRepo,
@@ -112,7 +120,9 @@ public class GroupDeletionService {
                                 GroupPostCommentRepo commentRepo,
                                 GroupPostReactionRepo postReactionRepo,
                                 GroupPostCommentReactionRepo commentReactionRepo,
-                                ObjectProvider<GroupTopicEvictor> topicEvictor) {
+                                ObjectProvider<GroupTopicEvictor> topicEvictor,
+                                ObjectProvider<LiveActivityStateBuilder> liveActivityState,
+                                ObjectProvider<LiveActivityPushService> liveActivities) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.groupService = groupService;
@@ -126,6 +136,8 @@ public class GroupDeletionService {
         this.postReactionRepo = postReactionRepo;
         this.commentReactionRepo = commentReactionRepo;
         this.topicEvictor = topicEvictor;
+        this.liveActivityState = liveActivityState;
+        this.liveActivities = liveActivities;
     }
 
     /**
@@ -143,6 +155,7 @@ public class GroupDeletionService {
         // 1. The check-in ends the one way a check-in ends.
         boolean ended = false;
         if ("Active".equalsIgnoreCase(g.getAlert())) {
+            endLiveActivitiesFromSnapshot(id, g.getAlertActivatedAt(), caller);
             g = groupService.setAlert(id, false, caller);
             ended = true;
         }
@@ -218,6 +231,39 @@ public class GroupDeletionService {
                 mutes.size(), reads.size(), postsDeleted);
         log.info("Group {} deleted by its owner: {}", id, result);
         return result;
+    }
+
+    /**
+     * Build the ended situation now, while the row exists, and send the Live
+     * Activity "end" from it after the commit. Registered BEFORE setAlert's
+     * own end hook (and ordered first), so it runs first on the push thread
+     * and retires the tokens; the ordinary hook then finds none (the push
+     * executor is one thread, so the two run in that order). The delete never
+     * touches {@code live_activity_token} (no foreign key to {@code groups};
+     * {@code reference_id} is a plain id), so the tokens that existed before
+     * the delete are still there for this end to reach and retire.
+     */
+    private void endLiveActivitiesFromSnapshot(String groupId, java.time.Instant startedAt, String caller) {
+        LiveActivityPushService la = liveActivities.getIfAvailable();
+        LiveActivityStateBuilder state = liveActivityState.getIfAvailable();
+        if (la == null || state == null) return;
+        LiveActivityStateBuilder.Situation snapshot;
+        try {
+            snapshot = state.endedSituation(groupId, startedAt).orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("Group {} delete: could not build the Live Activity end state: {}", groupId, e.getMessage());
+            return;
+        }
+        if (snapshot == null) return;
+        Runnable send = () -> la.situationEnded(snapshot, LiveActivityStateBuilder.REASON_DELETED, caller);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public int getOrder() { return org.springframework.core.Ordered.HIGHEST_PRECEDENCE; }
+                @Override public void afterCommit() { send.run(); }
+            });
+        } else {
+            send.run();
+        }
     }
 
     /** Remove {@code deletedId} from the other group's link list. 1 when it was there. */

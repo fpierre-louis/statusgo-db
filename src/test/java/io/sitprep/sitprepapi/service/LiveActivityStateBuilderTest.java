@@ -186,6 +186,11 @@ class LiveActivityStateBuilderTest {
         assertThat(LiveActivityStateBuilder.endedNote("decay", false, START, START.plus(Duration.ofHours(48))))
                 .isEqualTo("Ended automatically after 48 h.");
         assertThat(LiveActivityStateBuilder.endedNote("manual", true, null, end)).isEqualTo("Ended by you.");
+        // A deleted group: why it ended, never who (not even "you").
+        assertThat(LiveActivityStateBuilder.endedNote(LiveActivityStateBuilder.REASON_DELETED, true, START, end))
+                .isEqualTo("This group was removed.");
+        assertThat(LiveActivityStateBuilder.endedNote(LiveActivityStateBuilder.REASON_DELETED, false, START, end))
+                .isEqualTo("This group was removed.");
     }
 
     @Test

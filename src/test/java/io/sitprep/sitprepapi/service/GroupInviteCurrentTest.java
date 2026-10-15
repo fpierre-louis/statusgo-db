@@ -165,16 +165,38 @@ class GroupInviteCurrentTest {
     }
 
     @Test
-    void aHouseholdLinkIsSingleUseAndRollsOverOnceUsed() {
-        GroupInviteLinkDto first = service.currentLink("hh-1", OWNER);
-        assertThat(first.path()).isEqualTo("/share/household/" + first.id());
-        assertThat(first.maxUses()).isEqualTo(1);
-        assertThat(service.currentLink("hh-1", OWNER).id()).isEqualTo(first.id());
+    void aHouseholdGetsANewSingleUseLinkOnEveryShare() {
+        // The spouse, then the teen: two shares, two one-person links. Reusing
+        // one would leave the second person EXHAUSTED (B5 review).
+        GroupInviteLinkDto spouse = service.currentLink("hh-1", OWNER);
+        GroupInviteLinkDto teen = service.currentLink("hh-1", ADMIN);
 
-        store.get(0).setUsedCount(1); // someone joined with it
-        GroupInviteLinkDto next = service.currentLink("hh-1", OWNER);
-        assertThat(next.id()).isNotEqualTo(first.id());
+        assertThat(spouse.path()).isEqualTo("/share/household/" + spouse.id());
+        assertThat(spouse.maxUses()).isEqualTo(1);
+        assertThat(teen.maxUses()).isEqualTo(1);
+        assertThat(teen.id()).isNotEqualTo(spouse.id());
+        assertThat(spouse.approving()).isTrue();
         assertThat(store).hasSize(2);
+        assertThat(store).allSatisfy(v -> assertThat(v.getRevokedAt()).isNull()); // both still redeemable
+    }
+
+    @Test
+    void aLinkFromAFormerAdminIsNeverHandedOutAsTheCurrentApprovingLink() {
+        Instant now = Instant.now();
+        GroupInvite stale = seed("old-admin", "g-1", null, now.minus(Duration.ofDays(1)));
+        stale.setIssuedByEmail("stepped-down@x.com");
+
+        GroupInviteLinkDto link = service.currentLink("g-1", ADMIN);
+
+        assertThat(link.id()).isNotEqualTo("old-admin");
+        assertThat(link.approving()).isTrue();
+        assertThat(store).hasSize(2); // a fresh one was minted; the old one is left as it was
+        assertThat(stale.getRevokedAt()).isNull();
+
+        List<GroupInviteLinkDto> rows = service.listLinks("g-1");
+        assertThat(rows).extracting(GroupInviteLinkDto::id).containsExactly(link.id(), "old-admin");
+        assertThat(rows).extracting(GroupInviteLinkDto::approving).containsExactly(true, false);
+        assertThat(rows).extracting(GroupInviteLinkDto::current).containsExactly(true, false);
     }
 
     @Test

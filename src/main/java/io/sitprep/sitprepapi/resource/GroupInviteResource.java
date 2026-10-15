@@ -89,8 +89,9 @@ public class GroupInviteResource {
     }
 
     /**
-     * The link the share sheet shows (JN-10, D20). Owner/admin: the group's
-     * one current link, reused (expiry slid out) or minted. Org member: the
+     * The link the share sheet shows (JN-10, D20). Org owner/admin: the
+     * group's one current link, reused (expiry slid out) or minted. Household
+     * owner/admin: a new single-use link per call (one person per token). Org member: the
      * plain group link, which doesn't approve anyone. Anyone else: 403.
      * POST because it may mint. See {@code GroupInviteService#currentLink}.
      */
