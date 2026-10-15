@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * The inbox reads S2 C5 added to {@link NotificationLogRepo}: server filters,
  * counts, the {@code (timestamp, id)} keyset, alert threads — and the two
- * thread reads dispatch's materiality rule needs. Built as JPQL in one place
+ * thread reads dispatch's materiality rule needs. Built as native SQL in one place
  * ({@link NotificationLogInboxQueryImpl}) so the needs_response predicate the
  * page filters by and the one the count counts are the same string.
  */

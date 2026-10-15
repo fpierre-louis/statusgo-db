@@ -5,7 +5,7 @@ import io.sitprep.sitprepapi.notifications.NotificationEventType;
 import io.sitprep.sitprepapi.notifications.NotificationInboxFilter;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.TypedQuery;
+import jakarta.persistence.Query;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -17,7 +17,13 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * The S2 C5 inbox reads, as JPQL (see {@link NotificationLogInboxQuery}).
+ * The S2 C5 inbox reads, as native SQL (see {@link NotificationLogInboxQuery}).
+ *
+ * <p><b>Native, not JPQL — on purpose.</b> The needs_response predicate is a
+ * long OR of IN-lists; as HQL it sent Hibernate's ANTLR parser into a
+ * full-context prediction that allocated hundreds of MB per parse. On the
+ * 256 MB prod heap the first {@code /counts} call took the dyno down (OOM,
+ * v699, 2026-10-15). Native SQL is never parsed by HQL.</p>
  *
  * <p>The needs_response predicate is built once, by {@link #needsResponseJpql},
  * and used by both the page and the count, so the badge and the list can't
@@ -30,38 +36,42 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
     @PersistenceContext
     private EntityManager em;
 
-    private static final String OWNER = "LOWER(n.recipientEmail) = LOWER(:email) AND n.archivedAt IS NULL";
+    private static final String OWNER = "LOWER(n.recipient_email) = LOWER(:email) AND n.archived_at IS NULL";
     private static final String ALERT = "n.type = '" + NotificationInboxFilter.ALERT_TYPE + "'";
+    private static final String TS = "n.\"timestamp\"";
+    private static final String ORDER = " ORDER BY " + TS + " DESC, n.id DESC";
 
     @Override
     public List<NotificationLog> findInboxPage(String email, NotificationInboxFilter filter, Instant since,
                                                Instant before, Long beforeId, int limit) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("email", email);
-        StringBuilder q = new StringBuilder("SELECT n FROM NotificationLog n WHERE ").append(OWNER);
+        StringBuilder q = new StringBuilder("SELECT n.* FROM notification_log n WHERE ").append(OWNER);
         if (since != null) {
-            q.append(" AND n.timestamp > :since");
+            q.append(" AND ").append(TS).append(" > :since");
             params.put("since", since);
         }
         if (before != null) {
             params.put("before", before);
             if (beforeId != null) {
-                q.append(" AND (n.timestamp < :before OR (n.timestamp = :before AND n.id < :beforeId))");
+                q.append(" AND (").append(TS).append(" < :before OR (").append(TS).append(" = :before AND n.id < :beforeId))");
                 params.put("beforeId", beforeId);
             } else {
-                q.append(" AND n.timestamp < :before");
+                q.append(" AND ").append(TS).append(" < :before");
             }
         }
         switch (filter == null ? NotificationInboxFilter.ALL : filter) {
-            case UNREAD -> q.append(" AND n.readAt IS NULL");
+            case UNREAD -> q.append(" AND n.read_at IS NULL");
             case ALERTS -> q.append(" AND ").append(ALERT);
             case NEEDS_RESPONSE -> q.append(" AND ").append(needsResponseJpql(params));
             case ALL -> { }
         }
-        q.append(" ORDER BY n.timestamp DESC, n.id DESC");
-        TypedQuery<NotificationLog> query = em.createQuery(q.toString(), NotificationLog.class);
+        q.append(ORDER).append(" LIMIT ").append(Math.max(1, limit));
+        Query query = em.createNativeQuery(q.toString(), NotificationLog.class);
         params.forEach(query::setParameter);
-        return query.setMaxResults(Math.max(1, limit)).getResultList();
+        @SuppressWarnings("unchecked")
+        List<NotificationLog> rows = query.getResultList();
+        return rows;
     }
 
     @Override
@@ -69,28 +79,29 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("email", email);
         String needs = needsResponseJpql(params);
-        String q = "SELECT COUNT(n),"
-                + " SUM(CASE WHEN n.readAt IS NULL THEN 1 ELSE 0 END),"
+        String q = "SELECT COUNT(*),"
+                + " SUM(CASE WHEN n.read_at IS NULL THEN 1 ELSE 0 END),"
                 + " SUM(CASE WHEN " + ALERT + " THEN 1 ELSE 0 END),"
-                + " SUM(CASE WHEN " + ALERT + " AND n.readAt IS NULL THEN 1 ELSE 0 END),"
+                + " SUM(CASE WHEN " + ALERT + " AND n.read_at IS NULL THEN 1 ELSE 0 END),"
                 + " SUM(CASE WHEN " + needs + " THEN 1 ELSE 0 END)"
-                + " FROM NotificationLog n WHERE " + OWNER;
-        TypedQuery<Object[]> query = em.createQuery(q, Object[].class);
+                + " FROM notification_log n WHERE " + OWNER;
+        Query query = em.createNativeQuery(q);
         params.forEach(query::setParameter);
-        Object[] r = query.getSingleResult();
+        Object[] r = (Object[]) query.getSingleResult();
         return new InboxCounts(num(r[0]), num(r[1]), num(r[2]), num(r[3]), num(r[4]));
     }
 
     @Override
     public List<NotificationLog> findThreadRows(String email, String threadKey, int limit) {
         if (threadKey == null || threadKey.isBlank()) return List.of();
-        return em.createQuery("SELECT n FROM NotificationLog n WHERE " + OWNER
-                        + " AND n.alertThreadKey = :threadKey ORDER BY n.timestamp DESC, n.id DESC",
+        @SuppressWarnings("unchecked")
+        List<NotificationLog> rows = em.createNativeQuery("SELECT n.* FROM notification_log n WHERE " + OWNER
+                        + " AND n.alert_thread_key = :threadKey" + ORDER + " LIMIT " + Math.max(1, limit),
                         NotificationLog.class)
                 .setParameter("email", email)
                 .setParameter("threadKey", threadKey)
-                .setMaxResults(Math.max(1, limit))
                 .getResultList();
+        return rows;
     }
 
     @Override
@@ -100,11 +111,12 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
         String match = threadMatch(threadKey, alertKeys, legacyRefs, params);
         if (match == null) return Optional.empty();
         params.put("since", since == null ? Instant.EPOCH : since);
-        TypedQuery<NotificationLog> query = em.createQuery("SELECT n FROM NotificationLog n WHERE " + ALERT
-                + " AND n.timestamp >= :since AND " + match
-                + " ORDER BY n.timestamp DESC, n.id DESC", NotificationLog.class);
+        Query query = em.createNativeQuery("SELECT n.* FROM notification_log n WHERE " + ALERT
+                + " AND " + TS + " >= :since AND " + match + ORDER + " LIMIT 1", NotificationLog.class);
         params.forEach(query::setParameter);
-        return query.setMaxResults(1).getResultList().stream().findFirst();
+        @SuppressWarnings("unchecked")
+        List<NotificationLog> rows = query.getResultList();
+        return rows.stream().findFirst();
     }
 
     @Override
@@ -114,10 +126,12 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
         String match = threadMatch(threadKey, alertKeys, legacyRefs, params);
         if (match == null) return List.of();
         params.put("since", since == null ? Instant.EPOCH : since);
-        TypedQuery<String> query = em.createQuery("SELECT DISTINCT n.recipientEmail FROM NotificationLog n WHERE "
-                + ALERT + " AND n.timestamp >= :since AND " + match, String.class);
+        Query query = em.createNativeQuery("SELECT DISTINCT n.recipient_email FROM notification_log n WHERE "
+                + ALERT + " AND " + TS + " >= :since AND " + match);
         params.forEach(query::setParameter);
-        return query.getResultList();
+        @SuppressWarnings("unchecked")
+        List<String> rows = query.getResultList();
+        return rows;
     }
 
     // ------------------------------------------------------------------
@@ -127,15 +141,15 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
                                       Collection<String> legacyRefs, Map<String, Object> params) {
         List<String> or = new ArrayList<>();
         if (threadKey != null && !threadKey.isBlank()) {
-            or.add("n.alertThreadKey = :threadKey");
+            or.add("n.alert_thread_key = :threadKey");
             params.put("threadKey", threadKey);
         }
         if (alertKeys != null && !alertKeys.isEmpty()) {
-            or.add("n.alertKey IN :alertKeys");
+            or.add("n.alert_key IN (:alertKeys)");
             params.put("alertKeys", alertKeys);
         }
         if (legacyRefs != null && !legacyRefs.isEmpty()) {
-            or.add("(n.alertKey IS NULL AND n.referenceId IN :legacyRefs)");
+            or.add("(n.alert_key IS NULL AND n.reference_id IN (:legacyRefs))");
             params.put("legacyRefs", legacyRefs);
         }
         return or.isEmpty() ? null : "(" + String.join(" OR ", or) + ")";
@@ -149,8 +163,8 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
     static String needsResponseJpql(Map<String, Object> params) {
         params.put("nrRegistered", NotificationInboxFilter.registeredTypes());
         params.put("nrAgency", NotificationEventType.AGENCY_ALERT_REF_PREFIX + "%");
-        String notAgency = "(n.referenceId IS NULL OR n.referenceId NOT LIKE :nrAgency)";
-        String hasRef = "(n.referenceId IS NOT NULL AND TRIM(n.referenceId) <> '')";
+        String notAgency = "(n.reference_id IS NULL OR n.reference_id NOT LIKE :nrAgency)";
+        String hasRef = "(n.reference_id IS NOT NULL AND TRIM(n.reference_id) <> '')";
 
         List<String> or = new ArrayList<>();
         String always = eventIs("Always", NotificationInboxFilter.ALWAYS, params);
@@ -160,11 +174,11 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
         String pending = eventIs("Pending", NotificationInboxFilter.PENDING, params);
         if (pending != null) {
             params.put("nrInvite", "%" + NotificationInboxFilter.INVITE_REQUEST_LIKE);
-            or.add("(" + pending + " AND (n.targetUrl LIKE :nrInvite OR (" + hasRef
-                    + " AND n.additionalData LIKE '%@%' AND TRIM(n.additionalData) NOT LIKE '{%')))");
+            or.add("(" + pending + " AND (n.target_url LIKE :nrInvite OR (" + hasRef
+                    + " AND n.additional_data LIKE '%@%' AND TRIM(n.additional_data) NOT LIKE '{%')))");
         }
         if (or.isEmpty()) return "1 = 0";
-        return "(n.readAt IS NULL AND " + notAgency + " AND (" + String.join(" OR ", or) + "))";
+        return "(n.read_at IS NULL AND " + notAgency + " AND (" + String.join(" OR ", or) + "))";
     }
 
     /**
@@ -176,12 +190,12 @@ public class NotificationLogInboxQueryImpl implements NotificationLogInboxQuery 
         Set<String> cats = NotificationInboxFilter.categoriesOf(events);
         List<String> or = new ArrayList<>();
         if (!types.isEmpty()) {
-            or.add("LOWER(TRIM(n.type)) IN :nrTypes" + tag);
+            or.add("LOWER(TRIM(n.type)) IN (:nrTypes" + tag + ")");
             params.put("nrTypes" + tag, types);
         }
         if (!cats.isEmpty()) {
-            or.add("((n.type IS NULL OR LOWER(TRIM(n.type)) NOT IN :nrRegistered) AND UPPER(TRIM(n.category)) IN :nrCats"
-                    + tag + ")");
+            or.add("((n.type IS NULL OR LOWER(TRIM(n.type)) NOT IN (:nrRegistered)) AND UPPER(TRIM(n.category)) IN (:nrCats"
+                    + tag + "))");
             params.put("nrCats" + tag, cats);
         }
         return or.isEmpty() ? null : "(" + String.join(" OR ", or) + ")";
