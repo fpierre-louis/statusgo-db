@@ -55,6 +55,7 @@ class GroupPostModerationTest {
     private WebSocketMessageSender ws;
     private GroupContentRemovals removals;
     private GroupPostService service;
+    private NotificationService notifications;
 
     @BeforeEach
     void setUp() {
@@ -63,8 +64,9 @@ class GroupPostModerationTest {
         userInfoRepo = mock(UserInfoRepo.class);
         ws = mock(WebSocketMessageSender.class);
         removals = mock(GroupContentRemovals.class);
+        notifications = mock(NotificationService.class);
         service = new GroupPostService(postRepo, userInfoRepo, groupRepo,
-                mock(NotificationService.class), ws,
+                notifications, ws,
                 mock(GroupPostReactionService.class),
                 mock(GroupReadStateRepo.class),
                 mock(GroupPostThreadPresenceService.class),
@@ -118,6 +120,7 @@ class GroupPostModerationTest {
 
         verify(postRepo, never()).delete(any());
         verify(removals).recordPost(eq(ADMIN), eq(7L), contains("rude words"));
+        verify(notifications).scrubRemovedPostNotifications(7L); // FD-06: inbox rows stop quoting it
         assertEquals("", p.getContent());
         assertNull(p.getImageKey());
         assertNull(p.getLatitude());

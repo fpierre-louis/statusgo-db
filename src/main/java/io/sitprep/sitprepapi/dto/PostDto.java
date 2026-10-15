@@ -282,7 +282,18 @@ public record PostDto(
          * member"). The FE renders links from this list and never looks names
          * up itself. Never null on the wire.
          */
-        List<MentionDto> mentions
+        List<MentionDto> mentions,
+        /**
+         * The requester's stable {@code UserInfo} id, next to {@code requesterEmail}
+         * (FD-08 / PR-09, additive): lets the FE route tap-to-profile by id instead
+         * of putting an email in the URL. Null when the requester has no profile
+         * row or the author is hidden; omitted from the wire when null.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String requesterUserId,
+        /** The single {@code assigneeEmail}'s stable {@code UserInfo} id (PR-09); same rules. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String assigneeUserId
 ) {
 
     /**
@@ -291,7 +302,8 @@ public record PostDto(
      * of contact when a task has several leads. Always false for Helpers.
      */
     public record AssigneeDto(String email, String displayName, String avatarUrl,
-                              String role, boolean primary) {}
+                              String role, boolean primary,
+                              @JsonInclude(JsonInclude.Include.NON_NULL) String userId) {}
 
     /**
      * Bundles / projects (V51) — the DERIVED roll-up of a project's children,
@@ -683,7 +695,7 @@ public record PostDto(
                 assigneeEmail, parentPost, c,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children, mentions);
+                assignees, projectRollup, children, mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -827,7 +839,7 @@ public record PostDto(
                 /* projectRollup — folded by PostService.withProjectRollup */ null,
                 /* children      — folded by PostService on the detail path */ null
         ,
-                /* mentions — ids only; names resolve in PostService.withAuthors */ mentionsFromIds(t.getMentionedUserIds()));
+                /* mentions — ids only; names resolve in PostService.withAuthors */ mentionsFromIds(t.getMentionedUserIds()), null, null);
     }
 
     public static PostDto fromEntity(Post t) {
@@ -866,7 +878,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children, resolved == null ? List.of() : resolved);
+                assignees, projectRollup, children, resolved == null ? List.of() : resolved, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -896,7 +908,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children, mentions).withAuthor(me);
+                assignees, projectRollup, children, mentions, requesterUserId, assigneeUserId).withAuthor(me);
     }
 
     /**
@@ -959,7 +971,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1031,7 +1043,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, u.getId(), assigneeUserId);
     }
 
     /**
@@ -1062,7 +1074,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1096,7 +1108,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1127,7 +1139,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1174,7 +1186,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1203,7 +1215,30 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees, projectRollup, children
-        , mentions);
+        , mentions, requesterUserId, assigneeUserId);
+    }
+
+    /** Returns a copy with the single assignee's stable user id folded in (PR-09). */
+    public PostDto withAssigneeUserId(String assigneeUserId) {
+        if (assigneeUserId == null || assigneeUserId.equals(this.assigneeUserId)) return this;
+        return new PostDto(
+                id, groupId, requesterEmail,
+                requesterFirstName, requesterLastName, requesterProfileImageUrl,
+                claimedByGroupId, claimedByEmail, status, priority,
+                title, description, latitude, longitude, zipBucket, placeLabel,
+                dueAt, createdAt, updatedAt, claimedAt, completedAt,
+                parentPostId, tags, imageKeys, imageUrls, distanceKm,
+                sponsored, crisisRelevant, sponsoredUntil, sponsoredBy,
+                authorType, verifiedState, publisherScope, publisherProfileUrl,
+                serviceAreaLabel, jurisdictionLabel, sponsoredDisclosure,
+                kind, price, isFree, paymentMethods, viaFollow,
+                thanksCount, viewerThanked, commentsCount,
+                reactionsByEmoji, viewerEmojis, latestCommentPreview,
+                authoredAsGroupId, authoredAsGroupName, authoredAsGroupType,
+                assigneeEmail, parentPost, community,
+                liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
+                nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
+                assignees, projectRollup, children, mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1233,7 +1268,7 @@ public record PostDto(
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
                 assignees == null ? List.of() : assignees,
-                projectRollup, children, mentions);
+                projectRollup, children, mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1263,7 +1298,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children, mentions);
+                assignees, projectRollup, children, mentions, requesterUserId, assigneeUserId);
     }
 
     /**
@@ -1294,7 +1329,7 @@ public record PostDto(
                 community,
                 liabilityRequired(), releaseSigned(), releaseTextHash(), releaseExceptionReason(),
                 nearPowerLines(), electricalHazard(), waterLevel(), safeToEnter(), workDetails(), needType(),
-                assignees, projectRollup, children, mentions);
+                assignees, projectRollup, children, mentions, requesterUserId, assigneeUserId);
     }
 
     // -------------------------------------------------------------------

@@ -108,12 +108,12 @@ public class GroupResource {
      * changed since. See {@code GroupService#setAlert}.</p>
      */
     @PostMapping("/{groupId}/alert")
-    public ResponseEntity<Group> setAlert(
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> setAlert(
             @PathVariable String groupId,
             @RequestBody SetAlertRequest body) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.setAlert(groupId, body.active(), caller));
+        return ResponseEntity.ok(pageFor(groupService.setAlert(groupId, body.active(), caller), caller));
     }
 
     /** Body of {@link #setAlert}. One field, deliberately. */
@@ -503,34 +503,34 @@ public class GroupResource {
 
     /** 409 for the owner; another admin takes the owner (403). See GroupService. */
     @PostMapping("/{groupId}/members/remove")
-    public ResponseEntity<Group> removeMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> removeMember(@PathVariable String groupId, @RequestBody EmailRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.removeMember(groupId, req.email(), caller));
+        return ResponseEntity.ok(pageFor(groupService.removeMember(groupId, req.email(), caller), caller));
     }
 
     /** Promotes an existing member only; anyone else is a 409 (D2). */
     @PostMapping("/{groupId}/admins/add")
-    public ResponseEntity<Group> addAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> addAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.promoteMemberToAdmin(groupId, req.email(), caller));
+        return ResponseEntity.ok(pageFor(groupService.promoteMemberToAdmin(groupId, req.email(), caller), caller));
     }
 
     /** Demoting another admin takes the owner (403); the owner can't be demoted (403). */
     @PostMapping("/{groupId}/admins/remove")
-    public ResponseEntity<Group> removeAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> removeAdmin(@PathVariable String groupId, @RequestBody EmailRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
-        return ResponseEntity.ok(groupService.removeAdmin(groupId, req.email(), caller));
+        return ResponseEntity.ok(pageFor(groupService.removeAdmin(groupId, req.email(), caller), caller));
     }
 
     /** To an existing member only (409 otherwise), who is notified. Owner only. */
     @PostMapping("/{groupId}/owner/transfer")
-    public ResponseEntity<Group> transferOwner(@PathVariable String groupId, @RequestBody EmailRequest req) {
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> transferOwner(@PathVariable String groupId, @RequestBody EmailRequest req) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         requireOwnerOf(groupId);
-        return ResponseEntity.ok(groupService.transferOwnershipToMember(groupId, req.email(), caller));
+        return ResponseEntity.ok(pageFor(groupService.transferOwnershipToMember(groupId, req.email(), caller), caller));
     }
 
     /**
@@ -670,11 +670,12 @@ public class GroupResource {
      * uploaded separately via {@code POST /api/images}.
      */
     @PatchMapping("/{groupId}/logo")
-    public ResponseEntity<Group> setLogo(@PathVariable String groupId,
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> setLogo(@PathVariable String groupId,
                                          @RequestBody Map<String, String> body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
         String url = body == null ? null : body.get("logoImageUrl");
-        return ResponseEntity.ok(groupService.setLogo(groupId, url));
+        return ResponseEntity.ok(pageFor(groupService.setLogo(groupId, url), caller));
     }
 
     /**
@@ -684,11 +685,12 @@ public class GroupResource {
      * shared {@code POST /api/images} pipe first, exactly like the logo.
      */
     @PatchMapping("/{groupId}/cover")
-    public ResponseEntity<Group> setCover(@PathVariable String groupId,
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> setCover(@PathVariable String groupId,
                                           @RequestBody Map<String, String> body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
         requireAdminOf(groupId);
         String url = body == null ? null : body.get("coverImageUrl");
-        return ResponseEntity.ok(groupService.setCover(groupId, url));
+        return ResponseEntity.ok(pageFor(groupService.setCover(groupId, url), caller));
     }
 
     /**
@@ -697,11 +699,11 @@ public class GroupResource {
      * blank or wider than the column. See {@code GroupService#renameGroup}.
      */
     @PatchMapping("/{groupId}/name")
-    public ResponseEntity<Group> renameGroup(@PathVariable String groupId,
+    public ResponseEntity<com.fasterxml.jackson.databind.JsonNode> renameGroup(@PathVariable String groupId,
                                              @RequestBody Map<String, String> body) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         String name = body == null ? null : body.get("groupName");
-        return ResponseEntity.ok(notFoundIfMissing(() -> groupService.renameGroup(groupId, name, caller)));
+        return ResponseEntity.ok(pageFor(notFoundIfMissing(() -> groupService.renameGroup(groupId, name, caller)), caller));
     }
 
     /**

@@ -39,6 +39,10 @@ import java.util.stream.Collectors;
 @Service
 public class PostReactionService {
 
+    /** FD-08: reactor user ids. Field-injected (optional) so existing constructors stay as they are. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private io.sitprep.sitprepapi.repo.UserInfoRepo userInfoRepo;
+
     /** Hard cap on emoji length — matches column length on PostReaction.emoji. */
     private static final int MAX_EMOJI_LENGTH = 32;
 
@@ -123,7 +127,9 @@ public class PostReactionService {
         Map<Long, List<PostReaction>> byTask = rows.stream()
                 .collect(Collectors.groupingBy(PostReaction::getPostId));
         Map<Long, Map<String, List<EmojiReactionDto>>> out = new HashMap<>(byTask.size());
-        byTask.forEach((postId, list) -> out.put(postId, groupByEmoji(list)));
+        Map<String, String> ids = ReactorUserIds.resolve(userInfoRepo,
+                rows.stream().map(PostReaction::getUserEmail).collect(java.util.stream.Collectors.toList()));
+        byTask.forEach((postId, list) -> out.put(postId, groupByEmoji(list, ids)));
         return out;
     }
 
@@ -235,11 +241,17 @@ public class PostReactionService {
 
     private Map<String, List<EmojiReactionDto>> groupByEmoji(List<PostReaction> rows) {
         if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
+        return groupByEmoji(rows, ReactorUserIds.resolve(userInfoRepo,
+                rows.stream().map(PostReaction::getUserEmail).collect(java.util.stream.Collectors.toList())));
+    }
+
+    private Map<String, List<EmojiReactionDto>> groupByEmoji(List<PostReaction> rows, Map<String, String> ids) {
+        if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
         rows.sort(Comparator.comparing(PostReaction::getAddedAt));
         Map<String, List<EmojiReactionDto>> out = new LinkedHashMap<>();
         for (PostReaction r : rows) {
             out.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>())
-                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt()));
+                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt(), ReactorUserIds.of(ids, r.getUserEmail())));
         }
         return out;
     }

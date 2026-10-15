@@ -1977,4 +1977,17 @@ public class NotificationService {
             apsBuilder.setThreadId(referenceId);
         }
     }
+
+    /** Inbox body shown in place of a post's text once an admin removed it (FD-06). */
+    public static final String POST_REMOVED_BODY = "Post removed by an admin";
+
+    /**
+     * FD-06: after an admin removes a post, its inbox rows (post + mention
+     * notifications, referenceId = post id) stop quoting it. Rows are kept.
+     */
+    public int scrubRemovedPostNotifications(Long postId) {
+        if (postId == null) return 0;
+        return notificationLogRepo.replaceBodyForReference(String.valueOf(postId),
+                List.of("post_notification", TYPE_POST_MENTION), POST_REMOVED_BODY);
+    }
 }

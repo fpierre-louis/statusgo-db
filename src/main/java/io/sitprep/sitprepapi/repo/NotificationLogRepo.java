@@ -274,4 +274,20 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     boolean existsTypeSince(@Param("email") String email,
                             @Param("type") String type,
                             @Param("since") Instant since);
+
+    /**
+     * FD-06: replace the body of every inbox row that quotes a post an admin
+     * removed. The row stays (it is still a record that something happened).
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+           UPDATE NotificationLog n
+              SET n.body = :body
+            WHERE n.referenceId = :referenceId
+              AND n.type IN :types
+           """)
+    int replaceBodyForReference(@Param("referenceId") String referenceId,
+                                @Param("types") Collection<String> types,
+                                @Param("body") String body);
 }

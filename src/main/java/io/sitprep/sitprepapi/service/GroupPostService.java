@@ -340,6 +340,7 @@ public class GroupPostService {
         post.setPinnedAt(null);
         post.setPinnedBy(null);
         GroupPost saved = postRepo.save(post);
+        notificationService.scrubRemovedPostNotifications(saved.getId()); // FD-06: inbox rows stop quoting it
         GroupPostDto dto = convertToPostDto(saved);
         dto.setRemovedByAdmin(true);
         if (dto.getRemovedAt() == null) dto.setRemovedAt(Instant.now());

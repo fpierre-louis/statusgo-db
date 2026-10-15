@@ -26,6 +26,10 @@ import java.util.stream.Collectors;
 @Service
 public class GroupPostReactionService {
 
+    /** FD-08: reactor user ids. Field-injected (optional) so existing constructors stay as they are. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private io.sitprep.sitprepapi.repo.UserInfoRepo userInfoRepo;
+
     /**
      * Hard cap on emoji length so we don't accept arbitrary user-provided
      * strings — emoji glyphs are short, but a bad client could send anything.
@@ -105,7 +109,9 @@ public class GroupPostReactionService {
         Map<Long, List<GroupPostReaction>> byPost = rows.stream()
                 .collect(Collectors.groupingBy(GroupPostReaction::getPostId));
         Map<Long, Map<String, List<EmojiReactionDto>>> out = new HashMap<>(byPost.size());
-        byPost.forEach((postId, list) -> out.put(postId, groupByEmoji(list)));
+        Map<String, String> ids = ReactorUserIds.resolve(userInfoRepo,
+                rows.stream().map(GroupPostReaction::getUserEmail).collect(java.util.stream.Collectors.toList()));
+        byPost.forEach((postId, list) -> out.put(postId, groupByEmoji(list, ids)));
         return out;
     }
 
@@ -113,12 +119,18 @@ public class GroupPostReactionService {
 
     private Map<String, List<EmojiReactionDto>> groupByEmoji(List<GroupPostReaction> rows) {
         if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
+        return groupByEmoji(rows, ReactorUserIds.resolve(userInfoRepo,
+                rows.stream().map(GroupPostReaction::getUserEmail).collect(java.util.stream.Collectors.toList())));
+    }
+
+    private Map<String, List<EmojiReactionDto>> groupByEmoji(List<GroupPostReaction> rows, Map<String, String> ids) {
+        if (rows == null || rows.isEmpty()) return new LinkedHashMap<>();
         // Sort by addedAt so the roster is deterministic across calls.
         rows.sort(Comparator.comparing(GroupPostReaction::getAddedAt));
         Map<String, List<EmojiReactionDto>> out = new LinkedHashMap<>();
         for (GroupPostReaction r : rows) {
             out.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>())
-                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt()));
+                    .add(new EmojiReactionDto(r.getUserEmail(), r.getAddedAt(), ReactorUserIds.of(ids, r.getUserEmail())));
         }
         return out;
     }

@@ -133,6 +133,7 @@ class GroupAdminTargetTest {
         Group out = service.transferOwnershipToMember("g-1", MEMBER, OWNER);
         assertThat(out.getOwnerEmail()).isEqualTo(MEMBER);
         assertThat(out.getAdminEmails()).contains(MEMBER);
+        assertThat(out.getAdminEmails()).as("MB-03: the old owner stays on as an admin").contains(OWNER);
         verify(notificationService).deliverPresenceAware(eq(MEMBER), eq("You're the owner now"),
                 anyString(), anyString(), any(), eq("role_changed"), eq("g-1"), anyString(), any(), any());
     }

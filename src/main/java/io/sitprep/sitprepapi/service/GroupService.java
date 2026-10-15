@@ -2196,7 +2196,18 @@ public class GroupService {
         if (g.getOwnerEmail() != null && g.getOwnerEmail().trim().equalsIgnoreCase(target)) {
             return g;
         }
+        String previousOwner = g.getOwnerEmail();
         Group saved = transferOwner(groupId, target);
+        // MB-03: the old owner stays on as an admin (they were the owner, so they
+        // were never forced into adminEmails before).
+        if (previousOwner != null && !previousOwner.isBlank()) {
+            List<String> admins = safeList(saved.getAdminEmails());
+            if (!containsCaseInsensitive(admins, previousOwner)) {
+                admins.add(previousOwner.trim());
+                saved.setAdminEmails(admins);
+                saved = groupRepo.save(saved);
+            }
+        }
         notifyNewOwnerAfterCommit(saved, target, caller);
         return saved;
     }

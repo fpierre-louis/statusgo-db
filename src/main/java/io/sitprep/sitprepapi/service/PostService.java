@@ -327,8 +327,9 @@ public class PostService {
     private List<PostDto> withAuthors(List<PostDto> dtos) {
         if (dtos == null || dtos.isEmpty()) return dtos;
         List<String> emails = dtos.stream()
-                .map(PostDto::requesterEmail)
+                .flatMap(d -> java.util.stream.Stream.of(d.requesterEmail(), d.assigneeEmail())) // FD-08/PR-09: assignee ids ride the same batch
                 .filter(Objects::nonNull)
+                .filter(e -> !e.isBlank())
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .distinct()
                 .collect(Collectors.toList());
@@ -344,9 +345,16 @@ public class PostService {
                 ));
         List<PostDto> authored = dtos.stream()
                 .map(d -> {
-                    if (d.requesterEmail() == null) return d;
-                    UserInfo u = byEmail.get(d.requesterEmail().toLowerCase(Locale.ROOT));
-                    return (u == null) ? d : d.withAuthor(u);
+                    PostDto out = d;
+                    if (d.requesterEmail() != null) {
+                        UserInfo u = byEmail.get(d.requesterEmail().toLowerCase(Locale.ROOT));
+                        if (u != null) out = out.withAuthor(u);
+                    }
+                    if (d.assigneeEmail() != null && !d.assigneeEmail().isBlank()) {
+                        UserInfo a = byEmail.get(d.assigneeEmail().toLowerCase(Locale.ROOT));
+                        if (a != null) out = out.withAssigneeUserId(a.getId());
+                    }
+                    return out;
                 })
                 .collect(Collectors.toList());
         return withHazardAreas(withMentionNames(authored));
@@ -421,7 +429,8 @@ public class PostService {
                         String avatar = (u == null) ? null : DtoImages.avatar(u.getProfileImageUrl());
                         return new PostDto.AssigneeDto(
                                 r.getEmail(), name.isEmpty() ? null : name, avatar,
-                                r.getRole() == null ? null : r.getRole().name(), r.isPrimary());
+                                r.getRole() == null ? null : r.getRole().name(), r.isPrimary(),
+                                u == null ? null : u.getId());
                     })
                     .collect(Collectors.toList());
             return d.withAssignees(list);

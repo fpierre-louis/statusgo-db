@@ -16,4 +16,9 @@ import java.time.Instant;
  * cross-surface semantic explicit — the old name read ambiguously
  * once the {@code Post} entity rename landed.</p>
  */
-public record EmojiReactionDto(String userEmail, Instant addedAt) {}
+public record EmojiReactionDto(String userEmail, Instant addedAt,
+                               @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                               String userId) {
+    /** FD-08: {@code userId} is the reactor's stable id, added next to (never instead of) {@code userEmail}. */
+    public EmojiReactionDto(String userEmail, Instant addedAt) { this(userEmail, addedAt, null); }
+}
