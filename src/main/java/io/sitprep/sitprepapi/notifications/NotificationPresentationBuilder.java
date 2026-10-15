@@ -350,7 +350,7 @@ public class NotificationPresentationBuilder {
                     }
                 }
             }
-            case NEW_MEMBER -> {
+            case NEW_MEMBER, ROLE_CHANGED -> {
                 route = NotificationRoutes.group(groupId, household);
                 fallback = NotificationRoutes.MY_GROUPS;
                 actions.add(Action.navigate("VIEW_GROUP", household ? "Open household" : "View group", route, "primary"));
@@ -448,7 +448,7 @@ public class NotificationPresentationBuilder {
         String ref = blankToNull(row.getReferenceId());
         return switch (ev) {
             case GROUP_ALERT, GROUP_ALERT_HOUSEHOLD, CHECK_IN_REQUEST, CHECK_IN_REVIEW, CHECK_IN_ENDED,
-                 NEW_MEMBER, GROUP_POST, WEEKLY_DRILL, HOUSEHOLD_RITUAL -> ref;
+                 NEW_MEMBER, ROLE_CHANGED, GROUP_POST, WEEKLY_DRILL, HOUSEHOLD_RITUAL -> ref;
             case PENDING_MEMBER -> {
                 String hid = NotificationRoutes.inviteRequestIdFrom(row.getTargetUrl()) != null
                         ? NotificationRoutes.householdIdFrom(row.getTargetUrl()) : null;

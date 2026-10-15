@@ -118,6 +118,11 @@ public enum NotificationEventType {
     NEW_MEMBER(Set.of("new_member"), Set.of(Category.NEW_MEMBER),
             Category.NEW_MEMBER, "membership", "NEW_MEMBER",
             NotificationSourceType.GROUP, "MEMBER", Priority.ROUTINE, "GROUP", false),
+    /** The recipient's role in a group changed ("You're the owner now"). Was
+     *  sent as {@code new_member}, which is inbox-only; this one pushes. */
+    ROLE_CHANGED(Set.of("role_changed"), Set.of(Category.ROLE_CHANGED),
+            Category.ROLE_CHANGED, "membership", "ROLE_CHANGED",
+            NotificationSourceType.GROUP, "MEMBER", Priority.ATTENTION, "GROUP", false),
 
     // ── Social ───────────────────────────────────────────────────────────
     /** A new post in a group the viewer is in. Policy MENTION is historical

@@ -2257,9 +2257,8 @@ public class GroupService {
     }
 
     /**
-     * Tell the new owner. Rides the existing {@code new_member} type so it
-     * routes to the group with no notification-pipeline change; a dedicated
-     * role-change type would be a {@code NotificationEventType} addition.
+     * Tell the new owner, as {@code role_changed}: a Lane A push (it used to
+     * ride {@code new_member}, which is inbox-only, so the phone never heard).
      */
     private void notifyNewOwnerAfterCommit(Group group, String newOwner, String previousOwner) {
         if (group == null || newOwner == null || newOwner.isBlank() || notificationService == null) return;
@@ -2279,7 +2278,7 @@ public class GroupService {
                     body,
                     groupName,
                     null,
-                    "new_member",
+                    "role_changed",
                     group.getGroupId(),
                     targetUrl,
                     null,

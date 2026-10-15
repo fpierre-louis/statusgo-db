@@ -134,7 +134,7 @@ class GroupAdminTargetTest {
         assertThat(out.getOwnerEmail()).isEqualTo(MEMBER);
         assertThat(out.getAdminEmails()).contains(MEMBER);
         verify(notificationService).deliverPresenceAware(eq(MEMBER), eq("You're the owner now"),
-                anyString(), anyString(), any(), eq("new_member"), eq("g-1"), anyString(), any(), any());
+                anyString(), anyString(), any(), eq("role_changed"), eq("g-1"), anyString(), any(), any());
     }
 
     // ---- BE-08 ----

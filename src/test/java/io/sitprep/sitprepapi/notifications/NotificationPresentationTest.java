@@ -36,7 +36,7 @@ class NotificationPresentationTest {
     static final List<String> EMITTED_TYPES = List.of(
             "hazard_alert", "alert", "group_status", "check_in_request", "checkin_reminder",
             "checkin_auto_ended", "plan_activation", "plan_activation_ended", "task_assigned",
-            "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member",
+            "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member", "role_changed",
             "post_notification", "post_mention", "comment_on_post", "comment_on_task",
             "reply_on_followed", "follow", "follow_accepted", "dm_message", "weekly_drill_kickoff",
             "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder",
@@ -283,6 +283,16 @@ class NotificationPresentationTest {
                 "/notifications", "{\"count\":3}", null));
         assertThat(p.eventKey()).isEqualTo("QUIET_HOURS_CATCH_UP");
         assertThat(p.deepLink().route()).isEqualTo("/notifications");
+        assertRoutable(p);
+    }
+
+    @Test
+    void roleChanged_isItsOwnPushedEvent_andOpensTheGroup() {
+        NotificationPresentation p = builder.build(row("role_changed", "ROLE_CHANGED", "g-org",
+                "/groups/g-org", null, null));
+        assertThat(p.eventKey()).isEqualTo("ROLE_CHANGED");
+        assertThat(NotificationEventType.ROLE_CHANGED.policy())
+                .isEqualTo(io.sitprep.sitprepapi.service.PushPolicyService.Category.ROLE_CHANGED);
         assertRoutable(p);
     }
 

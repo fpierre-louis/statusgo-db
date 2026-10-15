@@ -256,7 +256,7 @@ public class PushPolicyService {
                  PLAN_ACTIVATION_RECEIVED, ACTIVATION_ACK,
                  TASK_ASSIGNED, PENDING_MEMBER_REQUEST,
                  CHECK_IN_REQUEST, CHECK_IN_REVIEW, DIRECT_MESSAGE, READINESS_REMINDER,
-                 AGENCY_ALERT, ACCOUNT_REMINDER, QUIET_HOURS_CATCH_UP -> Lane.A;
+                 AGENCY_ALERT, ACCOUNT_REMINDER, QUIET_HOURS_CATCH_UP, ROLE_CHANGED -> Lane.A;
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
@@ -470,6 +470,14 @@ public class PushPolicyService {
          * and non-critical; it is only ever sent outside the quiet window.
          */
         QUIET_HOURS_CATCH_UP,
+        /**
+         * Your role in a group changed: today, "You're the owner now" after an
+         * owner transfer ({@code role_changed}). Lane A, not critical: it hands
+         * the recipient responsibility for the group, so it reaches the phone
+         * (it rode Lane B {@code new_member} before, inbox only). Not
+         * user-mutable — it is rare and only ever about the recipient.
+         */
+        ROLE_CHANGED,
 
         // Lane B — silent inbox
         NWS_MINOR,
