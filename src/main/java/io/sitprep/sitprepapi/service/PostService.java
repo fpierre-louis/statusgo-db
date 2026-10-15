@@ -1136,11 +1136,13 @@ public class PostService {
         // against the owning group's monthly plan allowance. Personal tasks
         // (groupId null) and civic-report kinds are never metered.
         // D26: life-safety work, a group in alert and an area in alert are
-        // exempt, and the cap is soft until billing is live.
+        // exempt, and the cap is soft until billing is live. Life-safety is
+        // the ONE server rule (TK-07): a universal flag OR a do-not-enter site.
         if (t.getGroupId() != null && "task".equals(t.getKind())) {
             final Double qLat = t.getLatitude();
             final Double qLng = t.getLongitude();
-            final boolean lifeSafety = hasLifeSafetyFlag(t);
+            final boolean lifeSafety = io.sitprep.sitprepapi.constant.WorkOrderLifeSafety
+                    .isLifeSafety(t.getWorkDetails());
             groupRepo.findByGroupId(t.getGroupId())
                     .ifPresent(g -> workOrderQuotaService.assertQuota(g, lifeSafety,
                             () -> areaInAlert(qLat, qLng)));

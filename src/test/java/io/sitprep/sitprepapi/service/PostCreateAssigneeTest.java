@@ -121,4 +121,17 @@ class PostCreateAssigneeTest {
         // The quota is asked with the server-derived life-safety flag.
         verify(quota).assertQuota(any(Group.class), eq(false), any());
     }
+
+    @Test
+    void doNotEnterSite_isLifeSafety_forTheQuota() {
+        // TK-07: the quota reads the ONE life-safety rule (a flag OR a
+        // do-not-enter site), not the flags alone.
+        when(taskRepo.save(any(Post.class))).thenThrow(new Saved());
+        Post incoming = workOrder(null);
+        incoming.setWorkDetails(new java.util.HashMap<>(java.util.Map.of("siteSafeToEnter", "unsafeDoNotEnter")));
+
+        assertThrows(Saved.class, () -> service.create(incoming, ADMIN));
+
+        verify(quota).assertQuota(any(Group.class), eq(true), any());
+    }
 }
