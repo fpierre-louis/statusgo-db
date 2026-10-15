@@ -28,7 +28,7 @@ import java.util.Map;
  * to decide whether a {@code polygon}-matched alert may govern an activation's
  * movement directive (only INSIDE may). {@code matchTypeFor} and the feed are
  * unchanged: what an alert surface SHOWS still uses the proximity match
- * ({@code SitPrep FE/docs/epics/alerts/alerts_and_warnings/map_lane_handoff.md}
+ * ({@code SitPrep FE/docs/epics/alerts/alerts_and_warnings-completed/map_lane_handoff.md}
  * §B1).</p>
  *
  * <h2>Why three answers and not a boolean</h2>
