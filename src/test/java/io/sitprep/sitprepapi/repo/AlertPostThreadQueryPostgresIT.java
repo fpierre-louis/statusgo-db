@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.Instant;
 import java.util.List;
@@ -24,12 +25,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>On REAL Postgres over the replayed Flyway schema: {@code task} carries a
  * jsonb column H2 cannot create, so the {@code test} profile cannot host it
  * (the same reason as {@code NotificationLogDeferredQueryPostgresIT}). Runs only
- * when {@code ALERT_PG_IT=true}, with {@code spring.datasource.url} pointed at a
- * throwaway local DB; skipped on CI/Heroku. Each test rolls back.</p>
+ * when {@code ALERT_PG_IT=true}, against the throwaway local DB
+ * {@code sitprep_alerts_it} (the same one {@link AlertRecordPostgresIT} uses);
+ * skipped on CI/Heroku. Each test rolls back. Without the override it read the
+ * it-pg profile's {@code sitprep_juris_it} and failed to boot (build-10 backlog).</p>
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("it-pg")
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:postgresql://localhost:5432/sitprep_alerts_it",
+        "spring.jpa.hibernate.ddl-auto=validate"
+})
 @EnabledIfEnvironmentVariable(named = "ALERT_PG_IT", matches = "true")
 class AlertPostThreadQueryPostgresIT {
 
