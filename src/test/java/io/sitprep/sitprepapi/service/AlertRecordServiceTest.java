@@ -610,6 +610,34 @@ class AlertRecordServiceTest {
         }
 
         @Test
+        void aCapChainLongerThanTheRoundCap_saysItIsTruncated_aShortOneDoesNot() {
+            // Build-10 backlog: the walk stopped at MAX_THREAD_ROUNDS silently.
+            // Membership is unchanged: the rounds' members, and a flag.
+            List<NormalizedAlert> chain = new java.util.ArrayList<>();
+            for (int i = 0; i < AlertRecordService.MAX_THREAD_ROUNDS + 3; i++) {
+                String sent = Instant.parse(T1).plusSeconds(60L * i).toString();
+                var b = TestAlerts.nws("Special Weather Statement").id("urn:oid:LONG." + i).sent(sent).endsAt(ENDED);
+                if (i > 0) {
+                    NormalizedAlert prev = chain.get(i - 1);
+                    b = b.messageType("Update").referenceTuples(List.of(ref(prev.id(), prev.sent())));
+                }
+                chain.add(b.build());
+            }
+            for (NormalizedAlert a : chain) storeBoth(a, NOW.minusSeconds(86_400 * 12));
+
+            AlertRecordResponse longOne = lookup("NWS:urn:oid:LONG.0");
+            assertThat(longOne.thread().truncated()).isTrue();
+            assertThat(memberKeys(longOne)).hasSizeLessThan(chain.size());
+
+            NormalizedAlert x = TestAlerts.nws("Special Weather Statement").id("urn:oid:SX").sent(T1).endsAt(ENDED).build();
+            NormalizedAlert y = TestAlerts.nws("Special Weather Statement").id("urn:oid:SY").sent(T2).endsAt(ENDED)
+                    .messageType("Update").referenceTuples(List.of(ref("urn:oid:SX", T1))).build();
+            storeBoth(x, NOW.minusSeconds(86_400 * 12));
+            storeBoth(y, NOW.minusSeconds(86_400 * 12));
+            assertThat(lookup("NWS:urn:oid:SX").thread().truncated()).isNull();
+        }
+
+        @Test
         void aChainIsFollowedThroughALiveOnlyMessage_toTheStoredOneThatNamesIt() {
             // X stored; Y is live only (not yet recorded) and names X; Z is stored
             // and names only Y. Nothing stored names X, so a walk that expanded

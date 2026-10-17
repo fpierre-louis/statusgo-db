@@ -56,9 +56,16 @@ public record AlertRecordResponse(
      *                  the dedupeKey. The key a client hands back to mark the
      *                  thread read.
      * @param members   oldest first; the alert itself is one of them
+     * @param truncated true when the CAP walk stopped at its round cap with
+     *                  members still unexpanded, so the thread may be missing
+     *                  older or newer messages; null (omitted) otherwise
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record RecordThread(String threadKey, List<Member> members) {}
+    public record RecordThread(String threadKey, List<Member> members, Boolean truncated) {
+        public RecordThread(String threadKey, List<Member> members) {
+            this(threadKey, members, null);
+        }
+    }
 
     /**
      * One message of the thread.

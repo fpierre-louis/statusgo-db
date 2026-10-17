@@ -192,7 +192,7 @@ public class AlertRecordService {
         NormalizedAlert target = listed != null ? listed : held.stored(dk);
         if (target == null || AlertSafetyPolicy.publishabilityBlockReason(target) != null) return notFound(meta);
 
-        followThread(target, held);
+        boolean threadTruncated = followThread(target, held);
         Map<String, NormalizedAlert> endedBy = AlertDerivations.reverseEdgeMessages(held.all());
         Set<String> knownIds = held.knownIds();
         List<NormalizedAlert> members = AlertThreads.membersOf(target, held.all());
@@ -229,7 +229,8 @@ public class AlertRecordService {
                 listed != null ? AlertRecordResponse.STATUS_LIVE : AlertRecordResponse.STATUS_RECORD,
                 card,
                 target.geometry(),
-                new AlertRecordResponse.RecordThread(AlertThreads.threadKeyOf(target), List.copyOf(thread)),
+                new AlertRecordResponse.RecordThread(AlertThreads.threadKeyOf(target), List.copyOf(thread),
+                        threadTruncated ? Boolean.TRUE : null),
                 List.copyOf(refs),
                 meta);
     }
@@ -256,10 +257,10 @@ public class AlertRecordService {
      * the round added (stored or live), until none is left or the rounds run out. USGS and
      * FEMA have neither link: no round at all.</p>
      */
-    private void followThread(NormalizedAlert target, Held held) {
+    private boolean followThread(NormalizedAlert target, Held held) {
         String threadKey = AlertThreads.threadKeyOf(target);
         String event = AlertThreads.vtecEventKeyOf(threadKey);
-        if (event == null && !AlertThreads.isCapThread(threadKey)) return;
+        if (event == null && !AlertThreads.isCapThread(threadKey)) return false;
 
         Set<String> expanded = new HashSet<>();
         List<NormalizedAlert> frontier = List.of(target);
@@ -291,7 +292,16 @@ public class AlertRecordService {
             }
             if (next.isEmpty()) break;
             frontier = next;
+            if (round == MAX_THREAD_ROUNDS - 1) {
+                // The cap, not the thread, ended the walk (build-10 backlog: it
+                // used to stop silently). Membership is what the rounds held;
+                // the response says the thread may be incomplete.
+                log.info("AlertRecord: CAP thread {} truncated at {} rounds ({} members unexpanded)",
+                        threadKey, MAX_THREAD_ROUNDS, next.size());
+                return true;
+            }
         }
+        return false;
     }
 
     /**
