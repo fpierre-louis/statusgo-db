@@ -130,6 +130,31 @@ class NotificationPresentationTest {
     }
 
     @Test
+    void agencyAlert_wellFormedRef_opensThePost() {
+        NotificationPresentation p = builder.build(row("agency_alert", "AGENCY_ALERT", "agency-alert:42", null, null, null));
+        assertThat(p.eventKey()).isEqualTo("AGENCY_ALERT");
+        assertThat(p.deepLink().route()).isEqualTo(NotificationRoutes.communityPost("42"));
+        assertThat(p.actions()).extracting(Action::id).containsExactly("VIEW_ALERT");
+        assertRoutable(p);
+    }
+
+    @Test
+    void agencyAlert_categoryOnlyRow_withAnotherRef_doesNotThrow_andKeepsItsOwnLink() {
+        // Build-10 backlog: AGENCY_ALERT by category with a non-agency ref threw
+        // in assemble() (substring of a ref without the prefix) and fell to the
+        // bare defaults with a WARN. It now keeps its own link, no action.
+        NotificationPresentation p = builder.build(row("agency_alert", "AGENCY_ALERT", "NWS-abc123", "/community", null, null));
+        assertThat(p.eventKey()).isEqualTo("AGENCY_ALERT");
+        assertThat(p.deepLink().route()).isEqualTo("/community");
+        assertThat(p.actions()).isEmpty();
+        assertThat(p.source().entityType()).isEqualTo("OFFICIAL_ALERT");
+        // Built by assemble(), not the catch-all fallback (which drops the id).
+        assertThat(p.source().entityId()).isEqualTo("NWS-abc123");
+        assertThat(NotificationPresentationBuilder.agencyPostId(null)).isNull();
+        assertThat(NotificationPresentationBuilder.agencyPostId("agency-alert:")).isNull();
+    }
+
+    @Test
     void nwsWarning_isOfficial_focusesTheAlert_andCarriesAHazardMark() {
         NotificationPresentation p = builder.build(row("hazard_alert", null, "NWS-abc123", "/hazards",
                 "{\"source\":\"NWS\",\"event\":\"Tornado Warning\",\"severity\":\"Extreme\"}", null));

@@ -249,10 +249,19 @@ public class NotificationPresentationBuilder {
                         priority == Priority.EMERGENCY ? "View warning" : "Review", route, "primary"));
             }
             case AGENCY_ALERT -> {
-                String postId = ref.substring(NotificationEventType.AGENCY_ALERT_REF_PREFIX.length());
-                route = NotificationRoutes.communityPost(postId);
+                // A row can resolve to AGENCY_ALERT from its CATEGORY alone, with
+                // a ref that isn't `agency-alert:<postId>` (build-10 backlog: it
+                // threw here and fell to the bare defaults with a WARN). Such a
+                // row keeps its own link and gets no "View alert" to a post it
+                // doesn't name. A well-formed ref is unchanged.
+                String postId = agencyPostId(ref);
                 fallback = NotificationRoutes.COMMUNITY;
-                actions.add(Action.navigate("VIEW_ALERT", "View alert", route, "primary"));
+                if (postId != null) {
+                    route = NotificationRoutes.communityPost(postId);
+                    actions.add(Action.navigate("VIEW_ALERT", "View alert", route, "primary"));
+                } else {
+                    route = target != null ? target : NotificationRoutes.COMMUNITY;
+                }
             }
             case GROUP_ALERT, GROUP_ALERT_HOUSEHOLD, CHECK_IN_REQUEST -> {
                 route = NotificationRoutes.group(groupId, household);
@@ -471,6 +480,13 @@ public class NotificationPresentationBuilder {
         return base;
     }
 
+    /** The post id in an {@code agency-alert:<postId>} ref, or null for any other ref. */
+    static String agencyPostId(String ref) {
+        if (ref == null || !ref.startsWith(NotificationEventType.AGENCY_ALERT_REF_PREFIX)) return null;
+        String id = ref.substring(NotificationEventType.AGENCY_ALERT_REF_PREFIX.length()).trim();
+        return id.isEmpty() ? null : id;
+    }
+
     private static Source sourceFor(NotificationEventType ev, NotificationSourceType type,
                                     NotificationLog row, Map<String, Object> data,
                                     Group group, Actor actor) {
@@ -511,8 +527,11 @@ public class NotificationPresentationBuilder {
     }
 
     private static String recordIdFor(NotificationEventType ev, String ref, String route) {
-        if (ev == NotificationEventType.AGENCY_ALERT && ref != null) {
-            return ref.substring(NotificationEventType.AGENCY_ALERT_REF_PREFIX.length());
+        if (ev == NotificationEventType.AGENCY_ALERT) {
+            // A category-only AGENCY_ALERT row may carry another kind of ref:
+            // keep it as given rather than slicing past its end.
+            String postId = agencyPostId(ref);
+            return postId != null ? postId : blankToNull(ref);
         }
         return blankToNull(ref);
     }
