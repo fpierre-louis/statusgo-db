@@ -524,8 +524,33 @@ public record AlertCardDto(
             String areaDesc,
             /** exact | region | none — the existing geometry confidence. */
             String confidence,
-            String provenance
-    ) {}
+            String provenance,
+            /**
+             * A CAMERA hint for a zone-only alert (no geometry, so {@link #bbox}
+             * is null), from cached zone centroids padded ~20 km. Approximate
+             * by construction: never drawn, never used for containment or
+             * "inside" wording, never for push targeting. Null unless every
+             * target zone has a cached centroid (a partial box would mislead).
+             * Build-10 backlog A8; alerts lane ruling 2026-10-18.
+             */
+            Frame frame
+    ) {
+        public OfficialArea(String role, String geometryKind, List<Double> bbox, List<String> zones,
+                            String areaDesc, String confidence, String provenance) {
+            this(role, geometryKind, bbox, zones, areaDesc, confidence, provenance, null);
+        }
+
+        public OfficialArea withFrame(Frame f) {
+            return new OfficialArea(role, geometryKind, bbox, zones, areaDesc, confidence, provenance, f);
+        }
+    }
+
+    /**
+     * {@code bbox} [south, west, north, east]; {@code confidence} is always
+     * "approximate"; {@code basis} says what it was built from ("zone_centroids").
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Frame(List<Double> bbox, String confidence, String basis) {}
 
     /**
      * Where the viewer stands relative to the alert. {@code matchType} is the

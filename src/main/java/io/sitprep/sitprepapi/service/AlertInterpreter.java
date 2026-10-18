@@ -494,6 +494,46 @@ public final class AlertInterpreter {
                 AlertIdentity.knownSource(a.source()));
     }
 
+    /** Padding around the zone centroids: about half a typical NWS zone's width. */
+    static final double FRAME_PAD_KM = 20.0;
+
+    /**
+     * A CAMERA frame for a zone-only alert (build-10 backlog A8; alerts lane
+     * ruling 2026-10-18). Only when the issuer sent zones and no geometry
+     * (so {@code bbox} is null); built from CACHED centroids only (the lookup
+     * must never reach the network); omitted if any target zone's centroid is
+     * missing, since a box around some of the zones would mislead; omitted
+     * across the antimeridian rather than widened. Approximate by construction:
+     * a client may move its camera with it, and nothing else.
+     */
+    static AlertCardDto.OfficialArea withZoneFrame(AlertCardDto.OfficialArea area,
+                                                   java.util.function.Function<String, java.util.Optional<double[]>> centroid) {
+        if (area == null || centroid == null || area.bbox() != null || area.zones() == null || area.zones().isEmpty()
+                || !"zone".equals(area.geometryKind())) {
+            return area;
+        }
+        double s = 90, w = 180, n = -90, e = -180;
+        for (String ugc : area.zones()) {
+            java.util.Optional<double[]> c = centroid.apply(ugc);
+            if (c == null || c.isEmpty()) return area;
+            double lat = c.get()[0], lng = c.get()[1];
+            s = Math.min(s, lat); n = Math.max(n, lat);
+            w = Math.min(w, lng); e = Math.max(e, lng);
+        }
+        if (e - w > 180) return area; // spans the antimeridian: no honest single box
+        double padLat = FRAME_PAD_KM / 111.0;
+        double midLat = Math.toRadians((s + n) / 2);
+        double padLng = FRAME_PAD_KM / (111.0 * Math.max(0.2, Math.cos(midLat)));
+        List<Double> box = List.of(
+                round4(Math.max(-90, s - padLat)), round4(Math.max(-180, w - padLng)),
+                round4(Math.min(90, n + padLat)), round4(Math.min(180, e + padLng)));
+        return area.withFrame(new AlertCardDto.Frame(box, "approximate", "zone_centroids"));
+    }
+
+    private static double round4(double v) {
+        return Math.round(v * 10_000d) / 10_000d;
+    }
+
     /**
      * Rule 5: {@code containment} is the only "inside" answer. A polygon is
      * tested with {@link GeoContainment} (holes excluded); a zone match says

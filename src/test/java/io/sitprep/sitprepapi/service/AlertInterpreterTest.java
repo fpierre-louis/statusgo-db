@@ -56,10 +56,11 @@ class AlertInterpreterTest {
     private AlertDispatchService dispatch;
     private AlertPostRepo alertPostRepo;
     private AlertFeedService feed;
+    private NwsZoneService zones;
 
     @BeforeEach
     void setUp() {
-        NwsZoneService zones = new NwsZoneService();
+        zones = new NwsZoneService();
         zones.seedPointZones(LAT, LNG, SAN_CARLOS);
         ingest = new AlertIngestService(zones);
         dispatch = spy(new AlertDispatchService(null, null, null, null, null, null, zones, null));
@@ -612,6 +613,45 @@ class AlertInterpreterTest {
             assertThat(c.officialArea().zones()).containsExactly("AZZ560");
             assertThat(c.officialArea().bbox()).isNull();
             assertThat(c.officialArea().confidence()).isEqualTo("region");
+            // No cached centroid for AZZ560: no camera frame (A8).
+            assertThat(c.officialArea().frame()).isNull();
+        }
+
+        @Test
+        @DisplayName("A8: a zone-only card gets an approximate camera frame from cached centroids; bbox stays null")
+        void zoneFrame() {
+            zones.seedCentroid("AZZ560", 33.2, -110.5);
+            ingest.setSnapshotForTest(List.of(watch("Flood Watch").build()));
+            AlertCardDto c = only(feed.feedForViewer(LAT, LNG, null, null));
+            assertThat(c.officialArea().bbox()).isNull(); // real geometry only, still
+            AlertCardDto.Frame f = c.officialArea().frame();
+            assertThat(f).isNotNull();
+            assertThat(f.confidence()).isEqualTo("approximate");
+            assertThat(f.basis()).isEqualTo("zone_centroids");
+            assertThat(f.bbox().get(0)).isLessThan(33.2).isGreaterThan(32.9);   // ~20 km south
+            assertThat(f.bbox().get(2)).isGreaterThan(33.2).isLessThan(33.5);
+            assertThat(f.bbox().get(1)).isLessThan(-110.5);
+            assertThat(f.bbox().get(3)).isGreaterThan(-110.5);
+            // Containment wording is untouched by the frame.
+            assertThat(c.viewerContext().containment()).isEqualTo("zone");
+        }
+
+        @Test
+        @DisplayName("A8: no frame when any zone lacks a centroid, for a polygon, or across the antimeridian")
+        void zoneFrameOmitted() {
+            AlertCardDto.OfficialArea two = new AlertCardDto.OfficialArea("OFFICIAL_ALERT_AREA", "zone", null,
+                    List.of("UTZ104", "UTZ105"), null, "region", "NWS");
+            java.util.Map<String, double[]> only104 = Map.of("UTZ104", new double[] { 40.5, -111.8 });
+            assertThat(AlertInterpreter.withZoneFrame(two, z -> java.util.Optional.ofNullable(only104.get(z))).frame()).isNull();
+
+            AlertCardDto.OfficialArea poly = new AlertCardDto.OfficialArea("OFFICIAL_ALERT_AREA", "polygon",
+                    List.of(40.0, -112.0, 41.0, -111.0), List.of("UTZ104"), null, "exact", "NWS");
+            assertThat(AlertInterpreter.withZoneFrame(poly, z -> java.util.Optional.of(new double[] { 40.5, -111.8 })).frame()).isNull();
+
+            AlertCardDto.OfficialArea aleutian = new AlertCardDto.OfficialArea("OFFICIAL_ALERT_AREA", "zone", null,
+                    List.of("AKZ181", "AKZ185"), null, "region", "NWS");
+            java.util.Map<String, double[]> wrap = Map.of("AKZ181", new double[] { 52.0, 179.5 }, "AKZ185", new double[] { 52.5, -179.5 });
+            assertThat(AlertInterpreter.withZoneFrame(aleutian, z -> java.util.Optional.ofNullable(wrap.get(z))).frame()).isNull();
         }
 
         @Test

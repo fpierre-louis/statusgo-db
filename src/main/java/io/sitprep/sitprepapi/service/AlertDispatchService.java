@@ -2180,4 +2180,13 @@ public class AlertDispatchService {
             }
         }
     }
+
+    /**
+     * A zone's cached centroid [lat, lng], or empty. Cache-only — never a
+     * network call — so a card can read it on the feed / record request path
+     * (A8 camera frame).
+     */
+    public Optional<double[]> zoneCentroid(String ugc) {
+        return zoneService == null ? Optional.empty() : zoneService.centroidForZone(ugc);
+    }
 }

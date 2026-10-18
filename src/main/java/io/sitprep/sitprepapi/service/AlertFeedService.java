@@ -550,7 +550,7 @@ public class AlertFeedService {
                 interp.interpreter(),
                 interp.presentation(),
                 interp.actions(),
-                interp.officialArea(),
+                AlertInterpreter.withZoneFrame(interp.officialArea(), dispatch == null ? null : dispatch::zoneCentroid),
                 interp.viewerContext(),
                 interp.communityThreads());
     }
