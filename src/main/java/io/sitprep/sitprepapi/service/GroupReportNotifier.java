@@ -9,6 +9,9 @@ import io.sitprep.sitprepapi.repo.UserInfoRepo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -36,12 +39,18 @@ public class GroupReportNotifier {
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
     private final NotificationService notificationService;
+    private final TransactionTemplate newTx;
 
     public GroupReportNotifier(GroupRepo groupRepo, UserInfoRepo userInfoRepo,
-                               NotificationService notificationService) {
+                               NotificationService notificationService,
+                               PlatformTransactionManager txManager) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.notificationService = notificationService;
+        // afterCommit runs inside the already-committed transaction, so writes there
+        // are never committed; the inbox rows need their own transaction.
+        this.newTx = new TransactionTemplate(txManager);
+        this.newTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     /** Runs after the report commits (or now, outside a transaction). */
@@ -50,7 +59,7 @@ public class GroupReportNotifier {
         if (groupId == null || groupId.isBlank()) return;
         Runnable send = () -> {
             try {
-                send(groupId, targetType, reporterEmail, targetAuthorEmail);
+                newTx.executeWithoutResult(st -> send(groupId, targetType, reporterEmail, targetAuthorEmail));
             } catch (Exception e) {
                 log.warn("group_report notice failed for group={}: {}", groupId, e.getMessage());
             }

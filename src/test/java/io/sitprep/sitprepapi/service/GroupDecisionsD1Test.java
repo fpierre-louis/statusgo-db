@@ -134,7 +134,12 @@ class GroupDecisionsD1Test {
         when(groups.findByGroupId("g-org")).thenReturn(Optional.of(g));
         UserInfoRepo users = mock(UserInfoRepo.class);
         when(users.findByUserEmailIgnoreCase(anyString())).thenReturn(Optional.empty());
-        return new GroupReportNotifier(groups, users, ns);
+        return new GroupReportNotifier(groups, users, ns, new org.springframework.transaction.support.AbstractPlatformTransactionManager() {
+            @Override protected Object doGetTransaction() { return new Object(); }
+            @Override protected void doBegin(Object t, org.springframework.transaction.TransactionDefinition d) { }
+            @Override protected void doCommit(org.springframework.transaction.support.DefaultTransactionStatus s) { }
+            @Override protected void doRollback(org.springframework.transaction.support.DefaultTransactionStatus s) { }
+        });
     }
 
     private static Group org(String type) {
