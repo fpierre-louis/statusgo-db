@@ -151,6 +151,50 @@ public class AlertDispatchService {
         this.recorder = recorder;
     }
 
+    // ── R19 targeting (owner 2026-10-15): household homes + the counts-only
+    //    audit. Optional, like the delivery records above, so hand-built test
+    //    dispatchers keep their constructor; without them NWS targeting still
+    //    runs on people's own locations. ──
+    private io.sitprep.sitprepapi.repo.GroupRepo groupRepo;
+    private io.sitprep.sitprepapi.repo.AlertPushTargetingAuditRepo targetingAudits;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setTargetingSupport(io.sitprep.sitprepapi.repo.GroupRepo groupRepo,
+                             io.sitprep.sitprepapi.repo.AlertPushTargetingAuditRepo targetingAudits) {
+        this.groupRepo = groupRepo;
+        this.targetingAudits = targetingAudits;
+    }
+
+    /**
+     * Keep the NWS zones of every pushable person's location and every
+     * household home in the zone cache (R19). The cache is in memory, so a
+     * restart empties it; until a point is re-warmed its person falls back to
+     * the 80 km rule (fail open), and this tick shortens that window to minutes.
+     * {@code warmPoint} is a no-op for a cached point and caps its own queue.
+     */
+    @Scheduled(fixedDelayString = "PT10M", initialDelayString = "PT2M")
+    public void warmPushTargetZones() {
+        if (zoneService == null) return;
+        try {
+            int n = 0;
+            for (UserInfo u : userInfoRepo.findPushablesWithLocation(LocationFreshness.cutoff(Instant.now()))) {
+                if (u.getLastKnownLat() == null || u.getLastKnownLng() == null) continue;
+                zoneService.warmPoint(u.getLastKnownLat(), u.getLastKnownLng());
+                n++;
+            }
+            if (groupRepo != null) {
+                for (Object[] row : groupRepo.findHouseholdHomeCoordinates()) {
+                    if (row == null || row.length < 2 || row[0] == null || row[1] == null) continue;
+                    zoneService.warmPoint(((Number) row[0]).doubleValue(), ((Number) row[1]).doubleValue());
+                    n++;
+                }
+            }
+            log.debug("AlertDispatch: zone warm pass over {} point(s)", n);
+        } catch (RuntimeException e) {
+            log.warn("AlertDispatch: zone warm pass failed: {}", e.getMessage());
+        }
+    }
+
     public AlertDispatchService(AlertIngestService ingest,
                                 AlertPostRepo alertPostRepo,
                                 PostService taskService,
@@ -1315,10 +1359,48 @@ public class AlertDispatchService {
         double alertLat = coord[1];
         double alertLng = coord[0];
 
-        // Radius-filter the pool down to users near this alert, capped
-        // so a bad coordinate can't fan out to the whole table. One entry
-        // per recipient (email, case-insensitive): a recipient listed twice
-        // must be evaluated once, so they get one row and spend one rate token.
+        // WHO GETS IT (R19, owner 2026-10-15). NWS: the containment rule in
+        // PushTargeting — inside the outline or within 5 km of it, or a zone
+        // match — with a per-person fallback to the old 80 km rule whenever the
+        // area can't be tested for them, plus households whose HOME is inside.
+        // Earthquakes stay on distance from the epicentre (no outline to be in).
+        List<UserInfo> nearby;
+        List<UserInfo> atHome = List.of();
+        PushTargeting.Audit audit = null;
+        if ("NWS".equalsIgnoreCase(a.source() == null ? null : a.source().trim())) {
+            double[] box = PushTargeting.homeSearchBox(a, coord);
+            List<io.sitprep.sitprepapi.domain.Group> households = List.of();
+            if (households != null && box != null && groupRepo != null) {
+                try {
+                    households = groupRepo.findHouseholdsWithHomeInBounds(box[0], box[1], box[2], box[3]);
+                } catch (RuntimeException e) {
+                    log.warn("AlertDispatch: household home lookup failed for {}-{}: {}", a.source(), a.id(), e.getMessage());
+                }
+            }
+            PushTargeting.Plan plan = PushTargeting.plan(a, coord, candidates, households,
+                    emails -> userInfoRepo.findByUserEmailLowerIn(emails),
+                    (lat, lng) -> zoneService == null ? java.util.Optional.empty()
+                            : zoneService.cachedZoneCodesForPoint(lat, lng));
+            nearby = capped(plan.here(), MAX_PUSH_RECIPIENTS, a);
+            atHome = capped(plan.atHome(), Math.max(0, MAX_PUSH_RECIPIENTS - nearby.size()), a);
+            audit = plan.audit();
+        } else {
+            nearby = withinRadius(candidates, coord, a);
+        }
+        if (audit != null) recordTargeting(a, audit);
+        if (nearby.isEmpty() && atHome.isEmpty()) return;
+
+        deliverSevere(a, tpl, decision, nearby, null, alert);
+        deliverSevere(a, tpl, decision, atHome, AT_HOME_PREFIX, alert);
+    }
+
+    /** Title prefix for someone pushed because their household's home is in the area. */
+    static final String AT_HOME_PREFIX = "At your home · ";
+
+    /** The old radius rule: kept for earthquakes, capped, one entry per recipient. */
+    private List<UserInfo> withinRadius(List<UserInfo> candidates, double[] coord, NormalizedAlert a) {
+        double alertLat = coord[1];
+        double alertLng = coord[0];
         List<UserInfo> nearby = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (UserInfo u : candidates) {
@@ -1335,25 +1417,49 @@ public class AlertDispatchService {
             if (!seen.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT))) continue;
             nearby.add(u);
         }
+        return nearby;
+    }
 
-        // R19 DRY RUN (owner, 2026-10-15): log who a containment rule would
-        // reach beside who the proximity rule above reaches. Counts only, and
-        // delivery is unchanged — the owner reviews a few days of real alerts
-        // before the rule switches. NWS only: quakes stay on proximity.
-        if ("NWS".equalsIgnoreCase(a.source()) && candidates.size() <= PushTargetingDryRun.MAX_CANDIDATES) {
-            try {
-                Set<String> reached = new HashSet<>();
-                for (UserInfo u : nearby) reached.add(u.getUserEmail().trim().toLowerCase(Locale.ROOT));
-                log.info(PushTargetingDryRun.compare(a, candidates, reached,
-                        (lat, lng) -> zoneService == null ? java.util.Optional.empty()
-                                : zoneService.cachedZoneCodesForPoint(lat, lng))
-                        .logLine(a.source() + "-" + a.id()));
-            } catch (RuntimeException e) {
-                log.debug("AlertDispatch: R19 dry run skipped for {}-{}: {}", a.source(), a.id(), e.getMessage());
-            }
+    private List<UserInfo> capped(List<UserInfo> in, int max, NormalizedAlert a) {
+        if (in.size() <= max) return in;
+        log.warn("AlertDispatch: severe-alert push hit the {}-recipient cap for {}-{}",
+                MAX_PUSH_RECIPIENTS, a.source(), a.id());
+        return new ArrayList<>(in.subList(0, max));
+    }
+
+    /** One counts-only row per NWS severe push (V111). Never breaks the push. */
+    private void recordTargeting(NormalizedAlert a, PushTargeting.Audit audit) {
+        log.info("AlertDispatch: R19 targeting {}-{} ({}): here={} home={} fallback={} proximityWould={} added={} dropped={}",
+                a.source(), a.id(), audit.basis(), audit.reachedHere(), audit.reachedHome(),
+                audit.fallbackProximity(), audit.proximityWould(), audit.addedVsProximity(), audit.droppedVsProximity());
+        if (targetingAudits == null) return;
+        try {
+            io.sitprep.sitprepapi.domain.AlertPushTargetingAudit row = new io.sitprep.sitprepapi.domain.AlertPushTargetingAudit();
+            row.setCreatedAt(Instant.now());
+            String ref = a.source() + "-" + a.id();
+            row.setAlertRef(ref.length() > 320 ? ref.substring(0, 320) : ref);
+            row.setBasis(audit.basis());
+            row.setReachedHere(audit.reachedHere());
+            row.setReachedHome(audit.reachedHome());
+            row.setFallbackProximity(audit.fallbackProximity());
+            row.setProximityWould(audit.proximityWould());
+            row.setAddedVsProximity(audit.addedVsProximity());
+            row.setDroppedVsProximity(audit.droppedVsProximity());
+            targetingAudits.save(row);
+        } catch (RuntimeException e) {
+            log.warn("AlertDispatch: targeting audit not written for {}-{}: {}", a.source(), a.id(), e.getMessage());
         }
-        if (nearby.isEmpty()) return;
+    }
 
+    /**
+     * Push policy, lanes and delivery for one group of recipients. Each
+     * recipient is evaluated once by {@link PushPolicyService}; see the class
+     * notes on lanes A/B/C above {@link #pushSevereAlert}.
+     */
+    private void deliverSevere(NormalizedAlert a, DispatchTemplate tpl, AlertSafetyPolicy.Decision decision,
+                               List<UserInfo> recipients, String titlePrefix,
+                               NotificationService.AlertRowRefs alert) {
+        if (recipients == null || recipients.isEmpty()) return;
         // ── PUSH POLICY (audit P1-4; Lane B added 2026-10-07) ─────────────
         // Until P1-4 this path never consulted PushPolicyService, so the three
         // hazard toggles on /account/alert-preferences — "NWS weather alerts",
@@ -1367,11 +1473,11 @@ public class AlertDispatchService {
         // defer them (see PushPolicyService.isCriticalBypass), and an explicit
         // opt-out (DROP) is still honoured over everything.
         PushPolicyService.Category category = pushCategoryFor(a, tpl);
-        LaneSplit split = splitByLane(nearby, category, a.severity());
+        LaneSplit split = splitByLane(recipients, category, a.severity());
         if (split.inboxOnly().size() + split.nothing() > 0) {
             log.info("AlertDispatch: of {} nearby user(s) for {}, {} inbox-only (Lane B), "
                             + "{} suppressed by push policy",
-                    nearby.size(), a.source() + "-" + a.id(),
+                    recipients.size(), a.source() + "-" + a.id(),
                     split.inboxOnly().size(), split.nothing());
         }
         if (split.push().isEmpty() && split.inboxOnly().isEmpty()) return;
@@ -1381,6 +1487,7 @@ public class AlertDispatchService {
                 ? (tpl != null && tpl.headline != null && !tpl.headline.isBlank()
                     ? tpl.headline : "Severe weather alert nearby")
                 : officialTitle(a);
+        if (titlePrefix != null) title = titlePrefix + title;
         String body = truncate(buildPushBody(a, tpl, decision), 160);
         String referenceId = a.source() + "-" + a.id();
         String data = hazardNotificationData(a, decision);

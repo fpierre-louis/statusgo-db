@@ -154,6 +154,32 @@ public interface GroupRepo extends JpaRepository<Group, String> {
     List<Group> findActiveAlertsForReminderSweep(org.springframework.data.domain.Pageable page);
 
     /**
+     * Households whose HOME is inside a box (R19 severe-push targeting, 2026-10-15):
+     * a household gets the push for a warning over its home even when nobody is
+     * there right now. Members, admins and the owner come with it in one fetch.
+     * The (latitude, longitude) index (V28) range-scans the box.
+     */
+    @EntityGraph(attributePaths = {"adminEmails", "memberEmails"})
+    @Query("""
+        SELECT DISTINCT g FROM Group g
+         WHERE LOWER(COALESCE(g.groupType, '')) = 'household'
+           AND g.homeLocation.lat BETWEEN :minLat AND :maxLat
+           AND g.homeLocation.lng BETWEEN :minLng AND :maxLng
+        """)
+    List<Group> findHouseholdsWithHomeInBounds(@Param("minLat") double minLat,
+                                               @Param("maxLat") double maxLat,
+                                               @Param("minLng") double minLng,
+                                               @Param("maxLng") double maxLng);
+
+    /** Every household home coordinate, for keeping their NWS zones cached (R19). */
+    @Query("""
+        SELECT g.homeLocation.lat, g.homeLocation.lng FROM Group g
+         WHERE LOWER(COALESCE(g.groupType, '')) = 'household'
+           AND g.homeLocation.lat IS NOT NULL AND g.homeLocation.lng IS NOT NULL
+        """)
+    List<Object[]> findHouseholdHomeCoordinates();
+
+    /**
      * Household rows eligible for the weekly preparedness challenge sweep.
      * Challenge completion / alert-state skip rules stay in Java because they
      * depend on the current ISO week and scheduler slot.
