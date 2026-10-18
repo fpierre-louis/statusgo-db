@@ -40,6 +40,7 @@ public class CommunityReportService {
     private final GroupPostRepo groupPostRepo;
     private final GroupPostCommentRepo groupCommentRepo;
     private final GroupPostService groupPostService;
+    private final GroupReportNotifier groupReportNotifier;
 
     private static final Set<CommunityReport.TargetType> GROUP_TYPES =
             EnumSet.of(CommunityReport.TargetType.GROUP_POST, CommunityReport.TargetType.GROUP_COMMENT);
@@ -59,7 +60,8 @@ public class CommunityReportService {
                                   AdminAuditLogService adminAuditLogService,
                                   GroupPostRepo groupPostRepo,
                                   GroupPostCommentRepo groupCommentRepo,
-                                  GroupPostService groupPostService) {
+                                  GroupPostService groupPostService,
+                                  GroupReportNotifier groupReportNotifier) {
         this.reportRepo = reportRepo;
         this.postRepo = postRepo;
         this.commentRepo = commentRepo;
@@ -67,6 +69,7 @@ public class CommunityReportService {
         this.groupPostRepo = groupPostRepo;
         this.groupCommentRepo = groupCommentRepo;
         this.groupPostService = groupPostService;
+        this.groupReportNotifier = groupReportNotifier;
     }
 
     @Transactional
@@ -130,6 +133,11 @@ public class CommunityReportService {
         }
 
         CommunityReportDto saved = CommunityReportDto.from(reportRepo.save(report)).withGroupId(groupId);
+        if (groupId != null) {
+            // FD-01: the group's owner and admins hear of it (never the reporter or the author).
+            groupReportNotifier.notifyAdmins(groupId, targetType, report.getReporterEmail(),
+                    report.getTargetAuthorEmail());
+        }
         // HR6: moderation keeps the author; the person who filed the report
         // must not learn who an anonymous hazard reporter is from the receipt.
         return authorHidden ? saved.withoutTargetAuthor() : saved;

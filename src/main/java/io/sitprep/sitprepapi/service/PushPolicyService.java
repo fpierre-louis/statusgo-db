@@ -260,7 +260,7 @@ public class PushPolicyService {
             // Lane B — silent inbox
             case NWS_MINOR, USGS_QUAKE_MINOR, FEMA_DECLARATION,
                  MENTION, COMMENT_REPLY, REACTION_ROLLUP,
-                 NEW_MEMBER, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
+                 NEW_MEMBER, GROUP_REPORT, TASK_STATUS_CHANGE, AUTO_POST_LOCAL,
                  HOUSEHOLD_RITUAL_REMINDER, WEEKLY_DRILL_REMINDER,
                  FOLLOW, FOLLOW_INVITE, FOLLOW_ACCEPTED, TOKEN_UNLOCKED -> Lane.B;
             // Lane C — ephemeral
@@ -487,6 +487,12 @@ public class PushPolicyService {
         COMMENT_REPLY,
         REACTION_ROLLUP,
         NEW_MEMBER,
+        /**
+         * A member reported a group post or comment (FD-01). Admins and the
+         * owner get an inbox row and no interruptive push; it is a review
+         * queue, not an emergency. Group mute and quiet hours still apply.
+         */
+        GROUP_REPORT,
         TASK_STATUS_CHANGE,
         AUTO_POST_LOCAL,
         /**

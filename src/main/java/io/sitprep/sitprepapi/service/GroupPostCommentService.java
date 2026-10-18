@@ -638,7 +638,9 @@ public class GroupPostCommentService {
                 .map(UserInfo::getId)
                 .orElse(null);
 
-        notificationService.deliverPresenceAware(
+        // SH-14: a reply honours the recipient's group mute + quiet hours
+        // (a suppressed one still lands in the inbox), like a group post.
+        notificationService.deliverPresenceAwareForGroup(
                 owner.getUserEmail(),
                 title,
                 body,
@@ -649,6 +651,8 @@ public class GroupPostCommentService {
                 targetUrl,
                 null,
                 owner.getFcmtoken(),
+                post.getGroupId(),
+                null,
                 actorUserId
         );
     }
@@ -685,12 +689,12 @@ public class GroupPostCommentService {
             // Composer V2 C9f: never across a block, in either direction.
             if (blockService.isAnyBlock(saved.getAuthor(), email)) continue;
             userInfoRepo.findByUserEmailIgnoreCase(email).ifPresent(u ->
-                    notificationService.deliverPresenceAware(
+                    notificationService.deliverPresenceAwareForGroup(
                             u.getUserEmail(), title, body, mentionerName,
                             enriched.getAuthorProfileImageUrl(),
                             NotificationService.TYPE_POST_MENTION,
                             String.valueOf(post.getId()), targetUrl, null,
-                            u.getFcmtoken(), actorUserId));
+                            u.getFcmtoken(), post.getGroupId(), null, actorUserId));
         }
     }
 

@@ -53,6 +53,8 @@ class GroupContentReportTest {
     private CommunityReportService service;
     private GroupPost post;
 
+    private GroupReportNotifier notifier;
+
     @BeforeEach
     void setUp() {
         reportRepo = mock(CommunityReportRepo.class);
@@ -60,8 +62,9 @@ class GroupContentReportTest {
         groupCommentRepo = mock(GroupPostCommentRepo.class);
         groupPostService = mock(GroupPostService.class);
         audit = mock(AdminAuditLogService.class);
+        notifier = mock(GroupReportNotifier.class);
         service = new CommunityReportService(reportRepo, mock(PostRepo.class), mock(PostCommentRepo.class),
-                audit, groupPostRepo, groupCommentRepo, groupPostService);
+                audit, groupPostRepo, groupCommentRepo, groupPostService, notifier);
 
         post = new GroupPost();
         post.setId(7L);

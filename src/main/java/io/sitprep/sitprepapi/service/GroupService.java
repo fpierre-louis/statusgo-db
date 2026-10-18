@@ -1568,6 +1568,9 @@ public class GroupService {
      * 409 CONFLICT so the caller can surface "seats full — add seats in billing".
      */
     private void assertSeatAvailable(Group g, String newMemberEmail) {
+        // PR-01: a household is never seat-capped (safety-critical-everything;
+        // BUSINESS_MODEL.md), even if a max_seats value were ever set on one.
+        if (HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(g.getGroupType())) return;
         Integer max = g.getMaxSeats();
         if (max == null || max <= 0) return; // unlimited / unseated tier
         List<String> members = g.getMemberEmails();

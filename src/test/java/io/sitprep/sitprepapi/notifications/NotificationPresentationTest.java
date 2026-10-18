@@ -36,7 +36,7 @@ class NotificationPresentationTest {
     static final List<String> EMITTED_TYPES = List.of(
             "hazard_alert", "alert", "group_status", "check_in_request", "checkin_reminder",
             "checkin_auto_ended", "plan_activation", "plan_activation_ended", "task_assigned",
-            "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member", "role_changed",
+            "task_reminder", "gobag_expiry", "guest_expiry_reminder", "pending_member", "new_member", "role_changed", "group_report",
             "post_notification", "post_mention", "comment_on_post", "comment_on_task",
             "reply_on_followed", "follow", "follow_accepted", "dm_message", "weekly_drill_kickoff",
             "weekly_drill_nudge", "household_ritual_reminder", "token_unlocked", "readiness_reminder",
@@ -48,7 +48,7 @@ class NotificationPresentationTest {
      */
     static final List<Pattern> FE_ROUTES = List.of(
             "^/hazards(\\?alert=[^&]+)?$", "^/community/posts/[^/?#]+(#comments)?$", "^/community$",
-            "^/groups/[^/?]+(\\?view=post(&postId=[^&]+)?|\\?view=admin&members=1)?$", "^/my-groups$",
+            "^/groups/[^/?]+(\\?view=post(&postId=[^&]+)?|\\?view=admin&members=1|/admin\\?reports=1)?$", "^/my-groups$",
             "^/Groupstatus/[^/?]+$",
             "^/household/h/4D-FwtX/household/[^/?]+/(chat(\\?postId=[^&]+)?|family(\\?checkin=1)?|plan|timeline|about)$",
             "^/household/[^/]+/invite-requests/[^/?]+$", "^/work-orders(/[^/?]+)?$",
@@ -318,6 +318,18 @@ class NotificationPresentationTest {
         assertThat(p.eventKey()).isEqualTo("ROLE_CHANGED");
         assertThat(NotificationEventType.ROLE_CHANGED.policy())
                 .isEqualTo(io.sitprep.sitprepapi.service.PushPolicyService.Category.ROLE_CHANGED);
+        assertRoutable(p);
+    }
+
+    @Test
+    void groupReport_isItsOwnLaneBEvent_andOpensTheAdminReports() {
+        NotificationPresentation p = builder.build(row("group_report", "GROUP_REPORT", "g-org",
+                "/groups/g-org/admin?reports=1", null, null));
+        assertThat(p.eventKey()).isEqualTo("GROUP_REPORT");
+        assertThat(p.deepLink().route()).isEqualTo("/groups/g-org/admin?reports=1");
+        assertThat(p.actions()).extracting(Action::id).containsExactly("REVIEW");
+        assertThat(NotificationEventType.GROUP_REPORT.policy())
+                .isEqualTo(io.sitprep.sitprepapi.service.PushPolicyService.Category.GROUP_REPORT);
         assertRoutable(p);
     }
 

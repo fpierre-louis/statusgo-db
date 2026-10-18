@@ -123,6 +123,11 @@ public enum NotificationEventType {
     ROLE_CHANGED(Set.of("role_changed"), Set.of(Category.ROLE_CHANGED),
             Category.ROLE_CHANGED, "membership", "ROLE_CHANGED",
             NotificationSourceType.GROUP, "MEMBER", Priority.ATTENTION, "GROUP", false),
+    /** A member reported a group post or comment (FD-01): the group's owner and
+     *  admins get an inbox row (Lane B) that opens the admin home's Reports. */
+    GROUP_REPORT(Set.of("group_report"), Set.of(Category.GROUP_REPORT),
+            Category.GROUP_REPORT, "membership", "GROUP_REPORT",
+            NotificationSourceType.GROUP, "SHIELD_ALERT", Priority.ROUTINE, "GROUP", false),
 
     // ── Social ───────────────────────────────────────────────────────────
     /** A new post in a group the viewer is in. Policy MENTION is historical

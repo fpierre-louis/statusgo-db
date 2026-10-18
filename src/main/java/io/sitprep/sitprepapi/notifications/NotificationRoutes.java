@@ -85,6 +85,11 @@ public final class NotificationRoutes {
         return blank(groupId) ? MY_GROUPS : GROUP_PREFIX + seg(groupId) + "?view=admin&members=1";
     }
 
+    /** Org admin: the admin home, with the Reports sheet open (FD-01). */
+    public static String groupReports(String groupId) {
+        return blank(groupId) ? MY_GROUPS : GROUP_PREFIX + seg(groupId) + "/admin?reports=1";
+    }
+
     /** Org organizer: the group's check-in status board. */
     public static String groupStatusBoard(String groupId) {
         return blank(groupId) ? MY_GROUPS : "/Groupstatus/" + seg(groupId);
