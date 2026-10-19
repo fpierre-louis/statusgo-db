@@ -4,15 +4,15 @@
   "version": 1,
   "kind": "FAMILY_ACTIVITY",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-19 by Codex. Family preparedness content requires independent review before publication; the author has not approved it."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-19",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), commissioned under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2",
+      "notes": "Authored 2026-10-19 by Codex. The prior hash sha256:28bb551d5de64759137a70014527e85818ca98c0bd1e8de63544b41a908c4349 was rejected; this revision was independently re-reviewed on 2026-10-19 against ready.gov/kit and ready.gov/kids (APPROVED WITH NON-BLOCKING NOTES) per SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-F-kit-builder-review-packet.md. The owner treated this exact hash as APPROVED and authorized publication (staged rollout, 2026-10-19). The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-19",
     "retiredAt": null
   },
   "content": {

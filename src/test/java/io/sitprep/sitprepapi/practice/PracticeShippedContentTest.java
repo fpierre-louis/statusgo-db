@@ -52,7 +52,7 @@ class PracticeShippedContentTest {
     }
 
     private static final String COMMS = "comms-outage-family-reconnect";
-    private static final String KIT_BUILDER_DRAFT_HASH =
+    private static final String KIT_BUILDER_REVIEWED_HASH =
             "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2";
 
     /**
@@ -102,19 +102,20 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void kitBuilderIsAValidReviewGatedFamilyActivity() {
+    void kitBuilderIsPublishedAtTheIndependentlyReviewedHash() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version kit = catalog.exact("kit-builder", 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(kit)).isEmpty();
-        assertThat(kit.contentHash()).isEqualTo(KIT_BUILDER_DRAFT_HASH);
+        assertThat(kit.contentHash()).isEqualTo(KIT_BUILDER_REVIEWED_HASH);
+        assertThat(kit.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(KIT_BUILDER_REVIEWED_HASH);
         assertThat(kit.kind()).isEqualTo(PracticeKind.FAMILY_ACTIVITY);
-        assertThat(kit.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(kit.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(kit.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(kit.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
         assertThat(kit.body().activity().items()).hasSize(10);
     }
 
     @Test
-    void kitBuilderIsPreviewOnlyUntilIndependentReview() {
+    void productionListsThePublishedKitBuilderAsReal() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -123,12 +124,14 @@ class PracticeShippedContentTest {
         PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
         PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
 
-        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY)).isEmpty();
-        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY)).singleElement()
-                .satisfies(e -> {
-                    assertThat(e.version().key()).isEqualTo("kit-builder");
-                    assertThat(e.preview()).isTrue();
-                });
+        // Published: real in production and in preview builds alike, so its completions are stored.
+        for (PracticeAvailabilityService env : List.of(production, preview)) {
+            assertThat(env.startable(PracticeKind.FAMILY_ACTIVITY)).singleElement()
+                    .satisfies(e -> {
+                        assertThat(e.version().key()).isEqualTo("kit-builder");
+                        assertThat(e.preview()).isFalse();
+                    });
+        }
     }
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */
