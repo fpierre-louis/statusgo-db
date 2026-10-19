@@ -146,6 +146,15 @@ public class AlertDispatchService {
         this.snapshots = snapshots;
     }
 
+    // ── P3b (live_activities EXEC-P3b, owner go 2026-10-19): the official
+    //    warning Live Activity. Optional: absent, no card is ever started. ──
+    private LiveActivityPushService liveActivities;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setLiveActivities(@org.springframework.context.annotation.Lazy LiveActivityPushService liveActivities) {
+        this.liveActivities = liveActivities;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setInterpretationRecorder(@org.springframework.context.annotation.Lazy InterpretationRecorder recorder) {
         this.recorder = recorder;
@@ -563,6 +572,8 @@ public class AlertDispatchService {
 
         Instant now = Instant.now();
         int resolvedCount = 0;
+        // P3b: alert id -> expired?, for the warning cards of what clears here.
+        Map<String, Boolean> clearedForCards = new java.util.LinkedHashMap<>();
         for (String alertId : trackedAlertIds) {
             try {
                 List<AlertPost> rows = alertPostRepo.findActiveByAlertId(alertId);
@@ -585,6 +596,7 @@ public class AlertDispatchService {
                         .legacyDispatchKey();
                 String reason = AlertPostContext.resolvedReason(expired,
                         endedBy.get(canonicalKey == null ? alertId : canonicalKey));
+                clearedForCards.put(alertId, expired);
 
                 for (AlertPost ap : rows) {
                     try {
@@ -610,6 +622,7 @@ public class AlertDispatchService {
                 try { Sentry.captureException(e); } catch (Throwable ignored) {}
             }
         }
+        endClearedWarningCards(clearedForCards, snap, now);
         return resolvedCount;
     }
 
@@ -1176,6 +1189,14 @@ public class AlertDispatchService {
         DispatchTemplate tpl = matchForAlert(a).orElse(null);
         AlertSafetyPolicy.Decision decision = AlertSafetyPolicy.evaluate(a, tpl);
         NotificationService.AlertRowRefs refs = rowRefsFor(a, tpl, decision, null);
+        // P3b condition 4: a verified cancel / replace ends the thread's
+        // warning card with the issuer's own words, never "all clear" unless
+        // the issuer said so (endingBody is the issuer's text verbatim).
+        endWarningCards(refs.threadKey(),
+                AlertMateriality.ENDING_SUPERSEDED.equals(ending)
+                        ? LiveActivityPushService.WARNING_END_REPLACED
+                        : LiveActivityPushService.WARNING_END_CANCELLED,
+                endingBody(a));
         Optional<NotificationLog> last = lastDelivered(a, refs);
         if (last.isEmpty() || revisionRef.equals(last.get().getAlertRevisionRef())) {
             remember(revisionRef);
@@ -1474,6 +1495,10 @@ public class AlertDispatchService {
         // opt-out (DROP) is still honoured over everything.
         PushPolicyService.Category category = pushCategoryFor(a, tpl);
         LaneSplit split = splitByLane(recipients, category, a.severity());
+        // P3b: the warning card goes to exactly the Lane A people this push
+        // interrupts (condition 2); cards already following the thread update
+        // in place. After commit, never inside the dispatch transaction (5).
+        startWarningCards(a, tpl, decision, alert, split.push(), titlePrefix != null);
         if (split.inboxOnly().size() + split.nothing() > 0) {
             log.info("AlertDispatch: of {} nearby user(s) for {}, {} inbox-only (Lane B), "
                             + "{} suppressed by push policy",
@@ -1525,6 +1550,120 @@ public class AlertDispatchService {
         }
         log.info("AlertDispatch: severe alert {} pushed to {} and inboxed silently for {} nearby user(s)",
                 referenceId, split.push().size(), split.inboxOnly().size());
+    }
+
+    // ── P3b: the official warning Live Activity ──────────────────────────
+
+    /** Warnings that end later than this get no card (Apple's 8 h activity limit; GAMEPLAN D7). */
+    static final Duration WARNING_CARD_MAX = Duration.ofHours(8);
+    /** The token table's reference_id width (V106). */
+    private static final int MAX_CARD_THREAD_KEY = 128;
+
+    /**
+     * The card for one delivered revision, or null when it earns none: NWS
+     * Warnings rated Severe or Extreme that end within {@link #WARNING_CARD_MAX}.
+     * The action line is the interpreter's primaryAction (condition 1): the
+     * reviewed guidance when policy allows it, else the issuer's attributed
+     * instruction, else no line. At dispatch the alert is listed and its end
+     * is ahead, so it is actionable (listed AND current).
+     */
+    static LiveActivityPushService.WarningCard warningCardFor(NormalizedAlert a, DispatchTemplate tpl,
+                                                              AlertSafetyPolicy.Decision decision,
+                                                              NotificationService.AlertRowRefs refs,
+                                                              Instant now) {
+        if (a == null || refs == null || refs.threadKey() == null) return null;
+        if (refs.threadKey().length() > MAX_CARD_THREAD_KEY) return null;
+        if (a.source() == null || !"NWS".equalsIgnoreCase(a.source().trim())) return null;
+        String event = a.event() == null ? "" : a.event().trim();
+        if (!event.endsWith("Warning")) return null;
+        String severity = a.severity() == null ? "" : a.severity().trim();
+        int rank = "Extreme".equalsIgnoreCase(severity) ? 2 : "Severe".equalsIgnoreCase(severity) ? 1 : 0;
+        if (rank == 0) return null;
+        Instant ends = parseInstantOrNull(a.endsAt());
+        if (ends == null || !ends.isAfter(now) || ends.isAfter(now.plus(WARNING_CARD_MAX))) return null;
+
+        TrustedSourceRegistry.SourceIdentity reg = TrustedSourceRegistry.of(a.source());
+        String whatToDo = decision != null && decision.allowsSitPrepGuidance() && tpl != null
+                ? fillBody(tpl, a) : null;
+        io.sitprep.sitprepapi.dto.AlertCardDto.PrimaryAction action =
+                AlertInterpreter.primaryActionOf(a, decision, true, whatToDo, reg);
+        String issuer = reg != null && reg.name() != null ? reg.name() : "National Weather Service";
+        return new LiveActivityPushService.WarningCard(
+                refs.threadKey(),
+                refs.revisionRef(),
+                event,
+                issuer,
+                io.sitprep.sitprepapi.notifications.NotificationRoutes.hazard(a.source() + "-" + a.id()),
+                rank,
+                ends,
+                action == null ? null : action.text(),
+                action == null ? null : action.attribution());
+    }
+
+    private void startWarningCards(NormalizedAlert a, DispatchTemplate tpl, AlertSafetyPolicy.Decision decision,
+                                   NotificationService.AlertRowRefs refs, List<UserInfo> laneA, boolean atHome) {
+        if (liveActivities == null) return;
+        try {
+            LiveActivityPushService.WarningCard card = warningCardFor(a, tpl, decision, refs, Instant.now());
+            if (card == null) return;
+            List<String> emails = new ArrayList<>();
+            for (UserInfo u : laneA == null ? List.<UserInfo>of() : laneA) {
+                if (u != null && u.getUserEmail() != null) emails.add(u.getUserEmail());
+            }
+            afterCommitOrNow(() -> liveActivities.warningIssued(card, emails, atHome));
+        } catch (RuntimeException e) {
+            log.warn("AlertDispatch: warning card skipped for {}-{}: {}", a.source(), a.id(), e.getMessage());
+        }
+    }
+
+    private void endWarningCards(String threadKey, String reason, String note) {
+        if (liveActivities == null || threadKey == null) return;
+        afterCommitOrNow(() -> liveActivities.warningEnded(threadKey, reason, note));
+    }
+
+    /**
+     * Condition 4, the expiry / no-longer-listed half: each cleared alert's
+     * delivered thread ends its card unless the snapshot still lists an
+     * unexpired message in that thread (a newer revision keeps the card).
+     */
+    void endClearedWarningCards(Map<String, Boolean> cleared, AlertIngestService.Snapshot snap, Instant now) {
+        if (liveActivities == null || deliveries == null || cleared == null || cleared.isEmpty()) return;
+        try {
+            Set<String> liveThreads = new HashSet<>();
+            if (snap != null && snap.alerts() != null) {
+                for (NormalizedAlert a : snap.alerts()) {
+                    Instant ends = parseInstantOrNull(a.endsAt());
+                    if (ends != null && !ends.isAfter(now)) continue;
+                    String key = AlertThreads.threadKeyOf(a);
+                    if (key != null) liveThreads.add(key);
+                }
+            }
+            Set<String> ended = new HashSet<>();
+            for (Map.Entry<String, Boolean> e : cleared.entrySet()) {
+                for (String thread : deliveries.findHazardThreadKeys(e.getKey(), now.minus(DELIVERY_LOOKBACK))) {
+                    if (thread == null || liveThreads.contains(thread) || !ended.add(thread)) continue;
+                    boolean expired = Boolean.TRUE.equals(e.getValue());
+                    endWarningCards(thread,
+                            expired ? LiveActivityPushService.WARNING_END_EXPIRED
+                                    : LiveActivityPushService.WARNING_END_UNLISTED,
+                            expired ? null : "The National Weather Service no longer lists this warning.");
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("AlertDispatch: warning card end sweep failed: {}", e.getMessage());
+        }
+    }
+
+    /** Run once the surrounding transaction commits; at once when there is none (condition 5). */
+    private static void afterCommitOrNow(Runnable r) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { r.run(); }
+                    });
+        } else {
+            r.run();
+        }
     }
 
     /** The hazard notification's deep link, shared by the push and the Lane B row. */

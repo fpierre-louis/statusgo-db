@@ -38,7 +38,10 @@ public class LiveActivityToken {
     public static final String KIND_SITUATION = "situation";
     public static final String KIND_LOCATION_SHARE = "location_share";
     public static final String KIND_CHECKIN_REQUEST = "checkin_request";
-    public static final Set<String> KINDS = Set.of(KIND_SITUATION, KIND_LOCATION_SHARE, KIND_CHECKIN_REQUEST);
+    /** P3b: an official NWS warning; update tokens follow an alert thread (V112). */
+    public static final String KIND_OFFICIAL_WARNING = "official_warning";
+    public static final Set<String> KINDS = Set.of(KIND_SITUATION, KIND_LOCATION_SHARE, KIND_CHECKIN_REQUEST,
+            KIND_OFFICIAL_WARNING);
 
     public static final String TYPE_UPDATE = "update";
     public static final String TYPE_PUSH_TO_START = "push_to_start";

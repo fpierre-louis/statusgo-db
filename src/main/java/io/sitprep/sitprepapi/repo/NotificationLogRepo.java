@@ -294,4 +294,23 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
                                 @Param("postId") String postId,
                                 @Param("types") Collection<String> types,
                                 @Param("body") String body);
+
+    /**
+     * P3b: was this person told about this alert thread? Only they may follow
+     * its warning card (LiveActivityTokenService). Emails compare lower-cased: rows keep UserInfo's casing, callers are normalized.
+     */
+    @Query("SELECT COUNT(n) > 0 FROM NotificationLog n " +
+           "WHERE n.alertThreadKey = :threadKey AND LOWER(n.recipientEmail) = :email")
+    boolean wasToldAboutThread(@Param("email") String lowerCaseEmail, @Param("threadKey") String threadKey);
+
+    /**
+     * P3b: the thread(s) a dispatched hazard alert was delivered under, so the
+     * resolve sweep can end that thread's warning card. Bounded by time so it
+     * rides idx_notif_type_ts.
+     */
+    @Query("SELECT DISTINCT n.alertThreadKey FROM NotificationLog n " +
+           "WHERE n.type = 'hazard_alert' AND n.referenceId = :referenceId " +
+           "AND n.timestamp > :since AND n.alertThreadKey IS NOT NULL")
+    List<String> findHazardThreadKeys(@Param("referenceId") String referenceId,
+                                      @Param("since") java.time.Instant since);
 }

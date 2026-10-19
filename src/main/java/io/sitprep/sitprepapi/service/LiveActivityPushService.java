@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import io.sitprep.sitprepapi.domain.Group;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -438,6 +439,194 @@ public class LiveActivityPushService {
             aps.put("attributes", attributes);
             deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_HIGH), now);
         }
+    }
+
+    // ── Official warning (P3b, owner go 2026-10-19) ──────────────────────
+    //
+    // EXEC-P3b-official-warning.md and its five alerts-lane conditions. The
+    // dispatcher decides WHICH warning revision earns a card and WHO (R19's
+    // recipients that push policy puts in Lane A); this service only starts,
+    // updates and ends cards. One card per person (W3): a second warning takes
+    // the card only when it is more severe. Cards follow an alert THREAD
+    // (reference_id = alert_thread_key), never a CAP id, so a revision updates
+    // the card instead of stacking a new one.
+
+    /** Must match the Swift type name exactly: push-to-start names it. */
+    static final String WARNING_ATTRIBUTES_TYPE = "OfficialWarningAttributes";
+    static final String WARNING_PHASE_ACTIVE = "active";
+    static final String WARNING_PHASE_ENDED = "ended";
+    static final String WARNING_END_CANCELLED = "cancelled";
+    static final String WARNING_END_REPLACED = "replaced";
+    static final String WARNING_END_EXPIRED = "expired";
+    static final String WARNING_END_UNLISTED = "unlisted";
+    static final String WARNING_END_OUTRANKED = "outranked";
+    /** The payload stays far under Apple's 4 KB; the card clamps lines anyway. */
+    static final int MAX_WARNING_TEXT = 300;
+    private static final int MAX_WARNINGS_TRACKED = 500;
+
+    /**
+     * One warning revision as the card shows it. Every sentence is the
+     * server's: the action line is the interpreter's primaryAction with its
+     * attribution, or null (no line). {@code severityRank}: 2 Extreme, 1 Severe.
+     */
+    public record WarningCard(String threadKey, String revisionRef, String event, String issuer,
+                              String deepLink, int severityRank, Instant endsAt,
+                              String actionText, String actionAttribution) {}
+
+    /** What this service last sent for a thread: "Extended" and one-at-a-time read it. */
+    record WarningSent(String revisionRef, int severityRank, Instant endsAt) {}
+
+    private final Map<String, WarningSent> warningsSent = new ConcurrentHashMap<>();
+
+    /**
+     * A warning revision was delivered. Cards already following its thread
+     * update in place (once per revision); each recipient with no warning card,
+     * or only a less severe one, gets this card by silent push-to-start.
+     *
+     * @param laneAEmails the recipients push policy interrupts (Lane A); may be empty
+     * @param atHome      these recipients were reached because their household's home is inside
+     */
+    public void warningIssued(WarningCard card, java.util.Collection<String> laneAEmails, boolean atHome) {
+        if (card == null || card.threadKey() == null || card.threadKey().isBlank()) return;
+        List<String> emails = new ArrayList<>();
+        if (laneAEmails != null) {
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (String e : laneAEmails) {
+                if (e == null || e.isBlank()) continue;
+                String lower = e.trim().toLowerCase(java.util.Locale.ROOT);
+                if (seen.add(lower)) emails.add(lower);
+            }
+        }
+        run("warning card for " + card.threadKey(), () -> sendWarning(card, emails, atHome));
+    }
+
+    /**
+     * The warning's thread ended: a verified cancel or replace (the issuer's
+     * own words in {@code note}), an expiry, or the source no longer listing it.
+     */
+    public void warningEnded(String threadKey, String reason, String note) {
+        if (threadKey == null || threadKey.isBlank()) return;
+        run("end warning card " + threadKey, () -> endWarning(threadKey, reason, note));
+    }
+
+    void sendWarning(WarningCard card, List<String> emails, boolean atHome) {
+        Instant now = Instant.now();
+        String thread = card.threadKey();
+        WarningSent prev = warningsSent.get(thread);
+        boolean newRevision = prev == null || !java.util.Objects.equals(prev.revisionRef(), card.revisionRef());
+        boolean extended = prev != null && prev.endsAt() != null && card.endsAt() != null
+                && card.endsAt().isAfter(prev.endsAt());
+
+        if (newRevision) {
+            Map<String, Object> state = warningState(WARNING_PHASE_ACTIVE, card, extended, now, null, null);
+            for (LiveActivityToken t : tokens.findLiveUpdateTokens(LiveActivityToken.KIND_OFFICIAL_WARNING, thread)) {
+                Map<String, Object> aps = aps("update", state, now, card.endsAt(), null, 1, null);
+                deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_LOW), now);
+            }
+            if (warningsSent.size() >= MAX_WARNINGS_TRACKED) warningsSent.clear();
+            warningsSent.put(thread, new WarningSent(card.revisionRef(), card.severityRank(), card.endsAt()));
+        }
+        if (emails.isEmpty()) return;
+
+        // Who already holds a warning card, and which.
+        Map<String, List<LiveActivityToken>> holding = new java.util.HashMap<>();
+        for (LiveActivityToken t : tokens.findLiveUpdateTokensForUsers(LiveActivityToken.KIND_OFFICIAL_WARNING, emails)) {
+            holding.computeIfAbsent(t.getUserEmail(), k -> new ArrayList<>()).add(t);
+        }
+        java.util.Set<String> startFor = new java.util.LinkedHashSet<>();
+        List<LiveActivityToken> outranked = new ArrayList<>();
+        for (String email : emails) {
+            List<LiveActivityToken> cards = holding.get(email);
+            if (cards == null || cards.isEmpty()) {
+                startFor.add(email);
+                continue;
+            }
+            if (cards.stream().anyMatch(t -> thread.equals(t.getReferenceId()))) continue;   // already following it
+            // W3: replace only a card that is known to be less severe. An
+            // unknown rank (this process restarted) is not "less".
+            boolean allLess = cards.stream().allMatch(t -> {
+                WarningSent other = warningsSent.get(t.getReferenceId());
+                return other != null && other.severityRank() < card.severityRank();
+            });
+            if (allLess) {
+                outranked.addAll(cards);
+                startFor.add(email);
+            }
+        }
+        if (!outranked.isEmpty()) {
+            Map<String, Object> state = warningEndState(WARNING_END_OUTRANKED,
+                    "A more severe warning took this card.", null, now);
+            for (LiveActivityToken t : outranked) {
+                Map<String, Object> aps = aps("end", state, now, null, now, 0, null);
+                deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_LOW), now);
+            }
+            tokens.endByIds(outranked.stream().map(LiveActivityToken::getId).toList(), now);
+        }
+        if (startFor.isEmpty()) return;
+
+        Map<String, Object> attributes = warningAttributes(card, atHome);
+        Map<String, Object> state = warningState(WARNING_PHASE_ACTIVE, card, false, now, null, null);
+        for (LiveActivityToken t : tokens.findLivePushToStart(LiveActivityToken.KIND_OFFICIAL_WARNING, startFor)) {
+            // Silent (D6): the warning push beside it carries the sound.
+            Map<String, Object> aps = aps("start", state, now, card.endsAt(), null, 1,
+                    silentAlert(card.event(), atHome ? "At your home" : "Official warning"));
+            aps.put("attributes-type", WARNING_ATTRIBUTES_TYPE);
+            aps.put("attributes", attributes);
+            deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_HIGH), now);
+        }
+    }
+
+    void endWarning(String threadKey, String reason, String note) {
+        WarningSent prev = warningsSent.remove(threadKey);
+        List<LiveActivityToken> live = tokens.findLiveUpdateTokens(LiveActivityToken.KIND_OFFICIAL_WARNING, threadKey);
+        if (live.isEmpty()) return;
+        Instant now = Instant.now();
+        Map<String, Object> state = warningEndState(reason, note, prev == null ? null : prev.endsAt(), now);
+        for (LiveActivityToken t : live) {
+            Map<String, Object> aps = aps("end", state, now, null, now.plus(DISMISS_AFTER), 0, null);
+            deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps, PRIORITY_LOW), now);
+        }
+        tokens.endByIds(live.stream().map(LiveActivityToken::getId).toList(), now);
+    }
+
+    /** The static attributes. Keys are the Swift property names (Shared/ActivityAttributes.swift). */
+    static Map<String, Object> warningAttributes(WarningCard card, boolean atHome) {
+        Map<String, Object> a = new LinkedHashMap<>();
+        a.put("threadKey", card.threadKey());
+        a.put("event", card.event());
+        a.put("issuer", card.issuer());
+        a.put("deepLink", card.deepLink());
+        a.put("atHome", atHome);
+        a.put("severityRank", card.severityRank());
+        return a;
+    }
+
+    /** The content state. Null values are dropped on the wire, so every Swift field but phase, extended and asOfEpoch is optional. */
+    static Map<String, Object> warningState(String phase, WarningCard card, boolean extended, Instant asOf,
+                                            String endReason, String note) {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("phase", phase);
+        s.put("actionText", card == null ? null : clampText(card.actionText()));
+        s.put("actionAttribution", card == null || card.actionText() == null ? null : card.actionAttribution());
+        s.put("endsAtEpoch", card == null || card.endsAt() == null ? null : card.endsAt().getEpochSecond());
+        s.put("extended", extended);
+        s.put("endReason", endReason);
+        s.put("note", clampText(note));
+        s.put("asOfEpoch", asOf.getEpochSecond());
+        return s;
+    }
+
+    static Map<String, Object> warningEndState(String reason, String note, Instant endsAt, Instant asOf) {
+        Map<String, Object> s = warningState(WARNING_PHASE_ENDED, null, false, asOf, reason, note);
+        s.put("endsAtEpoch", endsAt == null ? null : endsAt.getEpochSecond());
+        return s;
+    }
+
+    static String clampText(String text) {
+        if (text == null) return null;
+        String t = text.trim();
+        if (t.isEmpty()) return null;
+        return t.length() <= MAX_WARNING_TEXT ? t : t.substring(0, MAX_WARNING_TEXT - 1).trim() + "\u2026";
     }
 
     /** End request cards: final state, dismissed {@link #DISMISS_AFTER} later, tokens retired. */

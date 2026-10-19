@@ -43,6 +43,13 @@ public interface LiveActivityTokenRepo extends JpaRepository<LiveActivityToken, 
     List<LiveActivityToken> findLiveUpdateTokensForUser(@Param("kind") String kind,
                                                         @Param("userEmail") String userEmail);
 
+    /** Several users' live per-activity tokens of one kind (P3b: who already holds a warning card). */
+    @Query("SELECT t FROM LiveActivityToken t " +
+           "WHERE t.kind = :kind AND t.tokenType = 'update' AND t.endedAt IS NULL " +
+           "AND t.userEmail IN :emails ORDER BY t.id ASC")
+    List<LiveActivityToken> findLiveUpdateTokensForUsers(@Param("kind") String kind,
+                                                         @Param("emails") java.util.Collection<String> emails);
+
     /** The caller's live rows for one activity (DELETE, and a token rotation). */
     @Query("SELECT t FROM LiveActivityToken t " +
            "WHERE t.userEmail = :userEmail AND t.activityId = :activityId AND t.endedAt IS NULL")

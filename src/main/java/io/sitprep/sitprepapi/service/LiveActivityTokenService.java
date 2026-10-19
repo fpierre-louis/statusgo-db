@@ -56,6 +56,7 @@ public class LiveActivityTokenService {
     private final GroupRepo groupRepo;
     private final LiveLocationSessionRepo sessionRepo;
     private final LiveActivityPushService pushService;
+    private io.sitprep.sitprepapi.repo.NotificationLogRepo notificationLogs;
 
     public LiveActivityTokenService(LiveActivityTokenRepo repo,
                                     GroupRepo groupRepo,
@@ -65,6 +66,12 @@ public class LiveActivityTokenService {
         this.groupRepo = groupRepo;
         this.sessionRepo = sessionRepo;
         this.pushService = pushService;
+    }
+
+    /** P3b: who was told about an alert thread (setter-injected, so the constructor tests stay as they are). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setNotificationLogs(io.sitprep.sitprepapi.repo.NotificationLogRepo notificationLogs) {
+        this.notificationLogs = notificationLogs;
     }
 
     /**
@@ -79,7 +86,7 @@ public class LiveActivityTokenService {
 
         String kind = lower(req.kind());
         if (kind == null || !LiveActivityToken.KINDS.contains(kind)) {
-            throw bad("kind must be one of situation, location_share, checkin_request");
+            throw bad("kind must be one of situation, location_share, checkin_request, official_warning");
         }
         String tokenType = lower(req.tokenType());
         if (tokenType == null) tokenType = LiveActivityToken.TYPE_UPDATE;
@@ -147,6 +154,16 @@ public class LiveActivityTokenService {
     }
 
     private void authorizeReference(String kind, String referenceId, String caller) {
+        if (LiveActivityToken.KIND_OFFICIAL_WARNING.equals(kind)) {
+            // P3b: the card follows an alert thread. Only someone the thread
+            // was delivered to may follow it, the same people the card was
+            // started for (an inbox or push row carries the thread key).
+            if (notificationLogs == null
+                    || !notificationLogs.wasToldAboutThread(caller, referenceId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a warning you were sent");
+            }
+            return;
+        }
         if (LiveActivityToken.KIND_LOCATION_SHARE.equals(kind)) {
             var session = sessionRepo.findById(referenceId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
