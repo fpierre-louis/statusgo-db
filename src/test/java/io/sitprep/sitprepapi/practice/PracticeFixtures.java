@@ -76,7 +76,7 @@ final class PracticeFixtures {
         return root;
     }
 
-    /** A valid DRAFT family activity (body schema is Phase D; any object passes Phase A). */
+    /** A valid DRAFT family activity. */
     static ObjectNode family(String key, int version) {
         ObjectNode root = M.createObjectNode();
         root.put("schema", 1);
@@ -94,8 +94,26 @@ final class PracticeFixtures {
         content.putArray("ageGuidance").add("Family / all ages");
         content.putArray("sources").addObject()
                 .put("label", "Ready.gov — Build a Kit").put("url", "https://www.ready.gov/kit");
-        content.putObject("tags").putObject("identified_core_kit_items").put("text", "You found the basics.");
-        content.putObject("activity").putArray("items").addObject().put("label", "Water");
+        content.putObject("tags").putObject("discussed_core_kit_items")
+                .put("text", "Your household talked through basic emergency-kit supplies together.");
+        ObjectNode activity = content.putObject("activity");
+        activity.put("type", "ITEM_SORT");
+        activity.put("prompt", "Where does this go for your family?");
+        activity.put("reminderQuestion", "Did this remind you of anything your household needs?");
+        activity.put("recapTitle", "A few basics to remember");
+        activity.put("recapBody", "FEMA recommends keeping basics such as water and food in an emergency kit.");
+        activity.putArray("piles")
+                .addObject().put("key", "core").put("label", "Most families need this");
+        activity.withArray("piles")
+                .addObject().put("key", "ours").put("label", "Our family may need this");
+        activity.putArray("items").addObject()
+                .put("key", "water").put("label", "Water").put("artKey", "water");
+        activity.putArray("completionTags").add("discussed_core_kit_items");
+        activity.put("nextAction", "OPEN_HOME_STOCKPILE");
+        activity.putObject("nextParams");
+        activity.put("nextPrompt", "Check your home kit together.");
+        activity.put("nextLabel", "Review your home kit");
+        activity.put("nextNote", "Nothing changes unless you save it.");
         return root;
     }
 

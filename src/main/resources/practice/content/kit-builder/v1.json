@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "key": "kit-builder",
+  "version": 1,
+  "kind": "FAMILY_ACTIVITY",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewedBy": null,
+      "reviewedContentHash": null,
+      "notes": "Authored 2026-10-19 by Codex. Family preparedness content requires independent review before publication; the author has not approved it."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Kit Builder",
+    "summary": "Sort everyday things into your family's emergency kit, together. Talk through each choice—some supplies are basics for most households, while others depend on your family.",
+    "objective": "Talk through which supplies most households need and which additional items fit your household.",
+    "estimatedMinutes": 10,
+    "sources": [
+      {
+        "label": "Ready.gov — Build a Kit",
+        "url": "https://www.ready.gov/kit"
+      },
+      {
+        "label": "Ready.gov — Ready Kids",
+        "url": "https://www.ready.gov/kids"
+      },
+      {
+        "label": "FEMA — Emergency Supply List",
+        "url": "https://www.ready.gov/sites/default/files/2022-04/ready_checklist.pdf"
+      }
+    ],
+    "ageGuidance": ["Family / all ages"],
+    "facilitation": "An adult reads each item aloud. Ask everyone where it belongs for your household and why. If you disagree, talk it through; the conversation is the practice.",
+    "tags": {
+      "discussed_core_kit_items": {
+        "text": "Your household talked through basic emergency-kit supplies together."
+      },
+      "discussed_household_specific_needs": {
+        "text": "Your household considered supplies that depend on the people and pets in your home."
+      }
+    },
+    "activity": {
+      "type": "ITEM_SORT",
+      "prompt": "Where does this go for your family?",
+      "reminderQuestion": "Did this remind you of anything your household needs?",
+      "recapTitle": "A few basics to remember",
+      "recapBody": "FEMA recommends keeping basics such as water, food that doesn't need refrigeration, a flashlight, radio, first-aid kit, whistle, and phone charging backup in an emergency kit. Your household may need additional supplies too.",
+      "piles": [
+        { "key": "core", "label": "Most families need this" },
+        { "key": "ours", "label": "Our family may need this" },
+        { "key": "skip", "label": "Not for our emergency kit" }
+      ],
+      "items": [
+        { "key": "water", "label": "Water", "artKey": "water" },
+        { "key": "food", "label": "Food that doesn't need refrigeration", "artKey": "canned_food" },
+        { "key": "flashlight", "label": "Flashlight", "artKey": "flashlight" },
+        { "key": "radio", "label": "Battery-powered or hand-crank radio", "artKey": "radio" },
+        { "key": "first_aid", "label": "First aid kit", "artKey": "first_aid" },
+        { "key": "whistle", "label": "Whistle", "artKey": "whistle" },
+        { "key": "charger", "label": "Phone charger and backup battery", "artKey": "charger" },
+        { "key": "pet_food", "label": "Pet food", "artKey": "pet_bowl" },
+        { "key": "games", "label": "Books and games for kids", "artKey": "games" },
+        { "key": "console", "label": "Plug-in game console", "artKey": "game_console" }
+      ],
+      "completionTags": [
+        "discussed_core_kit_items",
+        "discussed_household_specific_needs"
+      ],
+      "nextAction": "OPEN_HOME_STOCKPILE",
+      "nextParams": {},
+      "nextPrompt": "Check your home kit together.",
+      "nextLabel": "Review your home kit",
+      "nextNote": "Opens your real home kit. Nothing changes unless you save it."
+    }
+  }
+}

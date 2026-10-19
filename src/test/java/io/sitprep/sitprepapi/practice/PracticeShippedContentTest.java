@@ -52,6 +52,8 @@ class PracticeShippedContentTest {
     }
 
     private static final String COMMS = "comms-outage-family-reconnect";
+    private static final String KIT_BUILDER_DRAFT_HASH =
+            "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2";
 
     /**
      * The hash the v2 review packet (SitPrep FE
@@ -97,6 +99,36 @@ class PracticeShippedContentTest {
         assertThat(shape(v2)).isEqualTo(shape(v1));
         assertThat(v2.body().sources()).isEqualTo(v1.body().sources());
         assertThat(v2.body().tags()).isEqualTo(v1.body().tags());
+    }
+
+    @Test
+    void kitBuilderIsAValidReviewGatedFamilyActivity() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version kit = catalog.exact("kit-builder", 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(kit)).isEmpty();
+        assertThat(kit.contentHash()).isEqualTo(KIT_BUILDER_DRAFT_HASH);
+        assertThat(kit.kind()).isEqualTo(PracticeKind.FAMILY_ACTIVITY);
+        assertThat(kit.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(kit.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(kit.body().activity().items()).hasSize(10);
+    }
+
+    @Test
+    void kitBuilderIsPreviewOnlyUntilIndependentReview() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
+
+        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY)).isEmpty();
+        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY)).singleElement()
+                .satisfies(e -> {
+                    assertThat(e.version().key()).isEqualTo("kit-builder");
+                    assertThat(e.preview()).isTrue();
+                });
     }
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */

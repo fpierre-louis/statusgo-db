@@ -255,13 +255,44 @@ class PracticeContentValidatorTest {
         assertRejected(injury, "prohibited practice copy");
 
         ObjectNode activityText = family("kit", 1);
-        ((ObjectNode) content(activityText).get("activity")).put("intro", "Imagine you are home alone in a storm.");
+        ((ObjectNode) content(activityText).get("activity")).put("prompt", "Imagine you are home alone in a storm.");
         assertRejected(activityText, "prohibited practice copy");
 
         // The same injury word is not a family-only rule for adult scenarios.
         ObjectNode adult = scenario("k", 1);
         content(adult).put("objective", "Check whether anyone is injured before you leave.");
         assertThat(errors(adult)).isEmpty();
+    }
+
+    @Test
+    void familyActivityNeedsTheStrictItemSortShape() {
+        ObjectNode wrongType = family("kit", 1);
+        ((ObjectNode) content(wrongType).get("activity")).put("type", "QUIZ");
+        assertRejected(wrongType, ".type must be ITEM_SORT");
+
+        ObjectNode duplicatePile = family("kit", 1);
+        ObjectNode activity = (ObjectNode) content(duplicatePile).get("activity");
+        ((ObjectNode) activity.withArray("piles").get(1)).put("key", "core");
+        assertRejected(duplicatePile, "duplicate pile key core");
+
+        ObjectNode missingArt = family("kit", 1);
+        ((ObjectNode) content(missingArt).get("activity").get("items").get(0)).remove("artKey");
+        assertRejected(missingArt, "needs a lower-snake-case artKey");
+
+        ObjectNode missingRecap = family("kit", 1);
+        ((ObjectNode) content(missingRecap).get("activity")).remove("recapBody");
+        assertRejected(missingRecap, ".recapBody is required");
+    }
+
+    @Test
+    void familyCompletionTagsAndNextStepAreServerOwnedAndValidated() {
+        ObjectNode unknownTag = family("kit", 1);
+        ((ObjectNode) content(unknownTag).get("activity")).withArray("completionTags").add("not_declared");
+        assertRejected(unknownTag, "with no copy in content.tags");
+
+        ObjectNode unsafeAction = family("kit", 1);
+        ((ObjectNode) content(unsafeAction).get("activity")).put("nextAction", "OPEN_ACTIVE_SITUATION");
+        assertRejected(unsafeAction, "needs a nextAction from PracticeActions.ALLOWED");
     }
 
     // -- consequence (spec Q10) ------------------------------------------

@@ -22,7 +22,7 @@ public enum DebriefTag {
     NEEDS_ROUTE_REVIEW(Polarity.PRACTICE),
 
     // Family Practice — Kit Builder
-    IDENTIFIED_CORE_KIT_ITEMS(Polarity.STRONG),
+    DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
     DISCUSSED_HOUSEHOLD_SPECIFIC_NEEDS(Polarity.STRONG),
     NEEDS_HOME_KIT_REVIEW(Polarity.PRACTICE);
 

@@ -1,6 +1,8 @@
 package io.sitprep.sitprepapi.practice;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import io.sitprep.sitprepapi.practice.PracticeContent.Activity;
+import io.sitprep.sitprepapi.practice.PracticeContent.ActivityItem;
+import io.sitprep.sitprepapi.practice.PracticeContent.ActivityPile;
 import io.sitprep.sitprepapi.practice.PracticeContent.Body;
 import io.sitprep.sitprepapi.practice.PracticeContent.Choice;
 import io.sitprep.sitprepapi.practice.PracticeContent.ContentFile;
@@ -121,6 +123,8 @@ public final class PracticeContentValidator {
         if (f.kind() == PracticeKind.ADULT_SCENARIO) {
             if (b.scenario() == null) errors.add(where + ": an ADULT_SCENARIO needs content.scenario");
             else validateScenario(b, where, errors);
+        } else if (f.kind() == PracticeKind.FAMILY_ACTIVITY && b.activity() != null) {
+            validateActivity(b, where, errors);
         }
         validateCopy(f.kind(), b, where, errors);
         return errors;
@@ -218,13 +222,13 @@ public final class PracticeContentValidator {
                     if (!AGE_GUIDANCE.contains(g)) errors.add(where + ": unknown ageGuidance '" + g + "'");
                 }
             }
-            if (b.activity() == null || b.activity().isNull()) errors.add(where + ": a FAMILY_ACTIVITY needs content.activity");
+            if (b.activity() == null) errors.add(where + ": a FAMILY_ACTIVITY needs content.activity");
             if (b.scenario() != null) errors.add(where + ": a FAMILY_ACTIVITY must not carry a scenario graph");
         } else if (kind == PracticeKind.ADULT_SCENARIO) {
             if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) {
                 errors.add(where + ": ageGuidance is Family Practice metadata, not for adult scenarios");
             }
-            if (b.activity() != null && !b.activity().isNull()) {
+            if (b.activity() != null) {
                 errors.add(where + ": an ADULT_SCENARIO must not carry an activity body");
             }
         }
@@ -243,6 +247,67 @@ public final class PracticeContentValidator {
     }
 
     static final Pattern PARAM = Pattern.compile("^[A-Za-z][A-Za-z0-9_-]{0,63}$");
+
+    // ------------------------------------------------------------------
+    // Family activity
+    // ------------------------------------------------------------------
+
+    private static void validateActivity(Body b, String where, List<String> errors) {
+        Activity a = b.activity();
+        String at = where + ": activity";
+        if (!"ITEM_SORT".equals(a.type())) errors.add(at + ".type must be ITEM_SORT");
+        requireText(a.prompt(), 240, at + ".prompt", errors);
+        requireText(a.reminderQuestion(), 240, at + ".reminderQuestion", errors);
+        requireText(a.recapTitle(), 120, at + ".recapTitle", errors);
+        requireText(a.recapBody(), 500, at + ".recapBody", errors);
+
+        List<ActivityPile> piles = a.piles() == null ? List.of() : a.piles();
+        if (piles.size() < 2 || piles.size() > 4) errors.add(at + " needs 2-4 piles");
+        Set<String> pileKeys = new HashSet<>();
+        for (ActivityPile pile : piles) {
+            if (pile == null || pile.key() == null || !GRAPH_KEY_FORMAT.matcher(pile.key()).matches()) {
+                errors.add(at + ": pile key missing or malformed");
+                continue;
+            }
+            if (!pileKeys.add(pile.key())) errors.add(at + ": duplicate pile key " + pile.key());
+            requireText(pile.label(), 120, at + ": pile " + pile.key() + " label", errors);
+        }
+
+        List<ActivityItem> items = a.items() == null ? List.of() : a.items();
+        if (items.isEmpty() || items.size() > 20) errors.add(at + " needs 1-20 items");
+        Set<String> itemKeys = new HashSet<>();
+        for (ActivityItem item : items) {
+            if (item == null || item.key() == null || !GRAPH_KEY_FORMAT.matcher(item.key()).matches()) {
+                errors.add(at + ": item key missing or malformed");
+                continue;
+            }
+            if (!itemKeys.add(item.key())) errors.add(at + ": duplicate item key " + item.key());
+            requireText(item.label(), 160, at + ": item " + item.key() + " label", errors);
+            if (item.artKey() == null || !GRAPH_KEY_FORMAT.matcher(item.artKey()).matches()) {
+                errors.add(at + ": item " + item.key() + " needs a lower-snake-case artKey");
+            }
+        }
+
+        Set<String> declaredTags = b.tags() == null ? Set.of() : b.tags().keySet();
+        List<String> completionTags = a.completionTags() == null ? List.of() : a.completionTags();
+        if (completionTags.isEmpty()) errors.add(at + ".completionTags needs at least one tag");
+        Set<String> seenTags = new HashSet<>();
+        for (String tag : completionTags) {
+            if (!declaredTags.contains(tag)) errors.add(at + " uses tag '" + tag + "' with no copy in content.tags");
+            if (!seenTags.add(tag)) errors.add(at + ": duplicate completion tag " + tag);
+        }
+        for (String declared : declaredTags) {
+            if (!seenTags.contains(declared)) errors.add(where + ": tag " + declared + " has copy but activity completion does not use it");
+        }
+
+        if (!PracticeActions.allowed(a.nextAction())) {
+            errors.add(at + " needs a nextAction from PracticeActions.ALLOWED");
+        }
+        validateParams(a.nextParams(), a.nextAction(), at, errors);
+        requireText(a.nextPrompt(), 240, at + ".nextPrompt", errors);
+        requireText(a.nextLabel(), 120, at + ".nextLabel", errors);
+        requireText(a.nextNote(), 240, at + ".nextNote", errors);
+    }
 
     // ------------------------------------------------------------------
     // Scenario graph
@@ -410,7 +475,13 @@ public final class PracticeContentValidator {
             }
             if (s.outcomes() != null) for (Outcome o : s.outcomes()) if (o != null) add(texts, o.title(), o.body());
         }
-        if (b.activity() != null) collectText(b.activity(), texts);
+        if (b.activity() != null) {
+            Activity a = b.activity();
+            add(texts, a.prompt(), a.reminderQuestion(), a.recapTitle(), a.recapBody(),
+                    a.nextPrompt(), a.nextLabel(), a.nextNote());
+            if (a.piles() != null) a.piles().forEach(p -> { if (p != null) add(texts, p.label()); });
+            if (a.items() != null) a.items().forEach(i -> { if (i != null) add(texts, i.label()); });
+        }
 
         List<Pattern> rules = new ArrayList<>(PROHIBITED_ALL);
         if (kind == PracticeKind.FAMILY_ACTIVITY) rules.addAll(PROHIBITED_FAMILY);
@@ -429,11 +500,6 @@ public final class PracticeContentValidator {
                 }
             }
         }
-    }
-
-    private static void collectText(JsonNode node, List<String> out) {
-        if (node.isTextual()) out.add(node.asText());
-        else if (node.isContainerNode()) node.forEach(child -> collectText(child, out));
     }
 
     private static void add(List<String> out, String... values) {

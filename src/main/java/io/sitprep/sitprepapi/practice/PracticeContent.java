@@ -1,6 +1,5 @@
 package io.sitprep.sitprepapi.practice;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import io.sitprep.sitprepapi.readiness.ReadinessAction;
 
 import java.time.LocalDate;
@@ -70,8 +69,8 @@ public final class PracticeContent {
             /** Debrief copy per {@link DebriefTag} wire name. */
             Map<String, TagCopy> tags,
             Scenario scenario,
-            /** FAMILY_ACTIVITY body; its schema lands with Phase D. */
-            JsonNode activity) {}
+            /** FAMILY_ACTIVITY body; local choices are not persisted. */
+            Activity activity) {}
 
     public record Source(String label, String url) {}
 
@@ -124,6 +123,30 @@ public final class PracticeContent {
             String body,
             ReadinessAction defaultAction,
             Map<String, String> defaultParams) {}
+
+    /**
+     * An adult-facilitated item sort. The server owns every word and the
+     * completion tags; the client keeps the household's piles in memory only.
+     */
+    public record Activity(
+            String type,
+            String prompt,
+            String reminderQuestion,
+            String recapTitle,
+            String recapBody,
+            List<ActivityPile> piles,
+            List<ActivityItem> items,
+            List<String> completionTags,
+            ReadinessAction nextAction,
+            Map<String, String> nextParams,
+            String nextPrompt,
+            String nextLabel,
+            String nextNote) {}
+
+    public record ActivityPile(String key, String label) {}
+
+    /** {@code artKey} selects a reviewed, code-native object drawing in the client. */
+    public record ActivityItem(String key, String label, String artKey) {}
 
     /**
      * A loaded, hashed version. {@code resourcePath} is where it came from,
