@@ -2,60 +2,132 @@
   "schema": 1,
   "assets": [
     {
+      "sha256": "sha256:a5eef042d174f4cf80ae26b95252c494e5ac0ef0737213822f1ab4790ca43a73",
+      "style": "REALISM",
+      "kind": "STILL",
+      "stem": "/images/realism/practice-comms-v4-calls-failing-a5eef042",
+      "widths": [
+        640,
+        960,
+        1104
+      ],
+      "width": 1104,
+      "height": 621,
+      "focal": "center center",
+      "bytes": 157072,
+      "durationMs": null
+    },
+    {
       "sha256": "sha256:a366d5d2daa3cae65a0de66c6096cb97cfec998b9beef702ee3e1ac94481951c",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-calls-failing-a366d5d2",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 199560, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 199560,
+      "durationMs": null
     },
     {
       "sha256": "sha256:b7851c6ec8e91a19fea58ccc6fbac49bad5b396bc5ec5708a17a49a286226452",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-partial-replies-b7851c6e",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 198958, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 198958,
+      "durationMs": null
     },
     {
       "sha256": "sha256:789889a71c2d32de33059554729f9d03c3d83a3900de45f76064d1919b303816",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-finding-numbers-789889a7",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 208952, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 208952,
+      "durationMs": null
     },
     {
       "sha256": "sha256:49a373ca0c5e11a684e7826103ebe5c7422289e9e12486bc5ac58d4b8fcc880e",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-where-to-meet-49a373ca",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 200860, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 200860,
+      "durationMs": null
     },
     {
       "sha256": "sha256:38c2216b1b9ee858f160370a40cff037e50aaec289a94edd577354a4db6e2f37",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-rumor-38c2216b",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 193331, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 193331,
+      "durationMs": null
     },
     {
       "sha256": "sha256:0fe5b54517186e108f0c79440f24da5ea8dbfd0d7ad792105255ca00c6c37faa",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-reconnected-official-0fe5b545",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 207956, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 207956,
+      "durationMs": null
     },
     {
       "sha256": "sha256:48b98ce09d2dc260fc8186dfed831f07a5177fe1c4b0236b67469d9110a2520b",
       "style": "REALISM",
       "kind": "STILL",
       "stem": "/images/realism/practice-comms-v3-reconnected-review-alerts-48b98ce0",
-      "widths": [640, 960, 1280], "width": 1280, "height": 720,
-      "focal": "center center", "bytes": 211707, "durationMs": null
+      "widths": [
+        640,
+        960,
+        1280
+      ],
+      "width": 1280,
+      "height": 720,
+      "focal": "center center",
+      "bytes": 211707,
+      "durationMs": null
     }
   ]
 }

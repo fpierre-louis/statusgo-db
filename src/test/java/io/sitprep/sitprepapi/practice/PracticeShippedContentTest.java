@@ -441,4 +441,45 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
                 .satisfies(e -> assertThat(e.preview()).isFalse());
     }
+
+    // -- EXEC-M: Comms v4 = reviewed v3 text + hashed stills ------------------
+
+    static final String COMMS_V4_DRAFT_HASH = "sha256:0aa08180657fb34a7ec377d8d7393256043bb89a2433274c8c0971080a108e6a";
+
+    @Test
+    void commsV4AddsOnlyHashedStillsAndAfternoonScenesToTheReviewedV3() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v4 = catalog.exact(COMMS, 4).orElseThrow();
+        Version v3 = catalog.exact(COMMS, 3).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v4)).isEmpty();
+        assertThat(v4.contentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
+        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v4.file().schema()).isEqualTo(2);
+        assertThat(v4.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
+
+        var b4 = v4.body(); var b3 = v3.body();
+        assertThat(b4.title()).isEqualTo(b3.title());
+        assertThat(b4.summary()).isEqualTo(b3.summary());
+        assertThat(b4.sources()).isEqualTo(b3.sources());
+        assertThat(b4.tags()).isEqualTo(b3.tags());
+        for (int i = 0; i < b4.scenario().nodes().size(); i++) {
+            Node n4 = b4.scenario().nodes().get(i), n3 = b3.scenario().nodes().get(i);
+            assertThat(n4.key()).isEqualTo(n3.key());
+            assertThat(n4.title()).isEqualTo(n3.title());
+            assertThat(n4.body()).isEqualTo(n3.body());
+            assertThat(n4.prompt()).isEqualTo(n3.prompt());
+            assertThat(n4.messages()).isEqualTo(n3.messages());
+            assertThat(n4.choices()).as(n4.key() + " choices unchanged, no reaction media").isEqualTo(n3.choices());
+            assertThat(n4.media()).as(n4.key()).isNotNull();
+            assertThat(ScenarioService.mediaDto(n4.media()).url()).as(n4.key() + " resolves").startsWith("/images/realism/");
+        }
+        for (int i = 0; i < b4.scenario().outcomes().size(); i++) {
+            var o4 = b4.scenario().outcomes().get(i); var o3 = b3.scenario().outcomes().get(i);
+            assertThat(o4.title()).isEqualTo(o3.title());
+            assertThat(o4.body()).isEqualTo(o3.body());
+            assertThat(o4.media()).isNotNull();
+            assertThat(ScenarioService.mediaDto(o4.media()).alt()).isNotBlank();
+        }
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(3);
+    }
 }
