@@ -398,4 +398,48 @@ class ScenarioServiceTest {
             assertThat(s.inProgressRunId()).isEqualTo(second);
         });
     }
+
+    // -- EXEC-I3: relevant where you live --------------------------------
+
+    private ScenarioService withRelevance(Map<String, Integer> ranks) {
+        Version quake = version(approve(scenario("earthquake-first-five-minutes", 1), PublishState.PUBLISHED));
+        PracticeCatalog catalog = PracticeCatalog.of(List.of(live, quake));
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, false, clock);
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioRelevance relevance = ranks == null ? null : mock(ScenarioRelevance.class);
+        if (relevance != null) when(relevance.ranks(any())).thenReturn(ranks);
+        return new ScenarioService(availability, suppression, inMemoryRepo(), groups, access, relevance, clock);
+    }
+
+    private static List<String> keys(List<ScenarioDtos.ScenarioCardDto> cards) {
+        return cards.stream().map(ScenarioDtos.ScenarioCardDto::key).toList();
+    }
+
+    @Test
+    void scenariosForTheAreasHazardsComeFirstWithAQuietNote() {
+        List<String> plain = keys(withRelevance(null).catalog(ME, HH).scenarios());
+        String last = plain.get(plain.size() - 1);
+
+        var cards = withRelevance(Map.of(last, 0)).catalog(ME, HH).scenarios();
+        assertThat(cards.get(0).key()).isEqualTo(last);
+        assertThat(cards.get(0).localNote()).isEqualTo("A risk where you live");
+        assertThat(cards.subList(1, cards.size())).allSatisfy(c -> assertThat(c.localNote()).isNull());
+
+        // Highest tier first among several matches.
+        var both = withRelevance(Map.of(KEY, 2, "earthquake-first-five-minutes", 0)).catalog(ME, HH).scenarios();
+        assertThat(keys(both)).containsExactly("earthquake-first-five-minutes", KEY);
+    }
+
+    @Test
+    void withNoLocalRisksTheCatalogKeepsItsOrderAndSaysNothing() {
+        List<String> plain = keys(withRelevance(null).catalog(ME, HH).scenarios());
+        var cards = withRelevance(Map.of()).catalog(ME, HH).scenarios();
+        assertThat(keys(cards)).isEqualTo(plain);
+        assertThat(cards).allSatisfy(c -> assertThat(c.localNote()).isNull());
+    }
 }

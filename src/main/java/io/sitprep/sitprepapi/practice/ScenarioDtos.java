@@ -37,8 +37,13 @@ public final class ScenarioDtos {
         }
     }
 
+    /**
+     * One catalog row. {@code localNote} (EXEC-I3) is a quiet line when the
+     * scenario rehearses a hazard the household's area is known for, else null;
+     * such rows also come first, highest tier first.
+     */
     public record ScenarioCardDto(String key, int version, String title, String summary,
-                                  Integer estimatedMinutes, boolean preview) {}
+                                  Integer estimatedMinutes, boolean preview, String localNote) {}
 
     /** "Continue where you left off". */
     public record InProgressDto(long runId, String scenarioKey, String title, int stepNumber, String nodeTitle) {}

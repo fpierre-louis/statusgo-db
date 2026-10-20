@@ -70,21 +70,30 @@ public class ScenarioService {
     private final ScenarioRunRepo runRepo;
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
+    private final ScenarioRelevance relevance;
     private final Clock clock;
 
     @Autowired
     public ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
-                           ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access) {
-        this(availability, suppression, runRepo, groupRepo, access, Clock.systemUTC());
+                           ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
+                           ScenarioRelevance relevance) {
+        this(availability, suppression, runRepo, groupRepo, access, relevance, Clock.systemUTC());
     }
 
     ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                     ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access, Clock clock) {
+        this(availability, suppression, runRepo, groupRepo, access, null, clock);
+    }
+
+    ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
+                    ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
+                    ScenarioRelevance relevance, Clock clock) {
         this.availability = availability;
         this.suppression = suppression;
         this.runRepo = runRepo;
         this.groupRepo = groupRepo;
         this.access = access;
+        this.relevance = relevance;
         this.clock = clock;
     }
 
@@ -98,12 +107,16 @@ public class ScenarioService {
         String hid = householdScope(email, householdId);
         SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
 
+        // EXEC-I3: scenarios for the area's known hazards first, highest tier first; the rest keep catalog order.
+        Map<String, Integer> local = relevance == null ? Map.of() : relevance.ranks(hid);
         List<ScenarioCardDto> cards = new ArrayList<>();
         for (Entry e : availability.startable(PracticeKind.ADULT_SCENARIO)) {
             Version v = e.version();
             cards.add(new ScenarioCardDto(v.key(), v.version(), v.body().title(), v.body().summary(),
-                    v.body().estimatedMinutes(), e.preview()));
+                    v.body().estimatedMinutes(), e.preview(),
+                    local.containsKey(v.key()) ? ScenarioRelevance.LOCAL_NOTE : null));
         }
+        cards.sort(java.util.Comparator.comparingInt(c -> local.getOrDefault(c.key(), Integer.MAX_VALUE)));
 
         List<InProgressDto> inProgress = new ArrayList<>();
         for (ScenarioRun r : scopeRuns(email, hid)) {

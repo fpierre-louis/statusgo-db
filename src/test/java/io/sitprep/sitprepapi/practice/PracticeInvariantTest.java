@@ -46,6 +46,8 @@ class PracticeInvariantTest {
             "io.sitprep.sitprepapi.readiness.ActiveResponseResolver.AlertHeadsUp",
             "io.sitprep.sitprepapi.service.RiskProfileService",
             "io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto",
+            // EXEC-I3: the profile's hazard rows, read to order the catalog.
+            "io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto",
             "io.sitprep.sitprepapi.service.ConcealmentSafetyService",
             "io.sitprep.sitprepapi.repo.UserInfoRepo",
             "io.sitprep.sitprepapi.repo.GroupRepo",
