@@ -149,11 +149,10 @@ class PracticeShippedContentTest {
                 .extracting(e -> e.version().key())
                 .filteredOn(NEXT_PRIORITY_DRAFT_HASHES::containsKey)
                 .containsExactlyInAnyOrderElementsOf(NEXT_PRIORITY_PUBLISHED);
+        // Preview lists both; it may show a newer story-touch draft (EXEC-I5) over the published v1.
         assertThat(preview.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> NEXT_PRIORITY_DRAFT_HASHES.containsKey(e.version().key()))
-                .hasSize(2)
-                .allSatisfy(e -> assertThat(e.preview())
-                        .as(e.version().key()).isEqualTo(!NEXT_PRIORITY_PUBLISHED.contains(e.version().key())));
+                .hasSize(2);
     }
 
     @Test
@@ -343,5 +342,66 @@ class PracticeShippedContentTest {
             assertThat(prior == null || prior == v.kind())
                     .as("key %s changes kind between versions", v.key()).isTrue();
         });
+    }
+
+    // -- EXEC-I5: story-touch drafts ----------------------------------------
+
+    /** key → [draft version, published version it extends, draft hash]. */
+    private static final Map<String, Object[]> STORY_DRAFTS = Map.of(
+            "comms-outage-family-reconnect", new Object[] {3, 2, "sha256:af0ef51bb7ef33a76e386dd2e94ae429f05af083deab295d3207254541d11c3b"},
+            "flash-flood-turn-around-route", new Object[] {2, 1, "sha256:455671d37d72ce69a9860ae1fa4f01923951ccec530004c78d09f2a8ceb47096"},
+            "earthquake-first-five-minutes", new Object[] {2, 1, "sha256:9ef5691f64b79db986b42b84ff31a106c6cdd7a68fb497f33646b29c28f92649"});
+
+    /** The only non-story edits: a body whose quote moved into its message bubble. */
+    private static final Set<String> STORY_BODY_EDITS = Set.of(
+            "comms-outage-family-reconnect.where_to_meet", "comms-outage-family-reconnect.rumor");
+
+    @Test
+    void storyDraftsAddOnlySceneAndMessagesToThePublishedVersion() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        STORY_DRAFTS.forEach((key, d) -> {
+            Version draft = catalog.exact(key, (int) d[0]).orElseThrow();
+            Version base = catalog.exact(key, (int) d[1]).orElseThrow();
+            assertThat(PracticeContentValidator.validate(draft)).as(key).isEmpty();
+            assertThat(draft.contentHash()).as(key).isEqualTo(d[2]);
+            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.DRAFT);
+            assertThat(draft.file().lifecycle().safetyReview().status()).as(key).isEqualTo(SafetyReviewStatus.PENDING);
+
+            var db = draft.body();
+            var bb = base.body();
+            assertThat(db.title()).as(key).isEqualTo(bb.title());
+            assertThat(db.summary()).as(key).isEqualTo(bb.summary());
+            assertThat(db.objective()).as(key).isEqualTo(bb.objective());
+            assertThat(db.sources()).as(key).isEqualTo(bb.sources());
+            assertThat(db.tags()).as(key).isEqualTo(bb.tags());
+            assertThat(db.scenario().outcomes()).as(key).isEqualTo(bb.scenario().outcomes());
+            assertThat(db.scenario().startNode()).as(key).isEqualTo(bb.scenario().startNode());
+            assertThat(db.scenario().nodes()).as(key).hasSameSizeAs(bb.scenario().nodes());
+            for (int i = 0; i < db.scenario().nodes().size(); i++) {
+                Node dn = db.scenario().nodes().get(i);
+                Node bn = bb.scenario().nodes().get(i);
+                String at = key + "." + dn.key();
+                assertThat(dn.scene()).as(at + " scene").isNotBlank();
+                assertThat(dn.key()).as(at).isEqualTo(bn.key());
+                assertThat(dn.title()).as(at).isEqualTo(bn.title());
+                assertThat(dn.prompt()).as(at).isEqualTo(bn.prompt());
+                assertThat(dn.choices()).as(at + " choices (labels, consequences, whys, tags, next)").isEqualTo(bn.choices());
+                if (!STORY_BODY_EDITS.contains(at)) assertThat(dn.body()).as(at + " body").isEqualTo(bn.body());
+            }
+        });
+    }
+
+    @Test
+    void storyDraftsStayOutOfProduction() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        STORY_DRAFTS.forEach((key, d) -> assertThat(production.startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(key))
+                .singleElement()
+                .satisfies(e -> assertThat(e.version().version()).as(key).isEqualTo((int) d[1])));
     }
 }
