@@ -4,15 +4,15 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-19 by Codex. Protective-action content requires independent review before publication; the author has not approved it."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:0a5e24bb845c5cbd3900086e16319275754d543474293e8dd33f163d412400f0",
+      "notes": "Authored 2026-10-19 by Codex; revised 2026-10-20 by Claude (agent) after independent review. sha256:455fc488... CHANGES REQUIRED (B1 unestablished parking area, B2 untrue tag); sha256:e1c4b40b... APPROVED WITH NOTES (N-A attribution, N-B title applied); this hash re-reviewed APPROVED WITH NOTES 2026-10-20 (remaining note optional wording). Record: SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-E-content-review-packet.md. Published separately from Earthquake under the owner's go of 2026-10-20. Neither author approved it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {

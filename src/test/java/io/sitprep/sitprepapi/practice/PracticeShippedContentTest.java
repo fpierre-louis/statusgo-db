@@ -11,6 +11,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,6 +58,8 @@ class PracticeShippedContentTest {
             "sha256:0a5e24bb845c5cbd3900086e16319275754d543474293e8dd33f163d412400f0",
             "earthquake-first-five-minutes",
             "sha256:5ee94fd79ede6107a38a6eed22ff397ebbb47529309b6708b195e58bda367edc");
+    /** Published one hazard at a time (Stage C), each at its independently reviewed hash. */
+    private static final Set<String> NEXT_PRIORITY_PUBLISHED = Set.of("flash-flood-turn-around-route");
     private static final String KIT_BUILDER_REVIEWED_HASH =
             "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2";
 
@@ -107,16 +110,22 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void nextPriorityScenariosAreValidDraftsWithTwoPartReflections() {
+    void nextPriorityScenariosAreAtTheirReviewedHashesWithTwoPartReflections() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
 
         for (String key : NEXT_PRIORITY_DRAFT_HASHES.keySet()) {
             Version draft = catalog.exact(key, 1).orElseThrow();
             assertThat(PracticeContentValidator.validate(draft)).as(key).isEmpty();
             assertThat(draft.contentHash()).as(key).isEqualTo(NEXT_PRIORITY_DRAFT_HASHES.get(key));
-            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.DRAFT);
-            assertThat(draft.file().lifecycle().safetyReview().status())
-                    .as(key).isEqualTo(SafetyReviewStatus.PENDING);
+            var review = draft.file().lifecycle().safetyReview();
+            if (NEXT_PRIORITY_PUBLISHED.contains(key)) {
+                assertThat(draft.publishState()).as(key).isEqualTo(PublishState.PUBLISHED);
+                assertThat(review.status()).as(key).isEqualTo(SafetyReviewStatus.APPROVED);
+                assertThat(review.reviewedContentHash()).as(key).isEqualTo(NEXT_PRIORITY_DRAFT_HASHES.get(key));
+            } else {
+                assertThat(draft.publishState()).as(key).isEqualTo(PublishState.DRAFT);
+                assertThat(review.status()).as(key).isEqualTo(SafetyReviewStatus.PENDING);
+            }
             assertThat(draft.body().scenario().nodes())
                     .as(key)
                     .allSatisfy(node -> assertThat(node.choices())
@@ -125,7 +134,7 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void nextPriorityDraftsStayOutOfProductionAndAreAvailableOnlyToPreview() {
+    void nextPriorityDraftsStayOutOfProductionUntilPublished() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -137,11 +146,13 @@ class PracticeShippedContentTest {
 
         assertThat(production.startable(PracticeKind.ADULT_SCENARIO))
                 .extracting(e -> e.version().key())
-                .doesNotContainAnyElementsOf(NEXT_PRIORITY_DRAFT_HASHES.keySet());
+                .filteredOn(NEXT_PRIORITY_DRAFT_HASHES::containsKey)
+                .containsExactlyInAnyOrderElementsOf(NEXT_PRIORITY_PUBLISHED);
         assertThat(preview.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> NEXT_PRIORITY_DRAFT_HASHES.containsKey(e.version().key()))
                 .hasSize(2)
-                .allSatisfy(e -> assertThat(e.preview()).isTrue());
+                .allSatisfy(e -> assertThat(e.preview())
+                        .as(e.version().key()).isEqualTo(!NEXT_PRIORITY_PUBLISHED.contains(e.version().key())));
     }
 
     @Test
