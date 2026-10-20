@@ -472,4 +472,85 @@ class PracticeContentValidatorTest {
         content(r).remove("scenario");
         assertRejected(r, "needs content.scenario");
     }
+
+    // -- hashed media (EXEC-M) ---------------------------------------------
+
+    private static final String STILL = "sha256:" + "1".repeat(64);
+    private static final String STILL2 = "sha256:" + "2".repeat(64);
+    private static final String CLIP = "sha256:" + "3".repeat(64);
+
+    private static PracticeMediaManifest testManifest() {
+        var style = PracticeContent.MediaStyle.REALISM;
+        return new PracticeMediaManifest(new PracticeMediaManifest.File(1, List.of(
+                new PracticeMediaManifest.Asset(STILL, style, PracticeContent.MediaKind.STILL, "/images/a", List.of(640), 1280, 720, "center", 5L, null),
+                new PracticeMediaManifest.Asset(STILL2, PracticeContent.MediaStyle.ILLUSTRATION, PracticeContent.MediaKind.STILL, "/images/b", List.of(640), 1280, 720, "center", 5L, null),
+                new PracticeMediaManifest.Asset(CLIP, style, PracticeContent.MediaKind.CLIP, "/media/c", null, 1280, 720, "center", 5L, 8000))));
+    }
+
+    private static List<String> mediaErrors(ObjectNode root) {
+        return PracticeContentValidator.validate(version(root), testManifest());
+    }
+
+    private static ObjectNode withScene(ObjectNode root, String sha) {
+        root.put("schema", 2);
+        content(root).put("mediaStyle", "REALISM");
+        var n = (ObjectNode) content(root).get("scenario").get("nodes").get(0);
+        n.putObject("media").put("slotKey", root.get("key").asText() + "." + n.get("key").asText() + ".scene")
+                .put("kind", "STILL").put("assetSha256", sha).put("alt", "A kitchen table with a phone on it.");
+        return root;
+    }
+
+    @Test
+    void aHashedSceneStillValidatesAndSchema1FilesAreUntouched() {
+        assertThat(mediaErrors(withScene(scenario("k", 1), STILL))).isEmpty();
+        assertThat(errors(scenario("k", 1))).isEmpty(); // schema 1 without media still valid
+    }
+
+    @Test
+    void mediaMustBeAllowListedMatchingAndDeclared() {
+        assertThat(mediaErrors(withScene(scenario("k", 1), "sha256:" + "9".repeat(64)))).anyMatch(e -> e.contains("not in the media manifest"));
+        assertThat(mediaErrors(withScene(scenario("k", 1), STILL2))).anyMatch(e -> e.contains("style does not match"));
+
+        ObjectNode s1 = withScene(scenario("k", 1), STILL); s1.put("schema", 1);
+        assertThat(mediaErrors(s1)).anyMatch(e -> e.contains("media requires schema 2"));
+
+        ObjectNode noStyle = withScene(scenario("k", 1), STILL); content(noStyle).remove("mediaStyle");
+        assertThat(mediaErrors(noStyle)).anyMatch(e -> e.contains("mediaStyle is required"));
+
+        ObjectNode badSlot = withScene(scenario("k", 1), STILL);
+        ((ObjectNode) content(badSlot).get("scenario").get("nodes").get(0).get("media")).put("slotKey", "k.other.scene");
+        assertThat(mediaErrors(badSlot)).anyMatch(e -> e.contains("slotKey must be k.start.scene"));
+
+        ObjectNode noAlt = withScene(scenario("k", 1), STILL);
+        ((ObjectNode) content(noAlt).get("scenario").get("nodes").get(0).get("media")).remove("alt");
+        assertThat(mediaErrors(noAlt)).anyMatch(e -> e.contains(".alt is required"));
+
+        ObjectNode stray = scenario("k", 1); stray.put("schema", 2); content(stray).put("mediaStyle", "REALISM");
+        assertThat(mediaErrors(stray)).anyMatch(e -> e.contains("mediaStyle is only valid with media"));
+    }
+
+    @Test
+    void reactionMediaIsAllOrNoneAndClipsNeedAPosterAndAShortDuration() {
+        ObjectNode partial = withScene(scenario("k", 1), STILL);
+        var c0 = choiceAt(partial, 0, 0);
+        c0.putObject("media").put("slotKey", "k.start." + c0.get("key").asText() + ".reaction")
+                .put("kind", "STILL").put("assetSha256", STILL).put("alt", "Calm reaction.");
+        assertThat(mediaErrors(partial)).anyMatch(e -> e.contains("reaction media is all-or-none"));
+
+        ObjectNode clip = withScene(scenario("k", 1), STILL);
+        ((ObjectNode) content(clip).get("scenario").get("nodes").get(0).get("media"))
+                .put("kind", "CLIP").put("assetSha256", CLIP).put("durationMs", 12000);
+        assertThat(mediaErrors(clip)).anyMatch(e -> e.contains("needs a posterSha256"))
+                .anyMatch(e -> e.contains("runs 6-10 seconds"));
+        ((ObjectNode) content(clip).get("scenario").get("nodes").get(0).get("media"))
+                .put("posterSha256", STILL).put("durationMs", 8000);
+        assertThat(mediaErrors(clip)).isEmpty();
+    }
+
+    @Test
+    void theAssetHashIsPartOfTheContentHash() {
+        String a = version(withScene(scenario("k", 1), STILL)).contentHash();
+        String b = version(withScene(scenario("k", 1), CLIP)).contentHash();
+        assertThat(a).isNotEqualTo(b);
+    }
 }

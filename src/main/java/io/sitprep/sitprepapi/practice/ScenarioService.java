@@ -351,7 +351,14 @@ public class ScenarioService {
         List<ScenarioDtos.MessageDto> messages = n.messages() == null ? null : n.messages().stream()
                 .map(m -> new ScenarioDtos.MessageDto(m.from(), m.text(), Boolean.TRUE.equals(m.outgoing())))
                 .toList();
-        return new NodeDto(n.key(), n.title(), n.body(), n.prompt(), choices, n.scene(), messages);
+        return new NodeDto(n.key(), n.title(), n.body(), n.prompt(), choices, n.scene(), messages, mediaDto(n.media()));
+    }
+
+    /** Resolve a content media reference through the allow-listed manifest; null when absent or unknown. */
+    static ScenarioDtos.MediaDto mediaDto(PracticeContent.Media media) {
+        PracticeMediaManifest.Resolved r = PracticeMediaManifest.getDefault().resolve(media);
+        return r == null ? null : new ScenarioDtos.MediaDto(r.kind(), r.assetSha256(), r.url(), r.srcSet(),
+                r.width(), r.height(), r.focal(), r.durationMs(), r.posterUrl(), r.alt());
     }
 
     private static CommittedDto lastCommit(Version v, List<TraceStep> trace) {
@@ -361,7 +368,7 @@ public class ScenarioService {
         Optional<Choice> choice = node.flatMap(n -> ScenarioEngine.choice(n, last.choiceKey()));
         if (choice.isEmpty()) return null;
         return new CommittedDto(last.nodeKey(), node.get().title(), last.choiceKey(),
-                choice.get().label(), choice.get().consequence(), choice.get().feedback());
+                choice.get().label(), choice.get().consequence(), choice.get().feedback(), mediaDto(choice.get().media()));
     }
 
     private static DebriefDto debriefDto(Version v, ScenarioRun run) {
@@ -376,11 +383,11 @@ public class ScenarioService {
                             path.add(new PathStepDto(n.prompt(), c.label(), n.title(),
                                     n.choices().stream()
                                             .map(o -> new ScenarioDtos.PathOptionDto(o.key(), o.label(),
-                                                    o.consequence(), o.feedback(), o.key().equals(c.key())))
+                                                    o.consequence(), o.feedback(), o.key().equals(c.key()), mediaDto(o.media())))
                                             .toList()))));
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),
-                d.worthPracticing(), next, path);
+                d.worthPracticing(), next, path, mediaDto(d.outcome().media()));
     }
 
     private static int stepNumber(ScenarioRun run) {

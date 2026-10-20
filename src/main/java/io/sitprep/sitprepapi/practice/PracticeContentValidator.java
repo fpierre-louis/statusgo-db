@@ -97,12 +97,16 @@ public final class PracticeContentValidator {
     }
 
     public static List<String> validate(Version v) {
+        return validate(v, PracticeMediaManifest.getDefault());
+    }
+
+    static List<String> validate(Version v, PracticeMediaManifest manifest) {
         List<String> errors = new ArrayList<>();
         ContentFile f = v.file();
         String where = v.resourcePath() == null ? "content" : v.resourcePath();
 
-        if (f.schema() == null || f.schema() != PracticeContent.SCHEMA) {
-            errors.add(where + ": schema must be " + PracticeContent.SCHEMA);
+        if (f.schema() == null || f.schema() < PracticeContent.MIN_SCHEMA || f.schema() > PracticeContent.SCHEMA) {
+            errors.add(where + ": schema must be " + PracticeContent.MIN_SCHEMA + "-" + PracticeContent.SCHEMA);
         }
         if (f.key() == null || f.key().length() > KEY_MAX || !KEY_FORMAT.matcher(f.key()).matches()) {
             errors.add(where + ": key must be lower-kebab-case, 1-" + KEY_MAX + " chars");
@@ -126,12 +130,90 @@ public final class PracticeContentValidator {
         validateBody(f.kind(), b, where, errors);
         if (f.kind() == PracticeKind.ADULT_SCENARIO) {
             if (b.scenario() == null) errors.add(where + ": an ADULT_SCENARIO needs content.scenario");
-            else validateScenario(b, where, errors);
+            else {
+                validateScenario(b, where, errors);
+                validateScenarioMedia(f.schema(), f.key(), b, manifest, where, errors);
+            }
         } else if (f.kind() == PracticeKind.FAMILY_ACTIVITY && b.activity() != null) {
             validateActivity(b, where, errors);
         }
         validateCopy(f.kind(), b, where, errors);
         return errors;
+    }
+
+    // ------------------------------------------------------------------
+    // Media (EXEC-M): hashed, manifest-resolved, never a URL
+    // ------------------------------------------------------------------
+
+    static final int ALT_MAX = 200;
+    static final int CLIP_MIN_MS = 6_000;
+    static final int CLIP_MAX_MS = 10_000;
+    private static final Pattern SHA256 = Pattern.compile("^sha256:[0-9a-f]{64}$");
+
+    private static void validateScenarioMedia(Integer schema, String key, Body b, PracticeMediaManifest manifest,
+                                              String where, List<String> errors) {
+        PracticeContent.Scenario s = b.scenario();
+        int count = 0;
+        for (PracticeContent.Node n : s.nodes() == null ? List.<PracticeContent.Node>of() : s.nodes()) {
+            if (n == null) continue;
+            String at = where + ": node " + n.key();
+            if (n.media() != null) {
+                count++;
+                validateMedia(n.media(), b.mediaStyle(), key + "." + n.key() + ".scene", manifest, at + " media", errors);
+            }
+            List<PracticeContent.Choice> choices = n.choices() == null ? List.of() : n.choices();
+            int withMedia = 0;
+            for (PracticeContent.Choice c : choices) {
+                if (c == null || c.media() == null) continue;
+                withMedia++;
+                count++;
+                validateMedia(c.media(), b.mediaStyle(), key + "." + n.key() + "." + c.key() + ".reaction", manifest,
+                        at + " choice " + c.key() + " media", errors);
+            }
+            if (withMedia != 0 && withMedia != choices.size()) {
+                // Media on some options and not others would grade the choice.
+                errors.add(at + ": reaction media is all-or-none per choice set (" + withMedia + " of " + choices.size() + ")");
+            }
+        }
+        for (PracticeContent.Outcome o : s.outcomes() == null ? List.<PracticeContent.Outcome>of() : s.outcomes()) {
+            if (o == null || o.media() == null) continue;
+            count++;
+            validateMedia(o.media(), b.mediaStyle(), key + "." + o.key() + ".ending", manifest,
+                    where + ": outcome " + o.key() + " media", errors);
+        }
+        if (count > 0 && (schema == null || schema < 2)) errors.add(where + ": media requires schema 2");
+        if (count > 0 && b.mediaStyle() == null) errors.add(where + ": content.mediaStyle is required when media is present");
+        if (count == 0 && b.mediaStyle() != null) errors.add(where + ": content.mediaStyle is only valid with media");
+        if (count > 0 && !manifest.problems().isEmpty()) errors.add(where + ": media manifest is invalid: " + manifest.problems());
+    }
+
+    private static void validateMedia(PracticeContent.Media m, PracticeContent.MediaStyle style, String slot,
+                                      PracticeMediaManifest manifest, String at, List<String> errors) {
+        if (!slot.equals(m.slotKey())) errors.add(at + ".slotKey must be " + slot);
+        if (m.kind() == null) errors.add(at + ".kind is required");
+        requireText(m.alt(), ALT_MAX, at + ".alt", errors);
+        if (m.assetSha256() == null || !SHA256.matcher(m.assetSha256()).matches()) {
+            errors.add(at + ".assetSha256 must be sha256:<64 hex>");
+            return;
+        }
+        var asset = manifest.find(m.assetSha256());
+        if (asset.isEmpty()) {
+            errors.add(at + ": asset " + m.assetSha256() + " is not in the media manifest");
+            return;
+        }
+        if (m.kind() != null && asset.get().kind() != m.kind()) errors.add(at + ": kind does not match the manifest");
+        if (style != null && asset.get().style() != style) errors.add(at + ": asset style does not match content.mediaStyle");
+        if (m.kind() == PracticeContent.MediaKind.STILL) {
+            if (m.posterSha256() != null || m.durationMs() != null) errors.add(at + ": a still has no poster or duration");
+        } else if (m.kind() == PracticeContent.MediaKind.CLIP) {
+            var poster = m.posterSha256() == null ? java.util.Optional.<PracticeMediaManifest.Asset>empty() : manifest.find(m.posterSha256());
+            if (poster.isEmpty() || poster.get().kind() != PracticeContent.MediaKind.STILL) {
+                errors.add(at + ": a clip needs a posterSha256 naming a manifest still");
+            }
+            if (m.durationMs() == null || m.durationMs() < CLIP_MIN_MS || m.durationMs() > CLIP_MAX_MS) {
+                errors.add(at + ": a clip runs " + CLIP_MIN_MS / 1000 + "-" + CLIP_MAX_MS / 1000 + " seconds");
+            }
+        }
     }
 
     // ------------------------------------------------------------------

@@ -61,7 +61,15 @@ public final class ScenarioDtos {
 
     /** One step. {@code scene} / {@code messages}: optional story touches (EXEC-I5), null when the content has none. */
     public record NodeDto(String key, String title, String body, String prompt, List<ChoiceDto> choices,
-                          String scene, List<MessageDto> messages) {}
+                          String scene, List<MessageDto> messages, MediaDto media) {}
+
+    /**
+     * Manifest-resolved media (EXEC-M). URLs come only from the server's
+     * allow-listed manifest, never from content. {@code srcSet} is the
+     * responsive JPEG set; {@code posterUrl} is set for clips.
+     */
+    public record MediaDto(String kind, String assetSha256, String url, String srcSet, Integer width, Integer height,
+                           String focal, Integer durationMs, String posterUrl, String alt) {}
 
     public record MessageDto(String from, String text, boolean outgoing) {}
 
@@ -72,7 +80,7 @@ public final class ScenarioDtos {
      * the client then shows {@code feedback} alone.
      */
     public record CommittedDto(String nodeKey, String nodeTitle, String choiceKey, String choiceLabel,
-                               String consequence, String feedback) {}
+                               String consequence, String feedback, MediaDto media) {}
 
     public record NextStepDto(ReadinessAction action, Map<String, String> params,
                               String prompt, String label, String note) {}
@@ -86,11 +94,13 @@ public final class ScenarioDtos {
      */
     public record PathStepDto(String prompt, String choiceLabel, String nodeTitle, List<PathOptionDto> options) {}
 
-    public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen) {}
+    public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen,
+                                MediaDto media) {}
 
     /** Exactly three sections: Strong choices, Worth practicing, Next family step. No score. */
     public record DebriefDto(String outcomeTitle, String outcomeBody, List<String> strongChoices,
-                             List<String> worthPracticing, NextStepDto nextStep, List<PathStepDto> path) {}
+                             List<String> worthPracticing, NextStepDto nextStep, List<PathStepDto> path,
+                             MediaDto outcomeMedia) {}
 
     /**
      * One run as the client draws it. {@code contentStatus} says what the run

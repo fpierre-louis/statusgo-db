@@ -25,7 +25,12 @@ public final class PracticeContent {
     private PracticeContent() {}
 
     /** Current file schema. Bump when the shape below changes incompatibly. */
-    public static final int SCHEMA = 1;
+    /**
+     * Current authoring schema. Schema 2 adds hashed media (EXEC-M); schema 1
+     * stays readable so every reviewed version keeps its hash.
+     */
+    public static final int SCHEMA = 2;
+    public static final int MIN_SCHEMA = 1;
 
     /** One content file exactly as authored. */
     public record ContentFile(
@@ -68,6 +73,8 @@ public final class PracticeContent {
             String facilitation,
             /** Debrief copy per {@link DebriefTag} wire name. */
             Map<String, TagCopy> tags,
+            /** One visual language per version, required when any media is present (schema 2). */
+            MediaStyle mediaStyle,
             Scenario scenario,
             /** FAMILY_ACTIVITY body; local choices are not persisted. */
             Activity activity) {}
@@ -102,7 +109,9 @@ public final class PracticeContent {
             String prompt,
             List<Choice> choices,
             String scene,
-            List<Message> messages) {}
+            List<Message> messages,
+            /** Neutral scene still shown before a choice (schema 2). Never answer-revealing. */
+            Media media) {}
 
     /** One in-story text message. {@code outgoing} = sent by the household (drawn on the right). */
     public record Message(
@@ -129,7 +138,9 @@ public final class PracticeContent {
             String consequence,
             String feedback,
             List<String> tags,
-            String next) {}
+            String next,
+            /** Reaction media, withheld until this choice is committed; all-or-none per choice set. */
+            Media media) {}
 
     /** A terminal state. {@code defaultAction} is the next step when no "Worth practicing" tag names one. */
     public record Outcome(
@@ -137,7 +148,29 @@ public final class PracticeContent {
             String title,
             String body,
             ReadinessAction defaultAction,
-            Map<String, String> defaultParams) {}
+            Map<String, String> defaultParams,
+            /** Calm terminal-state still for the debrief (schema 2). */
+            Media media) {}
+
+    public enum MediaKind { STILL, CLIP }
+
+    public enum MediaStyle { ILLUSTRATION, REALISM }
+
+    /**
+     * A reviewed reference into {@code practice/media/manifest.json} (EXEC-M).
+     * Content never carries a URL: the asset's SHA-256 is part of the hashed
+     * content, so changing a single pixel means a new version and a new review
+     * (scenario engagement spec §5.2). {@code slotKey} must be
+     * {@code <scenario>.<node>.scene}, {@code <scenario>.<node>.<choice>.reaction}
+     * or {@code <scenario>.<outcome>.ending}.
+     */
+    public record Media(
+            String slotKey,
+            MediaKind kind,
+            String assetSha256,
+            String posterSha256,
+            Integer durationMs,
+            String alt) {}
 
     /**
      * An adult-facilitated item sort. The server owns every word and the
