@@ -4,15 +4,15 @@
   "version": 3,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Flash Flood v3: second low spot branch (flash flood warning meaning, walking into floodwater), one ending with NWS planning questions. Awaiting independent review."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:60992c7a449e2cf7bf0840f4796dbc1916fdaf322bce1d244f75c49295208fae",
+      "notes": "Flash Flood v3: second low spot (flash flood warning meaning, walking into or near floodwater), one ending with NWS planning questions. sha256:5bdc8b96... CHANGES REQUIRED (ending untrue on most paths; continuity; tag/drill match); sha256:8fcfd3fc... APPROVED WITH NOTES; this hash APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {
