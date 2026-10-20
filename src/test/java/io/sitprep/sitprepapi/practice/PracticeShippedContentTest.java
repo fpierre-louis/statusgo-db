@@ -307,8 +307,8 @@ class PracticeShippedContentTest {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v1 = catalog.exact(COMMS, 1).orElseThrow();
         Version v2 = catalog.exact(COMMS, 2).orElseThrow();
-        // v3 = the EXEC-I5 story-touch version (2026-10-20); v1 and v2 are RETIRED.
-        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(3);
+        // v4 = EXEC-M (reviewed v3 text + hashed stills, 2026-10-20); v1-v3 are RETIRED.
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
 
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -318,10 +318,12 @@ class PracticeShippedContentTest {
         assertThat(prod.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
                 .satisfies(e -> {
-                    assertThat(e.version().version()).isEqualTo(3);
+                    assertThat(e.version().version()).isEqualTo(4);
                     assertThat(e.preview()).isFalse();
                 });
-        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(3);
+        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(4);
+        Version v3 = catalog.exact(COMMS, 3).orElseThrow();
+        assertThat(prod.checkRun(COMMS, 3, v3.contentHash()).canContinue()).isTrue();
         assertThat(prod.checkRun(COMMS, 1, v1.contentHash()).canContinue()).isTrue();
         assertThat(prod.checkRun(COMMS, 2, v2.contentHash()).canContinue()).isTrue();
     }
@@ -369,7 +371,8 @@ class PracticeShippedContentTest {
             Version base = catalog.exact(key, (int) d[1]).orElseThrow();
             assertThat(PracticeContentValidator.validate(draft)).as(key).isEmpty();
             assertThat(draft.contentHash()).as(key).isEqualTo(d[2]);
-            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.PUBLISHED);
+            // Published at EXEC-I5; Comms v3 has since been superseded by the media v4 (RETIRED).
+            assertThat(draft.publishState()).as(key).isIn(PublishState.PUBLISHED, PublishState.RETIRED);
             assertThat(draft.file().lifecycle().safetyReview().status()).as(key).isEqualTo(SafetyReviewStatus.APPROVED);
             assertThat(draft.file().lifecycle().safetyReview().reviewedContentHash()).as(key).isEqualTo(d[2]);
             assertThat(base.publishState()).as(key + " base").isEqualTo(PublishState.RETIRED);
@@ -409,7 +412,8 @@ class PracticeShippedContentTest {
         STORY_DRAFTS.forEach((key, d) -> assertThat(production.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as(key).isEqualTo((int) d[0])));
+                .satisfies(e -> assertThat(e.version().version()).as(key)
+                        .isEqualTo(key.equals(COMMS) ? 4 : (int) d[0]))); // Comms moved on to the EXEC-M v4
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -453,7 +457,9 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(COMMS, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v4)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
+        assertThat(v3.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v4.file().schema()).isEqualTo(2);
         assertThat(v4.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
 
@@ -487,6 +493,6 @@ class PracticeShippedContentTest {
         // No ending reads as the reward: both share one still.
         assertThat(b4.scenario().outcomes()).extracting(o -> o.media().assetSha256()).containsOnly(
                 b4.scenario().outcomes().get(0).media().assetSha256());
-        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(3);
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
     }
 }

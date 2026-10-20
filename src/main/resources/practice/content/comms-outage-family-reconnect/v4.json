@@ -4,15 +4,15 @@
   "version": 4,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent), EXEC-M: the reviewed v3 text plus hashed realism stills from the media handoff (seven masters; still 01 cropped to remove a teen who contradicted 'spread across town'), and scene times moved to the afternoon to match the stills' light. Independent review of text and images required; the author has not approved it. Review sha256:0aa08180... CHANGES REQUIRED (finding_numbers still pre-taught the wallet card): its media removed; both endings use the same calm reunion so neither path reads as the reward; rumor alt neutralised."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:75cc5709c6edcd2b2d84dce577c5d9ced8bab673a3093e85f07b9a8e2916b654",
+      "notes": "EXEC-M: reviewed v3 text + hashed realism stills (text and images reviewed together). sha256:0aa08180... CHANGES REQUIRED (finding_numbers still pre-taught the wallet card); fixes applied (no still there; one shared ending still; neutral rumor alt); this hash re-reviewed APPROVED WITH NOTES 2026-10-20 (near-duplicate stills, regeneration only). Record: SitPrep Docs docs/epics/design_handoff_scenarios_story_and_media/07_reconciliation_2026-10-20.md. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {
