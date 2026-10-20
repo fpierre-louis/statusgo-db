@@ -165,6 +165,9 @@ public class SecurityConfig {
         // and Spring in this version does not let us set it specifically on the /ws endpoint.
         cfg.setAllowedOrigins(List.of(
                 "http://localhost:3000",
+                // A second local FE (e.g. a review worktree) runs here while
+                // the main tree holds :3000 (vite strictPort).
+                "http://localhost:3001",
                 "http://localhost:4200",
                 "https://statusgo-db-0889387bb209.herokuapp.com",
                 "https://www.sitprep.app",
