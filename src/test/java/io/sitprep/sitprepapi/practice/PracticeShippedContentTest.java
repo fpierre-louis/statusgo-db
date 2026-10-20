@@ -444,7 +444,7 @@ class PracticeShippedContentTest {
 
     // -- EXEC-M: Comms v4 = reviewed v3 text + hashed stills ------------------
 
-    static final String COMMS_V4_DRAFT_HASH = "sha256:0aa08180657fb34a7ec377d8d7393256043bb89a2433274c8c0971080a108e6a";
+    static final String COMMS_V4_DRAFT_HASH = "sha256:75cc5709c6edcd2b2d84dce577c5d9ced8bab673a3093e85f07b9a8e2916b654";
 
     @Test
     void commsV4AddsOnlyHashedStillsAndAfternoonScenesToTheReviewedV3() {
@@ -470,6 +470,10 @@ class PracticeShippedContentTest {
             assertThat(n4.prompt()).isEqualTo(n3.prompt());
             assertThat(n4.messages()).isEqualTo(n3.messages());
             assertThat(n4.choices()).as(n4.key() + " choices unchanged, no reaction media").isEqualTo(n3.choices());
+            if (n4.key().equals("finding_numbers")) {
+                assertThat(n4.media()).as("finding_numbers: no still (review: the table objects pre-taught the card)").isNull();
+                continue;
+            }
             assertThat(n4.media()).as(n4.key()).isNotNull();
             assertThat(ScenarioService.mediaDto(n4.media()).url()).as(n4.key() + " resolves").startsWith("/images/realism/");
         }
@@ -480,6 +484,9 @@ class PracticeShippedContentTest {
             assertThat(o4.media()).isNotNull();
             assertThat(ScenarioService.mediaDto(o4.media()).alt()).isNotBlank();
         }
+        // No ending reads as the reward: both share one still.
+        assertThat(b4.scenario().outcomes()).extracting(o -> o.media().assetSha256()).containsOnly(
+                b4.scenario().outcomes().get(0).media().assetSha256());
         assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(3);
     }
 }

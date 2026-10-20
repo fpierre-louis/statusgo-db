@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent), EXEC-M: the reviewed v3 text plus hashed realism stills from the media handoff (seven masters; still 01 cropped to remove a teen who contradicted 'spread across town'), and scene times moved to the afternoon to match the stills' light. Independent review of text and images required; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent), EXEC-M: the reviewed v3 text plus hashed realism stills from the media handoff (seven masters; still 01 cropped to remove a teen who contradicted 'spread across town'), and scene times moved to the afternoon to match the stills' light. Independent review of text and images required; the author has not approved it. Review sha256:0aa08180... CHANGES REQUIRED (finding_numbers still pre-taught the wallet card): its media removed; both endings use the same calm reunion so neither path reads as the reward; rumor alt neutralised."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -187,13 +187,7 @@
               "next": "where_to_meet"
             }
           ],
-          "scene": "4:20 PM",
-          "media": {
-            "slotKey": "comms-outage-family-reconnect.finding_numbers.scene",
-            "kind": "STILL",
-            "assetSha256": "sha256:789889a71c2d32de33059554729f9d03c3d83a3900de45f76064d1919b303816",
-            "alt": "A woman stands at the kitchen table looking over a phone, a closed notebook and a wallet."
-          }
+          "scene": "4:20 PM"
         },
         {
           "key": "where_to_meet",
@@ -280,7 +274,7 @@
             "slotKey": "comms-outage-family-reconnect.rumor.scene",
             "kind": "STILL",
             "assetSha256": "sha256:38c2216b1b9ee858f160370a40cff037e50aaec289a94edd577354a4db6e2f37",
-            "alt": "A woman pauses over a blurred social media post on her phone as it gets dark outside."
+            "alt": "A woman looks at a blurred social media post on her phone as it gets dark outside."
           }
         }
       ],
@@ -305,8 +299,8 @@
           "media": {
             "slotKey": "comms-outage-family-reconnect.reconnected_check_sources.ending",
             "kind": "STILL",
-            "assetSha256": "sha256:48b98ce09d2dc260fc8186dfed831f07a5177fe1c4b0236b67469d9110a2520b",
-            "alt": "Two adults and a teen sit at the kitchen table and look at a phone together."
+            "assetSha256": "sha256:0fe5b54517186e108f0c79440f24da5ea8dbfd0d7ad792105255ca00c6c37faa",
+            "alt": "Two adults and a teen with a backpack stand together in the kitchen as the dog greets them."
           }
         }
       ]
