@@ -4,15 +4,15 @@
   "version": 1,
   "kind": "FAMILY_ACTIVITY",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-19 by Claude (agent). Protective-action content requires independent review on its own sources before publication; the author has not approved it."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-19",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:9752cf72f1486537c51f82bb01fe1c8d42150d1ba7e57da7caa3f6d75ce95344",
+      "notes": "Authored 2026-10-19 by Claude (agent). First hash sha256:b286833b... got CHANGES REQUIRED (tornado card lacked 'lowest floor'); B1 and N1-N6 were applied and this hash was re-reviewed APPROVED WITH NOTES on 2026-10-19 against NWS, Ready.gov and EPA pages verified raw (SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-G2-safe-room-detective-review-packet.md). Published under the owner's staged-release go for Phase E. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {

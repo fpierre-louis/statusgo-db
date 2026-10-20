@@ -172,17 +172,18 @@ class PracticeShippedContentTest {
         }
     }
 
-    private static final String SAFE_ROOM_DRAFT_HASH =
+    private static final String SAFE_ROOM_REVIEWED_HASH =
             "sha256:9752cf72f1486537c51f82bb01fe1c8d42150d1ba7e57da7caa3f6d75ce95344";
 
     @Test
-    void safeRoomDetectiveIsAValidDraftThatCarriesItsSafetyCautions() {
+    void safeRoomDetectiveIsPublishedAtTheReviewedHashWithItsSafetyCautions() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version sr = catalog.exact("safe-room-detective", 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(sr)).isEmpty();
-        assertThat(sr.contentHash()).isEqualTo(SAFE_ROOM_DRAFT_HASH);
-        assertThat(sr.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(sr.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(sr.contentHash()).isEqualTo(SAFE_ROOM_REVIEWED_HASH);
+        assertThat(sr.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(sr.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(sr.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(SAFE_ROOM_REVIEWED_HASH);
         assertThat(sr.body().activity().items()).hasSize(5).allSatisfy(i -> assertThat(i.artKey()).isNull());
         String cards = String.join(" | ", sr.body().activity().items().stream().map(PracticeContent.ActivityItem::label).toList());
         // The cautions research flagged: mobile homes, the doorway myth, leaving when told, never the attic.
@@ -193,7 +194,7 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void safeRoomDetectiveStaysOutOfProduction() {
+    void productionListsThePublishedSafeRoomDetective() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -201,12 +202,11 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
         PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
         PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
-        assertThat(production.checkStart("safe-room-detective").allowed()).isFalse();
-        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY))
-                .extracting(e -> e.version().key()).doesNotContain("safe-room-detective");
-        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY))
-                .filteredOn(e -> e.version().key().equals("safe-room-detective")).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+        for (PracticeAvailabilityService env : List.of(production, preview)) {
+            assertThat(env.startable(PracticeKind.FAMILY_ACTIVITY))
+                    .filteredOn(e -> e.version().key().equals("safe-room-detective")).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+        }
     }
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */
