@@ -415,7 +415,7 @@ class PracticeShippedContentTest {
     // -- EXEC-I6: Tornado draft ---------------------------------------------
 
     static final String TORNADO = "tornado-warning-shelter-decision";
-    static final String TORNADO_DRAFT_HASH = "sha256:d9330fa413f1e240013eab300633381d147ccd16bcd9038c55f234f03482da1c";
+    static final String TORNADO_DRAFT_HASH = "sha256:c127d8966044f0f9b3fa5c69589389acf467ce0e24c9692d61e011c0eaec25d6";
 
     @Test
     void tornadoIsAValidDraftHiddenFromProductionWithAStoryOnEveryStep() {

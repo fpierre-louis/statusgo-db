@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) for EXEC-I6. Protective-action content: independent review on its own sources is required before publication; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent) for EXEC-I6. sha256:d9330fa4... CHANGES REQUIRED (B1 vehicle line overclaimed, B2 power lines, B3 all-clear framing, B4 outcome) plus N1-N4; all applied. Independent re-review required; the author has not approved it."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -45,7 +45,7 @@
         "text": "You checked official updates before going outside."
       },
       "needs_tornado_drill": {
-        "text": "Practice getting everyone to your safest room quickly.",
+        "text": "Practice your household's tornado shelter routine together.",
         "action": "OPEN_DRILL",
         "params": {
           "drillId": "tornado-safe-room-speed-round"
@@ -54,6 +54,10 @@
       "needs_contact_review": {
         "text": "Agree on a short text your household sends after a storm.",
         "action": "OPEN_EMERGENCY_CONTACTS"
+      },
+      "needs_update_check": {
+        "text": "Wait for official updates before going outside after a storm.",
+        "action": "OPEN_ALERT_PREFERENCES"
       }
     },
     "scenario": {
@@ -63,7 +67,7 @@
           "key": "warning_issued",
           "title": "A tornado warning for your area",
           "scene": "Sunday, 4:05 PM · At home",
-          "body": "Storms have been building all afternoon. A tornado warning is issued for your area. Your home has no basement. There is a small bathroom in the middle of the ground floor, and a bedroom with large windows upstairs.",
+          "body": "Storms have been building all afternoon. A tornado warning is issued for your area. Your sturdy home has no basement. There is a small bathroom in the middle of the ground floor, and a bedroom with large windows upstairs.",
           "prompt": "Where do you take your household?",
           "choices": [
             {
@@ -90,7 +94,7 @@
               "key": "look_outside",
               "label": "Step outside to see how close the storm is",
               "consequence": "You are outdoors while the warning is in effect.",
-              "feedback": "A tornado warning means a tornado has been sighted or indicated by radar. The National Weather Service says to take action: move to an interior room on the lowest floor.",
+              "feedback": "A tornado warning means a tornado has been sighted or indicated by radar. The National Weather Service says to seek shelter inside a sturdy building immediately and move to an interior room on the lowest floor.",
               "tags": [
                 "needs_tornado_drill"
               ],
@@ -102,7 +106,7 @@
           "key": "in_shelter",
           "title": "Waiting it out",
           "scene": "4:08 PM · The ground-floor bathroom",
-          "body": "Your household is now in the small bathroom on the ground floor. You can hear heavy wind and rain outside.",
+          "body": "Your household moves to the small bathroom on the ground floor. You can hear heavy wind and rain outside.",
           "messages": [
             {
               "from": "Family member at work",
@@ -125,7 +129,7 @@
               "key": "door_open",
               "label": "Leave the door open so you can see the hallway window",
               "consequence": "The open door leaves you facing a window down the hall.",
-              "feedback": "Ready.gov says to stay away from windows, doors, and outside walls, and to watch out for flying debris.",
+              "feedback": "Ready.gov says to stay away from windows and to watch out for flying debris.",
               "tags": [
                 "needs_tornado_drill"
               ],
@@ -135,7 +139,7 @@
               "key": "drive_away",
               "label": "Drive across town to a relative's house",
               "consequence": "You would be on the road while the warning is in effect.",
-              "feedback": "Ready.gov says there is no safe option when caught in a tornado in a car. Your household is already in the safest place at home.",
+              "feedback": "The National Weather Service says being in a vehicle during a tornado is not safe. Your household is already in an interior room on the lowest floor, where the guidance says to be.",
               "tags": [
                 "needs_tornado_drill"
               ],
@@ -146,8 +150,8 @@
         {
           "key": "warning_ends",
           "title": "The warning ends",
-          "scene": "4:40 PM · Quieter outside",
-          "body": "The tornado warning has expired, and it is quieter outside. You don't know yet whether there is damage nearby.",
+          "scene": "4:40 PM · The wind has eased",
+          "body": "The tornado warning's end time has passed and the wind has eased. You don't know yet whether there is damage nearby, or whether more storms are coming.",
           "prompt": "What do you do next?",
           "choices": [
             {
@@ -164,9 +168,9 @@
               "key": "go_look",
               "label": "Go outside right away to look for damage",
               "consequence": "You head outside before hearing any updates.",
-              "feedback": "Ready.gov says to pay attention to local authorities for updated information. During clean-up, it says to wear thick-soled shoes, long pants, and work gloves.",
+              "feedback": "Ready.gov says to pay attention to EAS, NOAA Weather Radio, and local authorities for updated information, and to stay clear of fallen power lines or broken utility lines.",
               "tags": [
-                "needs_tornado_drill"
+                "needs_update_check"
               ],
               "next": "warning_rehearsed"
             },
@@ -187,7 +191,7 @@
         {
           "key": "warning_rehearsed",
           "title": "You walked through a tornado warning",
-          "body": "You practiced three moments: getting to a small interior room on the lowest floor, protecting heads and necks while you wait, and checking official updates before going out. The National Weather Service says a mobile home isn't safe in a tornado; if you live in one, know the closest sturdy shelter.",
+          "body": "You practiced three moments: getting to a small interior room on the lowest floor, protecting heads and necks while you wait, and listening for official updates before going out. If you do go out, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home isn't safe in a tornado; if you live in one, know the closest sturdy shelter.",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "tornado-safe-room-speed-round"

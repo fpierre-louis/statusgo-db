@@ -35,6 +35,7 @@ public enum DebriefTag {
     SHELTERED_LOWEST_INTERIOR(Polarity.STRONG),
     PROTECTED_FROM_DEBRIS(Polarity.STRONG),
     NEEDS_TORNADO_DRILL(Polarity.PRACTICE),
+    NEEDS_UPDATE_CHECK(Polarity.PRACTICE),
 
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
