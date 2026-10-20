@@ -109,7 +109,7 @@
         {
           "key": "storm_closer",
           "title": "The storm gets closer",
-          "body": "The wind is picking up, and rain is blowing sideways against the house. The tornado warning is still in effect.",
+          "body": "From inside the house, you hear the wind picking up, and rain is blowing sideways against the windows. The tornado warning is still in effect.",
           "prompt": "What do you do now?",
           "choices": [
             {
@@ -161,7 +161,7 @@
             {
               "key": "door_open",
               "label": "Keep a door open so you can watch a window",
-              "consequence": "The open door leaves you facing a window.",
+              "consequence": "The open door leaves you facing a window in the next room.",
               "feedback": "Ready.gov says to stay away from windows and to watch out for flying debris.",
               "tags": [
                 "needs_tornado_drill"
@@ -234,7 +234,7 @@
         {
           "key": "warning_rehearsed",
           "title": "You walked through a tornado warning",
-          "body": "You walked through a tornado warning at home: where to shelter, how to protect yourselves while you wait, and what to do when the warning ends. The National Weather Service says to go to an interior room on the lowest floor of a sturdy building and avoid windows. If you do go out afterward, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home isn't safe in a tornado; if you live in one, know the closest sturdy shelter. If you'd like, talk it over together: which room is your shelter during a tornado warning, and where will you keep blankets or other coverings near it?",
+          "body": "You walked through a tornado warning at home: where to shelter, how to protect yourselves while you wait, and what to do when the warning ends. The National Weather Service says to go to an interior room on the lowest floor of a sturdy building and avoid windows. If you do go out afterward, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home is not a safe place during a tornado; if you live in one, know the closest sturdy shelter. If you'd like, talk it over together: which room is your shelter during a tornado warning, and where will you keep blankets or other coverings near it?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "tornado-safe-room-speed-round"

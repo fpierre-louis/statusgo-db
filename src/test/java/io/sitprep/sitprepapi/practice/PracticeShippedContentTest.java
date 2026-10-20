@@ -621,7 +621,7 @@ class PracticeShippedContentTest {
     // -- Flash Flood v3: a second low spot (warning meaning, walking) -----------
 
     static final String FLOOD = "flash-flood-turn-around-route";
-    static final String FLOOD_V3_DRAFT_HASH = "sha256:8fcfd3fc9d8693f2135e1a7f4db057e84268ffcb18b69e471e98c88bee110e2a";
+    static final String FLOOD_V3_DRAFT_HASH = "sha256:60992c7a449e2cf7bf0840f4796dbc1916fdaf322bce1d244f75c49295208fae";
 
     @Test
     void flashFloodV3BranchesToASecondLowSpotAndKeepsOneEnding() {
@@ -656,7 +656,7 @@ class PracticeShippedContentTest {
 
     // -- Tornado v2: the storm gets closer (no more silent move to the bathroom) --
 
-    static final String TORNADO_V2_DRAFT_HASH = "sha256:fd05b6357b742f09e67eb3e3a6f3316df4fb4204e3972451b51d534a20128830";
+    static final String TORNADO_V2_DRAFT_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
 
     @Test
     void tornadoV2GivesUpstairsAndOutsideAConsequenceInsteadOfMovingEveryoneToTheBathroom() {

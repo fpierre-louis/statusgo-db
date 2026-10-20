@@ -108,7 +108,7 @@
         {
           "key": "choose_route",
           "title": "Choose another route",
-          "body": "Back from the crossing, in a dry, higher parking area, you need another way around. A map still shows the usual road, but an official flash flood warning is active.",
+          "body": "Away from the crossing, in a dry, higher parking area, you need another way around. A map still shows the usual road, but an official flash flood warning is active.",
           "prompt": "What information do you use?",
           "choices": [
             {
