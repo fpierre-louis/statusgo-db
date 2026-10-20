@@ -495,4 +495,50 @@ class PracticeShippedContentTest {
                 b4.scenario().outcomes().get(0).media().assetSha256());
         assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
     }
+
+    // -- Earthquake v3: a mid-shaking branch and two calm endings (handoff Phase 5) --
+
+    static final String EARTHQUAKE = "earthquake-first-five-minutes";
+    static final String EARTHQUAKE_V3_DRAFT_HASH = "sha256:19ef57e92f16087f948c437bc3a0fa2f2abe9a3f3fd6bce7b4b18a42fd3abcaf";
+
+    @Test
+    void earthquakeV3BranchesMidShakingAndEndsCalmlyInsideOrOutside() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v3 = catalog.exact(EARTHQUAKE, 3).orElseThrow();
+        Version v2 = catalog.exact(EARTHQUAKE, 2).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v3)).isEmpty();
+        assertThat(v3.contentHash()).isEqualTo(EARTHQUAKE_V3_DRAFT_HASH);
+        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v3.body().sources()).isEqualTo(v2.body().sources()); // Ready.gov + Ready Kids only
+        assertThat(v3.body().tags()).isEqualTo(v2.body().tags());
+
+        var sc = v3.body().scenario();
+        Map<String, Node> nodes = new HashMap<>();
+        sc.nodes().forEach(n -> nodes.put(n.key(), n));
+        assertThat(nodes.get("shaking_starts").choices())
+                .filteredOn(c -> !c.key().equals("drop_cover_hold"))
+                .allSatisfy(c -> assertThat(c.next()).isEqualTo("still_shaking"));
+        assertThat(sc.nodes()).allSatisfy(n -> assertThat(n.scene()).isNotBlank());
+        assertThat(longestPath(sc.startNode(), nodes)).as("decision steps on the longest path").isLessThanOrEqualTo(4);
+
+        // Two endings by where you finish, not by how you did: same title, both calm, both open the drill.
+        assertThat(sc.outcomes()).hasSize(2);
+        assertThat(sc.outcomes()).extracting(PracticeContent.Outcome::title).containsOnly(sc.outcomes().get(0).title());
+        assertThat(sc.outcomes()).allSatisfy(o -> assertThat(o.body()).contains("talk it over together"));
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).as("production keeps v2 until v3 is published").isEqualTo(2));
+    }
+
+    private static int longestPath(String key, Map<String, Node> nodes) {
+        Node n = nodes.get(key);
+        if (n == null) return 0; // an outcome
+        return 1 + n.choices().stream().mapToInt(c -> longestPath(c.next(), nodes)).max().orElse(0);
+    }
 }
