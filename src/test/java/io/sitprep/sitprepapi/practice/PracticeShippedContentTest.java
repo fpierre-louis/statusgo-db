@@ -418,13 +418,14 @@ class PracticeShippedContentTest {
     static final String TORNADO_DRAFT_HASH = "sha256:e9722cca5ff35d7404334100e827021dc437b3090f73d0a091d580959201c954";
 
     @Test
-    void tornadoIsAValidDraftHiddenFromProductionWithAStoryOnEveryStep() {
+    void tornadoIsPublishedAtItsReviewedHashWithAStoryOnEveryStep() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version t = catalog.exact(TORNADO, 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(t)).isEmpty();
         assertThat(t.contentHash()).isEqualTo(TORNADO_DRAFT_HASH);
-        assertThat(t.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(t.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(t.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(t.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(t.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(TORNADO_DRAFT_HASH);
         assertThat(t.body().scenario().nodes()).hasSize(3).allSatisfy(n -> {
             assertThat(n.scene()).isNotBlank();
             assertThat(n.choices()).hasSize(3).allSatisfy(c -> assertThat(c.consequence()).isNotBlank());
@@ -437,9 +438,7 @@ class PracticeShippedContentTest {
         when(repo.findById(any())).thenReturn(Optional.empty());
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
-                .extracting(e -> e.version().key()).doesNotContain(TORNADO);
-        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+                .satisfies(e -> assertThat(e.preview()).isFalse());
     }
 }
