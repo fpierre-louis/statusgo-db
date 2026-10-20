@@ -404,8 +404,13 @@ public class PlanActivationService {
                 .filter(s -> s != null && !s.isBlank())
                 .orElse("Your household");
 
-        String title = "🚨 Emergency plan activated";
-        String body = ownerName + " activated the family plan. Open it and check in when you're safe.";
+        // Who, what to do, where (FEMA IPAWS message tips; Mileti & Sorensen
+        // 1990): a push that only says "the plan is on" makes every member
+        // open the app before they know whether to stay or go.
+        String action = activationRepo.findById(activationId).map(this::pushActionSentence).orElse(null);
+        String title = "🚨 Emergency plan started";
+        String body = ownerName + " started the family plan. "
+                + (action != null ? action + " Open it to check in." : "Open it and check in when you're safe.");
         String targetUrl = "/deployedplan?activationId=" + activationId;
 
         List<UserInfo> members = userInfoRepo.findByUserEmailIn(household.getMemberEmails());
@@ -421,6 +426,45 @@ public class PlanActivationService {
             );
         }
         log.info("Plan activation {} pushed to {} household member(s)", activationId, members.size());
+    }
+
+    /**
+     * The one instruction, as a sentence for a push. Same precedence as
+     * {@link #toActiveSituation}: an official directive outranks the
+     * household's choice, and only an official directive says "Officials".
+     * Built from the row as stored at create (the client resolved the live
+     * alert seconds earlier), so the push never waits on the alert feed.
+     * Null when there is no instruction to state.
+     */
+    String pushActionSentence(PlanActivation a) {
+        String movement = normalizeMovementDirective(a.getMovementDirective());
+        String requested = normalizeOperationalMode(a.getOperationalMode(),
+                a.getEvacPlanId() != null, a.getMeetingPlaceId() != null, a.getMeetingMode());
+        String effective = resolveEffectiveMode(requested, movement);
+        String evac = a.getEvacPlanId() == null ? null : evacuationPlanRepo.findById(a.getEvacPlanId())
+                .map(e -> firstNonBlank(e.getShelterName(), e.getName(), e.getDestination())).orElse(null);
+        String meet = a.getMeetingPlaceId() == null ? null : meetingPlaceRepo.findById(a.getMeetingPlaceId())
+                .map(m -> firstNonBlank(m.getName(), m.getAddress())).orElse(null);
+
+        if ("avoid_area".equals(movement)) return "Officials say to avoid the affected area.";
+        if ("follow_official_instruction".equals(movement)) return "Follow official instructions.";
+        if ("EVACUATING".equals(effective)) {
+            String go = evac != null ? "Go to " + evac + "." : null;
+            if ("evacuate".equals(movement)) return go != null ? "Officials say to evacuate. " + go : "Officials say to evacuate.";
+            return go;
+        }
+        if ("SHELTERING".equals(effective)) {
+            return "shelter_in_place".equals(movement) ? "Officials say to shelter in place." : "Stay where you are.";
+        }
+        if ("GATHERING".equals(effective) && meet != null) return "Meet at " + meet + ".";
+        return null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) return v.trim();
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------------

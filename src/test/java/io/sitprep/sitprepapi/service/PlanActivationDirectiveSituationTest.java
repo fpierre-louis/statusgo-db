@@ -173,6 +173,23 @@ class PlanActivationDirectiveSituationTest {
         assertThat(s.suppressedReason()).startsWith("Officials say to evacuate.");
     }
 
+    @Test
+    @DisplayName("the push says what to do and where, and credits officials only for their order")
+    void pushStatesTheActionWithItsSource() {
+        assertThat(service.pushActionSentence(plainActivation())).isEqualTo("Meet at Oak Park.");
+
+        PlanActivation householdEvac = plainActivation();
+        householdEvac.setOperationalMode("EVACUATING");
+        assertThat(service.pushActionSentence(householdEvac)).isEqualTo("Go to Primary evac.");
+
+        assertThat(service.pushActionSentence(evacuationActivation()))
+                .isEqualTo("Officials say to evacuate. Go to Primary evac.");
+
+        PlanActivation stayHome = plainActivation();
+        stayHome.setOperationalMode("SHELTERING");
+        assertThat(service.pushActionSentence(stayHome)).isEqualTo("Stay where you are.");
+    }
+
     // ── D6 ──────────────────────────────────────────────────────────────────
 
     @Test
