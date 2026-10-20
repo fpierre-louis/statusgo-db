@@ -27,6 +27,7 @@ import io.sitprep.sitprepapi.practice.ScenarioRun.TraceStep;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -71,29 +72,37 @@ public class ScenarioService {
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
     private final ScenarioRelevance relevance;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
     @Autowired
     public ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                            ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
-                           ScenarioRelevance relevance) {
-        this(availability, suppression, runRepo, groupRepo, access, relevance, Clock.systemUTC());
+                           ScenarioRelevance relevance, ApplicationEventPublisher events) {
+        this(availability, suppression, runRepo, groupRepo, access, relevance, events, Clock.systemUTC());
     }
 
     ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                     ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access, Clock clock) {
-        this(availability, suppression, runRepo, groupRepo, access, null, clock);
+        this(availability, suppression, runRepo, groupRepo, access, null, e -> { }, clock);
     }
 
     ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                     ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
                     ScenarioRelevance relevance, Clock clock) {
+        this(availability, suppression, runRepo, groupRepo, access, relevance, e -> { }, clock);
+    }
+
+    ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
+                    ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
+                    ScenarioRelevance relevance, ApplicationEventPublisher events, Clock clock) {
         this.availability = availability;
         this.suppression = suppression;
         this.runRepo = runRepo;
         this.groupRepo = groupRepo;
         this.access = access;
         this.relevance = relevance;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -289,7 +298,15 @@ public class ScenarioService {
         run.setOutcomeKey(d.outcome().key());
         run.setDebriefTags(new ArrayList<>(d.tags()));
         run.setSuggestedActionKey(d.nextStep().action() == null ? null : d.nextStep().action().name());
-        return toDto(runRepo.save(run), email);
+        ScenarioRun saved = runRepo.save(run);
+        // EXEC-I4: a fresh finish of reviewed content (published, or retired with pinned runs) may earn
+        // the household a token. Never preview content, never an idempotent replay (returned above),
+        // never a run without a household.
+        if (saved.getHouseholdId() != null
+                && (v.publishState() == PublishState.PUBLISHED || v.publishState() == PublishState.RETIRED)) {
+            events.publishEvent(new ScenarioCompleted(saved.getId(), saved.getHouseholdId(), saved.getScenarioKey()));
+        }
+        return toDto(saved, email);
     }
 
     // ------------------------------------------------------------------

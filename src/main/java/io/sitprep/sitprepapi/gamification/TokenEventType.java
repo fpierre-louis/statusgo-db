@@ -8,6 +8,8 @@ public enum TokenEventType {
     CONTACTS_CHANGED(true),
     EVACUATION_PLAN_CHANGED(true),
     SUPPLIES_CHANGED(true),
+    /** A household finished a published practice scenario (EXEC-I4). */
+    SCENARIO_COMPLETED(true),
 
     // Individual
     COMMUNITY_POST_CREATED(false),

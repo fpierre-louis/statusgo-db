@@ -442,4 +442,29 @@ class ScenarioServiceTest {
         assertThat(keys(cards)).isEqualTo(plain);
         assertThat(cards).allSatisfy(c -> assertThat(c.localNote()).isNull());
     }
+
+    // -- EXEC-I4: a finished scenario is announced once -------------------
+
+    @Test
+    void aFreshFinishOfReviewedContentIsAnnouncedOnceAndAReplayIsNot() {
+        List<Object> published = new ArrayList<>();
+        PracticeCatalog catalog = PracticeCatalog.of(List.of(live));
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, false, clock);
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioService announcing = new ScenarioService(availability, suppression, inMemoryRepo(), groups, access,
+                null, published::add, clock);
+
+        long id = announcing.start(KEY, ME, HH).runId();
+        announcing.commit(id, ME, "start", "call");
+        announcing.commit(id, ME, "second", "plan");
+        announcing.complete(id, ME);
+        announcing.complete(id, ME); // idempotent replay
+
+        assertThat(published).singleElement().isEqualTo(new ScenarioCompleted(id, HH, KEY));
+    }
 }

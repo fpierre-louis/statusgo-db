@@ -96,7 +96,7 @@ class TokenReadServiceTest {
 
         TokensResponse r = service.forViewer(ME);
 
-        assertThat(r.catalog()).hasSize(15);
+        assertThat(r.catalog()).hasSize(16);
         assertThat(r.householdId()).isEqualTo(HH);
         assertThat(r.userTokens()).extracting(Award::id).containsExactly("user:1", "user:2");
         Award drill = r.householdTokens().get(0);

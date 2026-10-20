@@ -1,5 +1,8 @@
 package io.sitprep.sitprepapi.gamification;
 
+import io.sitprep.sitprepapi.practice.ScenarioRun;
+import io.sitprep.sitprepapi.practice.ScenarioRunRepo;
+
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
@@ -48,19 +51,22 @@ public class HouseholdTokenCriteria {
     private final GroupRepo groups;
     private final GoBagService goBags;
     private final HomeStockpileService stockpile;
+    private final ScenarioRunRepo scenarioRuns;
 
     public HouseholdTokenCriteria(MeetingPlaceRepo meetingPlaces,
                                   EmergencyContactGroupRepo contactGroups,
                                   EvacuationPlanRepo evacuationPlans,
                                   GroupRepo groups,
                                   GoBagService goBags,
-                                  HomeStockpileService stockpile) {
+                                  HomeStockpileService stockpile,
+                                  ScenarioRunRepo scenarioRuns) {
         this.meetingPlaces = meetingPlaces;
         this.contactGroups = contactGroups;
         this.evacuationPlans = evacuationPlans;
         this.groups = groups;
         this.goBags = goBags;
         this.stockpile = stockpile;
+        this.scenarioRuns = scenarioRuns;
     }
 
     /** Household tokens whose criteria hold now, excluding the composite {@code HOUSEHOLD_READY}. */
@@ -83,6 +89,10 @@ public class HouseholdTokenCriteria {
         if (primaryRoute && meetingPoint && contactCircle) met.add(TokenKey.PLAN_ARCHITECT);
         if (drills >= 1) met.add(TokenKey.DRILL_CREW);
         if (drills >= PRACTICE_CADENCE_MIN_DRILLS) met.add(TokenKey.PRACTICE_CADENCE);
+        if (check(householdId, TokenKey.SCENARIO_REHEARSAL,
+                () -> scenarioRuns.existsByHouseholdIdAndStatus(householdId, ScenarioRun.Status.COMPLETED))) {
+            met.add(TokenKey.SCENARIO_REHEARSAL);
+        }
         if (check(householdId, TokenKey.STOCKPILE_STEWARD, () -> stockpileSteward(householdId))) {
             met.add(TokenKey.STOCKPILE_STEWARD);
         }

@@ -7,6 +7,9 @@ import java.util.Optional;
 
 public interface ScenarioRunRepo extends JpaRepository<ScenarioRun, Long> {
 
+    /** Has this household finished any scenario (the Rehearsed Together token, EXEC-I4). */
+    boolean existsByHouseholdIdAndStatus(String householdId, ScenarioRun.Status status);
+
     Optional<ScenarioRun> findFirstByHouseholdIdAndScenarioKeyAndStatus(
             String householdId, String scenarioKey, ScenarioRun.Status status);
 

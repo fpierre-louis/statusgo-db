@@ -14,7 +14,7 @@ class TokenCatalogTest {
 
     @Test
     void everyKeyHasExactlyOneDefinition() {
-        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length).hasSize(15);
+        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length).hasSize(16);
         Set<TokenKey> seen = EnumSet.noneOf(TokenKey.class);
         TokenCatalog.all().forEach(d -> assertThat(seen.add(d.key())).as("duplicate %s", d.key()).isTrue());
         for (TokenKey k : TokenKey.values()) assertThat(TokenCatalog.get(k)).isNotNull();
@@ -43,6 +43,9 @@ class TokenCatalogTest {
                 Map.entry(TokenKey.CONTACT_CIRCLE, "People to Call"),
                 Map.entry(TokenKey.DRILL_CREW, "First Practice"),
                 Map.entry(TokenKey.PRACTICE_CADENCE, "Practiced Together"),
+                // EXEC-I4 (2026-10-20): owner asked for a scenario token; this name is the lane's
+                // proposal and may be renamed (the key may not).
+                Map.entry(TokenKey.SCENARIO_REHEARSAL, "Rehearsed Together"),
                 Map.entry(TokenKey.STOCKPILE_STEWARD, "Supplies Taking Shape"),
                 Map.entry(TokenKey.HOUSEHOLD_READY, "Ready Together"),
                 Map.entry(TokenKey.FIRST_NEIGHBOR_SIGNAL, "Neighbor Hello"),
@@ -66,8 +69,8 @@ class TokenCatalogTest {
     void householdTokensAreHouseholdScoped() {
         assertThat(TokenCatalog.all().stream().filter(d -> d.scope() == TokenScope.HOUSEHOLD).map(TokenDefinition::key))
                 .containsExactlyInAnyOrder(TokenKey.PLAN_ARCHITECT, TokenKey.MEETING_POINT, TokenKey.CONTACT_CIRCLE,
-                        TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE, TokenKey.STOCKPILE_STEWARD,
-                        TokenKey.HOUSEHOLD_READY);
+                        TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE, TokenKey.SCENARIO_REHEARSAL,
+                        TokenKey.STOCKPILE_STEWARD, TokenKey.HOUSEHOLD_READY);
     }
 
     @Test
