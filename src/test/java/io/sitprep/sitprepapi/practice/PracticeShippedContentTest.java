@@ -172,6 +172,43 @@ class PracticeShippedContentTest {
         }
     }
 
+    private static final String SAFE_ROOM_DRAFT_HASH =
+            "sha256:9752cf72f1486537c51f82bb01fe1c8d42150d1ba7e57da7caa3f6d75ce95344";
+
+    @Test
+    void safeRoomDetectiveIsAValidDraftThatCarriesItsSafetyCautions() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version sr = catalog.exact("safe-room-detective", 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(sr)).isEmpty();
+        assertThat(sr.contentHash()).isEqualTo(SAFE_ROOM_DRAFT_HASH);
+        assertThat(sr.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(sr.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(sr.body().activity().items()).hasSize(5).allSatisfy(i -> assertThat(i.artKey()).isNull());
+        String cards = String.join(" | ", sr.body().activity().items().stream().map(PracticeContent.ActivityItem::label).toList());
+        // The cautions research flagged: mobile homes, the doorway myth, leaving when told, never the attic.
+        assertThat(cards).contains("Mobile homes aren't safe").contains("lowest floor").contains("inside wall").contains("avoid doorways").contains("Leave if officials tell you to");
+        assertThat(cards.toLowerCase()).doesNotContain("attic").doesNotContain("doorway is").doesNotContain("stand in a doorway");
+        assertThat(sr.body().facilitation()).contains("including if they tell you to leave");
+        assertThat(sr.body().activity().summaryBody()).contains("Show your family each spot, in person");
+    }
+
+    @Test
+    void safeRoomDetectiveStaysOutOfProduction() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
+        assertThat(production.checkStart("safe-room-detective").allowed()).isFalse();
+        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY))
+                .extracting(e -> e.version().key()).doesNotContain("safe-room-detective");
+        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY))
+                .filteredOn(e -> e.version().key().equals("safe-room-detective")).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
+
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */
     @Test
     void productionStartsV2AndARunPinnedToV1StillFinishes() {

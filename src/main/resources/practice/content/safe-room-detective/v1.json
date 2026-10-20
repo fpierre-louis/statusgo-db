@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "key": "safe-room-detective",
+  "version": 1,
+  "kind": "FAMILY_ACTIVITY",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewedBy": null,
+      "reviewedContentHash": null,
+      "notes": "Authored 2026-10-19 by Claude (agent). Protective-action content requires independent review on its own sources before publication; the author has not approved it."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Safe Room Detective",
+    "summary": "Find the safer spots in and around your home, together. Each card shares official guidance, and your family talks through which spots you already know.",
+    "objective": "Find out which safer places your household already knows, and which ones to find together.",
+    "estimatedMinutes": 8,
+    "sources": [
+      {
+        "label": "NWS — During a tornado",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      },
+      {
+        "label": "NWS — Tornado watch and warning",
+        "url": "https://www.weather.gov/safety/tornado-ww"
+      },
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      },
+      {
+        "label": "Ready.gov — Earthquakes",
+        "url": "https://www.ready.gov/earthquakes"
+      },
+      {
+        "label": "Ready.gov — Wildfires",
+        "url": "https://www.ready.gov/wildfires"
+      },
+      {
+        "label": "EPA — Create a clean room during wildfire smoke",
+        "url": "https://www.epa.gov/indoor-air-quality-iaq/create-clean-room-protect-indoor-air-quality-during-wildfire"
+      },
+      {
+        "label": "Ready.gov — Shelter in place",
+        "url": "https://www.ready.gov/shelter"
+      },
+      {
+        "label": "Ready.gov — Extreme heat",
+        "url": "https://www.ready.gov/heat"
+      },
+      {
+        "label": "Ready.gov — Floods",
+        "url": "https://www.ready.gov/floods"
+      },
+      {
+        "label": "Ready Kids — Make a plan",
+        "url": "https://www.ready.gov/kids/make-a-plan"
+      }
+    ],
+    "ageGuidance": [
+      "Family / all ages"
+    ],
+    "facilitation": "An adult reads each card aloud. Talk about where that spot is in your home, and walk to it together if you can. These are practice cards. In a real emergency, follow official instructions, including if they tell you to leave.",
+    "tags": {
+      "discussed_safe_places": {
+        "text": "Your household went through safer places in and around your home."
+      },
+      "discussed_leaving_when_told": {
+        "text": "Your household went over following officials, including when they say to leave."
+      }
+    },
+    "activity": {
+      "type": "ITEM_SORT",
+      "prompt": "Does your household know this spot?",
+      "reminderQuestion": "Where would your household meet if you had to leave?",
+      "recapTitle": "Your home may be different",
+      "recapBody": "The best spot depends on your home. For tornadoes, Ready.gov names a safe room or storm shelter first, then a small, interior, windowless room or basement on the lowest level. NWS says a mobile home isn't safe. In an earthquake, people who use a wheelchair can lock their wheels and cover their head and neck. Some situations mean moving or leaving instead. In a flood, Ready.gov says to move to higher ground or a higher floor, and to evacuate if told to do so. Follow local officials.",
+      "piles": [
+        {
+          "key": "known",
+          "label": "We know our spot"
+        },
+        {
+          "key": "find",
+          "label": "Let's find it together"
+        }
+      ],
+      "items": [
+        {
+          "key": "tornado",
+          "label": "Tornado warning: go to a basement, safe room, or interior room on the lowest floor, away from windows. Mobile homes aren't safe; know a sturdier shelter."
+        },
+        {
+          "key": "earthquake",
+          "label": "Earthquake: drop, cover your head and neck, and hold on. Get under a sturdy table, or by an inside wall away from windows. Don't run outside; avoid doorways."
+        },
+        {
+          "key": "smoke",
+          "label": "Wildfire smoke: choose a room you can close off from outside air, big enough for everyone. Leave if officials tell you to."
+        },
+        {
+          "key": "shelter",
+          "label": "Officials say shelter in place: go to an interior room with few windows if possible, close windows and doors, turn off fans and AC, and listen for news."
+        },
+        {
+          "key": "heat",
+          "label": "Extreme heat: stay where there's air conditioning. No AC at home? Know your nearest cooling center. Don't rely on a fan as your main way to stay cool."
+        }
+      ],
+      "completionTags": [
+        "discussed_safe_places",
+        "discussed_leaving_when_told"
+      ],
+      "nextAction": "OPEN_EVACUATION_PLAN",
+      "nextParams": {},
+      "nextPrompt": "Check that everyone knows your meeting places.",
+      "nextLabel": "Review meeting places",
+      "nextNote": "Opens your real evacuation plan. Nothing changes unless you save it.",
+      "finishLabel": "See your spots",
+      "summaryTitle": "Your family's safe spots",
+      "summaryBody": "Here's what your household already knows and what to find together. Show your family each spot, in person, so everyone knows where to go for each situation."
+    }
+  }
+}
