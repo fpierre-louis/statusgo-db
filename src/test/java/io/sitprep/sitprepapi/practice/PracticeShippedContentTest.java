@@ -132,17 +132,18 @@ class PracticeShippedContentTest {
         }
     }
 
-    private static final String WEATHER_WATCH_DRAFT_HASH =
+    private static final String WEATHER_WATCH_REVIEWED_HASH =
             "sha256:96e2e4ef73f9cd61ce0b1198b9e09da58958f1aff092c149d90b2a602818af3f";
 
     @Test
-    void weatherWatchIsAValidDraftWithNoArtInTheDecisionLoop() {
+    void weatherWatchIsPublishedAtTheReviewedHashWithNoArtInTheDecisionLoop() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version ww = catalog.exact("weather-watch", 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(ww)).isEmpty();
-        assertThat(ww.contentHash()).isEqualTo(WEATHER_WATCH_DRAFT_HASH);
-        assertThat(ww.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(ww.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(ww.contentHash()).isEqualTo(WEATHER_WATCH_REVIEWED_HASH);
+        assertThat(ww.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(ww.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(ww.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(WEATHER_WATCH_REVIEWED_HASH);
         assertThat(ww.body().activity().items()).hasSize(6)
                 .allSatisfy(i -> {
                     assertThat(i.artKey()).isNull();
@@ -155,7 +156,7 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void weatherWatchStaysOutOfProduction() {
+    void productionListsThePublishedWeatherWatchAsReal() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -164,12 +165,11 @@ class PracticeShippedContentTest {
         PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
         PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
 
-        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY))
-                .extracting(e -> e.version().key()).doesNotContain("weather-watch");
-        assertThat(production.checkStart("weather-watch").allowed()).isFalse();
-        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY))
-                .filteredOn(e -> e.version().key().equals("weather-watch")).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+        for (PracticeAvailabilityService env : List.of(production, preview)) {
+            assertThat(env.startable(PracticeKind.FAMILY_ACTIVITY))
+                    .filteredOn(e -> e.version().key().equals("weather-watch")).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isFalse()); // real, so completions are stored
+        }
     }
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */

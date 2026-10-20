@@ -4,15 +4,15 @@
   "version": 1,
   "kind": "FAMILY_ACTIVITY",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-19 by Claude (agent). Family preparedness content requires independent review before publication; the author has not approved it."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-19",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:96e2e4ef73f9cd61ce0b1198b9e09da58958f1aff092c149d90b2a602818af3f",
+      "notes": "Authored 2026-10-19 by Claude (agent). First hash sha256:c6fa1ead... was APPROVED WITH NOTES; notes N1/N3/N4/N5 were applied and this hash was re-reviewed APPROVED WITH NOTES on 2026-10-19 against NOAA, FEMA's Guide for Alerts and Warnings, Ready.gov and FEMA rumor guidance (SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-G1-weather-watch-review-packet.md). The owner approved this exact hash for staged release. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-19",
     "retiredAt": null
   },
   "content": {
