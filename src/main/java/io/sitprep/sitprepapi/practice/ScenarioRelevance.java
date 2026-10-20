@@ -35,7 +35,8 @@ public class ScenarioRelevance {
 
     static final Map<String, String> SCENARIO_HAZARD = Map.of(
             "flash-flood-turn-around-route", "flood",
-            "earthquake-first-five-minutes", "earthquake");
+            "earthquake-first-five-minutes", "earthquake",
+            "tornado-warning-shelter-decision", "tornado");
 
     private final GroupRepo groupRepo;
     private final RiskProfileService riskProfileService;

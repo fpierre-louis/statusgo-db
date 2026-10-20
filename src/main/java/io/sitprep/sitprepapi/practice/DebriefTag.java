@@ -31,6 +31,11 @@ public enum DebriefTag {
     PREPARED_FOR_AFTERSHOCK(Polarity.STRONG),
     NEEDS_EARTHQUAKE_DRILL(Polarity.PRACTICE),
 
+    // Adult scenarios — Tornado Warning: Shelter Decision (EXEC-I6)
+    SHELTERED_LOWEST_INTERIOR(Polarity.STRONG),
+    PROTECTED_FROM_DEBRIS(Polarity.STRONG),
+    NEEDS_TORNADO_DRILL(Polarity.PRACTICE),
+
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
     DISCUSSED_HOUSEHOLD_SPECIFIC_NEEDS(Polarity.STRONG),

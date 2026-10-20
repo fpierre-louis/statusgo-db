@@ -139,4 +139,20 @@ class ScenarioEngineTest {
             trace.remove(trace.size() - 1);
         }
     }
+
+    @Test
+    void everyPathThroughTheTornadoDraftEndsWithAUsableDebrief() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v = catalog.exact("tornado-warning-shelter-decision", 1).orElseThrow();
+        List<List<TraceStep>> paths = new ArrayList<>();
+        List<String> ends = new ArrayList<>();
+        walk(v, ScenarioEngine.startNode(v), new ArrayList<>(), paths, ends);
+        assertThat(paths).hasSize(27).allSatisfy(path -> assertThat(path).hasSize(3));
+        assertThat(ends).containsOnly("warning_rehearsed");
+        for (int i = 0; i < paths.size(); i++) {
+            var d = ScenarioEngine.debrief(v, paths.get(i), ends.get(i));
+            assertThat(PracticeActions.allowed(d.nextStep().action())).isTrue();
+            assertThat(PracticeActions.describe(d.nextStep().action())).isNotNull();
+        }
+    }
 }

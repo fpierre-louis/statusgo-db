@@ -411,4 +411,35 @@ class PracticeShippedContentTest {
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key).isEqualTo((int) d[0])));
     }
+
+    // -- EXEC-I6: Tornado draft ---------------------------------------------
+
+    static final String TORNADO = "tornado-warning-shelter-decision";
+    static final String TORNADO_DRAFT_HASH = "sha256:d9330fa413f1e240013eab300633381d147ccd16bcd9038c55f234f03482da1c";
+
+    @Test
+    void tornadoIsAValidDraftHiddenFromProductionWithAStoryOnEveryStep() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version t = catalog.exact(TORNADO, 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(t)).isEmpty();
+        assertThat(t.contentHash()).isEqualTo(TORNADO_DRAFT_HASH);
+        assertThat(t.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(t.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(t.body().scenario().nodes()).hasSize(3).allSatisfy(n -> {
+            assertThat(n.scene()).isNotBlank();
+            assertThat(n.choices()).hasSize(3).allSatisfy(c -> assertThat(c.consequence()).isNotBlank());
+        });
+        assertThat(t.body().sources()).allSatisfy(src ->
+                assertThat(src.url()).matches("https://www\\.(weather|ready)\\.gov/.*")); // raw-verifiable hosts only
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .extracting(e -> e.version().key()).doesNotContain(TORNADO);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
 }
