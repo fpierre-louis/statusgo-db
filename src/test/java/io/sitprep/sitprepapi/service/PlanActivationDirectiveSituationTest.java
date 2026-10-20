@@ -143,6 +143,36 @@ class PlanActivationDirectiveSituationTest {
         return ((PublicActivationDto) dto).activeSituation();
     }
 
+    // ── WHO SAYS SO ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("a household's own evacuation never claims official guidance")
+    void householdEvacuationIsAttributedToThePlan() {
+        PlanActivation a = plainActivation();
+        a.setOperationalMode("EVACUATING");
+        stored(a);
+        feedReturns();
+
+        ActiveSituationDto s = ownerSituation();
+        assertThat(s.primaryActionKind()).isEqualTo("evacuate");
+        assertThat(s.suppressedAction()).isEqualTo("Navigate to meeting place");
+        assertThat(s.suppressedReason())
+                .startsWith("This plan goes to the evacuation destination.")
+                .doesNotContainIgnoringCase("official");
+        assertThat(publicSituation().suppressedReason()).doesNotContainIgnoringCase("official");
+    }
+
+    @Test
+    @DisplayName("an evacuation an official alert ordered says officials said so")
+    void officialEvacuationIsAttributedToOfficials() {
+        stored(evacuationActivation());
+        feedReturns(card("EVAC-ORIGINAL", "Evacuation Immediate", "evacuate"));
+
+        ActiveSituationDto s = ownerSituation();
+        assertThat(s.movementDirective()).isEqualTo("evacuate");
+        assertThat(s.suppressedReason()).startsWith("Officials say to evacuate.");
+    }
+
     // ── D6 ──────────────────────────────────────────────────────────────────
 
     @Test

@@ -1547,19 +1547,33 @@ public class PlanActivationService {
         String suppressed = null;
         String reason = null;
 
+        // ── WHO SAYS SO ─────────────────────────────────────────────────────
+        //
+        // `reason` names its source, because the source is part of the
+        // instruction (Mileti & Sorensen 1990; FEMA IPAWS message guidance:
+        // name the source, say what to do). "Officials say…" is written ONLY
+        // when `movement` came from an official alert. A household that chose
+        // its own evacuation destination is "This plan", never "official
+        // guidance": that sentence used to read "Official movement guidance is
+        // evacuation-first." on every plain activation with a destination, a
+        // claim no alert backed.
+        //
+        // The meeting place is not dropped when another step outranks it. Its
+        // job, per Ready.gov and the Red Cross family plan, is where the
+        // household reconnects if separated, so that is what the line says.
         if ("avoid_area".equals(movement)) {
             primary = "Avoid the affected area";
             kind = "avoid";
             if (mp != null || ep != null) {
                 suppressed = "Plan navigation";
-                reason = "Official movement guidance says to avoid the affected area.";
+                reason = "Officials say to avoid the affected area. Check the alert before heading to a saved place.";
             }
         } else if ("follow_official_instruction".equals(movement)) {
             primary = "Follow official instructions";
             kind = "official";
             if (mp != null || ep != null) {
                 suppressed = "Plan navigation";
-                reason = "Official movement guidance must be read before following saved destinations.";
+                reason = "Read the official instructions before heading to a saved place.";
             }
         } else if ("EVACUATING".equals(effective)) {
             primary = ep != null
@@ -1568,14 +1582,18 @@ public class PlanActivationService {
             kind = "evacuate";
             if (mp != null) {
                 suppressed = "Navigate to meeting place";
-                reason = "Official movement guidance is evacuation-first.";
+                reason = "evacuate".equals(movement)
+                        ? "Officials say to evacuate. Use the meeting place only if you get separated."
+                        : "This plan goes to the evacuation destination. Use the meeting place if you get separated.";
             }
         } else if ("SHELTERING".equals(effective)) {
             primary = "Shelter in place";
             kind = "shelter";
             if (mp != null) {
                 suppressed = "Navigate to meeting place";
-                reason = "Official movement guidance says to shelter in place.";
+                reason = "shelter_in_place".equals(movement)
+                        ? "Officials say to shelter in place. Stay inside and follow local instructions."
+                        : "This plan is to stay where you are. Use the meeting place if you get separated.";
             }
         } else if ("GATHERING".equals(effective)) {
             primary = mp != null ? "Go to the active meeting place" : "Stay where you are";
