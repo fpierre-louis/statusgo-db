@@ -413,7 +413,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 3 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
+                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -508,7 +508,7 @@ class PracticeShippedContentTest {
         Version v2 = catalog.exact(EARTHQUAKE, 2).orElseThrow();
         assertThat(PracticeContentValidator.validate(v3)).isEmpty();
         assertThat(v3.contentHash()).isEqualTo(EARTHQUAKE_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.publishState()).isEqualTo(PublishState.RETIRED); // superseded by the audited v4
         assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
         assertThat(v3.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(EARTHQUAKE_V3_DRAFT_HASH);
         assertThat(v2.publishState()).isEqualTo(PublishState.RETIRED);
@@ -541,8 +541,9 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(EARTHQUAKE, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v4)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
         assertThat(v4.body().tags()).isEqualTo(v3.body().tags());
         assertThat(v4.body().sources()).containsAll(v3.body().sources())
                 .allSatisfy(src -> assertThat(src.url()).matches("https://www\\.(ready\\.gov|earthquakecountry\\.org)/.*"));
@@ -571,7 +572,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production keeps v3 until v4 is published").isEqualTo(3));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v4; runs pinned to v3 and v2 still finish").isEqualTo(4));
     }
 
     private static Map<String, String> edges(Node n) {

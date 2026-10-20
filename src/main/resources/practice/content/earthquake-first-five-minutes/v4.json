@@ -4,15 +4,15 @@
   "version": 4,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Earthquake v4: retrospective audit of live v3 (adversarial review NEW VERSION REQUIRED). Inside/outside rule in both endings, exterior-wall line, talk prompts tied to the right moment, seated alternative at the aftershock, aftershock-damage line inside. Awaiting independent review."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:2569733145eae2b04e9c875885cc62ee5944be4974e7d3ec1c67d6f63a83cd4d",
+      "notes": "Earthquake v4 from the retrospective audit of live v3 (adversarial review NEW VERSION REQUIRED: A outside ending, B open-area prompt, C interior wall, D aftershock mobility, E pre-aftershock damage claim). sha256:8182bdcd... APPROVED WITH NOTES; sha256:8c780e19... APPROVED WITH NOTES (mobility line alignment); this hash APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {
