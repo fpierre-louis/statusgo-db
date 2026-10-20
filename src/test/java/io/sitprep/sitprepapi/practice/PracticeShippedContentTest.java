@@ -413,7 +413,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
+                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : key.equals(FLOOD) ? 3 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -629,8 +629,9 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(FLOOD, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v3)).isEmpty();
         assertThat(v3.contentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
+        assertThat(catalog.exact(FLOOD, 2).orElseThrow().publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v3.body().sources()).allSatisfy(src -> assertThat(src.url()).startsWith("https://www.weather.gov/safety/"));
 
         var sc = v3.body().scenario();
@@ -651,7 +652,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(FLOOD)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production keeps v2 until v3 is published").isEqualTo(2));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v3; runs pinned to v2 still finish").isEqualTo(3));
     }
 
     // -- Tornado v2: the storm gets closer (no more silent move to the bathroom) --
