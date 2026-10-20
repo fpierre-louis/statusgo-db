@@ -36,4 +36,18 @@ class GroupCheckInReminderSlotTest {
         assertThat(GroupCheckInReminderService.dueSlotAt(76 * H, 12 * H))
                 .isEqualTo(GroupCheckInReminderService.ENDING_SOON_SLOT);
     }
+
+    @Test
+    void onlyTheEndingSoonReminderAsksAboutContinuing() {
+        for (int slot = 0; slot < GroupCheckInReminderService.ENDING_SOON_SLOT; slot++) {
+            assertThat(GroupCheckInReminderService.slotBody(slot)).as("slot " + slot)
+                    .doesNotContainIgnoringCase("continue").doesNotContainIgnoringCase("keep going");
+        }
+        assertThat(GroupCheckInReminderService.slotBody(2))
+                .isEqualTo("12 hours in. See who's answered, and end it once everyone's accounted for.");
+        assertThat(GroupCheckInReminderService.slotBody(3))
+                .isEqualTo("Day 1 is done. See where everyone stands, and end it once everyone's accounted for.");
+        assertThat(GroupCheckInReminderService.slotBody(GroupCheckInReminderService.ENDING_SOON_SLOT))
+                .isEqualTo("Auto-ends in 12 hours. Continue or close it out?");
+    }
 }

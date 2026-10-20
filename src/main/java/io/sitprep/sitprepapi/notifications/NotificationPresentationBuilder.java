@@ -21,6 +21,7 @@ import io.sitprep.sitprepapi.repo.GroupPostRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.PostRepo;
 import io.sitprep.sitprepapi.repo.UserInfoRepo;
+import io.sitprep.sitprepapi.service.GroupCheckInReminderService;
 import io.sitprep.sitprepapi.service.HouseholdEventService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -275,7 +276,13 @@ public class NotificationPresentationBuilder {
                 // a household's on the Family tab.
                 route = household ? NotificationRoutes.group(groupId, true) : NotificationRoutes.groupStatusBoard(groupId);
                 fallback = household ? NotificationRoutes.HOME : NotificationRoutes.MY_GROUPS;
-                if (groupId != null) {
+                // E-1 (2026-10-20, owner delegated): Keep going only on the
+                // ending-soon reminder (slot 4), when the page itself offers
+                // Continue (ruling K4). Rows with no slot marker are older
+                // inbox rows and keep both actions.
+                Integer slot = intOf(data.get("slot"));
+                boolean offerKeepGoing = slot == null || slot >= GroupCheckInReminderService.ENDING_SOON_SLOT;
+                if (groupId != null && offerKeepGoing) {
                     actions.add(Action.mutation("KEEP_GOING", "Keep going", "continueCheckIn",
                             Map.of("groupId", groupId), route, "primary"));
                 }
@@ -641,6 +648,16 @@ public class NotificationPresentationBuilder {
             return m == null ? Map.of() : m;
         } catch (Exception e) {
             return Map.of();
+        }
+    }
+
+    private static Integer intOf(Object v) {
+        if (v instanceof Number n) return n.intValue();
+        if (v == null) return null;
+        try {
+            return Integer.valueOf(String.valueOf(v).trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

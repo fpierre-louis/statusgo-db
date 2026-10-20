@@ -20,13 +20,13 @@ import java.time.Instant;
  * also when the "Auto-ends in 12 hours" organizer push goes out
  * ({@code GroupCheckInReminderService.ENDING_SOON_SLOT}).</p>
  *
- * <p><b>Why {@code POST /alert/continue} does not refuse earlier.</b> Every
- * organizer reminder (30 min, 4 h, 12 h, day 1) is a CHECK_IN_REVIEW push, and
- * that push carries a "Keep going" action ({@code NotificationPresentationBuilder}).
- * Refusing a continue before {@code end − 12h} would turn those lock-screen
- * buttons into a 409. Whether the earlier pushes should offer it is the
- * notifications lane's call; until then this is the offer time, and a
- * continue from a push is still accepted while the check-in runs.</p>
+ * <p><b>Why {@code POST /alert/continue} does not refuse earlier (decided
+ * 2026-10-20, owner delegated, E-1).</b> Only the ending-soon reminder
+ * (slot 4, at {@code end − 12h}) offers "Keep going"; the 30 min, 4 h, 12 h and
+ * day-1 reminders ask about people and carry Review only. A continue is still
+ * accepted at any time while the check-in runs: pushes already delivered and
+ * older inbox rows may still carry "Keep going", and refusing them would turn a
+ * tap into an error for no safety gain.</p>
  */
 public final class CheckInWindow {
 

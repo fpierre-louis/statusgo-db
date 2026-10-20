@@ -335,6 +335,23 @@ class NotificationPresentationTest {
 
     // ── helpers ──────────────────────────────────────────────────────────
 
+    @Test
+    void checkInReview_offersKeepGoingOnlyOnTheEndingSoonSlot() {
+        for (int slot = 0; slot < 4; slot++) {
+            NotificationPresentation p = builder.build(row("checkin_reminder", "CHECK_IN_REVIEW", "hh1",
+                    null, "{\"slot\":" + slot + "}", null));
+            assertThat(p.actions()).as("slot " + slot).extracting(Action::id, Action::tone)
+                    .containsExactly(org.assertj.core.groups.Tuple.tuple("REVIEW", "primary"));
+        }
+        NotificationPresentation ending = builder.build(row("checkin_reminder", "CHECK_IN_REVIEW", "hh1",
+                null, "{\"slot\":4}", null));
+        assertThat(ending.actions()).extracting(Action::id).containsExactly("KEEP_GOING", "REVIEW");
+        // Older inbox rows carry no marker: unchanged (Keep going + Review).
+        NotificationPresentation old = builder.build(row("checkin_reminder", "CHECK_IN_REVIEW", "hh1",
+                null, null, null));
+        assertThat(old.actions()).extracting(Action::id).containsExactly("KEEP_GOING", "REVIEW");
+    }
+
     private static NotificationLog row(String type, String category, String ref, String target,
                                        String additionalData, String actorUserId) {
         NotificationLog r = new NotificationLog("viewer@example.com", type, null, "Title", "Body",

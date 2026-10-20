@@ -29,8 +29,8 @@ import java.util.List;
  * <ul>
  *   <li>30 min — gentle "check-in started, anyone heard from family?"</li>
  *   <li>4 hr — "still active, 4 hours in"</li>
- *   <li>12 hr — "12 hours in — continue or end?"</li>
- *   <li>24 hr — "day 1 of check-in done — continue or end?"</li>
+ *   <li>12 hr — "12 hours in" (review who has answered)</li>
+ *   <li>24 hr — "day 1 is done" (review)</li>
  *   <li>36 hr — "auto-ends in 12 hours"</li>
  * </ul>
  *
@@ -92,10 +92,15 @@ public class GroupCheckInReminderService {
     private static final String[] SLOT_BODY = {
             "30 minutes in. Anyone you haven't heard from yet?",
             "4 hours into the check-in. Quick family update?",
-            "12 hours in. Continue or end the check-in?",
-            "Day 1 of the check-in is done. Keep going or wrap up?",
+            "12 hours in. See who's answered, and end it once everyone's accounted for.",
+            "Day 1 is done. See where everyone stands, and end it once everyone's accounted for.",
             "Auto-ends in 12 hours. Continue or close it out?"
     };
+
+    /** The reminder question for a slot (package-private for tests). */
+    static String slotBody(int slotIndex) {
+        return SLOT_BODY[Math.min(slotIndex, SLOT_BODY.length - 1)];
+    }
 
     private final GroupRepo groupRepo;
     private final UserInfoRepo userInfoRepo;
@@ -222,7 +227,7 @@ public class GroupCheckInReminderService {
 
         String owner = group.getOwnerName() != null ? group.getOwnerName() : "your group leader";
         String title = group.getGroupName();
-        String body = SLOT_BODY[Math.min(slotIndex, SLOT_BODY.length - 1)];
+        String body = slotBody(slotIndex);
         String hazard = group.getActiveHazardType();
         if (hazard != null && !hazard.isBlank()) {
             // Suffix the body with the hazard so a wildfire reminder
@@ -253,7 +258,9 @@ public class GroupCheckInReminderService {
                     type,
                     referenceId,
                     targetUrl,
-                    null,
+                    // Slot marker: the inbox presentation offers "Keep going"
+                    // only on the ending-soon slot (E-1, 2026-10-20).
+                    "{\"slot\":" + slotIndex + "}",
                     token,
                     group.getGroupId(),
                     Category.CHECK_IN_REVIEW
