@@ -4,15 +4,15 @@
   "version": 2,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Tornado v2: upstairs/outside choices meet 'The storm gets closer' (window-pressure folklore corrected by NOAA SPC) instead of being moved to the bathroom by the story; location-neutral waiting step; path-true ending with a shelter-room talk prompt. Awaiting independent review."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5",
+      "notes": "Tornado v2: upstairs/outside choices meet 'The storm gets closer' (window-pressure folklore corrected by NOAA SPC) instead of the story moving everyone to the bathroom; location-neutral waiting step; path-true ending with a shelter-room talk prompt. sha256:fd05b635... APPROVED WITH NOTES (3 applied, 1 accepted); this hash APPROVED WITH NOTES 2026-10-20 (mobile-home paraphrase accepted: NWS tornado-ww 'If in a mobile home... move to the closest substantial shelter'). Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {

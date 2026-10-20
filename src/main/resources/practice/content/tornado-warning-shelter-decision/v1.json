@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "Authored 2026-10-20 by Claude (agent) for EXEC-I6 on NWS and Ready.gov sources (raw-verified). sha256:d9330fa4... CHANGES REQUIRED (B1 vehicle overclaim, B2 power lines, B3 all-clear framing, B4 outcome; N1-N4); sha256:c127d896... APPROVED WITH NOTES (NB-1 objective overclaim, NB-2 'wait', NB-3 condition); this hash re-reviewed APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's EXEC-I go of 2026-10-20. The author did not approve it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-20"
   },
   "content": {
     "title": "Tornado warning: shelter decision",

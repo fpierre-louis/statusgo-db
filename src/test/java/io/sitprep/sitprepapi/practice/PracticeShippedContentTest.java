@@ -427,7 +427,7 @@ class PracticeShippedContentTest {
         Version t = catalog.exact(TORNADO, 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(t)).isEmpty();
         assertThat(t.contentHash()).isEqualTo(TORNADO_DRAFT_HASH);
-        assertThat(t.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(t.publishState()).isEqualTo(PublishState.RETIRED); // superseded by v2 (2026-10-20)
         assertThat(t.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
         assertThat(t.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(TORNADO_DRAFT_HASH);
         assertThat(t.body().scenario().nodes()).hasSize(3).allSatisfy(n -> {
@@ -443,7 +443,8 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isFalse());
+                .satisfies(e -> assertThat(e.preview()).isFalse())
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2));
     }
 
     // -- EXEC-M: Comms v4 = reviewed v3 text + hashed stills ------------------
@@ -665,8 +666,8 @@ class PracticeShippedContentTest {
         Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
         assertThat(PracticeContentValidator.validate(v2)).isEmpty();
         assertThat(v2.contentHash()).isEqualTo(TORNADO_V2_DRAFT_HASH);
-        assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(TORNADO_V2_DRAFT_HASH);
         assertThat(v2.body().sources()).allSatisfy(src ->
                 assertThat(src.url()).matches("https://www\\.(weather\\.gov|ready\\.gov|spc\\.noaa\\.gov)/.*"));
 
@@ -688,6 +689,6 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production keeps v1 until v2 is published").isEqualTo(1));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v2; runs pinned to v1 still finish").isEqualTo(2));
     }
 }
