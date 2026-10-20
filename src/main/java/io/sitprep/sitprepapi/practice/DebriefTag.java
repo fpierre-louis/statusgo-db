@@ -21,6 +21,16 @@ public enum DebriefTag {
     NEEDS_MEETING_PLACE_REVIEW(Polarity.PRACTICE),
     NEEDS_ROUTE_REVIEW(Polarity.PRACTICE),
 
+    // Adult scenarios — Flash Flood: Turn Around Route
+    AVOIDED_FLOODWATER(Polarity.STRONG),
+    FOLLOWED_ROAD_CLOSURE(Polarity.STRONG),
+
+    // Adult scenarios — Earthquake: First Five Minutes
+    PROTECTED_DURING_SHAKING(Polarity.STRONG),
+    CHECKED_IMMEDIATE_HAZARDS(Polarity.STRONG),
+    PREPARED_FOR_AFTERSHOCK(Polarity.STRONG),
+    NEEDS_EARTHQUAKE_DRILL(Polarity.PRACTICE),
+
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
     DISCUSSED_HOUSEHOLD_SPECIFIC_NEEDS(Polarity.STRONG),

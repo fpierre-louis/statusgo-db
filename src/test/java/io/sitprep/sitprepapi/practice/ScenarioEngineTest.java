@@ -88,6 +88,27 @@ class ScenarioEngineTest {
         assertThat(ends).contains("reconnected", "reconnected_check_sources");
     }
 
+    @Test
+    void everyPathThroughNextPriorityDraftsEndsWithAUsableDebrief() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        for (String key : List.of("flash-flood-turn-around-route", "earthquake-first-five-minutes")) {
+            Version v = catalog.exact(key, 1).orElseThrow();
+            List<List<TraceStep>> paths = new ArrayList<>();
+            List<String> ends = new ArrayList<>();
+            walk(v, ScenarioEngine.startNode(v), new ArrayList<>(), paths, ends);
+
+            assertThat(paths).as(key).hasSize(27);
+            assertThat(paths).as(key).allSatisfy(path -> assertThat(path).hasSize(3));
+            assertThat(ends).as(key).containsOnly(
+                    key.equals("flash-flood-turn-around-route") ? "route_rehearsed" : "first_minutes_rehearsed");
+            for (int i = 0; i < paths.size(); i++) {
+                var d = ScenarioEngine.debrief(v, paths.get(i), ends.get(i));
+                assertThat(PracticeActions.allowed(d.nextStep().action())).as(key).isTrue();
+                assertThat(PracticeActions.describe(d.nextStep().action())).as(key).isNotNull();
+            }
+        }
+    }
+
     /**
      * No action params in shipped content: {@code /emergency-contacts?intent=…}
      * CREATES an empty contact group server-side when a household has none

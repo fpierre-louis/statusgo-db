@@ -52,6 +52,11 @@ class PracticeShippedContentTest {
     }
 
     private static final String COMMS = "comms-outage-family-reconnect";
+    private static final Map<String, String> NEXT_PRIORITY_DRAFT_HASHES = Map.of(
+            "flash-flood-turn-around-route",
+            "sha256:0a5e24bb845c5cbd3900086e16319275754d543474293e8dd33f163d412400f0",
+            "earthquake-first-five-minutes",
+            "sha256:5ee94fd79ede6107a38a6eed22ff397ebbb47529309b6708b195e58bda367edc");
     private static final String KIT_BUILDER_REVIEWED_HASH =
             "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2";
 
@@ -99,6 +104,44 @@ class PracticeShippedContentTest {
         assertThat(shape(v2)).isEqualTo(shape(v1));
         assertThat(v2.body().sources()).isEqualTo(v1.body().sources());
         assertThat(v2.body().tags()).isEqualTo(v1.body().tags());
+    }
+
+    @Test
+    void nextPriorityScenariosAreValidDraftsWithTwoPartReflections() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+
+        for (String key : NEXT_PRIORITY_DRAFT_HASHES.keySet()) {
+            Version draft = catalog.exact(key, 1).orElseThrow();
+            assertThat(PracticeContentValidator.validate(draft)).as(key).isEmpty();
+            assertThat(draft.contentHash()).as(key).isEqualTo(NEXT_PRIORITY_DRAFT_HASHES.get(key));
+            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.DRAFT);
+            assertThat(draft.file().lifecycle().safetyReview().status())
+                    .as(key).isEqualTo(SafetyReviewStatus.PENDING);
+            assertThat(draft.body().scenario().nodes())
+                    .as(key)
+                    .allSatisfy(node -> assertThat(node.choices())
+                            .allSatisfy(choice -> assertThat(choice.consequence()).isNotBlank()));
+        }
+    }
+
+    @Test
+    void nextPriorityDraftsStayOutOfProductionAndAreAvailableOnlyToPreview() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
+
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
+
+        assertThat(production.startable(PracticeKind.ADULT_SCENARIO))
+                .extracting(e -> e.version().key())
+                .doesNotContainAnyElementsOf(NEXT_PRIORITY_DRAFT_HASHES.keySet());
+        assertThat(preview.startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> NEXT_PRIORITY_DRAFT_HASHES.containsKey(e.version().key()))
+                .hasSize(2)
+                .allSatisfy(e -> assertThat(e.preview()).isTrue());
     }
 
     @Test
