@@ -59,7 +59,11 @@ public final class ScenarioDtos {
 
     public record ChoiceDto(String key, String label) {}
 
-    public record NodeDto(String key, String title, String body, String prompt, List<ChoiceDto> choices) {}
+    /** One step. {@code scene} / {@code messages}: optional story touches (EXEC-I5), null when the content has none. */
+    public record NodeDto(String key, String title, String body, String prompt, List<ChoiceDto> choices,
+                          String scene, List<MessageDto> messages) {}
+
+    public record MessageDto(String from, String text, boolean outgoing) {}
 
     /**
      * The choice just committed and its calm reflection (R4 beat 3):

@@ -304,6 +304,64 @@ class PracticeContentValidatorTest {
         assertRejected(unsafeAction, "needs a nextAction from PracticeActions.ALLOWED");
     }
 
+    // -- story touches (EXEC-I5) ------------------------------------------
+
+    private static ObjectNode nodeAt(ObjectNode root, int i) {
+        return (ObjectNode) content(root).get("scenario").get("nodes").get(i);
+    }
+
+    @Test
+    void sceneAndMessagesAreOptionalAndParse() {
+        ObjectNode r = scenario("k", 1);
+        nodeAt(r, 0).put("scene", "Saturday, 4:10 PM · Kitchen");
+        var msgs = nodeAt(r, 0).putArray("messages");
+        msgs.addObject().put("from", "You").put("text", "I'm safe. Where are you?").put("outgoing", true);
+        msgs.addObject().put("from", "Sam").put("text", "At school. Phones are jammed.");
+        assertThat(errors(r)).isEmpty();
+        var node = version(r).body().scenario().nodes().get(0);
+        assertThat(node.scene()).isEqualTo("Saturday, 4:10 PM · Kitchen");
+        assertThat(node.messages()).hasSize(2);
+        assertThat(node.messages().get(0).outgoing()).isTrue();
+        assertThat(node.messages().get(1).outgoing()).isNull();
+        assertThat(version(scenario("k", 1)).body().scenario().nodes().get(0).scene()).isNull();
+    }
+
+    @Test
+    void storyTouchesStayShortAndAreNeverBlank() {
+        ObjectNode longScene = scenario("k", 1);
+        nodeAt(longScene, 0).put("scene", "x".repeat(81));
+        assertRejected(longScene, "scene is longer than 80 characters");
+
+        ObjectNode blankScene = scenario("k", 1);
+        nodeAt(blankScene, 0).put("scene", " ");
+        assertRejected(blankScene, "scene is required");
+
+        ObjectNode empty = scenario("k", 1);
+        nodeAt(empty, 0).putArray("messages");
+        assertRejected(empty, "messages needs 1-3 entries");
+
+        ObjectNode four = scenario("k", 1);
+        var m = nodeAt(four, 0).putArray("messages");
+        for (int i = 0; i < 4; i++) m.addObject().put("from", "A").put("text", "hi");
+        assertRejected(four, "messages needs 1-3 entries");
+
+        ObjectNode noText = scenario("k", 1);
+        nodeAt(noText, 0).putArray("messages").addObject().put("from", "Sam");
+        assertRejected(noText, "message 0 text is required");
+
+        ObjectNode longText = scenario("k", 1);
+        nodeAt(longText, 0).putArray("messages").addObject().put("from", "Sam").put("text", "y".repeat(161));
+        assertRejected(longText, "message 0 text is longer than 160 characters");
+    }
+
+    @Test
+    void anUntouchedFileHashesAsBefore() {
+        // The new optional fields live on the record, not in the file: a file without them hashes the same.
+        ObjectNode r = scenario("k", 1);
+        String before = ContentHasher.hashFile(r);
+        assertThat(version(r).contentHash()).isEqualTo(before);
+    }
+
     // -- consequence (spec Q10) ------------------------------------------
 
     @Test

@@ -467,4 +467,36 @@ class ScenarioServiceTest {
 
         assertThat(published).singleElement().isEqualTo(new ScenarioCompleted(id, HH, KEY));
     }
+
+    // -- EXEC-I5: story touches reach the step -----------------------------
+
+    @Test
+    void theStepCarriesItsSceneAndMessagesOrNothing() {
+        RunDto plain = service.start(KEY, ME, HH);
+        assertThat(plain.node().scene()).isNull();
+        assertThat(plain.node().messages()).isNull();
+
+        com.fasterxml.jackson.databind.node.ObjectNode root = scenario("story", 1);
+        com.fasterxml.jackson.databind.node.ObjectNode first =
+                (com.fasterxml.jackson.databind.node.ObjectNode) PracticeFixtures.content(root).get("scenario").get("nodes").get(0);
+        first.put("scene", "Saturday, 4:10 PM · Kitchen");
+        first.putArray("messages").addObject().put("from", "You").put("text", "I'm safe.").put("outgoing", true);
+        Version story = version(approve(root, PublishState.PUBLISHED));
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PracticeAvailabilityService availability =
+                new PracticeAvailabilityService(PracticeCatalog.of(List.of(story)), controls, true, false, clock);
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioService svc = new ScenarioService(availability, suppression, inMemoryRepo(), groups, access, clock);
+
+        RunDto run = svc.start("story", ME, HH);
+        assertThat(run.node().scene()).isEqualTo("Saturday, 4:10 PM · Kitchen");
+        assertThat(run.node().messages()).singleElement().satisfies(m -> {
+            assertThat(m.from()).isEqualTo("You");
+            assertThat(m.outgoing()).isTrue();
+        });
+    }
 }

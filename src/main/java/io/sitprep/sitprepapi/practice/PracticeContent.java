@@ -88,12 +88,27 @@ public final class PracticeContent {
             List<Node> nodes,
             List<Outcome> outcomes) {}
 
+    /**
+     * One decision step. {@code scene} and {@code messages} are the optional
+     * story touches (EXEC-I5): an in-story time-and-place line ("Saturday,
+     * 4:10 PM · Kitchen") and up to three short text messages the step shows
+     * as bubbles. Reviewed content like every other line; additive and
+     * nullable, so files without them parse and hash exactly as before.
+     */
     public record Node(
             String key,
             String title,
             String body,
             String prompt,
-            List<Choice> choices) {}
+            List<Choice> choices,
+            String scene,
+            List<Message> messages) {}
+
+    /** One in-story text message. {@code outgoing} = sent by the household (drawn on the right). */
+    public record Message(
+            String from,
+            String text,
+            Boolean outgoing) {}
 
     /**
      * One option. {@code next} names a node or an outcome; {@code feedback}

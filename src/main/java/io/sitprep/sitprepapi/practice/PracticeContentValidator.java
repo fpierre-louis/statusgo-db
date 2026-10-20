@@ -53,6 +53,10 @@ public final class PracticeContentValidator {
 
     /** A choice's optional in-story "what happened next" line (spec Q10). */
     static final int CONSEQUENCE_MAX = 140;
+    static final int SCENE_MAX = 80;
+    static final int MESSAGES_MAX = 3;
+    static final int MESSAGE_FROM_MAX = 40;
+    static final int MESSAGE_TEXT_MAX = 160;
 
     /** Never in any Practice copy: death, failure framing, scoring. */
     private static final List<Pattern> PROHIBITED_ALL = List.of(
@@ -366,6 +370,19 @@ public final class PracticeContentValidator {
             if (n.title() != null) requireText(n.title(), 160, at + " title", errors);
             requireText(n.body(), 1200, at + " body", errors);
             requireText(n.prompt(), 240, at + " prompt", errors);
+            // EXEC-I5 story touches: optional, short, and never blank when present.
+            if (n.scene() != null) requireText(n.scene(), SCENE_MAX, at + " scene", errors);
+            if (n.messages() != null) {
+                if (n.messages().isEmpty() || n.messages().size() > MESSAGES_MAX) {
+                    errors.add(at + " messages needs 1-" + MESSAGES_MAX + " entries (omit it instead of an empty list)");
+                }
+                for (int i = 0; i < n.messages().size(); i++) {
+                    PracticeContent.Message m = n.messages().get(i);
+                    if (m == null) { errors.add(at + " message " + i + " is empty"); continue; }
+                    requireText(m.from(), MESSAGE_FROM_MAX, at + " message " + i + " from", errors);
+                    requireText(m.text(), MESSAGE_TEXT_MAX, at + " message " + i + " text", errors);
+                }
+            }
             List<Choice> choices = n.choices() == null ? List.of() : n.choices();
             if (choices.size() < MIN_CHOICES || choices.size() > MAX_CHOICES) {
                 errors.add(at + " needs " + MIN_CHOICES + "-" + MAX_CHOICES + " choices");

@@ -348,7 +348,10 @@ public class ScenarioService {
 
     private static NodeDto nodeDto(Node n) {
         List<ChoiceDto> choices = n.choices().stream().map(c -> new ChoiceDto(c.key(), c.label())).toList();
-        return new NodeDto(n.key(), n.title(), n.body(), n.prompt(), choices);
+        List<ScenarioDtos.MessageDto> messages = n.messages() == null ? null : n.messages().stream()
+                .map(m -> new ScenarioDtos.MessageDto(m.from(), m.text(), Boolean.TRUE.equals(m.outgoing())))
+                .toList();
+        return new NodeDto(n.key(), n.title(), n.body(), n.prompt(), choices, n.scene(), messages);
     }
 
     private static CommittedDto lastCommit(Version v, List<TraceStep> trace) {
