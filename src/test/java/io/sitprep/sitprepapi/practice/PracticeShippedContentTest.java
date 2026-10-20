@@ -126,12 +126,50 @@ class PracticeShippedContentTest {
 
         // Published: real in production and in preview builds alike, so its completions are stored.
         for (PracticeAvailabilityService env : List.of(production, preview)) {
-            assertThat(env.startable(PracticeKind.FAMILY_ACTIVITY)).singleElement()
-                    .satisfies(e -> {
-                        assertThat(e.version().key()).isEqualTo("kit-builder");
-                        assertThat(e.preview()).isFalse();
-                    });
+            assertThat(env.startable(PracticeKind.FAMILY_ACTIVITY))
+                    .filteredOn(e -> e.version().key().equals("kit-builder")).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
         }
+    }
+
+    private static final String WEATHER_WATCH_DRAFT_HASH =
+            "sha256:96e2e4ef73f9cd61ce0b1198b9e09da58958f1aff092c149d90b2a602818af3f";
+
+    @Test
+    void weatherWatchIsAValidDraftWithNoArtInTheDecisionLoop() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version ww = catalog.exact("weather-watch", 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(ww)).isEmpty();
+        assertThat(ww.contentHash()).isEqualTo(WEATHER_WATCH_DRAFT_HASH);
+        assertThat(ww.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(ww.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(ww.body().activity().items()).hasSize(6)
+                .allSatisfy(i -> {
+                    assertThat(i.artKey()).isNull();
+                    assertThat(i.label()).startsWith("Practice card");
+                });
+        // "All clear" is not an NWS product; the ended card says ended, and the recap says re-check.
+        assertThat(ww.body().activity().items()).extracting(PracticeContent.ActivityItem::label)
+                .noneMatch(l -> l.toLowerCase().contains("all clear") || l.toLowerCase().contains("safe"));
+        assertThat(ww.body().activity().recapBody()).contains("the danger hasn't always passed");
+    }
+
+    @Test
+    void weatherWatchStaysOutOfProduction() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
+
+        assertThat(production.startable(PracticeKind.FAMILY_ACTIVITY))
+                .extracting(e -> e.version().key()).doesNotContain("weather-watch");
+        assertThat(production.checkStart("weather-watch").allowed()).isFalse();
+        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY))
+                .filteredOn(e -> e.version().key().equals("weather-watch")).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isTrue());
     }
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */

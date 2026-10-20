@@ -275,9 +275,18 @@ class PracticeContentValidatorTest {
         ((ObjectNode) activity.withArray("piles").get(1)).put("key", "core");
         assertRejected(duplicatePile, "duplicate pile key core");
 
-        ObjectNode missingArt = family("kit", 1);
-        ((ObjectNode) content(missingArt).get("activity").get("items").get(0)).remove("artKey");
-        assertRejected(missingArt, "needs a lower-snake-case artKey");
+        ObjectNode badArt = family("kit", 1);
+        ((ObjectNode) content(badArt).get("activity").get("items").get(0)).put("artKey", "Not Snake");
+        assertRejected(badArt, "artKey must be lower-snake-case");
+
+        // Art is optional: an item without art shows none in the decision loop (Weather Watch).
+        ObjectNode noArt = family("kit", 1);
+        ((ObjectNode) content(noArt).get("activity").get("items").get(0)).remove("artKey");
+        assertThat(PracticeContentValidator.validate(version(noArt))).isEmpty();
+
+        ObjectNode longSummary = family("kit", 1);
+        ((ObjectNode) content(longSummary).get("activity")).put("summaryTitle", "x".repeat(81));
+        assertRejected(longSummary, ".summaryTitle");
 
         ObjectNode missingRecap = family("kit", 1);
         ((ObjectNode) content(missingRecap).get("activity")).remove("recapBody");

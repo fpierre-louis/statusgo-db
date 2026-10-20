@@ -28,7 +28,8 @@ public final class FamilyPracticeDtos {
 
     public record ActivityDto(String type, String prompt, String reminderQuestion,
                               String recapTitle, String recapBody,
-                              List<PileDto> piles, List<ItemDto> items, NextStepDto nextStep) {}
+                              List<PileDto> piles, List<ItemDto> items, NextStepDto nextStep,
+                              String finishLabel, String summaryTitle, String summaryBody) {}
 
     public record ActivityDetailDto(int schemaVersion, String key, int version, String contentHash,
                                     String title, String summary, String objective, Integer estimatedMinutes,

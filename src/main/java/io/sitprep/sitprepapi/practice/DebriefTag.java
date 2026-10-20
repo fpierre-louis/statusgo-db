@@ -24,7 +24,11 @@ public enum DebriefTag {
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
     DISCUSSED_HOUSEHOLD_SPECIFIC_NEEDS(Polarity.STRONG),
-    NEEDS_HOME_KIT_REVIEW(Polarity.PRACTICE);
+    NEEDS_HOME_KIT_REVIEW(Polarity.PRACTICE),
+
+    // Family Practice — Weather Watch
+    DISCUSSED_CHANGING_ALERTS(Polarity.STRONG),
+    DISCUSSED_OFFICIAL_SOURCES(Polarity.STRONG);
 
     /** Which debrief section a tag lands in: "Strong choices" or "Worth practicing". */
     public enum Polarity { STRONG, PRACTICE }

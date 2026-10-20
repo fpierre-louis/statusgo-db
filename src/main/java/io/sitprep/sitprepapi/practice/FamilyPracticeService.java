@@ -163,7 +163,7 @@ public class FamilyPracticeService {
         return new ActivityDto(a.type(), a.prompt(), a.reminderQuestion(), a.recapTitle(), a.recapBody(),
                 a.piles().stream().map(p -> new PileDto(p.key(), p.label())).toList(),
                 a.items().stream().map(i -> new ItemDto(i.key(), i.label(), i.artKey())).toList(),
-                nextStep(a));
+                nextStep(a), a.finishLabel(), a.summaryTitle(), a.summaryBody());
     }
 
     private static CompletionDto completionDto(FamilyPracticeCompletion row, Version v) {

@@ -283,8 +283,8 @@ public final class PracticeContentValidator {
             }
             if (!itemKeys.add(item.key())) errors.add(at + ": duplicate item key " + item.key());
             requireText(item.label(), 160, at + ": item " + item.key() + " label", errors);
-            if (item.artKey() == null || !GRAPH_KEY_FORMAT.matcher(item.artKey()).matches()) {
-                errors.add(at + ": item " + item.key() + " needs a lower-snake-case artKey");
+            if (item.artKey() != null && !GRAPH_KEY_FORMAT.matcher(item.artKey()).matches()) {
+                errors.add(at + ": item " + item.key() + " artKey must be lower-snake-case");
             }
         }
 
@@ -307,6 +307,14 @@ public final class PracticeContentValidator {
         requireText(a.nextPrompt(), 240, at + ".nextPrompt", errors);
         requireText(a.nextLabel(), 120, at + ".nextLabel", errors);
         requireText(a.nextNote(), 240, at + ".nextNote", errors);
+        optionalText(a.finishLabel(), 40, at + ".finishLabel", errors);
+        optionalText(a.summaryTitle(), 80, at + ".summaryTitle", errors);
+        optionalText(a.summaryBody(), 240, at + ".summaryBody", errors);
+    }
+
+    private static void optionalText(String value, int max, String where, List<String> errors) {
+        if (value == null) return;
+        requireText(value, max, where, errors);
     }
 
     // ------------------------------------------------------------------
@@ -478,7 +486,7 @@ public final class PracticeContentValidator {
         if (b.activity() != null) {
             Activity a = b.activity();
             add(texts, a.prompt(), a.reminderQuestion(), a.recapTitle(), a.recapBody(),
-                    a.nextPrompt(), a.nextLabel(), a.nextNote());
+                    a.nextPrompt(), a.nextLabel(), a.nextNote(), a.finishLabel(), a.summaryTitle(), a.summaryBody());
             if (a.piles() != null) a.piles().forEach(p -> { if (p != null) add(texts, p.label()); });
             if (a.items() != null) a.items().forEach(i -> { if (i != null) add(texts, i.label()); });
         }

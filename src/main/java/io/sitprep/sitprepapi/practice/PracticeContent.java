@@ -141,11 +141,18 @@ public final class PracticeContent {
             Map<String, String> nextParams,
             String nextPrompt,
             String nextLabel,
-            String nextNote) {}
+            String nextNote,
+            /* Optional presentation copy; null keeps the client's Kit Builder defaults. */
+            String finishLabel,
+            String summaryTitle,
+            String summaryBody) {}
 
     public record ActivityPile(String key, String label) {}
 
-    /** {@code artKey} selects a reviewed, code-native object drawing in the client. */
+    /**
+     * {@code artKey} selects a reviewed, code-native object drawing in the client.
+     * Optional: an item without one shows no art in the decision loop.
+     */
     public record ActivityItem(String key, String label, String artKey) {}
 
     /**

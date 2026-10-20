@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "key": "weather-watch",
+  "version": 1,
+  "kind": "FAMILY_ACTIVITY",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewedBy": null,
+      "reviewedContentHash": null,
+      "notes": "Authored 2026-10-19 by Claude (agent). Family preparedness content requires independent review before publication; the author has not approved it."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Weather Watch",
+    "summary": "Weather alerts change as the weather develops. Practice, together, what your household would check or do in each situation.",
+    "objective": "Talk through what your household would check or do as weather alerts change.",
+    "estimatedMinutes": 8,
+    "sources": [
+      {
+        "label": "NOAA — Understand forecast information",
+        "url": "https://www.noaa.gov/understand-forecast-information"
+      },
+      {
+        "label": "FEMA — A Guide for Alerts and Warnings",
+        "url": "https://www.ready.gov/sites/default/files/2022-02/fema_guide-for-alerts-and-warnings_2021.pdf.pdf"
+      },
+      {
+        "label": "Ready.gov — Emergency Alerts",
+        "url": "https://www.ready.gov/alerts"
+      },
+      {
+        "label": "Ready.gov — Floods",
+        "url": "https://www.ready.gov/floods"
+      },
+      {
+        "label": "FEMA — Common disaster-related rumors",
+        "url": "https://www.fema.gov/disaster/recover/rumor-response"
+      }
+    ],
+    "ageGuidance": ["Family / all ages"],
+    "facilitation": "An adult reads each practice card aloud. Ask everyone what your household would do next, and why. These cards are practice, not real alerts. In a real alert, follow its instructions and your local officials.",
+    "tags": {
+      "discussed_changing_alerts": {
+        "text": "Your household talked through what to check or do as weather alerts change."
+      },
+      "discussed_official_sources": {
+        "text": "Your household talked about checking official sources and local instructions."
+      }
+    },
+    "activity": {
+      "type": "ITEM_SORT",
+      "prompt": "What would your household do next?",
+      "reminderQuestion": "How would your household hear about a real alert?",
+      "recapTitle": "What the words mean",
+      "recapBody": "NOAA says a Watch means impacts are possible, and a Warning means impacts are expected or happening. FEMA says an Advisory means be aware. Not every hazard has a Watch first, so follow a real alert's own instructions and your local officials. When an alert ends or is canceled, the danger hasn't always passed. Check current conditions and local instructions before changing what you're doing.",
+      "piles": [
+        { "key": "prepare", "label": "Pay attention and get ready" },
+        { "key": "act", "label": "Follow the alert's instructions" },
+        { "key": "check", "label": "Check conditions and official sources" }
+      ],
+      "items": [
+        { "key": "forecast", "label": "Practice card: The forecast says storms could become severe later today." },
+        { "key": "watch", "label": "Practice card: A Watch is issued for your area." },
+        { "key": "warning", "label": "Practice card: A Warning is issued for your area, with instructions to follow." },
+        { "key": "rumor", "label": "Practice card: A friend shares a post saying the storm will hit your street." },
+        { "key": "ended", "label": "Practice card: The Warning for your area has ended or been canceled." },
+        { "key": "advisory", "label": "Practice card, a different kind of alert: An Advisory is issued for your area." }
+      ],
+      "completionTags": [
+        "discussed_changing_alerts",
+        "discussed_official_sources"
+      ],
+      "nextAction": "OPEN_ALERT_PREFERENCES",
+      "nextParams": {},
+      "nextPrompt": "Check how your household gets alerts.",
+      "nextLabel": "Review alert settings",
+      "nextNote": "Opens your real alert settings. Nothing changes unless you save.",
+      "finishLabel": "See what you decided",
+      "summaryTitle": "How you talked it through",
+      "summaryBody": "Here's what your household said you'd do in each situation. In a real alert, its own instructions come first."
+    }
+  }
+}
