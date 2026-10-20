@@ -617,4 +617,40 @@ class PracticeShippedContentTest {
         if (n == null) return 0; // an outcome
         return 1 + n.choices().stream().mapToInt(c -> longestPath(c.next(), nodes)).max().orElse(0);
     }
+
+    // -- Flash Flood v3: a second low spot (warning meaning, walking) -----------
+
+    static final String FLOOD = "flash-flood-turn-around-route";
+    static final String FLOOD_V3_DRAFT_HASH = "sha256:5bdc8b964e1e64da3996bdb2578c232d25f6ad68449a9491828a7d995db797a4";
+
+    @Test
+    void flashFloodV3BranchesToASecondLowSpotAndKeepsOneEnding() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v3 = catalog.exact(FLOOD, 3).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v3)).isEmpty();
+        assertThat(v3.contentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
+        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v3.body().sources()).allSatisfy(src -> assertThat(src.url()).startsWith("https://www.weather.gov/safety/"));
+
+        var sc = v3.body().scenario();
+        Map<String, Node> nodes = new HashMap<>();
+        sc.nodes().forEach(n -> nodes.put(n.key(), n));
+        assertThat(nodes.get("choose_route").choices())
+                .filteredOn(c -> !c.key().equals("official_updates"))
+                .allSatisfy(c -> assertThat(c.next()).isEqualTo("second_low_spot"));
+        assertThat(nodes.get("second_low_spot").choices()).extracting(Choice::key)
+                .contains("walk_to_check", "wait_by_creek", "turn_back_official");
+        assertThat(longestPath(sc.startNode(), nodes)).isLessThanOrEqualTo(4);
+        assertThat(sc.outcomes()).singleElement().satisfies(o -> assertThat(o.body())
+                .doesNotContain("three decision points").contains("talk it over together"));
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(FLOOD)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).as("production keeps v2 until v3 is published").isEqualTo(2));
+    }
 }

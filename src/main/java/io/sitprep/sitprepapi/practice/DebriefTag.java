@@ -24,6 +24,7 @@ public enum DebriefTag {
     // Adult scenarios — Flash Flood: Turn Around Route
     AVOIDED_FLOODWATER(Polarity.STRONG),
     FOLLOWED_ROAD_CLOSURE(Polarity.STRONG),
+    NEEDS_FLOODWATER_RULE(Polarity.PRACTICE), // Flash Flood v3: no one walks or drives into floodwater
 
     // Adult scenarios — Earthquake: First Five Minutes
     PROTECTED_DURING_SHAKING(Polarity.STRONG),
