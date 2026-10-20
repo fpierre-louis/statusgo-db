@@ -499,7 +499,7 @@ class PracticeShippedContentTest {
     // -- Earthquake v3: a mid-shaking branch and two calm endings (handoff Phase 5) --
 
     static final String EARTHQUAKE = "earthquake-first-five-minutes";
-    static final String EARTHQUAKE_V3_DRAFT_HASH = "sha256:19ef57e92f16087f948c437bc3a0fa2f2abe9a3f3fd6bce7b4b18a42fd3abcaf";
+    static final String EARTHQUAKE_V3_DRAFT_HASH = "sha256:aebcc51803296f8e4032e9f4d201d9377ed3a0a0ed5e33db79fc94bbeb29cff3";
 
     @Test
     void earthquakeV3BranchesMidShakingAndEndsCalmlyInsideOrOutside() {

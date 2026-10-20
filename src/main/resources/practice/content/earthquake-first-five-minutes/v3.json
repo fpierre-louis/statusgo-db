@@ -93,12 +93,12 @@
         {
           "key": "still_shaking",
           "title": "The shaking keeps going",
-          "body": "The floor is still moving, and it is hard to stay on your feet. Books are sliding off the shelf by the window. The sturdy table is a few steps away.",
+          "body": "The floor is still moving, and it is hard to stay on your feet. Books are sliding off the shelf by the window. A sturdy table is nearby.",
           "prompt": "What do you do while it is still shaking?",
           "choices": [
             {
               "key": "get_low_now",
-              "label": "Get low where you are and cover your head and neck",
+              "label": "Get low where you are, or lock wheels if seated, and cover your head and neck",
               "consequence": "You get low, cover your head and neck, and hold on until the shaking stops.",
               "feedback": "Ready.gov says to drop where you are onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If you use a wheelchair, lock your wheels and cover your head and neck.",
               "tags": [
@@ -109,7 +109,7 @@
             {
               "key": "keep_going",
               "label": "Keep moving toward the front door",
-              "consequence": "You cross the room past the window while books keep falling.",
+              "consequence": "You get partway across the room, past the window, while books keep falling.",
               "feedback": "Ready.gov says: if you are inside, stay and do not run outside. Drop where you are and cover your head and neck. Ready Kids says to stay away from windows and furniture that could fall.",
               "tags": [
                 "needs_earthquake_drill"
@@ -166,7 +166,7 @@
               "next": "aftershock"
             }
           ],
-          "scene": "7:31 PM · Right after the shaking",
+          "scene": "7:31 PM · Inside, right after the shaking",
           "messages": [
             {
               "from": "Household adult",
@@ -219,7 +219,7 @@
         {
           "key": "first_minutes_rehearsed",
           "title": "You walked through the first five minutes",
-          "body": "You walked through a short sequence: protect yourself during shaking, check yourself and the people nearby before moving, and protect yourself again during an aftershock. In this scene the building looked undamaged. If a building is damaged, Ready.gov says to go outside and quickly move away from it. If you'd like, talk it over together: where is the safe spot in each room you use most, under a sturdy table or against an inside wall?",
+          "body": "You walked through the first minutes of an earthquake: the shaking, the moments after it stopped, and an aftershock. Wherever you are when shaking starts, Ready.gov says to protect yourself right away. In this scene the building looked undamaged. If a building is damaged, Ready.gov says to go outside and quickly move away from it. If you'd like, talk it over together: where is the safe spot in each room you use most, under a sturdy table or against an inside wall?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "earthquake-drop-cover-relay"
@@ -228,7 +228,7 @@
         {
           "key": "ended_up_outside",
           "title": "You walked through the first five minutes",
-          "body": "You walked through a short sequence: protect yourself during shaking, check yourself and the people nearby before moving, and protect yourself again during an aftershock. This time you ended up outside. If more shaking starts while you are outside, Ready.gov says to stay there and move to an open area away from buildings, trees, streetlights and power lines. Ready Kids says aftershocks could cause more damage to buildings weakened by the first earthquake, and Ready.gov says do not enter damaged buildings. If you'd like, talk it over together: where is an open area near your home, away from buildings, trees and power lines?",
+          "body": "You walked through the first minutes of an earthquake: the shaking, the moments after it stopped, and an aftershock. Wherever you are when shaking starts, Ready.gov says to protect yourself right away. This time you ended up outside. If more shaking starts while you are outside, Ready.gov says to stay there, move to an open area away from buildings, trees, streetlights and power lines, and drop and cover until it stops. Ready Kids says aftershocks could cause more damage to buildings weakened by the first earthquake, and Ready.gov says do not enter damaged buildings. If you'd like, talk it over together: where is an open area near your home, away from buildings, trees, streetlights and power lines?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "earthquake-drop-cover-relay"
