@@ -105,6 +105,17 @@ public class MeetingPlaceResource {
     }
 
     /**
+     * Make one meeting spot the household's Main (evacuation plan clarity,
+     * 2026-10-20). Clears Main on the household's other spots. The row's author
+     * or a household owner/admin; 403 otherwise; 400 for the safe room.
+     */
+    @PutMapping("/{id}/main")
+    public ResponseEntity<MeetingPlaceDto> setMain(@PathVariable Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(toDto(meetingPlaceService.setMain(id, caller), caller));
+    }
+
+    /**
      * Retrieve all meeting places for the authenticated user.
      */
     @GetMapping

@@ -8,6 +8,9 @@ import io.sitprep.sitprepapi.domain.EvacuationPlan;
 import io.sitprep.sitprepapi.dto.RouteNotesDto;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.util.MainChoice;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -30,9 +33,57 @@ public class EvacuationPlanService {
         this.activationPlanUpdates = activationPlanUpdates;
     }
 
+    // Setter-injected so tests that build this service by hand stay unchanged;
+    // null there, and then only a row's own author may set its Main.
+    private HouseholdAccessService householdAccess;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdAccess(HouseholdAccessService householdAccess) {
+        this.householdAccess = householdAccess;
+    }
+
+    /** One Main destination across a list about to be saved (see {@link MainChoice}). */
+    private static void keepOneMain(List<EvacuationPlan> plans) {
+        MainChoice.keepOne(plans, EvacuationPlan::getId, EvacuationPlan::isDeploy,
+                EvacuationPlan::setDeploy, p -> true, null);
+    }
+
+    /** After a single-row write that left {@code kept} as Main, clear its siblings. */
+    private void clearOtherMains(EvacuationPlan kept) {
+        if (kept == null || !kept.isDeploy()) return;
+        List<EvacuationPlan> siblings = kept.getHouseholdId() != null
+                ? evacuationPlanRepo.findByHouseholdId(kept.getHouseholdId())
+                : evacuationPlanRepo.findByOwnerEmail(kept.getOwnerEmail());
+        List<EvacuationPlan> changed = MainChoice.keepOne(siblings, EvacuationPlan::getId,
+                EvacuationPlan::isDeploy, EvacuationPlan::setDeploy, p -> true, kept.getId());
+        if (!changed.isEmpty()) evacuationPlanRepo.saveAll(changed);
+    }
+
+    /**
+     * Make one destination the household's Main and clear the rest. The row's
+     * author or a household owner/admin may do it.
+     */
+    @Transactional
+    public EvacuationPlan setMain(Long id, String caller) {
+        EvacuationPlan plan = evacuationPlanRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Destination not found"));
+        boolean author = plan.getOwnerEmail() != null && plan.getOwnerEmail().equalsIgnoreCase(caller);
+        boolean admin = householdAccess != null && plan.getHouseholdId() != null
+                && householdAccess.canWriteHousehold(caller, plan.getHouseholdId());
+        if (!author && !admin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the household's admins can choose its main destination");
+        }
+        plan.setDeploy(true);
+        EvacuationPlan saved = evacuationPlanRepo.save(plan);
+        clearOtherMains(saved);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(saved.getOwnerEmail(), "evacuationPlans");
+        return saved;
+    }
+
     @Transactional
     public List<EvacuationPlan> saveAllEvacuationPlans(String ownerEmail, List<EvacuationPlan> evacuationPlans) {
         evacuationPlans.forEach(p -> GeoUtil.requireValidLatLng(p.getLat(), p.getLng()));
+        keepOneMain(evacuationPlans);
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's evacuation plans + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
@@ -147,6 +198,7 @@ public class EvacuationPlanService {
                     : householdResolver.baseHouseholdIdFor(plan.getOwnerEmail()));
         }
         EvacuationPlan saved = evacuationPlanRepo.save(plan);
+        clearOtherMains(saved);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(plan.getOwnerEmail(), "evacuationPlans");
         tokenEvents.household(TokenEventType.EVACUATION_PLAN_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;

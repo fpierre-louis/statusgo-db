@@ -52,7 +52,9 @@ class HouseholdReadinessServiceTest {
 
         assertThat(c.score()).isEqualTo(80);
         assertThat(c.contactsScore()).isEqualTo(100);
-        assertThat(c.meetingPlacesScore()).isEqualTo(67);
+        // Out of town only, of the two meeting spots; the safe room is a stay-home
+        // spot (D2, 2026-10-20) and counts in the overall score, not this one.
+        assertThat(c.meetingPlacesScore()).isEqualTo(50);
         assertThat(c.hasContacts()).isTrue();
         assertThat(c.contactCount()).isEqualTo(2);
         assertThat(c.hasOutOfAreaContact()).isTrue();

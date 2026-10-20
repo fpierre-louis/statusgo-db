@@ -153,4 +153,15 @@ public class EvacuationPlanResource {
         return ResponseEntity.ok(evacuationPlanService.updateRouteNotes(ownerEmail, notes)
                 .stream().map(p -> EvacuationPlanDto.from(p, goBags)).toList());
     }
+
+    /**
+     * Make one destination the household's Main (evacuation plan clarity,
+     * 2026-10-20). Clears Main on the household's other destinations. The row's
+     * author or a household owner/admin; 403 otherwise.
+     */
+    @PutMapping("/{id}/main")
+    public ResponseEntity<EvacuationPlanDto> setMain(@PathVariable Long id) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(EvacuationPlanDto.from(evacuationPlanService.setMain(id, caller), goBagsFor(caller)));
+    }
 }

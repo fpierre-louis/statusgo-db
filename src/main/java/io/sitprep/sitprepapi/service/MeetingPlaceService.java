@@ -8,6 +8,9 @@ import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.domain.MeetingPlaceTier;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import io.sitprep.sitprepapi.util.AuthUtils;
+import io.sitprep.sitprepapi.util.MainChoice;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +44,65 @@ public class MeetingPlaceService {
         };
     }
 
+    // Setter-injected so tests that build this service by hand stay unchanged;
+    // null there, and then only a row's own author may set its Main.
+    private HouseholdAccessService householdAccess;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setHouseholdAccess(HouseholdAccessService householdAccess) {
+        this.householdAccess = householdAccess;
+    }
+
+    /**
+     * The indoor safe room is where a household shelters in place, not where it
+     * regroups (owner decision D2, 2026-10-20), so it never holds Main.
+     */
+    static boolean canBeMain(MeetingPlace p) {
+        return p.getMeetingTier() != MeetingPlaceTier.INDOOR_SAFE_ROOM;
+    }
+
+    /** One Main across a list about to be saved (bulk saves replace the set). */
+    private static void keepOneMain(List<MeetingPlace> places) {
+        MainChoice.keepOne(places, MeetingPlace::getId, MeetingPlace::isDeploy,
+                MeetingPlace::setDeploy, MeetingPlaceService::canBeMain, null);
+    }
+
+    /** After a single-row write that left {@code kept} as Main, clear its siblings. */
+    private void clearOtherMains(MeetingPlace kept) {
+        if (kept == null || !kept.isDeploy()) return;
+        List<MeetingPlace> siblings = kept.getHouseholdId() != null
+                ? meetingPlaceRepository.findByHouseholdId(kept.getHouseholdId())
+                : meetingPlaceRepository.findByOwnerEmail(kept.getOwnerEmail());
+        List<MeetingPlace> changed = MainChoice.keepOne(siblings, MeetingPlace::getId, MeetingPlace::isDeploy,
+                MeetingPlace::setDeploy, MeetingPlaceService::canBeMain, kept.getId());
+        if (!changed.isEmpty()) meetingPlaceRepository.saveAll(changed);
+    }
+
+    /**
+     * Make one meeting spot the household's Main and clear the rest. The row's
+     * author or a household owner/admin may do it.
+     */
+    @Transactional
+    public MeetingPlace setMain(Long id, String caller) {
+        MeetingPlace place = meetingPlaceRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Meeting spot not found"));
+        boolean author = place.getOwnerEmail() != null && place.getOwnerEmail().equalsIgnoreCase(caller);
+        boolean admin = householdAccess != null && place.getHouseholdId() != null
+                && householdAccess.canWriteHousehold(caller, place.getHouseholdId());
+        if (!author && !admin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the household's admins can choose its main meeting spot");
+        }
+        normalizeMeetingTier(place);
+        if (!canBeMain(place)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The safe room is for staying home, not a meeting spot");
+        }
+        place.setDeploy(true);
+        MeetingPlace saved = meetingPlaceRepository.save(place);
+        clearOtherMains(saved);
+        activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(saved.getOwnerEmail(), "meetingPlaces");
+        return saved;
+    }
+
     private static void normalizeMeetingTier(MeetingPlace place) {
         if (place.getMeetingTier() == null || place.getMeetingTier() == MeetingPlaceTier.OTHER) {
             place.setMeetingTier(inferMeetingTier(place.getTierKey()));
@@ -54,6 +116,7 @@ public class MeetingPlaceService {
             GeoUtil.requireValidLatLng(p.getLat(), p.getLng());
             normalizeMeetingTier(p);
         });
+        keepOneMain(meetingPlaces);
 
         // Delete existing meeting places for the user
         meetingPlaceRepository.deleteByOwnerEmail(ownerEmail);
@@ -96,14 +159,15 @@ public class MeetingPlaceService {
                     GeoUtil.requireValidLatLng(updatedPlace.getLat(), updatedPlace.getLng());
                     existingPlace.setLat(updatedPlace.getLat());
                     existingPlace.setLng(updatedPlace.getLng());
-                    existingPlace.setDeploy(updatedPlace.isDeploy());
                     normalizeMeetingTier(existingPlace);
+                    existingPlace.setDeploy(updatedPlace.isDeploy() && canBeMain(existingPlace));
                     if (existingPlace.getHouseholdId() == null) {
                         existingPlace.setHouseholdId(
                                 householdResolver.baseHouseholdIdFor(existingPlace.getOwnerEmail()));
                     }
 
                     MeetingPlace saved = meetingPlaceRepository.save(existingPlace);
+                    clearOtherMains(saved);
                     activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(
                             existingPlace.getOwnerEmail(), "meetingPlaces");
                     tokenEvents.household(TokenEventType.MEETING_PLACE_CHANGED, saved.getHouseholdId(), saved.getId());
@@ -118,6 +182,7 @@ public class MeetingPlaceService {
             GeoUtil.requireValidLatLng(p.getLat(), p.getLng());
             normalizeMeetingTier(p);
         });
+        keepOneMain(places);
         // Cross-household edit (X-Household-Id, admin of that household):
         // replace THAT household's meeting places + stamp it. Else unchanged.
         String target = householdResolver.writableTargetHousehold(ownerEmail);
@@ -170,6 +235,7 @@ public class MeetingPlaceService {
     public MeetingPlace addMeetingPlace(MeetingPlace place) {
         GeoUtil.requireValidLatLng(place.getLat(), place.getLng());
         normalizeMeetingTier(place);
+        if (!canBeMain(place)) place.setDeploy(false);
         if (place.getHouseholdId() == null) {
             String target = householdResolver.writableTargetHousehold(place.getOwnerEmail());
             place.setHouseholdId(target != null
@@ -177,6 +243,7 @@ public class MeetingPlaceService {
                     : householdResolver.baseHouseholdIdFor(place.getOwnerEmail()));
         }
         MeetingPlace saved = meetingPlaceRepository.save(place);
+        clearOtherMains(saved);
         activationPlanUpdates.broadcastOwnerPlanChangedAfterCommit(place.getOwnerEmail(), "meetingPlaces");
         tokenEvents.household(TokenEventType.MEETING_PLACE_CHANGED, saved.getHouseholdId(), saved.getId());
         return saved;
