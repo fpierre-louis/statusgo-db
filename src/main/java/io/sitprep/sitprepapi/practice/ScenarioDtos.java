@@ -68,7 +68,16 @@ public final class ScenarioDtos {
     public record NextStepDto(ReadinessAction action, Map<String, String> params,
                               String prompt, String label, String note) {}
 
-    public record PathStepDto(String prompt, String choiceLabel) {}
+    /**
+     * One decision in "Your path" (EXEC-I2): the prompt and the label picked,
+     * plus the step's title and EVERY option in authored order with its
+     * reviewed consequence and why, {@code chosen} on exactly one. Showing the
+     * options adds no copy: each line is already in the reviewed version.
+     * Nothing here ranks the options; the client marks the pick in words.
+     */
+    public record PathStepDto(String prompt, String choiceLabel, String nodeTitle, List<PathOptionDto> options) {}
+
+    public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen) {}
 
     /** Exactly three sections: Strong choices, Worth practicing, Next family step. No score. */
     public record DebriefDto(String outcomeTitle, String outcomeBody, List<String> strongChoices,

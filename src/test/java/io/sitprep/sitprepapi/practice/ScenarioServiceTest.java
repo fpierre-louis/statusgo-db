@@ -243,6 +243,18 @@ class ScenarioServiceTest {
         assertThat(done.debrief().nextStep().action()).isEqualTo(ReadinessAction.OPEN_EMERGENCY_CONTACTS);
         assertThat(done.debrief().nextStep().note()).isEqualTo("Opens your real contacts. Nothing changes unless you save it.");
         assertThat(done.debrief().path()).hasSize(2);
+        // EXEC-I2: every option at each step, authored order, the pick marked once.
+        var first = done.debrief().path().get(0);
+        assertThat(first.choiceLabel()).isNotBlank();
+        assertThat(first.options()).extracting(ScenarioDtos.PathOptionDto::key).containsExactly("text", "call");
+        assertThat(first.options()).filteredOn(ScenarioDtos.PathOptionDto::chosen)
+                .extracting(ScenarioDtos.PathOptionDto::key).containsExactly("call");
+        assertThat(first.options()).filteredOn(o -> o.key().equals("text"))
+                .extracting(ScenarioDtos.PathOptionDto::feedback)
+                .containsExactly("Texts often get through when calls do not.");
+        assertThat(first.nodeTitle()).isEqualTo("Calls are failing");
+        assertThat(done.debrief().path()).allSatisfy(p ->
+                assertThat(p.options()).filteredOn(ScenarioDtos.PathOptionDto::chosen).hasSize(1));
 
         ScenarioRun row = table.get(0);
         assertThat(row.getOutcomeKey()).isEqualTo("reconnected");

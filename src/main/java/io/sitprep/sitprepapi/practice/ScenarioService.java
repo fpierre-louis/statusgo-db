@@ -340,7 +340,11 @@ public class ScenarioService {
         for (TraceStep step : run.getDecisionTrace()) {
             ScenarioEngine.node(v, step.nodeKey()).ifPresent(n ->
                     ScenarioEngine.choice(n, step.choiceKey()).ifPresent(c ->
-                            path.add(new PathStepDto(n.prompt(), c.label()))));
+                            path.add(new PathStepDto(n.prompt(), c.label(), n.title(),
+                                    n.choices().stream()
+                                            .map(o -> new ScenarioDtos.PathOptionDto(o.key(), o.label(),
+                                                    o.consequence(), o.feedback(), o.key().equals(c.key())))
+                                            .toList()))));
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),
                 d.worthPracticing(), next, path);
