@@ -56,7 +56,7 @@
         }
       },
       "needs_floodwater_rule": {
-        "text": "Agree as a household that no one walks or drives into floodwater, even to check how deep it is.",
+        "text": "Agree that no one walks or drives into floodwater, then name the low crossings on your usual drive you would skip in heavy rain.",
         "action": "OPEN_DRILL",
         "params": {
           "drillId": "flood-underpass-scan"
@@ -98,7 +98,7 @@
               "consequence": "The water's depth and the condition of the road are still hidden.",
               "feedback": "The National Weather Service says it is never safe to drive into floodwater. Turn around before the vehicle enters it.",
               "tags": [
-                "needs_route_review"
+                "needs_floodwater_rule"
               ],
               "next": "choose_route"
             }
@@ -108,7 +108,7 @@
         {
           "key": "choose_route",
           "title": "Choose another route",
-          "body": "From a dry, higher parking area, you need another way around. A map still shows the usual road, but an official flash flood warning is active.",
+          "body": "Back from the crossing, in a dry, higher parking area, you need another way around. A map still shows the usual road, but an official flash flood warning is active.",
           "prompt": "What information do you use?",
           "choices": [
             {
@@ -164,7 +164,7 @@
               "key": "walk_to_check",
               "label": "Get out and walk to the water's edge to see how deep it is",
               "consequence": "You stand at the edge of moving water you still cannot see through.",
-              "feedback": "The National Weather Service says not to walk through floodwater: 6 inches of moving water can knock you off your feet. It is never safe to drive or walk into floodwater.",
+              "feedback": "The National Weather Service warns against walking into or near floodwater. Six inches of moving water can knock you off your feet, and water can hide hazards such as electrical wires.",
               "tags": [
                 "needs_floodwater_rule"
               ],
@@ -187,7 +187,7 @@
         {
           "key": "barricade",
           "title": "A road-closed barricade ahead",
-          "body": "Later, at another intersection, a road-closed barricade blocks the road. The marked detour is longer, and the road beyond the barrier looks dry from where you are stopped. A dry parking area on higher ground is a short distance back.",
+          "body": "Later, at another intersection, a road-closed barricade blocks the road. A marked detour is longer, and the road beyond the barrier looks dry from where you are stopped. A dry parking area on higher ground is a short distance back.",
           "prompt": "What do you do?",
           "choices": [
             {
@@ -229,7 +229,7 @@
         {
           "key": "route_rehearsed",
           "title": "You practiced the turn-around decision",
-          "body": "You walked through the same pattern at each decision point: stay out of floodwater, on foot or in a vehicle, use current official information, and treat barricades as closed routes. If you'd like, talk it over together: where does water collect on the roads you use most, and what is the fastest way to higher ground from home?",
+          "body": "This practice walked through one pattern at each decision point: stay out of floodwater, on foot or in a vehicle, use current official information, and treat barricades as closed routes. If you'd like, talk it over together: where does water collect on the roads you use most, and what is the fastest way to higher ground from home?",
           "defaultAction": "OPEN_EVACUATION_PLAN",
           "defaultParams": {
             "step": "routes"

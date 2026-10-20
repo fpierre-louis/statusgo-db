@@ -621,7 +621,7 @@ class PracticeShippedContentTest {
     // -- Flash Flood v3: a second low spot (warning meaning, walking) -----------
 
     static final String FLOOD = "flash-flood-turn-around-route";
-    static final String FLOOD_V3_DRAFT_HASH = "sha256:5bdc8b964e1e64da3996bdb2578c232d25f6ad68449a9491828a7d995db797a4";
+    static final String FLOOD_V3_DRAFT_HASH = "sha256:8fcfd3fc9d8693f2135e1a7f4db057e84268ffcb18b69e471e98c88bee110e2a";
 
     @Test
     void flashFloodV3BranchesToASecondLowSpotAndKeepsOneEnding() {
@@ -652,5 +652,41 @@ class PracticeShippedContentTest {
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(FLOOD)).singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as("production keeps v2 until v3 is published").isEqualTo(2));
+    }
+
+    // -- Tornado v2: the storm gets closer (no more silent move to the bathroom) --
+
+    static final String TORNADO_V2_DRAFT_HASH = "sha256:fd05b6357b742f09e67eb3e3a6f3316df4fb4204e3972451b51d534a20128830";
+
+    @Test
+    void tornadoV2GivesUpstairsAndOutsideAConsequenceInsteadOfMovingEveryoneToTheBathroom() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v2)).isEmpty();
+        assertThat(v2.contentHash()).isEqualTo(TORNADO_V2_DRAFT_HASH);
+        assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v2.body().sources()).allSatisfy(src ->
+                assertThat(src.url()).matches("https://www\\.(weather\\.gov|ready\\.gov|spc\\.noaa\\.gov)/.*"));
+
+        var sc = v2.body().scenario();
+        Map<String, Node> nodes = new HashMap<>();
+        sc.nodes().forEach(n -> nodes.put(n.key(), n));
+        assertThat(nodes.get("warning_issued").choices())
+                .filteredOn(c -> !c.key().equals("interior_room"))
+                .allSatisfy(c -> assertThat(c.next()).isEqualTo("storm_closer"));
+        // The waiting step no longer says where everyone is: every way in arrives there.
+        assertThat(nodes.get("in_shelter").body()).doesNotContain("bathroom");
+        assertThat(nodes.get("in_shelter").scene()).doesNotContain("bathroom");
+        assertThat(longestPath(sc.startNode(), nodes)).isLessThanOrEqualTo(4);
+        assertThat(sc.outcomes()).singleElement().satisfies(o -> assertThat(o.body()).contains("talk it over together"));
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).as("production keeps v1 until v2 is published").isEqualTo(1));
     }
 }
