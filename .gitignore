@@ -41,3 +41,7 @@ src/main/resources/sitprep-new-firebase-adminsdk-june24.json
 src/main/resources/application.yml
 src/main/resources/application-local.yml
 
+
+# docs/ lives in the separate "SitPrep Docs" repo (owner, 2026-10-20). The main
+# checkout keeps a `docs` symlink to it; never commit docs here.
+/docs

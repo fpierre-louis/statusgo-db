@@ -41,7 +41,7 @@ public class AlertSourceRevisionThreadQueryImpl implements AlertSourceRevisionTh
     /**
      * Terms (LIKE patterns plus IN values) per statement. 50, not 100: each term
      * is two LIKEs since V114, and a long dynamic JPQL string is what OOM'd the
-     * HQL parser at 256 MB (SYSTEM_TRAPS T-5), so a statement stays as long as before.
+     * HQL parser at 256 MB (SYSTEM_TRAPS BE T-5), so a statement stays as long as before.
      */
     static final int MAX_TERMS_PER_STATEMENT = 50;
 
