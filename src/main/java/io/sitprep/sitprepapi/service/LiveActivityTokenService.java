@@ -153,13 +153,17 @@ public class LiveActivityTokenService {
         return rows.size();
     }
 
+    /** How far back a delivered warning row counts; matches the dispatcher's delivery lookback. A card lives at most 8 h. */
+    static final java.time.Duration WARNING_TOLD_WINDOW = java.time.Duration.ofDays(7);
+
     private void authorizeReference(String kind, String referenceId, String caller) {
         if (LiveActivityToken.KIND_OFFICIAL_WARNING.equals(kind)) {
             // P3b: the card follows an alert thread. Only someone the thread
             // was delivered to may follow it, the same people the card was
             // started for (an inbox or push row carries the thread key).
             if (notificationLogs == null
-                    || !notificationLogs.wasToldAboutThread(caller, referenceId)) {
+                    || !notificationLogs.wasToldAboutThread(caller, referenceId,
+                            Instant.now().minus(WARNING_TOLD_WINDOW))) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a warning you were sent");
             }
             return;

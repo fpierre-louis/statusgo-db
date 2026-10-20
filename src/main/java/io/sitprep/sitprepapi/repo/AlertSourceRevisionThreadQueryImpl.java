@@ -29,14 +29,21 @@ import java.util.Set;
  * rows are merged by {@code revisionRef}. A thread lookup or an inbox page asks
  * for a handful, so in practice this is one statement.</p>
  *
- * <p>The LIKE terms cannot use {@code idx_asr_dedupe}; Postgres scans the
- * table (30 days of revisions). That is acceptable for a per-request lookup at
- * today's volume; a trigram or array index is the refinement if it stops being.</p>
+ * <p><b>Indexed (V114).</b> Each term is two LIKEs on the same key: the bare
+ * {@code column LIKE '%key%'} is what the {@code pg_trgm} GIN indexes
+ * ({@code idx_asr_vtec_trgm}, {@code idx_asr_refs_trgm}) can answer, and the
+ * space-bounded one above is the exact whole-token test Postgres rechecks on the
+ * rows they return. A wrapped {@code concat(...)} alone can't use a column
+ * index, which is why the bare form is there.</p>
  */
 public class AlertSourceRevisionThreadQueryImpl implements AlertSourceRevisionThreadQuery {
 
-    /** Terms (LIKE patterns plus IN values) per statement. */
-    static final int MAX_TERMS_PER_STATEMENT = 100;
+    /**
+     * Terms (LIKE patterns plus IN values) per statement. 50, not 100: each term
+     * is two LIKEs since V114, and a long dynamic JPQL string is what OOM'd the
+     * HQL parser at 256 MB (SYSTEM_TRAPS T-5), so a statement stays as long as before.
+     */
+    static final int MAX_TERMS_PER_STATEMENT = 50;
 
     private static final char ESCAPE = '!';
 
@@ -72,8 +79,10 @@ public class AlertSourceRevisionThreadQueryImpl implements AlertSourceRevisionTh
             }
             if (!where.isEmpty()) where.append(" or ");
             String column = t.kind() == Kind.VTEC ? "r.vtecEventKeys" : "r.referenceIds";
-            where.append("concat(' ', ").append(column).append(", ' ') like :p").append(p++)
-                    .append(" escape '").append(ESCAPE).append("'");
+            where.append("(").append(column).append(" like :q").append(p)
+                    .append(" escape '").append(ESCAPE).append("' and concat(' ', ").append(column)
+                    .append(", ' ') like :p").append(p++)
+                    .append(" escape '").append(ESCAPE).append("')");
         }
         if (!dedupe.isEmpty()) {
             if (!where.isEmpty()) where.append(" or ");
@@ -85,7 +94,9 @@ public class AlertSourceRevisionThreadQueryImpl implements AlertSourceRevisionTh
         p = 0;
         for (Term t : chunk) {
             if (t.kind() == Kind.DEDUPE) continue;
-            q.setParameter("p" + p++, "% " + escapeLike(t.value()) + " %");
+            String key = escapeLike(t.value());
+            q.setParameter("q" + p, "%" + key + "%");
+            q.setParameter("p" + p++, "% " + key + " %");
         }
         if (!dedupe.isEmpty()) q.setParameter("dedupe", dedupe);
         return q.getResultList();

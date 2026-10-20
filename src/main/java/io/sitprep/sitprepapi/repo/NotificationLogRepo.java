@@ -298,10 +298,13 @@ public interface NotificationLogRepo extends JpaRepository<NotificationLog, Long
     /**
      * P3b: was this person told about this alert thread? Only they may follow
      * its warning card (LiveActivityTokenService). Emails compare lower-cased: rows keep UserInfo's casing, callers are normalized.
+     * Bounded by type and time so it rides idx_notif_type_ts (LOWER() can't use idx_nl_recipient_thread).
      */
     @Query("SELECT COUNT(n) > 0 FROM NotificationLog n " +
-           "WHERE n.alertThreadKey = :threadKey AND LOWER(n.recipientEmail) = :email")
-    boolean wasToldAboutThread(@Param("email") String lowerCaseEmail, @Param("threadKey") String threadKey);
+           "WHERE n.type = 'hazard_alert' AND n.timestamp > :since " +
+           "AND n.alertThreadKey = :threadKey AND LOWER(n.recipientEmail) = :email")
+    boolean wasToldAboutThread(@Param("email") String lowerCaseEmail, @Param("threadKey") String threadKey,
+                               @Param("since") Instant since);
 
     /**
      * P3b: the thread(s) a dispatched hazard alert was delivered under, so the

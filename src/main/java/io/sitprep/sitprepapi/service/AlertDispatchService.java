@@ -1192,11 +1192,13 @@ public class AlertDispatchService {
         // P3b condition 4: a verified cancel / replace ends the thread's
         // warning card with the issuer's own words, never "all clear" unless
         // the issuer said so (endingBody is the issuer's text verbatim).
-        endWarningCards(refs.threadKey(),
-                AlertMateriality.ENDING_SUPERSEDED.equals(ending)
-                        ? LiveActivityPushService.WARNING_END_REPLACED
-                        : LiveActivityPushService.WARNING_END_CANCELLED,
-                endingBody(a));
+        // Every event the message ends, not only its first: one NWS cancel can
+        // name several ETNs, each its own thread and card.
+        String cardEnd = AlertMateriality.ENDING_SUPERSEDED.equals(ending)
+                ? LiveActivityPushService.WARNING_END_REPLACED
+                : LiveActivityPushService.WARNING_END_CANCELLED;
+        String cardNote = endingBody(a);
+        for (String thread : endedThreadKeys(a, refs.threadKey())) endWarningCards(thread, cardEnd, cardNote);
         Optional<NotificationLog> last = lastDelivered(a, refs);
         if (last.isEmpty() || revisionRef.equals(last.get().getAlertRevisionRef())) {
             remember(revisionRef);
@@ -1614,6 +1616,18 @@ public class AlertDispatchService {
         } catch (RuntimeException e) {
             log.warn("AlertDispatch: warning card skipped for {}-{}: {}", a.source(), a.id(), e.getMessage());
         }
+    }
+
+    /** The thread keys an ending message closes: its own, plus one per VTEC event it names. */
+    static Set<String> endedThreadKeys(NormalizedAlert a, String ownThreadKey) {
+        Set<String> out = new java.util.LinkedHashSet<>();
+        if (ownThreadKey != null) out.add(ownThreadKey);
+        if (a != null && a.vtec() != null) {
+            for (var v : a.vtec()) {
+                if (v != null && v.eventKey() != null) out.add(AlertInterpreter.threadKeyOf(a, v));
+            }
+        }
+        return out;
     }
 
     private void endWarningCards(String threadKey, String reason, String note) {

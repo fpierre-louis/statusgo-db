@@ -153,4 +153,19 @@ class WarningLiveActivityDispatchTest {
         verify(cards).warningEnded(AlertThreads.threadKeyOf(cancel), LiveActivityPushService.WARNING_END_CANCELLED,
                 "The Tornado Warning has been cancelled. The storm has weakened.");
     }
+
+    @Test
+    void oneCancelNamingTwoWarningsEndsBothCards() {
+        var first = io.sitprep.sitprepapi.util.Vtec.parse("/O.CAN.KSLC.TO.W.0012.261020T1800Z-261020T1900Z/").orElseThrow();
+        var second = io.sitprep.sitprepapi.util.Vtec.parse("/O.CAN.KSLC.TO.W.0013.261020T1800Z-261020T1900Z/").orElseThrow();
+        NormalizedAlert cancel = TestAlerts.nws("Tornado Warning").id("cancel-2").messageType("Cancel")
+                .vtec(List.of(first, second)).description("Both warnings are cancelled.").build();
+
+        dispatcher.deliverEnding(cancel);
+
+        verify(cards).warningEnded("VTEC:" + first.eventKey(), LiveActivityPushService.WARNING_END_CANCELLED,
+                "Both warnings are cancelled.");
+        verify(cards).warningEnded("VTEC:" + second.eventKey(), LiveActivityPushService.WARNING_END_CANCELLED,
+                "Both warnings are cancelled.");
+    }
 }
