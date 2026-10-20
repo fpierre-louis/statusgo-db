@@ -331,10 +331,14 @@ public class HouseholdReadinessService {
         boolean outOfTown = hasMeetingTier(places, "OUT_OF_TOWN");
 
         int contactsComplete = (hasLocal ? 1 : 0) + (hasOutOfArea ? 1 : 0);
-        int meetingComplete = (indoorSafeRoom ? 1 : 0) + (outsideHome ? 1 : 0) + (outOfTown ? 1 : 0);
+        // Two meeting spots: right outside home and out of town (Red Cross
+        // baseline). The indoor safe room is where the household STAYS, not
+        // where it regroups (owner decision D2, 2026-10-20), so it is no longer
+        // part of the meeting score; it still counts toward the overall score.
+        int meetingComplete = (outsideHome ? 1 : 0) + (outOfTown ? 1 : 0);
         int contactsScore = percent(contactsComplete, 2);
-        int meetingScore = percent(meetingComplete, 3);
-        int score = percent(contactsComplete + meetingComplete, 5);
+        int meetingScore = percent(meetingComplete, 2);
+        int score = percent(contactsComplete + meetingComplete + (indoorSafeRoom ? 1 : 0), 5);
 
         // Legacy range flags remain for older screens while the UI migrates
         // to the doctrine-backed meetingTier fields.
@@ -366,14 +370,14 @@ public class HouseholdReadinessService {
                     "Add backup details", "/emergency-contacts"));
         }
         if (!indoorSafeRoom) recs.add(new CommsRecommendationDto("meetup_indoor_safe_room",
-                "Choose an indoor safe room for shelter-in-place emergencies",
-                "Set indoor safe room", "/evacuation-wizard"));
+                "Choose a safe room for when you stay home",
+                "Set a safe room", "/evacuation-wizard"));
         if (!outsideHome) recs.add(new CommsRecommendationDto("meetup_outside_home",
                 "Choose a meeting spot just outside the home",
-                "Set meeting place", "/evacuation-wizard"));
+                "Set meeting spot", "/evacuation-wizard"));
         if (!outOfTown) recs.add(new CommsRecommendationDto("meetup_out_of_town",
-                "Choose an out-of-town meeting place or destination",
-                "Set meeting place", "/evacuation-wizard"));
+                "Choose an out-of-town meeting spot",
+                "Set meeting spot", "/evacuation-wizard"));
 
         return new CommsReadinessDto(
                 score, contactsScore, meetingScore,
