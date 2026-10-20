@@ -59,7 +59,8 @@ class PracticeShippedContentTest {
             "earthquake-first-five-minutes",
             "sha256:5ee94fd79ede6107a38a6eed22ff397ebbb47529309b6708b195e58bda367edc");
     /** Published one hazard at a time (Stage C), each at its independently reviewed hash. */
-    private static final Set<String> NEXT_PRIORITY_PUBLISHED = Set.of("flash-flood-turn-around-route");
+    private static final Set<String> NEXT_PRIORITY_PUBLISHED =
+            Set.of("flash-flood-turn-around-route", "earthquake-first-five-minutes");
     private static final String KIT_BUILDER_REVIEWED_HASH =
             "sha256:b14907d09e98a713572ce4de7f6a78503f71af516c05736896f728ab4db666c2";
 
