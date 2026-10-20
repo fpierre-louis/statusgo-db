@@ -348,9 +348,9 @@ class PracticeShippedContentTest {
 
     /** key → [draft version, published version it extends, draft hash]. */
     private static final Map<String, Object[]> STORY_DRAFTS = Map.of(
-            "comms-outage-family-reconnect", new Object[] {3, 2, "sha256:af0ef51bb7ef33a76e386dd2e94ae429f05af083deab295d3207254541d11c3b"},
-            "flash-flood-turn-around-route", new Object[] {2, 1, "sha256:455671d37d72ce69a9860ae1fa4f01923951ccec530004c78d09f2a8ceb47096"},
-            "earthquake-first-five-minutes", new Object[] {2, 1, "sha256:9ef5691f64b79db986b42b84ff31a106c6cdd7a68fb497f33646b29c28f92649"});
+            "comms-outage-family-reconnect", new Object[] {3, 2, "sha256:caa0718aa542b55a7aa56b358c797132ee7f619dd4feac52002082949df7aa25"},
+            "flash-flood-turn-around-route", new Object[] {2, 1, "sha256:9f4b5036959c0c30893da159391c76fe9753055dcffa4edfea62d41af0246952"},
+            "earthquake-first-five-minutes", new Object[] {2, 1, "sha256:dee4313256c6f90bd191082a207fa76606277eb2c2cc228508016140713bc422"});
 
     /** The only non-story edits: a body whose quote moved into its message bubble. */
     private static final Set<String> STORY_BODY_EDITS = Set.of(

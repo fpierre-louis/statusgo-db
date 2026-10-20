@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines and quoted messages only. Independent review required before publication; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines and three quoted messages only. Independent review: sha256:af0ef51b... APPROVED WITH NOTES (notes applied). The author has not approved it."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -142,7 +142,7 @@
           "scene": "11:52 AM · Waiting on replies",
           "messages": [
             {
-              "from": "From school",
+              "from": "Family member at school",
               "text": "I'm okay. Battery is low."
             }
           ]
@@ -244,10 +244,10 @@
               "next": "reconnected_check_sources"
             }
           ],
-          "scene": "12:45 PM · A neighbor's post",
+          "scene": "12:45 PM",
           "messages": [
             {
-              "from": "Shared post",
+              "from": "Unsigned post",
               "text": "Phone service will be out for three days."
             }
           ]

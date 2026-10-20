@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines and quoted messages only. Independent review required before publication; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines only. Independent review: sha256:455671d3... APPROVED WITH NOTES (notes applied). The author has not approved it."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -96,7 +96,7 @@
               "next": "choose_route"
             }
           ],
-          "scene": "6:15 PM · Driving home in heavy rain"
+          "scene": "6:15 PM · Heavy rain on the drive home"
         },
         {
           "key": "choose_route",

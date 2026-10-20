@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines and quoted messages only. Independent review required before publication; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines only. Independent review: sha256:9ef5691f... APPROVED WITH NOTES (notes applied). The author has not approved it."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -127,7 +127,7 @@
               "next": "aftershock"
             }
           ],
-          "scene": "7:31 PM · The power is out"
+          "scene": "7:31 PM · Right after the shaking"
         },
         {
           "key": "aftershock",
@@ -166,7 +166,7 @@
               "next": "first_minutes_rehearsed"
             }
           ],
-          "scene": "7:40 PM · Checking the room"
+          "scene": "7:34 PM · A few minutes later"
         }
       ],
       "outcomes": [
