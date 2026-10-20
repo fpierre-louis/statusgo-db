@@ -506,12 +506,35 @@ public class PlanActivationService {
      */
     @Transactional(readOnly = true)
     public Optional<String> currentStepLine(String groupId) {
+        return currentStep(groupId).map(LivePlanStep::line);
+    }
+
+    /** The live plan's sentence and the activation it came from (the Live Activity's change link needs the id). */
+    public record LivePlanStep(String line, String activationId) {}
+
+    /** The household's newest live activation, or empty. Same pick as the all-clear and the map's plan places. */
+    private Optional<PlanActivation> liveFor(String groupId) {
         if (groupId == null || groupId.isBlank()) return Optional.empty();
         Group household = groupRepo.findById(groupId).orElse(null);
         if (household == null) return Optional.empty();
-        return activationRepo.findLiveForHousehold(household, Instant.now()).stream()
-                .findFirst()
-                .map(this::pushActionSentence);
+        return activationRepo.findLiveForHousehold(household, Instant.now()).stream().findFirst();
+    }
+
+    /** {@link #currentStepLine} plus the activation id, for the Status lane's Live Activity builder. */
+    @Transactional(readOnly = true)
+    public Optional<LivePlanStep> currentStep(String groupId) {
+        return liveFor(groupId).flatMap(a -> Optional.ofNullable(pushActionSentence(a))
+                .map(line -> new LivePlanStep(line, a.getId())));
+    }
+
+    /**
+     * May {@code email} change this household's live plan? The PATCH gate's
+     * rule (D3: the activation owner, or a household owner/admin), for the Live
+     * Activity's per-recipient {@code canChange}. False when nothing is live.
+     */
+    @Transactional(readOnly = true)
+    public boolean canChangePlan(String email, String groupId) {
+        return liveFor(groupId).map(a -> canChange(a, email)).orElse(false);
     }
 
     // ---------------------------------------------------------------------

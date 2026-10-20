@@ -46,10 +46,12 @@ class PlanActivationDirectiveSituationTest {
     private AlertFeedService feed;
     private AlertIngestService ingest;
     private PlanActivationService service;
+    private GroupRepo groupRepo;
 
     @BeforeEach
     void setUp() {
         activationRepo = mock(PlanActivationRepo.class);
+        groupRepo = mock(GroupRepo.class);
         MeetingPlaceRepo meetingPlaceRepo = mock(MeetingPlaceRepo.class);
         EvacuationPlanRepo evacuationPlanRepo = mock(EvacuationPlanRepo.class);
         feed = mock(AlertFeedService.class);
@@ -59,7 +61,7 @@ class PlanActivationDirectiveSituationTest {
                 mock(UserInfoRepo.class), meetingPlaceRepo, evacuationPlanRepo,
                 mock(OriginLocationRepo.class), mock(EmergencyContactGroupRepo.class),
                 mock(EmergencyContactRepo.class), mock(WebSocketMessageSender.class),
-                mock(GroupRepo.class), mock(NotificationService.class),
+                groupRepo, mock(NotificationService.class),
                 mock(HouseholdAccessService.class), mock(HouseholdResolver.class),
                 mock(GoBagService.class), mock(HouseholdEventService.class), mock(GroupService.class),
                 new ActivationDirectiveResolver(feed, ingest));
@@ -273,6 +275,28 @@ class PlanActivationDirectiveSituationTest {
         assertThat(a.getEvacPlanId()).isNull();
         assertThat(a.getRoutePlan()).isNull();
         assertThat(service.pushActionSentence(a)).isEqualTo("Stay where you are.");
+    }
+
+    @Test
+    @DisplayName("the Live Activity reads: step line + id, and who may change it")
+    void liveActivityReads() {
+        PlanActivation a = meetThenLeave();
+        a.setHouseholdId("hh-1");
+        io.sitprep.sitprepapi.domain.Group hh = new io.sitprep.sitprepapi.domain.Group();
+        hh.setGroupId("hh-1");
+        hh.setGroupType("Household");
+        hh.setOwnerEmail(OWNER);
+        when(groupRepo.findById("hh-1")).thenReturn(Optional.of(hh));
+        when(activationRepo.findActiveByOwnerEmail(any(), any())).thenReturn(List.of(a));
+        when(activationRepo.findLiveByHouseholdId(any(), any())).thenReturn(List.of(a));
+        when(activationRepo.findLiveForHousehold(any(), any())).thenCallRealMethod();
+
+        var step = service.currentStep("hh-1").orElseThrow();
+        assertThat(step.line()).isEqualTo("Meet at Oak Park first, then go to Primary evac.");
+        assertThat(step.activationId()).isEqualTo(ACT_ID);
+        assertThat(service.canChangePlan(OWNER, "hh-1")).isTrue();
+        assertThat(service.canChangePlan("member@x.com", "hh-1")).isFalse();
+        assertThat(service.canChangePlan(OWNER, "nope")).isFalse();
     }
 
     // ── D6 ──────────────────────────────────────────────────────────────────
