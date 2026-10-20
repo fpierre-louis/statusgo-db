@@ -413,7 +413,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : (int) d[0]))); // Comms moved on to the EXEC-M v4
+                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 3 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -502,14 +502,16 @@ class PracticeShippedContentTest {
     static final String EARTHQUAKE_V3_DRAFT_HASH = "sha256:3f76d021e87eeb805cb0357701b1775553465325e09a963b4df63f1cadff2b10";
 
     @Test
-    void earthquakeV3BranchesMidShakingAndEndsCalmlyInsideOrOutside() {
+    void earthquakeV3IsPublishedAtItsReviewedHashBranchingMidShakingWithTwoCalmEndings() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v3 = catalog.exact(EARTHQUAKE, 3).orElseThrow();
         Version v2 = catalog.exact(EARTHQUAKE, 2).orElseThrow();
         assertThat(PracticeContentValidator.validate(v3)).isEmpty();
         assertThat(v3.contentHash()).isEqualTo(EARTHQUAKE_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v3.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(EARTHQUAKE_V3_DRAFT_HASH);
+        assertThat(v2.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v3.body().sources()).isEqualTo(v2.body().sources()); // Ready.gov + Ready Kids only
         assertThat(v3.body().tags()).isEqualTo(v2.body().tags());
 
@@ -533,7 +535,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production keeps v2 until v3 is published").isEqualTo(2));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v3; runs pinned to v2 still finish").isEqualTo(3));
     }
 
     private static int longestPath(String key, Map<String, Node> nodes) {

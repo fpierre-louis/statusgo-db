@@ -4,15 +4,15 @@
   "version": 3,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Earthquake v3 (handoff Phase 5): a mid-shaking branch and two calm endings over published v2. Awaiting independent review."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:3f76d021e87eeb805cb0357701b1775553465325e09a963b4df63f1cadff2b10",
+      "notes": "Earthquake v3: mid-shaking branch (still_shaking) and two calm endings (inside / ended_up_outside) over published v2. sha256:19ef57e9... CHANGES REQUIRED (B1 outdoor drop-and-cover, B2 path-true summary, B3 ending parity, B4/B5 position); sha256:aebcc518... APPROVED WITH NOTES (4 notes, 3 applied, 1 accepted); this hash APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {
