@@ -528,6 +528,42 @@ class PracticeShippedContentTest {
         assertThat(sc.outcomes()).hasSize(2);
         assertThat(sc.outcomes()).extracting(PracticeContent.Outcome::title).containsOnly(sc.outcomes().get(0).title());
         assertThat(sc.outcomes()).allSatisfy(o -> assertThat(o.body()).contains("talk it over together"));
+    }
+
+    // -- Earthquake v4: retrospective audit of live v3 ------------------------
+
+    static final String EARTHQUAKE_V4_DRAFT_HASH = "sha256:8182bdcdfa89422937aae8c35ccf3327fc0dddc55119ffb11f88222db17fe25e";
+
+    @Test
+    void earthquakeV4KeepsTheV3GraphAndSaysTheInsideOutsideRuleInBothEndings() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v4 = catalog.exact(EARTHQUAKE, 4).orElseThrow();
+        Version v3 = catalog.exact(EARTHQUAKE, 3).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v4)).isEmpty();
+        assertThat(v4.contentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
+        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v4.body().tags()).isEqualTo(v3.body().tags());
+        assertThat(v4.body().sources()).containsAll(v3.body().sources())
+                .allSatisfy(src -> assertThat(src.url()).matches("https://www\\.(ready\\.gov|earthquakecountry\\.org)/.*"));
+
+        // Same graph: same nodes, same choices per node (order may differ), same edges.
+        Map<String, Node> n3 = new HashMap<>(), n4 = new HashMap<>();
+        v3.body().scenario().nodes().forEach(n -> n3.put(n.key(), n));
+        v4.body().scenario().nodes().forEach(n -> n4.put(n.key(), n));
+        assertThat(n4.keySet()).isEqualTo(n3.keySet());
+        n4.forEach((k, n) -> assertThat(edges(n)).as(k).isEqualTo(edges(n3.get(k))));
+
+        // The protective option is not always listed first.
+        assertThat(v4.body().scenario().nodes()).extracting(n -> n.choices().get(0).tags())
+                .anySatisfy(tags -> assertThat(tags).contains("needs_earthquake_drill"));
+        var outcomes = v4.body().scenario().outcomes();
+        assertThat(outcomes).extracting(PracticeContent.Outcome::title).containsOnly(outcomes.get(0).title());
+        assertThat(outcomes).allSatisfy(o -> assertThat(o.body())
+                .contains("if you are inside, stay and do not run outside, and if you are outside, stay there")
+                .contains("talk it over together"));
+        assertThat(n4.get("aftershock").choices()).filteredOn(c -> c.key().equals("protect_again"))
+                .singleElement().satisfies(c -> assertThat(c.label()).contains("lock wheels"));
 
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -535,7 +571,44 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production starts v3; runs pinned to v2 still finish").isEqualTo(3));
+                .satisfies(e -> assertThat(e.version().version()).as("production keeps v3 until v4 is published").isEqualTo(3));
+    }
+
+    private static Map<String, String> edges(Node n) {
+        Map<String, String> out = new HashMap<>();
+        n.choices().forEach(c -> out.put(c.key(), c.next() + " " + c.tags()));
+        return out;
+    }
+
+    /**
+     * Every adult scenario that can be started or finished: every step on every
+     * path offers at least one choice that earns a strong debrief line, and
+     * every path ends at an outcome. The validator already rejects cycles and
+     * unreachable nodes; this guards that no branch skips the protective action.
+     */
+    @Test
+    void everyStepOfEveryAdultScenarioOffersAProtectiveChoice() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        List<Version> scenarios = catalog.all().stream()
+                .filter(v -> v.file().kind() == PracticeKind.ADULT_SCENARIO)
+                .filter(v -> v.publishState() == PublishState.PUBLISHED || v.publishState() == PublishState.RETIRED
+                        || v.publishState() == PublishState.DRAFT)
+                .toList();
+        assertThat(scenarios).isNotEmpty();
+        for (Version v : scenarios) {
+            String at = v.key() + " v" + v.version();
+            Map<String, Node> nodes = new HashMap<>();
+            v.body().scenario().nodes().forEach(n -> nodes.put(n.key(), n));
+            Set<String> outcomes = new java.util.HashSet<>();
+            v.body().scenario().outcomes().forEach(o -> outcomes.add(o.key()));
+            for (Node n : nodes.values()) {
+                assertThat(n.choices()).as(at + " " + n.key() + " offers a strong choice").anySatisfy(c ->
+                        assertThat(c.tags()).anySatisfy(t -> assertThat(DebriefTag.fromWire(t))
+                                .hasValueSatisfying(d -> assertThat(d.polarity()).isEqualTo(DebriefTag.Polarity.STRONG))));
+                n.choices().forEach(c -> assertThat(nodes.containsKey(c.next()) || outcomes.contains(c.next()))
+                        .as(at + " " + n.key() + "." + c.key() + " leads somewhere").isTrue());
+            }
+        }
     }
 
     private static int longestPath(String key, Map<String, Node> nodes) {
