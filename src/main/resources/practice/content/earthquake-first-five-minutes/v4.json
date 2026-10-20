@@ -124,7 +124,7 @@
               "key": "get_low_now",
               "label": "Get low where you are, or lock wheels if seated, and cover your head and neck",
               "consequence": "You get low, cover your head and neck, and hold on until the shaking stops.",
-              "feedback": "Ready.gov says to drop where you are onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If you use a wheelchair, lock your wheels and cover your head and neck.",
+              "feedback": "Ready.gov says to drop where you are onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If you use a wheelchair or walker, lock your wheels if you can, get as low as possible, and cover your head and neck.",
               "tags": [
                 "protected_during_shaking"
               ],
