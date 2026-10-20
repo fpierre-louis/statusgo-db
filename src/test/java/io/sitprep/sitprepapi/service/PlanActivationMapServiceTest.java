@@ -371,7 +371,7 @@ class PlanActivationMapServiceTest {
         assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
         assertEquals("SHELTERING", d.activeSituation().operationalMode());
         assertEquals("Shelter in place", d.activeSituation().primaryAction());
-        assertEquals("Navigate to meeting place", d.activeSituation().suppressedAction());
+        assertEquals("Navigate to meeting spot", d.activeSituation().suppressedAction());
     }
 
     @Test

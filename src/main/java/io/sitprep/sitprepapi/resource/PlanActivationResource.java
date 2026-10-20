@@ -64,7 +64,8 @@ public class PlanActivationResource {
                 request.messagePreview(),
                 request.location(),
                 request.recipients(),
-                request.originLocationIds()
+                request.originLocationIds(),
+                request.routePlan()
         );
         ActivationCreatedDto created = service.createActivation(effective);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -149,6 +150,20 @@ public class PlanActivationResource {
      * full detail so the caller can re-render from the response instead of
      * re-fetching.</p>
      */
+    /**
+     * Change a LIVE plan: a different meeting spot or destination, a different
+     * choice (STAY | MEET | LEAVE | MEET_THEN_LEAVE), or {@code stage: "GOING"}
+     * for "We've met, now go". Owner or household owner/admin (403 otherwise),
+     * 409 once the plan has ended. Returns the full detail so the caller
+     * re-renders from the response.
+     */
+    @PatchMapping("/{activationId}")
+    public ResponseEntity<ActivationDetailDto> change(@PathVariable String activationId,
+                                                      @RequestBody ChangeActivationRequest request) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(service.changeActivation(activationId, request, caller));
+    }
+
     @PostMapping("/{activationId}/end")
     public ResponseEntity<ActivationDetailDto> end(@PathVariable String activationId) {
         String caller = AuthUtils.requireAuthenticatedEmail();

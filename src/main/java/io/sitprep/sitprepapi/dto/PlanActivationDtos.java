@@ -33,7 +33,13 @@ public final class PlanActivationDtos {
              * The plan's starting point(s) this deployment starts from (V91,
              * optional). Each must belong to the household — rejected otherwise.
              */
-            List<Long> originLocationIds
+            List<Long> originLocationIds,
+            /**
+             * {@code MEET_THEN_GO} for "Meet, then leave" (V115): both a meeting
+             * spot and a destination are required, and the plan starts in the
+             * MEETING stage. Null for every other choice.
+             */
+            String routePlan
     ) {
         /** Without starting points — the shape every caller used before V91. */
         public CreateActivationRequest(String ownerEmail, Long meetingPlaceId, Long evacPlanId,
@@ -42,9 +48,34 @@ public final class PlanActivationDtos {
                                        String messagePreview, LocationDto location,
                                        RecipientsRequest recipients) {
             this(ownerEmail, meetingPlaceId, evacPlanId, meetingMode, evacMode, operationalMode,
-                    movementDirective, governingAlert, messagePreview, location, recipients, null);
+                    movementDirective, governingAlert, messagePreview, location, recipients, null, null);
+        }
+
+        /** Without a route plan — the shape every caller used before V115. */
+        public CreateActivationRequest(String ownerEmail, Long meetingPlaceId, Long evacPlanId,
+                                       String meetingMode, String evacMode, String operationalMode,
+                                       String movementDirective, GoverningAlertDto governingAlert,
+                                       String messagePreview, LocationDto location,
+                                       RecipientsRequest recipients, List<Long> originLocationIds) {
+            this(ownerEmail, meetingPlaceId, evacPlanId, meetingMode, evacMode, operationalMode,
+                    movementDirective, governingAlert, messagePreview, location, recipients,
+                    originLocationIds, null);
         }
     }
+
+    /**
+     * Change a LIVE plan (evacuation plan clarity, 2026-10-20). Owner or a
+     * household owner/admin. Every field is optional; what is sent is changed.
+     *
+     * @param choice STAY | MEET | LEAVE | MEET_THEN_LEAVE
+     * @param stage  GOING is "We've met, now go" (MEET_THEN_LEAVE only)
+     */
+    public record ChangeActivationRequest(
+            String choice,
+            Long meetingPlaceId,
+            Long evacPlanId,
+            String stage
+    ) {}
 
     public record RecipientsRequest(
             List<String> householdMemberIds,
@@ -109,6 +140,13 @@ public final class PlanActivationDtos {
              * Always {@code false} on the public projection.
              */
             boolean viewerIsOwner,
+            /**
+             * May THIS caller change the live plan (pick a different meeting
+             * spot or destination, or say "We've met, now go")? Owner or a
+             * household owner/admin, server-computed (owner decision D3,
+             * 2026-10-20). Not on the public projection.
+             */
+            boolean viewerCanChange,
             String meetingMode,
             String evacMode,
             String messagePreview,
@@ -186,7 +224,13 @@ public final class PlanActivationDtos {
             String directiveStatus,
             boolean directiveChanged,
             Instant directiveResolvedAt,
-            boolean directiveConflicting
+            boolean directiveConflicting,
+            /** {@code MEET_THEN_GO} or null (V115). */
+            String routePlan,
+            /** {@code MEETING} | {@code GOING} for MEET_THEN_GO; null otherwise. */
+            String stage,
+            /** The step after this one, e.g. "Then go to Price West Stake Center"; null when there is none. */
+            String nextAction
     ) {}
 
     public record GoverningAlertDto(

@@ -128,6 +128,27 @@ public class PlanActivationService {
         }
     }
 
+    /** "Meet, then leave" (V115). */
+    static final String MEET_THEN_GO = "MEET_THEN_GO";
+    static final String STAGE_MEETING = "MEETING";
+    static final String STAGE_GOING = "GOING";
+
+    private static String normalizeRoutePlan(String raw) {
+        if (raw == null) return null;
+        String k = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        return MEET_THEN_GO.equals(k) || "MEET_THEN_LEAVE".equals(k) ? MEET_THEN_GO : null;
+    }
+
+    private static String upper(String raw) {
+        if (raw == null) return null;
+        String k = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        return k.isEmpty() ? null : k;
+    }
+
+    private static boolean meetsFirst(PlanActivation a) {
+        return MEET_THEN_GO.equals(a.getRoutePlan()) && !STAGE_GOING.equals(a.getStage());
+    }
+
     // ---------------------------------------------------------------------
     // Create
     // ---------------------------------------------------------------------
@@ -180,6 +201,18 @@ public class PlanActivationService {
                 req.meetingPlaceId() != null,
                 req.meetingMode()));
         a.setMovementDirective(normalizeMovementDirective(req.movementDirective()));
+        // "Meet, then leave" (V115): both places are required, and the plan
+        // starts in the MEETING stage, which reads as GATHERING until an admin
+        // taps "We've met, now go".
+        if (MEET_THEN_GO.equals(normalizeRoutePlan(req.routePlan()))) {
+            if (req.meetingPlaceId() == null || req.evacPlanId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Meet, then leave needs a meeting spot and a destination");
+            }
+            a.setRoutePlan(MEET_THEN_GO);
+            a.setStage(STAGE_MEETING);
+            a.setOperationalMode("GATHERING");
+        }
         if (req.governingAlert() != null) {
             a.setGoverningAlertSource(trimToNull(req.governingAlert().source()));
             a.setGoverningAlertId(trimToNull(req.governingAlert().id()));
@@ -456,8 +489,206 @@ public class PlanActivationService {
         if ("SHELTERING".equals(effective)) {
             return "shelter_in_place".equals(movement) ? "Officials say to shelter in place." : "Stay where you are.";
         }
-        if ("GATHERING".equals(effective) && meet != null) return "Meet at " + meet + ".";
+        if ("GATHERING".equals(effective) && meet != null) {
+            return meetsFirst(a) && evac != null
+                    ? "Meet at " + meet + " first, then go to " + evac + "."
+                    : "Meet at " + meet + ".";
+        }
         return null;
+    }
+
+    /**
+     * The live plan's one instruction for a household's Live Activity card
+     * (Status lane, D4): e.g. "Go to Price West Stake Center." Built from the
+     * stored row by {@link #pushActionSentence} — the same sentence the push
+     * carries, and no alert-feed call on the Live Activity path. Empty when
+     * nothing is live for that household.
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> currentStepLine(String groupId) {
+        if (groupId == null || groupId.isBlank()) return Optional.empty();
+        Group household = groupRepo.findById(groupId).orElse(null);
+        if (household == null) return Optional.empty();
+        return activationRepo.findLiveForHousehold(household, Instant.now()).stream()
+                .findFirst()
+                .map(this::pushActionSentence);
+    }
+
+    // ---------------------------------------------------------------------
+    // Change a live plan (evacuation plan clarity, 2026-10-20)
+    // ---------------------------------------------------------------------
+
+    /** Owner, or a household owner/admin (owner decision D3). Members check in; they don't steer. */
+    private boolean canChange(PlanActivation a, String callerEmail) {
+        if (callerEmail == null || callerEmail.isBlank()) return false;
+        if (isOwner(a, callerEmail)) return true;
+        String hid = resolveHouseholdIdFor(a);
+        return hid != null && householdAccess.canWriteHousehold(callerEmail, hid);
+    }
+
+    /**
+     * Change which meeting spot or destination a LIVE plan uses, what everyone
+     * should do, or move "Meet, then leave" to its second step ("We've met, now
+     * go"). Every open surface refetches on the plan frame, the household's Live
+     * Activity is refreshed, and the household is pushed — everyone but the
+     * person who changed it.
+     */
+    @Transactional
+    public ActivationDetailDto changeActivation(String activationId, ChangeActivationRequest req, String callerEmail) {
+        PlanActivation a = activationRepo.findById(activationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Activation not found"));
+        String caller = callerEmail == null ? null : callerEmail.trim().toLowerCase(Locale.ROOT);
+        if (!canChange(a, caller)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the household's admins can change the plan");
+        }
+        if (isClosed(a)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This plan has ended");
+        }
+        if (req == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to change");
+
+        // Places must belong to the plan's household, exactly as on create.
+        assertMeetingPlaceOwned(req.meetingPlaceId(), a.getOwnerEmail());
+        assertEvacPlanOwned(req.evacPlanId(), a.getOwnerEmail());
+        Long meet = req.meetingPlaceId() != null ? req.meetingPlaceId() : a.getMeetingPlaceId();
+        Long evac = req.evacPlanId() != null ? req.evacPlanId() : a.getEvacPlanId();
+
+        String choice = upper(req.choice());
+        if (choice != null) {
+            switch (choice) {
+                case "STAY" -> {
+                    evac = null;
+                    a.setMeetingMode("stay-home");
+                    a.setEvacMode("shelter-in-place");
+                    a.setOperationalMode("SHELTERING");
+                    a.setRoutePlan(null);
+                    a.setStage(null);
+                }
+                case "MEET" -> {
+                    if (meet == null) throw badRequest("Meet up needs a meeting spot");
+                    evac = null;
+                    a.setMeetingMode("custom");
+                    a.setEvacMode("shelter-in-place");
+                    a.setOperationalMode("GATHERING");
+                    a.setRoutePlan(null);
+                    a.setStage(null);
+                }
+                case "LEAVE" -> {
+                    if (evac == null) throw badRequest("Leave home needs a destination");
+                    a.setMeetingMode(meet != null ? "custom" : "stay-home");
+                    a.setEvacMode("shelter");
+                    a.setOperationalMode("EVACUATING");
+                    a.setRoutePlan(null);
+                    a.setStage(null);
+                }
+                case "MEET_THEN_LEAVE", "MEET_THEN_GO" -> {
+                    if (meet == null || evac == null) {
+                        throw badRequest("Meet, then leave needs a meeting spot and a destination");
+                    }
+                    a.setMeetingMode("custom");
+                    a.setEvacMode("shelter");
+                    a.setOperationalMode("GATHERING");
+                    a.setRoutePlan(MEET_THEN_GO);
+                    a.setStage(STAGE_MEETING);
+                }
+                default -> throw badRequest("Unknown choice " + req.choice());
+            }
+        }
+
+        boolean wentNow = false;
+        String stage = upper(req.stage());
+        if (STAGE_GOING.equals(stage)) {
+            if (!MEET_THEN_GO.equals(a.getRoutePlan()) || evac == null) {
+                throw badRequest("Only a Meet, then leave plan has a next step");
+            }
+            wentNow = !STAGE_GOING.equals(a.getStage());
+            a.setStage(STAGE_GOING);
+            a.setOperationalMode("EVACUATING");
+        } else if (STAGE_MEETING.equals(stage) && MEET_THEN_GO.equals(a.getRoutePlan())) {
+            a.setStage(STAGE_MEETING);
+            a.setOperationalMode("GATHERING");
+        } else if (stage != null) {
+            throw badRequest("Unknown stage " + req.stage());
+        }
+
+        // A place-only change keeps the choice, so it must still make sense.
+        String op = upper(a.getOperationalMode());
+        if ("EVACUATING".equals(op) && evac == null) throw badRequest("Leaving home needs a destination");
+        if ("GATHERING".equals(op) && meet == null) throw badRequest("Meeting up needs a meeting spot");
+
+        a.setMeetingPlaceId(meet);
+        a.setEvacPlanId(evac);
+        PlanActivation saved = activationRepo.save(a);
+        log.info("Activation changed id={} by={} choice={} stage={}", saved.getId(), caller, choice, stage);
+
+        final boolean went = wentNow;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { announceChange(saved, caller, went); }
+            });
+        } else {
+            announceChange(saved, caller, went);
+        }
+        return toDetailDto(saved, canEnd(saved, caller), isOwner(saved, caller), true);
+    }
+
+    private static ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    /** The frame every open surface refetches on, the Live Activity, and the push. Never throws. */
+    private void announceChange(PlanActivation a, String byEmail, boolean wentNow) {
+        try {
+            Instant now = Instant.now();
+            ws.sendActivationPlanUpdate(a.getId(), new ActivationPlanUpdatedFrame(
+                    "plan-updated", a.getId(), "plan", now.toEpochMilli(), now));
+        } catch (Exception e) {
+            log.error("Activation change frame failed id={}", a.getId(), e);
+        }
+        touchLiveActivity(a);
+        try {
+            notifyHouseholdOfChange(a, byEmail, wentNow);
+        } catch (Exception e) {
+            log.error("Activation change push fan-out failed id={}", a.getId(), e);
+        }
+    }
+
+    /**
+     * "Plan changed" to the household, everyone but the person who changed it
+     * (they are looking at the result). Same presence-aware delivery as the
+     * start and end pushes.
+     */
+    private void notifyHouseholdOfChange(PlanActivation a, String byEmail, boolean wentNow) {
+        Group household = householdOf(a.getOwnerEmail());
+        if (household == null || household.getMemberEmails() == null || household.getMemberEmails().isEmpty()) {
+            return;
+        }
+        UserInfo changer = byEmail == null ? null : userInfoRepo.findByUserEmailIgnoreCase(byEmail).orElse(null);
+        String name = Optional.ofNullable(changer)
+                .map(u -> joinName(u.getUserFirstName(), u.getUserLastName()))
+                .filter(str -> !str.isBlank())
+                .orElse("Your household");
+        String sentence = pushActionSentence(a);
+        String evac = a.getEvacPlanId() == null ? null : evacuationPlanRepo.findById(a.getEvacPlanId())
+                .map(e -> firstNonBlank(e.getShelterName(), e.getName(), e.getDestination())).orElse(null);
+        String body = wentNow && evac != null
+                ? name + ": everyone's together. Now go to " + evac + "."
+                : name + " changed the plan." + (sentence != null ? " " + sentence : "");
+
+        List<UserInfo> members = userInfoRepo.findByUserEmailIn(household.getMemberEmails());
+        for (UserInfo m : members) {
+            if (m.getUserEmail() == null) continue;
+            if (byEmail != null && m.getUserEmail().equalsIgnoreCase(byEmail)) continue;
+            notificationService.deliverPresenceAware(
+                    m.getUserEmail(), "Plan changed", body, name,
+                    "/images/plan-icon.png", "plan_activation_changed", a.getId(),
+                    io.sitprep.sitprepapi.notifications.NotificationRoutes.planActivation(a.getId()),
+                    householdData(household), m.getFcmtoken(),
+                    PushPolicyService.Category.PLAN_ACTIVATION_RECEIVED,
+                    changer == null ? null : changer.getId()
+            );
+        }
+        log.info("Activation {} change pushed to {} household member(s)", a.getId(), members.size());
     }
 
     private static String firstNonBlank(String... values) {
@@ -490,7 +721,7 @@ public class PlanActivationService {
     public Optional<Object> getActivation(String activationId, String callerEmail) {
         return activationRepo.findById(activationId)
                 .map(a -> isAuthorizedReader(a, callerEmail)
-                        ? (Object) toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail))
+                        ? (Object) toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail), canChange(a, callerEmail))
                         : (Object) toPublicActivationDto(a));
     }
 
@@ -499,7 +730,7 @@ public class PlanActivationService {
     public Optional<ActivationDetailDto> getActivationForHousehold(String activationId, String callerEmail) {
         return activationRepo.findById(activationId)
                 .filter(a -> isAuthorizedReader(a, callerEmail))
-                .map(a -> toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail)));
+                .map(a -> toDetailDto(a, canEnd(a, callerEmail), isOwner(a, callerEmail), canChange(a, callerEmail)));
     }
 
     /**
@@ -637,7 +868,7 @@ public class PlanActivationService {
                 // caller a detail with no endedAt on it and the page would
                 // re-render as still running.
                 a = activationRepo.findById(activationId).orElse(a);
-                return toDetailDto(a, true, isOwner(a, callerEmail));
+                return toDetailDto(a, true, isOwner(a, callerEmail), false);
             }
             // No resolvable household — a launcher who had none when they
             // activated, and still has none. Fall through: closing the one row
@@ -674,7 +905,7 @@ public class PlanActivationService {
             }
         }
 
-        return toDetailDto(a, true, isOwner(a, callerEmail));   // it just ended it; it can.
+        return toDetailDto(a, true, isOwner(a, callerEmail), false);   // it just ended it; nothing left to change.
     }
 
     /**
@@ -1326,7 +1557,8 @@ public class PlanActivationService {
     // Mapping helpers
     // ---------------------------------------------------------------------
 
-    private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd, boolean viewerIsOwner) {
+    private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd, boolean viewerIsOwner,
+                                            boolean viewerCanChange) {
         MeetingPlaceSnapshotDto mp = null;
         if (a.getMeetingPlaceId() != null) {
             mp = meetingPlaceRepo.findById(a.getMeetingPlaceId())
@@ -1382,6 +1614,7 @@ public class PlanActivationService {
                 a.getEndedAt(),
                 viewerCanEnd,
                 viewerIsOwner,
+                viewerCanChange && !closed,
                 a.getMeetingMode(),
                 a.getEvacMode(),
                 a.getMessagePreview(),
@@ -1502,7 +1735,10 @@ public class PlanActivationService {
                 full.directiveStatus(),
                 full.directiveChanged(),
                 full.directiveResolvedAt(),
-                full.directiveConflicting()
+                full.directiveConflicting(),
+                full.routePlan(),
+                full.stage(),
+                full.nextAction()
         );
 
         return new PublicActivationDto(
@@ -1590,6 +1826,7 @@ public class PlanActivationService {
         String kind;
         String suppressed = null;
         String reason = null;
+        String next = null;
 
         // ── WHO SAYS SO ─────────────────────────────────────────────────────
         //
@@ -1621,27 +1858,37 @@ public class PlanActivationService {
             }
         } else if ("EVACUATING".equals(effective)) {
             primary = ep != null
-                    ? "Go to the evacuation destination"
+                    ? "Go to the destination"
                     : "Follow official evacuation instructions";
             kind = "evacuate";
             if (mp != null) {
-                suppressed = "Navigate to meeting place";
+                suppressed = "Navigate to meeting spot";
                 reason = "evacuate".equals(movement)
-                        ? "Officials say to evacuate. Use the meeting place only if you get separated."
-                        : "This plan goes to the evacuation destination. Use the meeting place if you get separated.";
+                        ? "Officials say to evacuate. Use the meeting spot only if you get separated."
+                        : MEET_THEN_GO.equals(a.getRoutePlan())
+                                ? "Everyone's together. Use the meeting spot if anyone gets separated."
+                                : "This plan goes to the destination. Use the meeting spot if you get separated.";
             }
         } else if ("SHELTERING".equals(effective)) {
             primary = "Shelter in place";
             kind = "shelter";
             if (mp != null) {
-                suppressed = "Navigate to meeting place";
+                suppressed = "Navigate to meeting spot";
                 reason = "shelter_in_place".equals(movement)
                         ? "Officials say to shelter in place. Stay inside and follow local instructions."
-                        : "This plan is to stay where you are. Use the meeting place if you get separated.";
+                        : "This plan is to stay where you are. Use the meeting spot if you get separated.";
             }
         } else if ("GATHERING".equals(effective)) {
-            primary = mp != null ? "Go to the active meeting place" : "Stay where you are";
+            // "Meet, then leave", first step: meet, and say where everyone
+            // goes next so nobody has to open another screen to find out.
+            boolean meetFirst = mp != null && meetsFirst(a);
+            primary = mp == null ? "Stay where you are"
+                    : meetFirst ? "Meet at the meeting spot first" : "Go to the meeting spot";
             kind = mp != null ? "meet" : "stay";
+            if (meetFirst && ep != null) {
+                next = "Then go to " + firstNonBlank(ep.shelterName(), ep.name(), ep.destination(), "the destination")
+                        + " together";
+            }
         } else if ("PREPARING".equals(effective)) {
             primary = "Get ready and watch for updates";
             kind = "prepare";
@@ -1683,7 +1930,10 @@ public class PlanActivationService {
                 resolved.status().name(),
                 resolved.changed(),
                 resolved.resolvedAt(),
-                resolved.conflicting()
+                resolved.conflicting(),
+                a.getRoutePlan(),
+                a.getStage(),
+                next
         );
     }
 

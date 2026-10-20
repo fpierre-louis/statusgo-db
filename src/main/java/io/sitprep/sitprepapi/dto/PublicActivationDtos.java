@@ -159,7 +159,15 @@ public final class PublicActivationDtos {
             String directiveStatus,
             boolean directiveChanged,
             Instant directiveResolvedAt,
-            boolean directiveConflicting
+            boolean directiveConflicting,
+            /**
+             * "Meet, then leave" (V115). The recipient must see both steps and
+             * which one is now; the destination name in {@code nextAction} is
+             * already public in {@code activeEvacuationDestination}.
+             */
+            String routePlan,
+            String stage,
+            String nextAction
     ) {}
 
     /**

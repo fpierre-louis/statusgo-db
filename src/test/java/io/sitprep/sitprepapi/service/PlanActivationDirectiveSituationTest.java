@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.dto.PlanActivationDtos;
+
 import io.sitprep.sitprepapi.domain.*;
 import io.sitprep.sitprepapi.dto.AlertCardDto;
 import io.sitprep.sitprepapi.dto.AlertFeedResponse;
@@ -19,6 +21,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.*;
 
@@ -155,9 +159,9 @@ class PlanActivationDirectiveSituationTest {
 
         ActiveSituationDto s = ownerSituation();
         assertThat(s.primaryActionKind()).isEqualTo("evacuate");
-        assertThat(s.suppressedAction()).isEqualTo("Navigate to meeting place");
+        assertThat(s.suppressedAction()).isEqualTo("Navigate to meeting spot");
         assertThat(s.suppressedReason())
-                .startsWith("This plan goes to the evacuation destination.")
+                .startsWith("This plan goes to the destination.")
                 .doesNotContainIgnoringCase("official");
         assertThat(publicSituation().suppressedReason()).doesNotContainIgnoringCase("official");
     }
@@ -188,6 +192,87 @@ class PlanActivationDirectiveSituationTest {
         PlanActivation stayHome = plainActivation();
         stayHome.setOperationalMode("SHELTERING");
         assertThat(service.pushActionSentence(stayHome)).isEqualTo("Stay where you are.");
+    }
+
+    // ── MEET, THEN LEAVE + CHANGING A LIVE PLAN (evacuation plan clarity) ──
+
+    private PlanActivation meetThenLeave() {
+        PlanActivation a = plainActivation();
+        a.setRoutePlan("MEET_THEN_GO");
+        a.setStage("MEETING");
+        return a;
+    }
+
+    @Test
+    @DisplayName("meet, then leave: step 1 says meet first and names where everyone goes next")
+    void meetThenLeaveFirstStep() {
+        stored(meetThenLeave());
+        feedReturns();
+
+        ActiveSituationDto s = ownerSituation();
+        assertThat(s.primaryAction()).isEqualTo("Meet at the meeting spot first");
+        assertThat(s.primaryActionKind()).isEqualTo("meet");
+        assertThat(s.nextAction()).isEqualTo("Then go to Primary evac together");
+        assertThat(s.stage()).isEqualTo("MEETING");
+        assertThat(publicSituation().nextAction()).isEqualTo("Then go to Primary evac together");
+        assertThat(service.pushActionSentence(meetThenLeave()))
+                .isEqualTo("Meet at Oak Park first, then go to Primary evac.");
+    }
+
+    @Test
+    @DisplayName("the owner's \"We've met, now go\" moves the plan to the destination")
+    void ownerMovesToSecondStep() {
+        PlanActivation a = meetThenLeave();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+
+        var detail = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING"), OWNER);
+
+        assertThat(a.getStage()).isEqualTo("GOING");
+        assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("evacuate");
+        assertThat(detail.activeSituation().suppressedReason())
+                .isEqualTo("Everyone's together. Use the meeting spot if anyone gets separated.");
+        assertThat(detail.viewerCanChange()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a household member who is not an admin cannot change the plan")
+    void memberCannotChange() {
+        stored(meetThenLeave());
+        assertThatThrownBy(() -> service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING"), "member@x.com"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("403");
+    }
+
+    @Test
+    @DisplayName("an ended plan cannot be changed")
+    void endedPlanCannotChange() {
+        PlanActivation a = meetThenLeave();
+        a.setEndedAt(Instant.now());
+        stored(a);
+        assertThatThrownBy(() -> service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null), OWNER))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("409");
+    }
+
+    @Test
+    @DisplayName("switching to stay home drops the destination")
+    void switchToStayHome() {
+        PlanActivation a = meetThenLeave();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+
+        service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("STAY", null, null, null), OWNER);
+
+        assertThat(a.getEvacPlanId()).isNull();
+        assertThat(a.getRoutePlan()).isNull();
+        assertThat(service.pushActionSentence(a)).isEqualTo("Stay where you are.");
     }
 
     // ── D6 ──────────────────────────────────────────────────────────────────

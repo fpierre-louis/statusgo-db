@@ -131,6 +131,15 @@ public final class NotificationRoutes {
     }
 
     /**
+     * The live plan's change sheet (evacuation plan clarity; the Live Activity's
+     * admin "Change plan" button). The page enforces who may change it; this is
+     * only where the button lands.
+     */
+    public static String planChange(String activationId) {
+        return blank(activationId) ? HOME : planActivation(activationId) + "&change=1";
+    }
+
+    /**
      * A direct message opens the CONVERSATION, not just the sender's profile:
      * there is no standalone messages route, and PublicProfilePage opens its
      * DMSheet on {@code ?message=open}. Before this a DM notification left the

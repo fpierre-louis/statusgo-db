@@ -100,6 +100,18 @@ public class PlanActivation {
     @Column(name = "movement_directive")
     private String movementDirective;
 
+    /**
+     * "Meet, then leave" (evacuation plan clarity, V115): {@code MEET_THEN_GO}
+     * when the household meets at the meeting spot first and then goes to the
+     * destination together. Null for the single-step choices.
+     */
+    @Column(name = "route_plan", length = 32)
+    private String routePlan;
+
+    /** {@code MEETING} until an admin taps "We've met, now go", then {@code GOING}. Null unless MEET_THEN_GO. */
+    @Column(name = "stage", length = 16)
+    private String stage;
+
     @Column(name = "governing_alert_source")
     private String governingAlertSource;
 
