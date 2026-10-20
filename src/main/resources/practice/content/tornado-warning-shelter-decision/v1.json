@@ -10,7 +10,7 @@
       "reviewedAt": null,
       "reviewedBy": null,
       "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) for EXEC-I6. sha256:d9330fa4... CHANGES REQUIRED (B1 vehicle line overclaimed, B2 power lines, B3 all-clear framing, B4 outcome) plus N1-N4; all applied. Independent re-review required; the author has not approved it."
+      "notes": "Authored 2026-10-20 by Claude (agent) for EXEC-I6. sha256:d9330fa4... CHANGES REQUIRED (B1 vehicle line overclaimed, B2 power lines, B3 all-clear framing, B4 outcome) plus N1-N4; all applied. Re-review c127d896... APPROVED WITH NOTES (NB-1 objective overclaim, NB-2 'wait' stronger than source, NB-3 dropped condition); applied. Final re-review required; the author has not approved it."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -18,7 +18,7 @@
   "content": {
     "title": "Tornado warning: shelter decision",
     "summary": "A tornado warning is issued while your household is at home. Practice where to go, how to protect yourselves there, and what to do when the warning ends.",
-    "objective": "Practice getting to the safest place at home during a tornado warning and protecting yourselves until it ends.",
+    "objective": "Practice moving to an interior room on the lowest floor at home during a tornado warning and protecting yourselves until it ends.",
     "estimatedMinutes": 4,
     "sources": [
       {
@@ -56,7 +56,7 @@
         "action": "OPEN_EMERGENCY_CONTACTS"
       },
       "needs_update_check": {
-        "text": "Wait for official updates before going outside after a storm.",
+        "text": "Keep listening for official updates after a storm, and stay clear of fallen power lines.",
         "action": "OPEN_ALERT_PREFERENCES"
       }
     },
@@ -94,7 +94,7 @@
               "key": "look_outside",
               "label": "Step outside to see how close the storm is",
               "consequence": "You are outdoors while the warning is in effect.",
-              "feedback": "A tornado warning means a tornado has been sighted or indicated by radar. The National Weather Service says to seek shelter inside a sturdy building immediately and move to an interior room on the lowest floor.",
+              "feedback": "A tornado warning means a tornado has been sighted or indicated by radar. The National Weather Service says to move to an interior room on the lowest floor of a sturdy building and avoid windows.",
               "tags": [
                 "needs_tornado_drill"
               ],
@@ -191,7 +191,7 @@
         {
           "key": "warning_rehearsed",
           "title": "You walked through a tornado warning",
-          "body": "You practiced three moments: getting to a small interior room on the lowest floor, protecting heads and necks while you wait, and listening for official updates before going out. If you do go out, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home isn't safe in a tornado; if you live in one, know the closest sturdy shelter.",
+          "body": "You practiced three moments: getting to a small interior room on the lowest floor, protecting heads and necks while you wait, and listening for official updates afterward. If you do go out, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home isn't safe in a tornado; if you live in one, know the closest sturdy shelter.",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "tornado-safe-room-speed-round"
