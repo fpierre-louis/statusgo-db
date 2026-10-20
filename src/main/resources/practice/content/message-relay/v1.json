@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "key": "message-relay",
+  "version": 1,
+  "kind": "FAMILY_ACTIVITY",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewedBy": null,
+      "reviewedContentHash": null,
+      "notes": "Authored 2026-10-19 by Claude (agent). Family preparedness content requires independent review before publication; the author has not approved it."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Message Relay",
+    "summary": "Practice a short check-in text, together. Choose which parts your family would put in a message. Nothing gets sent.",
+    "objective": "Practice building a short message that tells family you're safe and where you are.",
+    "estimatedMinutes": 6,
+    "sources": [
+      {
+        "label": "Ready.gov — Family emergency communication planning",
+        "url": "https://www.ready.gov/sites/default/files/2020-03/family-emergency-communication-planning-document.pdf"
+      },
+      {
+        "label": "Ready Kids — Make a plan",
+        "url": "https://www.ready.gov/kids/make-a-plan"
+      },
+      {
+        "label": "Ready Kids — Family communication plan",
+        "url": "https://www.ready.gov/sites/default/files/2020-03/ready_family-communications-plan_kids.pdf"
+      }
+    ],
+    "ageGuidance": [
+      "Family / all ages"
+    ],
+    "facilitation": "An adult reads each card aloud. This is a private text to family only. Ask everyone whether it belongs in a short check-in text, and why. Nothing is sent from this activity.",
+    "tags": {
+      "discussed_check_in_message": {
+        "text": "Your household went through what to put in a short check-in message."
+      },
+      "discussed_out_of_town_contact": {
+        "text": "Your household went over having an out-of-town contact."
+      }
+    },
+    "activity": {
+      "type": "ITEM_SORT",
+      "prompt": "Does this go in our message?",
+      "reminderQuestion": "Who is your household's out-of-town contact?",
+      "recapTitle": "Short and simple works",
+      "recapBody": "Ready.gov suggests letting family know you are safe and where you are, with short messages like \"I'm OK. At library.\" Ready Kids says texts may have an easier time getting through than phone calls, and: unless you are in danger, send a text. It also suggests one out-of-town contact for everyone. Who you're with and your battery level are helpful extras: that's SitPrep's suggestion, not an official rule.",
+      "piles": [
+        {
+          "key": "in",
+          "label": "Put it in our message"
+        },
+        {
+          "key": "out",
+          "label": "Leave it out"
+        }
+      ],
+      "items": [
+        {
+          "key": "safe",
+          "label": "I'm safe."
+        },
+        {
+          "key": "where",
+          "label": "Where I am: At school."
+        },
+        {
+          "key": "who",
+          "label": "Who I'm with: Ms. Lee."
+        },
+        {
+          "key": "battery",
+          "label": "Battery: 40%."
+        },
+        {
+          "key": "story",
+          "label": "A long story about everything that happened today."
+        },
+        {
+          "key": "contact",
+          "label": "A copy to our out-of-town contact, too."
+        }
+      ],
+      "completionTags": [
+        "discussed_check_in_message",
+        "discussed_out_of_town_contact"
+      ],
+      "nextAction": "OPEN_EMERGENCY_CONTACTS",
+      "nextParams": {},
+      "nextPrompt": "Look over your emergency contacts together.",
+      "nextLabel": "Review emergency contacts",
+      "nextNote": "Opens your real contacts. Nothing changes unless you save it.",
+      "finishLabel": "See your message",
+      "summaryTitle": "Your family's message",
+      "summaryBody": "Here's what your household would put in a short check-in text, and what you'd leave out. Nothing was sent."
+    }
+  }
+}

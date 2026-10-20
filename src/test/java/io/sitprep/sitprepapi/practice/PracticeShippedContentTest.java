@@ -209,6 +209,40 @@ class PracticeShippedContentTest {
         }
     }
 
+    private static final String MESSAGE_RELAY_DRAFT_HASH =
+            "sha256:437db0f49ef6973b8de041c50abd75294dbd42c15bebdf798ee94a8279e37a73";
+
+    @Test
+    void messageRelayIsAValidDraftWithNoFreeTextAndNothingSent() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version mr = catalog.exact("message-relay", 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(mr)).isEmpty();
+        assertThat(mr.contentHash()).isEqualTo(MESSAGE_RELAY_DRAFT_HASH);
+        assertThat(mr.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(mr.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(mr.body().activity().items()).hasSize(6).allSatisfy(i -> assertThat(i.artKey()).isNull());
+        assertThat(mr.body().facilitation()).contains("Nothing is sent from this activity").contains("private text to family only");
+        assertThat(mr.body().sources()).noneMatch(src -> src.url().contains("fcc.gov")); // unverifiable from review hosts; Ready Kids carries the claim
+        // Unsourced extras are labelled as SitPrep's own suggestion, never attributed to Ready.gov/FCC.
+        assertThat(mr.body().activity().recapBody()).contains("SitPrep's suggestion, not an official rule")
+                .contains("unless you are in danger, send a text");
+    }
+
+    @Test
+    void messageRelayStaysOutOfProduction() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-19T12:00:00Z"), ZoneOffset.UTC);
+        PracticeAvailabilityService production = new PracticeAvailabilityService(catalog, repo, true, false, clock);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(catalog, repo, true, true, clock);
+        assertThat(production.checkStart("message-relay").allowed()).isFalse();
+        assertThat(preview.startable(PracticeKind.FAMILY_ACTIVITY))
+                .filteredOn(e -> e.version().key().equals("message-relay")).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
+
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */
     @Test
     void productionStartsV2AndARunPinnedToV1StillFinishes() {

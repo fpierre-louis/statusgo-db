@@ -32,7 +32,11 @@ public enum DebriefTag {
 
     // Family Practice — Safe Room Detective
     DISCUSSED_SAFE_PLACES(Polarity.STRONG),
-    DISCUSSED_LEAVING_WHEN_TOLD(Polarity.STRONG);
+    DISCUSSED_LEAVING_WHEN_TOLD(Polarity.STRONG),
+
+    // Family Practice — Message Relay
+    DISCUSSED_CHECK_IN_MESSAGE(Polarity.STRONG),
+    DISCUSSED_OUT_OF_TOWN_CONTACT(Polarity.STRONG);
 
     /** Which debrief section a tag lands in: "Strong choices" or "Worth practicing". */
     public enum Polarity { STRONG, PRACTICE }
