@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "Authored 2026-10-19 by Codex; revised 2026-10-20 by Claude (agent) after independent review. sha256:455fc488... CHANGES REQUIRED (B1 unestablished parking area, B2 untrue tag); sha256:e1c4b40b... APPROVED WITH NOTES (N-A attribution, N-B title applied); this hash re-reviewed APPROVED WITH NOTES 2026-10-20 (remaining note optional wording). Record: SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-E-content-review-packet.md. Published separately from Earthquake under the owner's go of 2026-10-20. Neither author approved it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-20"
   },
   "content": {
     "title": "Flash flood: turn around route",

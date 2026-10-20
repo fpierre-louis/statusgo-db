@@ -89,9 +89,10 @@ class PracticeShippedContentTest {
         assertThat(v2.contentHash()).isEqualTo(COMMS_V2_DRAFT_HASH);
 
         var lifecycle = v2.file().lifecycle();
-        assertThat(lifecycle.publishState()).isEqualTo(PublishState.PUBLISHED);
+        // Superseded by the EXEC-I5 story-touch v3 (2026-10-20): RETIRED, so pinned runs still finish.
+        assertThat(lifecycle.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(lifecycle.publishedAt()).isNotNull();
-        assertThat(lifecycle.retiredAt()).isNull();
+        assertThat(lifecycle.retiredAt()).isNotNull();
         var review = lifecycle.safetyReview();
         assertThat(review.status()).isEqualTo(SafetyReviewStatus.APPROVED);
         assertThat(review.reviewedBy()).contains("product owner");
@@ -120,7 +121,8 @@ class PracticeShippedContentTest {
             assertThat(draft.contentHash()).as(key).isEqualTo(NEXT_PRIORITY_DRAFT_HASHES.get(key));
             var review = draft.file().lifecycle().safetyReview();
             if (NEXT_PRIORITY_PUBLISHED.contains(key)) {
-                assertThat(draft.publishState()).as(key).isEqualTo(PublishState.PUBLISHED);
+                // v1 was published, then superseded by its EXEC-I5 story-touch v2 (2026-10-20).
+                assertThat(draft.publishState()).as(key).isEqualTo(PublishState.RETIRED);
                 assertThat(review.status()).as(key).isEqualTo(SafetyReviewStatus.APPROVED);
                 assertThat(review.reviewedContentHash()).as(key).isEqualTo(NEXT_PRIORITY_DRAFT_HASHES.get(key));
             } else {
@@ -301,24 +303,27 @@ class PracticeShippedContentTest {
 
     /** Production starts v2 now; a run already pinned to the retired v1 can still finish. */
     @Test
-    void productionStartsV2AndARunPinnedToV1StillFinishes() {
+    void productionStartsTheNewestAndRunsPinnedToOlderVersionsStillFinish() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v1 = catalog.exact(COMMS, 1).orElseThrow();
-        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(2);
+        Version v2 = catalog.exact(COMMS, 2).orElseThrow();
+        // v3 = the EXEC-I5 story-touch version (2026-10-20); v1 and v2 are RETIRED.
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(3);
 
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
         when(repo.findById(any())).thenReturn(Optional.empty());
         PracticeAvailabilityService prod = new PracticeAvailabilityService(catalog, repo, true, false,
-                Clock.fixed(Instant.parse("2026-10-10T12:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC));
         assertThat(prod.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
                 .satisfies(e -> {
-                    assertThat(e.version().version()).isEqualTo(2);
+                    assertThat(e.version().version()).isEqualTo(3);
                     assertThat(e.preview()).isFalse();
                 });
-        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(2);
+        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(3);
         assertThat(prod.checkRun(COMMS, 1, v1.contentHash()).canContinue()).isTrue();
+        assertThat(prod.checkRun(COMMS, 2, v2.contentHash()).canContinue()).isTrue();
     }
 
     /** Node keys, choice keys, next pointers, tags and actions: everything but the words. */
@@ -364,8 +369,10 @@ class PracticeShippedContentTest {
             Version base = catalog.exact(key, (int) d[1]).orElseThrow();
             assertThat(PracticeContentValidator.validate(draft)).as(key).isEmpty();
             assertThat(draft.contentHash()).as(key).isEqualTo(d[2]);
-            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.DRAFT);
-            assertThat(draft.file().lifecycle().safetyReview().status()).as(key).isEqualTo(SafetyReviewStatus.PENDING);
+            assertThat(draft.publishState()).as(key).isEqualTo(PublishState.PUBLISHED);
+            assertThat(draft.file().lifecycle().safetyReview().status()).as(key).isEqualTo(SafetyReviewStatus.APPROVED);
+            assertThat(draft.file().lifecycle().safetyReview().reviewedContentHash()).as(key).isEqualTo(d[2]);
+            assertThat(base.publishState()).as(key + " base").isEqualTo(PublishState.RETIRED);
 
             var db = draft.body();
             var bb = base.body();
@@ -392,7 +399,7 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void storyDraftsStayOutOfProduction() {
+    void productionStartsTheStoryVersions() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -402,6 +409,6 @@ class PracticeShippedContentTest {
         STORY_DRAFTS.forEach((key, d) -> assertThat(production.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as(key).isEqualTo((int) d[1])));
+                .satisfies(e -> assertThat(e.version().version()).as(key).isEqualTo((int) d[0])));
     }
 }

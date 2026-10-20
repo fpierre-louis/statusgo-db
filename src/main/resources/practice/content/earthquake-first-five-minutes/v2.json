@@ -4,15 +4,15 @@
   "version": 2,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Authored 2026-10-20 by Claude (agent) as EXEC-I5 story touches over the published version: per-step scene lines only. Independent review: sha256:9ef5691f... APPROVED WITH NOTES (notes applied). The author has not approved it."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-20",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:dee4313256c6f90bd191082a207fa76606277eb2c2cc228508016140713bc422",
+      "notes": "EXEC-I5 story touches over reviewed v1 (scene lines only). sha256:9ef5691f... APPROVED WITH NOTES (five-minute timeline); this hash re-reviewed APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's EXEC-I go of 2026-10-20. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-20",
     "retiredAt": null
   },
   "content": {

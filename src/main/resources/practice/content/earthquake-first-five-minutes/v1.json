@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "Authored 2026-10-19 by Codex; re-sourced and revised 2026-10-20 by Claude (agent): the original CDC and FEMA P-530 sources returned 403 to reviewers and could not be verified, so every attribution moved to raw-verified Ready.gov and Ready Kids pages. sha256:9a24c974... APPROVED WITH NOTES (N1 damaged-building rule, N2 table, N3 candle attribution, N4 doorway mechanism, N5 tag, N6 title, N7 unused source applied); sha256:9c4543da... APPROVED WITH NOTES (seated-user wording applied); this hash re-reviewed APPROVED 2026-10-20. Record: SitPrep FE docs/epics/readiness/scenarios-and-youth/EXEC-E-content-review-packet.md. Published separately from Flash Flood under the owner's go of 2026-10-20. Neither author approved it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-20"
   },
   "content": {
     "title": "Earthquake: first five minutes",
