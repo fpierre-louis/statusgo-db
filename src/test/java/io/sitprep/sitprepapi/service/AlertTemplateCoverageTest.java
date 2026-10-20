@@ -549,7 +549,8 @@ class AlertTemplateCoverageTest {
     @Test
     void humanReviewMatrixMatchesProductionTemplates() throws Exception {
         String matrix = java.nio.file.Files.readString(
-                java.nio.file.Path.of("docs/alerts/ALERT_TEMPLATE_HUMAN_REVIEW_MATRIX.md"),
+                // Kept with the code (not in SitPrep Docs): this test holds it to the templates.
+                java.nio.file.Path.of("src/test/resources/alert-review/ALERT_TEMPLATE_HUMAN_REVIEW_MATRIX.md"),
                 StandardCharsets.UTF_8);
 
         Pattern heading = Pattern.compile("^## \\d+\\. (.+)$", Pattern.MULTILINE);
