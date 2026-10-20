@@ -75,7 +75,7 @@
               "key": "drop_cover_hold",
               "label": "Drop, cover, and hold on—or lock wheels and cover if seated",
               "consequence": "You protect your head and neck and hold on until the shaking stops.",
-              "feedback": "Ready.gov says to drop onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If a sturdy table is nearby, crawl under it. If you use a wheelchair, lock your wheels and cover your head and neck.",
+              "feedback": "Ready.gov says to drop onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If a sturdy table is nearby, crawl under it. If you use a wheelchair or walker, lock your wheels if you can, get as low as possible, and cover your head and neck.",
               "tags": [
                 "protected_during_shaking"
               ],
@@ -223,7 +223,7 @@
         {
           "key": "first_minutes_rehearsed",
           "title": "You walked through the first five minutes",
-          "body": "You walked through the first minutes of an earthquake: the shaking, the moments after it stopped, and an aftershock. Ready.gov says to protect yourself right away: if you are inside, stay and do not run outside, and if you are outside, stay there. Before the aftershock, the building looked undamaged. Ready Kids says aftershocks could cause more damage to structures weakened by the first earthquake. If a building is damaged, Ready.gov says to go outside, quickly move away from it, and do not go back in. If you'd like, talk it over together: in each room you use most, where would each person take cover, under a sturdy table or next to an interior wall away from windows? Include anyone who uses a wheelchair, walker or cane.",
+          "body": "You walked through the first minutes of an earthquake: the shaking, the moments after it stopped, and an aftershock. Ready.gov says to protect yourself right away: if you are inside, stay and do not run outside, and if you are outside, stay there. Before the aftershock, you saw no damage from where you were. Ready Kids says aftershocks could cause more damage to structures weakened by the first earthquake. If a building is damaged, Ready.gov says to go outside, quickly move away from it, and do not go back in. If you'd like, talk it over together: in each room you use most, where would each person take cover, under a sturdy table or next to an interior wall away from windows? Include anyone who uses a wheelchair, walker or cane.",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "earthquake-drop-cover-relay"

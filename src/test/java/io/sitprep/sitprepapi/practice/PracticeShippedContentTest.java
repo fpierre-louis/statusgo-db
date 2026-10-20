@@ -532,7 +532,7 @@ class PracticeShippedContentTest {
 
     // -- Earthquake v4: retrospective audit of live v3 ------------------------
 
-    static final String EARTHQUAKE_V4_DRAFT_HASH = "sha256:8182bdcdfa89422937aae8c35ccf3327fc0dddc55119ffb11f88222db17fe25e";
+    static final String EARTHQUAKE_V4_DRAFT_HASH = "sha256:8c780e196f80fd11c8e22e542dad2e1758084b48b57f94836c76053bfbfa979a";
 
     @Test
     void earthquakeV4KeepsTheV3GraphAndSaysTheInsideOutsideRuleInBothEndings() {
