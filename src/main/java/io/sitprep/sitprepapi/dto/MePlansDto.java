@@ -60,7 +60,13 @@ public record MePlansDto(
             String name,
             String address,
             Double lat,
-            Double lng
+            Double lng,
+            /**
+             * The starting point's type (V92, V119): home | work | school |
+             * caregiver | activity | other, or null. Start plan reads it to
+             * default to a TYPED home, never to one merely named "Home".
+             */
+            String kind
     ) {}
 
     public record EmergencyContactGroupSummary(

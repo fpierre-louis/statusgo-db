@@ -22,7 +22,9 @@ public class OriginLocation {
     private String householdId;
 
     /**
-     * home | work | school | other, or null (typed freehand) — V92. A {@code home}
+     * home | work | school | caregiver | activity | other, or null (legacy) —
+     * V92, V119. Chosen explicitly (owner 2026-10-21), never derived from the
+     * name, so a rename keeps it. A {@code home}
      * starting point takes its location from the household on read; see
      * {@link #normalizeKind}.
      */
@@ -30,12 +32,12 @@ public class OriginLocation {
 
     public OriginLocation() {}
 
-    /** The four kinds a starting point can be; anything else is null. */
+    /** The six kinds a starting point can be; anything else is null. */
     public static String normalizeKind(Object raw) {
         if (raw == null) return null;
         String k = raw.toString().trim().toLowerCase(java.util.Locale.ROOT);
         return switch (k) {
-            case "home", "work", "school", "other" -> k;
+            case "home", "work", "school", "caregiver", "activity", "other" -> k;
             default -> null;
         };
     }

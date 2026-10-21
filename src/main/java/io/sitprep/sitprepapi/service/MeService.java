@@ -1396,7 +1396,7 @@ public class MeService {
 
     private MePlansDto.OriginLocationSummary toOriginLocationSummary(OriginLocation o) {
         return new MePlansDto.OriginLocationSummary(
-                o.getId(), o.getName(), o.getAddress(), o.getLat(), o.getLng()
+                o.getId(), o.getName(), o.getAddress(), o.getLat(), o.getLng(), o.getKind()
         );
     }
 

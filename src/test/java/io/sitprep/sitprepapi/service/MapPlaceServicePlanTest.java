@@ -127,6 +127,37 @@ class MapPlaceServicePlanTest {
     }
 
     @Test
+    void aStartingPointCarriesItsOwnTypeAndNothingElseDoes() {
+        // V119: the type is saved explicitly, so the map draws it from the row,
+        // never from the label ("Reed and Imas school" is a school by choice).
+        OriginLocation school = origin(23L, "Reed and Imas school", 40.36, -111.76);
+        school.setKind("school");
+        OriginLocation grandma = origin(24L, "Grandma Lou", 40.37, -111.77);
+        grandma.setKind("caregiver");
+        when(origins.findByHouseholdId("hh")).thenReturn(List.of(school, grandma, origin(25L, "Gym", 40.38, -111.78)));
+
+        List<MapPlaceDto> places = service.forHousehold(hh, "owner@x.com");
+
+        assertThat(places).filteredOn(p -> p.id().startsWith("start:"))
+                .extracting(MapPlaceDto::id, MapPlaceDto::startKind)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("start:23", "school"),
+                        org.assertj.core.groups.Tuple.tuple("start:24", "caregiver"),
+                        org.assertj.core.groups.Tuple.tuple("start:25", null));
+        assertThat(places).filteredOn(p -> !p.id().startsWith("start:"))
+                .extracting(MapPlaceDto::startKind).containsOnlyNulls();
+    }
+
+    @Test
+    void startingPointTypesAreTheSixTheOwnerNamed() {
+        for (String k : List.of("home", "work", "school", "caregiver", "activity", "other")) {
+            assertThat(OriginLocation.normalizeKind(" " + k.toUpperCase() + " ")).isEqualTo(k);
+        }
+        assertThat(OriginLocation.normalizeKind("babysitter")).isNull();
+        assertThat(OriginLocation.normalizeKind(null)).isNull();
+    }
+
+    @Test
     void aGroupThatIsNotAHouseholdGetsNoPlanPlaces() {
         Group hoa = new Group();
         hoa.setGroupId("hoa");
