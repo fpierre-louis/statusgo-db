@@ -107,6 +107,15 @@ public class PlanActivationService {
         this.liveActivities = liveActivities;
     }
 
+    // The live stay-home summary (EXEC-11 Phase 3). Setter-injected for the
+    // same reason as above; null in hand-built tests, where it is simply absent.
+    private io.sitprep.sitprepapi.readiness.StayHomeSummaryService stayHomeSummary;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setStayHomeSummary(io.sitprep.sitprepapi.readiness.StayHomeSummaryService stayHomeSummary) {
+        this.stayHomeSummary = stayHomeSummary;
+    }
+
     /**
      * Ask for one coalesced update of the household card(s) this activation
      * touches: the household the check-in was started on ({@link #householdOf},
@@ -1674,6 +1683,16 @@ public class PlanActivationService {
             log.warn("activation {} go-bag snapshot failed: {}", a.getId(), e.getMessage());
         }
 
+        // Live, household-only (this DTO is never the public projection).
+        StayHomeSummaryDto stayHome = null;
+        if (stayHomeSummary != null) {
+            try {
+                stayHome = stayHomeSummary.summaryFor(resolveHouseholdIdFor(a));
+            } catch (Exception e) {
+                log.warn("activation {} stay-home summary failed: {}", a.getId(), e.getMessage());
+            }
+        }
+
         AckRollupDto ackRollup = computeAckRollup(acks);
         return new ActivationDetailDto(
                 a.getId(),
@@ -1697,6 +1716,7 @@ public class PlanActivationService {
                 ep,
                 ecgs,
                 goBags,
+                stayHome,
                 acks,
                 ackRollup,
                 toActiveSituation(a, mp, ep, ackRollup)
@@ -1751,7 +1771,8 @@ public class PlanActivationService {
         return new EmergencyContactSnapshotDto(
                 c.getId(), c.getName(), c.getRole(), c.getPhone(), c.getEmail(),
                 c.getAddress(), c.getRadioChannel(), c.getMedicalInfo(),
-                c.getSubjectType(), c.getSubjectId(), c.getSubjectName()
+                c.getSubjectType(), c.getSubjectId(), c.getSubjectName(),
+                c.getContactType() == null ? null : c.getContactType().name()
         );
     }
 

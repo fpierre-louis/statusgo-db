@@ -183,6 +183,14 @@ public final class PlanActivationDtos {
              * links — this is a crisis surface.
              */
             List<GoBagSnapshotDto> goBags,
+            /**
+             * What the household has where it is (EXEC-11 Phase 3): the safe
+             * room, food and water, home supplies. LIVE-resolved at read time,
+             * never snapshotted (movement is snapshotted; readiness is not).
+             * HOUSEHOLD-AUDIENCE ONLY; never on the public projection. Null
+             * when the household cannot be resolved.
+             */
+            StayHomeSummaryDto stayHome,
             List<AckDto> acks,
             /**
              * Server-computed ack rollup (Thin-Client Refactor Phase 1) — the
@@ -369,6 +377,18 @@ public final class PlanActivationDtos {
             String shelterInfo
     ) {}
 
+    /** See {@link ActivationDetailDto#stayHome()}. Any part may be empty. */
+    public record StayHomeSummaryDto(
+            String safeRoomName,
+            String safeRoomAddress,
+            boolean foodPlanned,
+            Integer foodDays,
+            String foodUnit,
+            boolean foodSuppliesGathered,
+            Integer suppliesOnHand,
+            Integer suppliesTotal
+    ) {}
+
     public record EmergencyContactGroupSnapshotDto(
             Long id,
             String name,
@@ -386,6 +406,8 @@ public final class PlanActivationDtos {
             String medicalInfo,
             String subjectType,
             String subjectId,
-            String subjectName
+            String subjectName,
+            /** The contact's type (e.g. OUT_OF_AREA), so the live plan orders by it. */
+            String contactType
     ) {}
 }
