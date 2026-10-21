@@ -193,7 +193,7 @@ class PlanActivationDirectiveSituationTest {
 
         PlanActivation stayHome = plainActivation();
         stayHome.setOperationalMode("SHELTERING");
-        assertThat(service.pushActionSentence(stayHome)).isEqualTo("Stay where you are.");
+        assertThat(service.pushActionSentence(stayHome)).isEqualTo("Stay home.");
     }
 
     // ── MEET, THEN LEAVE + CHANGING A LIVE PLAN (evacuation plan clarity) ──
@@ -272,9 +272,11 @@ class PlanActivationDirectiveSituationTest {
         service.changeActivation(ACT_ID,
                 new PlanActivationDtos.ChangeActivationRequest("STAY", null, null, null), OWNER);
 
+        // "Stay home" is the whole instruction: no place rides along (owner, 2026-10-21).
         assertThat(a.getEvacPlanId()).isNull();
+        assertThat(a.getMeetingPlaceId()).isNull();
         assertThat(a.getRoutePlan()).isNull();
-        assertThat(service.pushActionSentence(a)).isEqualTo("Stay where you are.");
+        assertThat(service.pushActionSentence(a)).isEqualTo("Stay home.");
     }
 
     @Test
@@ -297,6 +299,22 @@ class PlanActivationDirectiveSituationTest {
         assertThat(service.canChangePlan(OWNER, "hh-1")).isTrue();
         assertThat(service.canChangePlan("member@x.com", "hh-1")).isFalse();
         assertThat(service.canChangePlan(OWNER, "nope")).isFalse();
+    }
+
+    @Test
+    @DisplayName("meet up at a destination is one place: the old meeting spot drops")
+    void meetUpAtDestinationDropsTheSpot() {
+        PlanActivation a = meetThenLeave();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+
+        service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null), OWNER);
+
+        assertThat(a.getMeetingPlaceId()).isNull();
+        assertThat(a.getEvacPlanId()).isEqualTo(9191L);
+        assertThat(service.pushActionSentence(a)).isEqualTo("Go to Primary evac.");
     }
 
     // ── D6 ──────────────────────────────────────────────────────────────────

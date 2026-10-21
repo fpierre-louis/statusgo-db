@@ -487,7 +487,7 @@ public class PlanActivationService {
             return go;
         }
         if ("SHELTERING".equals(effective)) {
-            return "shelter_in_place".equals(movement) ? "Officials say to shelter in place." : "Stay where you are.";
+            return "shelter_in_place".equals(movement) ? "Officials say to shelter in place." : "Stay home.";
         }
         if ("GATHERING".equals(effective) && meet != null) {
             return meetsFirst(a) && evac != null
@@ -579,7 +579,10 @@ public class PlanActivationService {
         String choice = upper(req.choice());
         if (choice != null) {
             switch (choice) {
+                // "Stay home" is the whole instruction (owner, 2026-10-21): no
+                // meeting spot or destination rides along with it.
                 case "STAY" -> {
+                    meet = null;
                     evac = null;
                     a.setMeetingMode("stay-home");
                     a.setEvacMode("shelter-in-place");
@@ -596,8 +599,11 @@ public class PlanActivationService {
                     a.setRoutePlan(null);
                     a.setStage(null);
                 }
+                // "Meet up" at a destination is ONE place (owner, 2026-10-21);
+                // a meeting spot stays only when the caller sends one.
                 case "LEAVE" -> {
                     if (evac == null) throw badRequest("Leave home needs a destination");
+                    if (req.meetingPlaceId() == null) meet = null;
                     a.setMeetingMode(meet != null ? "custom" : "stay-home");
                     a.setEvacMode("shelter");
                     a.setOperationalMode("EVACUATING");
@@ -1893,13 +1899,15 @@ public class PlanActivationService {
                                 : "This plan goes to the destination. Use the meeting spot if you get separated.";
             }
         } else if ("SHELTERING".equals(effective)) {
-            primary = "Shelter in place";
+            // "Shelter in place" is the officials' term; a household that chose
+            // to stay reads in plain words (owner, 2026-10-21).
+            primary = "shelter_in_place".equals(movement) ? "Shelter in place" : "Stay home";
             kind = "shelter";
             if (mp != null) {
                 suppressed = "Navigate to meeting spot";
                 reason = "shelter_in_place".equals(movement)
                         ? "Officials say to shelter in place. Stay inside and follow local instructions."
-                        : "This plan is to stay where you are. Use the meeting spot if you get separated.";
+                        : "This plan is to stay home. Use the meeting spot if you get separated.";
             }
         } else if ("GATHERING".equals(effective)) {
             // "Meet, then leave", first step: meet, and say where everyone
