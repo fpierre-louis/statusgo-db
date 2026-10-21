@@ -54,6 +54,18 @@ public class HouseholdPlansResource {
      * confirmed' affordance inside the Plan tab itself so users can
      * reset the timer without re-editing every section").
      */
+    /**
+     * Printables P8 — record that a member printed the plan, so the plan
+     * document can say when the paper copy has gone out of date. Readers of
+     * the household may record it (the same gate as reading the plan).
+     */
+    @PostMapping("/{householdId}/plan/printed")
+    public ResponseEntity<HouseholdPlanDto> markHouseholdPlanPrinted(@PathVariable String householdId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        householdAccessService.requireCanReadHousehold(caller, householdId);
+        return ResponseEntity.ok(meService.markHouseholdPlanPrinted(householdId));
+    }
+
     @PostMapping("/{householdId}/plan/confirm")
     public ResponseEntity<HouseholdPlanDto> confirmHouseholdPlan(@PathVariable String householdId) {
         String caller = AuthUtils.requireAuthenticatedEmail();

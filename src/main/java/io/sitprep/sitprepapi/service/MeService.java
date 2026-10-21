@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.util.PlanPrintFingerprint;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sitprep.sitprepapi.constant.LocationSharing;
@@ -681,7 +683,7 @@ public class MeService {
                 safeGetInline("hh.standingConditions", logCtx,
                         () -> standingConditionService.activeForProjection(householdId), List.of());
 
-        return new HouseholdPlanDto(
+        HouseholdPlanDto content = new HouseholdPlanDto(
                 householdId,
                 g == null ? null : g.getGroupName(),
                 g == null ? null : g.getAddress(),
@@ -698,8 +700,58 @@ public class MeService {
                 g == null ? null : g.getPlanLastConfirmedAt(),
                 supportProfiles,
                 supportAssignments,
-                standingConditions
+                standingConditions,
+                null,
+                null
         );
+        return withPrintState(content, g);
+    }
+
+    // Printables P8: Spring's own mapper, so plan entities serialize for the
+    // fingerprint exactly as they do in the response. Setter-injected so
+    // hand-built tests stay unchanged; the util has a default otherwise.
+    private com.fasterxml.jackson.databind.ObjectMapper printMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPrintMapper(com.fasterxml.jackson.databind.ObjectMapper printMapper) {
+        this.printMapper = printMapper;
+    }
+
+    /**
+     * Adds "printed when, and is the paper still current" to the plan
+     * document. The comparison is the backend's: the FE shows the sentence.
+     */
+    HouseholdPlanDto withPrintState(HouseholdPlanDto d, Group g) {
+        Instant printedAt = g == null ? null : g.getPlanLastPrintedAt();
+        String stored = g == null ? null : g.getPlanPrintedFingerprint();
+        Boolean outdated = null;
+        if (printedAt != null && stored != null) {
+            outdated = !stored.equals(PlanPrintFingerprint.of(d, printMapper));
+        }
+        return new HouseholdPlanDto(
+                d.householdId(), d.name(), d.address(), d.latitude(), d.longitude(), d.zipCode(),
+                d.demographic(), d.meetingPlaces(), d.evacuationPlans(), d.originLocations(),
+                d.mealPlan(), d.contactGroups(), d.goBags(), d.planLastConfirmedAt(),
+                d.supportProfiles(), d.supportAssignments(), d.standingConditions(),
+                printedAt, outdated);
+    }
+
+    /**
+     * Printables P8 — a member printed the plan. Stamps when, and the
+     * fingerprint of the content as it stands, then re-renders the document
+     * (now current) and lets every member's view refetch. Auth is the
+     * resource's job.
+     */
+    @Transactional
+    public HouseholdPlanDto markHouseholdPlanPrinted(String householdId) {
+        Group g = groupRepo.findByGroupId(householdId)
+                .orElseThrow(() -> new IllegalArgumentException("Household not found: " + householdId));
+        HouseholdPlanDto current = buildHouseholdPlanDocument(householdId);
+        g.setPlanLastPrintedAt(Instant.now());
+        g.setPlanPrintedFingerprint(PlanPrintFingerprint.of(current, printMapper));
+        groupRepo.save(g);
+        announcePlan(householdId, "planPrinted");
+        return withPrintState(current, g);
     }
 
     /**

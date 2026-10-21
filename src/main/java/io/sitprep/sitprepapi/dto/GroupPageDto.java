@@ -117,7 +117,8 @@ public final class GroupPageDto {
 
     /** A household's readiness record: its own members only (T-27). */
     public static final Set<String> HOUSEHOLD_ONLY = Set.of(
-            "challengeProgress", "drillLog", "planLastConfirmedAt", "challengeLastShownWeek"
+            "challengeProgress", "drillLog", "planLastConfirmedAt", "challengeLastShownWeek",
+            "planLastPrintedAt"
     );
 
     /**
@@ -127,6 +128,7 @@ public final class GroupPageDto {
      * agency contact of record, and the reminder counter.
      */
     public static final Set<String> NEVER = Set.of(
+            "planPrintedFingerprint",
             "stripeCustomerId", "stripeSubscriptionId", "subscriptionStatus",
             "subscriptionOverrideTier", "subscriptionOverrideExpiresAt",
             "subscriptionOverrideReason", "subscriptionOverrideBy", "subscriptionOverrideAt",

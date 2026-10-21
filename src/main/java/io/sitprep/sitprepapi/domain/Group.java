@@ -378,6 +378,25 @@ public class Group {
     private Instant planLastConfirmedAt;
 
     /**
+     * When a member last printed the household plan (printables P8,
+     * V118). Null until the first print. Paired with
+     * {@link #planPrintedFingerprint}: the plan document compares the current
+     * content's fingerprint with this one to say whether the paper copy is
+     * out of date.
+     */
+    @Column(name = "plan_last_printed_at")
+    private Instant planLastPrintedAt;
+
+    /**
+     * SHA-256 of the plan content that prints, taken at print time
+     * ({@link io.sitprep.sitprepapi.util.PlanPrintFingerprint}). Internal:
+     * never serialized with the group.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(name = "plan_printed_fingerprint", length = 80)
+    private String planPrintedFingerprint;
+
+    /**
      * Household-wide dismissal marker for the weekly challenge sheet. This is
      * intentionally separate from {@link #challengeProgress}: viewing or
      * dismissing the prompt is not completion, but it should suppress repeat

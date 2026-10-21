@@ -72,5 +72,16 @@ public record HouseholdPlanDto(
          * launch and printable, without a second cache. Private household data
          * — never projected onto any public/bearer-link DTO.
          */
-        List<StandingConditionDtos.StandingConditionDto> standingConditions
+        List<StandingConditionDtos.StandingConditionDto> standingConditions,
+        /**
+         * When a member last printed this plan (printables P8). Null until the
+         * first print.
+         */
+        Instant planLastPrintedAt,
+        /**
+         * True when the plan content that prints has changed since that print
+         * ({@code PlanPrintFingerprint}); false when the paper still matches;
+         * null when the plan has never been printed, so nothing nags.
+         */
+        Boolean printedPlanOutdated
 ) {}
