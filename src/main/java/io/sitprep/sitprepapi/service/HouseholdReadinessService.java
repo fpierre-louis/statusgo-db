@@ -277,7 +277,7 @@ public class HouseholdReadinessService {
     private static String pillarLabel(String key) {
         return switch (key) {
             case "supplies" -> "Supplies";
-            case "evacuation_plan" -> "Evacuation Plan";
+            case "evacuation_plan" -> "Leaving Home";
             case "practice" -> "Practice";
             case "family" -> "Family";
             case "communications" -> "Communications";

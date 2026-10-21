@@ -50,7 +50,7 @@ public class ActiveResponseResolver {
     }
 
     static final String HEADS_UP_CHECK =
-            "Now's a good time to check that everyone's okay and ready to leave or act if needed.";
+            "Now's a good time to check that your household is okay and ready to leave or act if needed.";
     static final String HEADS_UP_FALLBACK_TITLE = "An alert is in effect near home";
 
     static final String WAIT_DETAIL = "Follow your plan first. Preparedness steps can wait.";

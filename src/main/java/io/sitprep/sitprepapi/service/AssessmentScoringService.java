@@ -64,7 +64,7 @@ public class AssessmentScoringService {
         m.put("waterSupply", new FieldMeta("Water storage", "/create-foodsupply", "Plan water and food", "mealPlan", null, null, "critical", 11, 1.2));
         m.put("communicationPlan", new FieldMeta("Communication plan", "/emergency-contacts", "Set contact plan", "contacts", null, null, "critical", 18, 1.1));
         m.put("emergencyContacts", new FieldMeta("Emergency contacts", "/emergency-contacts", "Add emergency contacts", "contacts", null, null, "critical", 20, 1.2));
-        m.put("evacuationPlan", new FieldMeta("Evacuation plan", "/evacuation-wizard", "Create evacuation plan", "evacuation", null, null, "critical", 25, 1.2));
+        m.put("evacuationPlan", new FieldMeta("Leaving home", "/evacuation-wizard", "Plan where to meet and go", "evacuation", null, null, "critical", 25, 1.2));
         m.put("emergencyKitCheck", new FieldMeta("Emergency kit", "/ask", "Review kit guidance", null, null, null, "high", 35, 1.0));
         m.put("powerOutagePlan", new FieldMeta("Power outage plan", "/ask", "Review outage guidance", null, null, null, "high", 40, 1.0));
         m.put("additionalSupplies", new FieldMeta("Additional supplies", "/ask", "Review supply guidance", null, null, null, "medium", 45, 0.9));
@@ -117,7 +117,7 @@ public class AssessmentScoringService {
                 opt(YES, "We know who to contact and where to check in.", "yes"),
                 opt(KINDA, "We have talked about it but have not practiced.", "kinda"),
                 opt(NO, "We do not have a communication plan.", "no"))));
-        q.add(new AssessmentQuestionDto("evacuationPlan", "Evacuation plan", "Places",
+        q.add(new AssessmentQuestionDto("evacuationPlan", "Leaving home", "Places",
                 "Do you have meeting places and a destination if home is unsafe?", "single", false, null, List.of(
                 opt(YES, "Meeting places and routes are known.", "yes"),
                 opt(KINDA, "We have ideas, but they are not fully saved.", "kinda"),

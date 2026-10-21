@@ -87,7 +87,7 @@ class ActiveResponseResolverTest {
                 risk(List.of(alert("Moderate", "Flood Watch"), alert("Extreme", "Tornado Warning")), List.of()),
                 Surface.READY_FOR_MORE);
         assertThat(h.title()).isEqualTo("Tornado Warning near home");
-        assertThat(h.detail()).isEqualTo("Now's a good time to check that everyone's okay and ready to leave or act "
+        assertThat(h.detail()).isEqualTo("Now's a good time to check that your household is okay and ready to leave or act "
                 + "if needed. Just here for tips? Keep going.");
         assertThat(h.action()).isEqualTo(ReadinessAction.OPEN_ACTIVE_ALERTS);
     }

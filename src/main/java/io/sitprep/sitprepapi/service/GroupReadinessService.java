@@ -38,7 +38,7 @@ public class GroupReadinessService {
     static final Map<String, String> ESSENTIAL_LABELS = Map.of(
             "demographics", "Household details",
             "mealPlan", "Meal plan",
-            "evacuation", "Evacuation plan",
+            "evacuation", "Leaving home",
             "contacts", "Emergency contacts");
 
     private static final EssentialsResult NOTHING_DONE = new EssentialsResult(false, false, false, false);

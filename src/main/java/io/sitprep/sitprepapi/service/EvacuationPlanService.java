@@ -158,7 +158,7 @@ public class EvacuationPlanService {
         if (plans.isEmpty()) {
             EvacuationPlan p = new EvacuationPlan();
             p.setOwnerEmail(ownerEmail);
-            p.setName("Evacuation Plan A");
+            p.setName("Destination A");
             p.setHouseholdId(target != null ? target : householdResolver.baseHouseholdIdFor(ownerEmail));
             applyRouteNotes(p, notes);
             List<EvacuationPlan> saved = List.of(evacuationPlanRepo.save(p));
