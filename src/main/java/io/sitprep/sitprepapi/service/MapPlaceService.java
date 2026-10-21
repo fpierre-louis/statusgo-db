@@ -173,7 +173,8 @@ public class MapPlaceService {
                 .forEach(o -> out.add(place("start:" + o.getId(), "start",
                         o.getLat(), o.getLng(),
                         nz(o.getName(), "Starting point"), o.getAddress(), "origin_location",
-                        null, null, chosenStarts.contains(o.getId()) ? "selected-start" : "start")));
+                        null, null, chosenStarts.contains(o.getId()) ? "selected-start" : "start",
+                        o.getKind())));
 
         return out;
     }
@@ -205,8 +206,15 @@ public class MapPlaceService {
     private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
                                      String name, String address, String source,
                                      String tier, Boolean deploy, String role) {
+        return place(id, kind, lat, lng, name, address, source, tier, deploy, role, null);
+    }
+
+    /** As above, plus a starting point's own type (`startKind`, V119). */
+    private static MapPlaceDto place(String id, String kind, Double lat, Double lng,
+                                     String name, String address, String source,
+                                     String tier, Boolean deploy, String role, String startKind) {
         return new MapPlaceDto(id, kind, lat, lng, name, address, source,
-                GeoUtil.validLatLng(lat, lng), tier, deploy, role);
+                GeoUtil.validLatLng(lat, lng), tier, deploy, role, startKind);
     }
 
     private static boolean isPresent(String v) {

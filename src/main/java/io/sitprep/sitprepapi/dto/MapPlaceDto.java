@@ -59,5 +59,11 @@ public record MapPlaceDto(
          * as entered in the plan) · {@code selected-start} (one the live deployment
          * chose, V91). Appended last: positional record.
          */
-        String role
+        String role,
+        /**
+         * A starting point's own type (V119): home | work | school | caregiver |
+         * activity | other, or null. Only on {@code kind = "start"} rows; null
+         * for every other source. The map draws the start pin by it.
+         */
+        String startKind
 ) {}
