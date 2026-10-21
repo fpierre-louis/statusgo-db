@@ -50,6 +50,8 @@ class PlanActivationDirectiveSituationTest {
     private PlanActivationService service;
     private GroupRepo groupRepo;
     private MeetingPlace savedMeeting;
+    private EvacuationPlanRepo evacRepo;
+    private HouseholdAccessService householdAccess = mock(HouseholdAccessService.class);
     private MeetingPlaceRepo meetingRepo;
 
     @BeforeEach
@@ -66,7 +68,7 @@ class PlanActivationDirectiveSituationTest {
                 mock(OriginLocationRepo.class), mock(EmergencyContactGroupRepo.class),
                 mock(EmergencyContactRepo.class), mock(WebSocketMessageSender.class),
                 groupRepo, mock(NotificationService.class),
-                mock(HouseholdAccessService.class), mock(HouseholdResolver.class),
+                householdAccess, mock(HouseholdResolver.class),
                 mock(GoBagService.class), mock(HouseholdEventService.class), mock(GroupService.class),
                 new ActivationDirectiveResolver(feed, ingest));
 
@@ -86,6 +88,7 @@ class PlanActivationDirectiveSituationTest {
         when(meetingPlaceRepo.findById(4242L)).thenReturn(Optional.of(m));
         meetingRepo = meetingPlaceRepo;
         when(evacuationPlanRepo.findById(9191L)).thenReturn(Optional.of(e));
+        evacRepo = evacuationPlanRepo;
     }
 
     /** "Activate my plan" with no alert behind it — the common case. */
@@ -104,6 +107,9 @@ class PlanActivationDirectiveSituationTest {
         a.setLng(-111.9);
         a.setActivatedAt(Instant.now());
         a.setExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS));
+        // Every row carries its own copy of its places (V116 on create, V117
+        // backfill for older rows); there is no saved-row fallback.
+        ActivationPlaces.snapshot(a, meetingRepo, evacRepo);
         return a;
     }
 
@@ -236,7 +242,7 @@ class PlanActivationDirectiveSituationTest {
         when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
 
         var detail = service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING"), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING", null), OWNER);
 
         assertThat(a.getStage()).isEqualTo("GOING");
         assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("evacuate");
@@ -250,7 +256,7 @@ class PlanActivationDirectiveSituationTest {
     void memberCannotChange() {
         stored(meetThenLeave());
         assertThatThrownBy(() -> service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING"), "member@x.com"))
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING", null), "member@x.com"))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("403");
     }
@@ -262,7 +268,7 @@ class PlanActivationDirectiveSituationTest {
         a.setEndedAt(Instant.now());
         stored(a);
         assertThatThrownBy(() -> service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null), OWNER))
+                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null, null), OWNER))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("409");
     }
@@ -276,7 +282,7 @@ class PlanActivationDirectiveSituationTest {
         when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
 
         service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest("STAY", null, null, null), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest("STAY", null, null, null, null), OWNER);
 
         // "Stay home" is the whole instruction: no place rides along (owner, 2026-10-21).
         assertThat(a.getEvacPlanId()).isNull();
@@ -316,7 +322,7 @@ class PlanActivationDirectiveSituationTest {
         when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
 
         service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest("LEAVE", null, null, null, null), OWNER);
 
         assertThat(a.getMeetingPlaceId()).isNull();
         assertThat(a.getEvacPlanId()).isEqualTo(9191L);
@@ -332,7 +338,7 @@ class PlanActivationDirectiveSituationTest {
         when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
 
         var detail = service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest("MEET_AT_DESTINATION", null, null, null), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest("MEET_AT_DESTINATION", null, null, null, null), OWNER);
 
         assertThat(a.getRoutePlan()).isEqualTo("MEET_AT_DESTINATION");
         assertThat(a.getMeetingPlaceId()).isNull();
@@ -358,7 +364,7 @@ class PlanActivationDirectiveSituationTest {
     // ── SAVED PLACE vs LIVE PLAN (V116 snapshot, 2026-10-21) ─────────────
 
     private PlanActivation snapshotted(PlanActivation a) {
-        ActivationPlaces.snapshot(a, meetingRepo, mock(EvacuationPlanRepo.class));
+        ActivationPlaces.snapshot(a, meetingRepo, evacRepo);
         return a;
     }
 
@@ -403,7 +409,7 @@ class PlanActivationDirectiveSituationTest {
         savedMeeting.setName("Utah Lake State Park");
 
         var detail = service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null, true), OWNER);
 
         assertThat(detail.meetingPlace().name()).isEqualTo("Utah Lake State Park");
         assertThat(detail.meetingPlaceSavedChanged()).isFalse();
@@ -419,10 +425,70 @@ class PlanActivationDirectiveSituationTest {
         when(meetingRepo.findById(4242L)).thenReturn(Optional.empty());
 
         var detail = service.changeActivation(ACT_ID,
-                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null), OWNER);
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null, true), OWNER);
 
         assertThat(detail.meetingPlace().name()).isEqualTo("Oak Park");
         assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("meet");
+    }
+
+    @Test
+    @DisplayName("\"We've met, now go\" never adopts a saved edit: only an explicit refresh does")
+    void stageStepKeepsPinnedPlaces() {
+        PlanActivation a = meetThenLeave();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+        savedMeeting.setName("Utah Lake State Park");
+
+        var detail = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, "GOING", null), OWNER);
+
+        assertThat(detail.meetingPlace().name()).isEqualTo("Oak Park");
+        assertThat(detail.meetingPlaceSavedChanged()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a choice that keeps the same place keeps its copy; a different place takes the saved one")
+    void choiceAdoptsOnlyANewPick() {
+        when(householdAccess.canReadPlanDataFor(any(), any())).thenReturn(true);
+        PlanActivation a = plainActivation();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+        savedMeeting.setName("Utah Lake State Park");
+
+        var same = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("MEET", 4242L, null, null, null), OWNER);
+        assertThat(same.meetingPlace().name()).isEqualTo("Oak Park");
+
+        // Back to a destination, then Meet up at the same spot again: a new pick.
+        service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("MEET_AT_DESTINATION", null, 9191L, null, null), OWNER);
+        var repicked = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("MEET", 4242L, null, null, null), OWNER);
+        assertThat(repicked.meetingPlace().name()).isEqualTo("Utah Lake State Park");
+    }
+
+    @Test
+    @DisplayName("an empty PATCH changes nothing and is refused")
+    void emptyPatchIsRefused() {
+        stored(plainActivation());
+        assertThatThrownBy(() -> service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null, null), OWNER))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("400");
+    }
+
+    @Test
+    @DisplayName("no saved-row fallback: a plan with no copy of a place shows no place")
+    void noSavedRowFallback() {
+        PlanActivation a = plainActivation();
+        a.setMeetingSnapshot(null);
+        stored(a);
+        feedReturns();
+
+        var detail = (PlanActivationDtos.ActivationDetailDto) service.getActivation(ACT_ID, OWNER).orElseThrow();
+        assertThat(detail.meetingPlace()).isNull();
     }
 
     // ── D6 ──────────────────────────────────────────────────────────────────

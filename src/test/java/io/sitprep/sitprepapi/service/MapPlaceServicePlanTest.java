@@ -85,6 +85,8 @@ class MapPlaceServicePlanTest {
         live.setActivatedAt(Instant.now());
         when(activations.findLiveForHousehold(any(), any())).thenReturn(List.of(live));
         when(meets.findById(3L)).thenReturn(Optional.of(meeting(3L, "byu", MeetingPlaceTier.OTHER, false)));
+        // Every live row carries its own copy of its places (V116/V117).
+        ActivationPlaces.snapshot(live, meets, evacs);
 
         List<MapPlaceDto> places = service.forHousehold(hh, "owner@x.com");
 

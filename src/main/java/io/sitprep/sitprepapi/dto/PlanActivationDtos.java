@@ -74,7 +74,14 @@ public final class PlanActivationDtos {
             String choice,
             Long meetingPlaceId,
             Long evacPlanId,
-            String stage
+            String stage,
+            /**
+             * "Update & notify": retake the live plan's places from the saved
+             * rows it already points at. The ONLY way an unchanged place adopts
+             * newer saved data; a stage step or any other PATCH keeps the
+             * pinned copy (plan data consistency closeout, 2026-10-21).
+             */
+            Boolean refreshPlaces
     ) {}
 
     public record RecipientsRequest(
@@ -155,6 +162,12 @@ public final class PlanActivationDtos {
              */
             boolean meetingPlaceSavedChanged,
             boolean evacPlanSavedChanged,
+            /**
+             * The household whose SAVED plan this live plan came from, so an
+             * admin's "Edit plan details" / contacts edit opens that household.
+             * Only when {@code viewerCanChange}; null otherwise.
+             */
+            String editHouseholdId,
             String meetingMode,
             String evacMode,
             String messagePreview,

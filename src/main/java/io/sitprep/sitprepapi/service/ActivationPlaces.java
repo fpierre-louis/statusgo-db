@@ -16,8 +16,9 @@ import java.util.Objects;
  * <p>A live plan reads its meeting spot and destination from the snapshot it
  * took when it was started or last changed (V116), never from the saved row:
  * editing a saved place must not silently change where a household is being
- * sent, and deleting one must not blank it. Rows from before V116 have no
- * snapshot and fall back to the saved row, which is what they always did.</p>
+ * sent, and deleting one must not blank it. Rows from before V116 were
+ * backfilled by V117, so there is no saved-row fallback: a plan with no copy
+ * of a place (its row was already gone) has no such place.</p>
  *
  * <p>Labels that are NOT the instruction (tier, Main, household) still come
  * from the saved row when it exists, so the map styles the place as before.</p>
@@ -39,36 +40,58 @@ public final class ActivationPlaces {
                 e.getLat(), e.getLng(), e.getTravelMode(), e.getShelterInfo());
     }
 
-    /** Take (or retake) the live plan's snapshot from the saved rows it points at. */
+    /** Take the live plan's snapshot from the saved rows it points at (create). */
     public static void snapshot(PlanActivation a, MeetingPlaceRepo meetings, EvacuationPlanRepo evacs) {
-        // A saved row deleted after the plan started keeps the earlier snapshot:
-        // re-snapshotting must never blank a live instruction. Picking another
-        // place is a Change plan, not an update.
         a.setMeetingSnapshot(a.getMeetingPlaceId() == null ? null
-                : meetings.findById(a.getMeetingPlaceId()).map(ActivationPlaces::snapshotOf).orElse(a.getMeetingSnapshot()));
+                : meetings.findById(a.getMeetingPlaceId()).map(ActivationPlaces::snapshotOf).orElse(null));
         a.setEvacSnapshot(a.getEvacPlanId() == null ? null
-                : evacs.findById(a.getEvacPlanId()).map(ActivationPlaces::snapshotOf).orElse(a.getEvacSnapshot()));
+                : evacs.findById(a.getEvacPlanId()).map(ActivationPlaces::snapshotOf).orElse(null));
     }
 
-    /** The live plan's meeting spot as a DTO: its snapshot, else (pre-V116) the saved row. */
+    /**
+     * After a change: a place adopts its saved row only when the change picked
+     * a different place, or the caller asked to refresh ("Update & notify").
+     * An unchanged place keeps its copy, so a stage step or a choice that kept
+     * it can never pull in a saved edit. A saved row deleted since keeps the
+     * earlier copy: retaking must never blank a live instruction.
+     */
+    public static void retake(PlanActivation a, Long prevMeet, Long prevEvac, boolean refresh,
+                              MeetingPlaceRepo meetings, EvacuationPlanRepo evacs) {
+        Long meet = a.getMeetingPlaceId();
+        if (meet == null) {
+            a.setMeetingSnapshot(null);
+        } else if (!meet.equals(prevMeet)) {
+            a.setMeetingSnapshot(meetings.findById(meet).map(ActivationPlaces::snapshotOf).orElse(null));
+        } else if (refresh || a.getMeetingSnapshot() == null) {
+            a.setMeetingSnapshot(meetings.findById(meet).map(ActivationPlaces::snapshotOf).orElse(a.getMeetingSnapshot()));
+        }
+        Long evac = a.getEvacPlanId();
+        if (evac == null) {
+            a.setEvacSnapshot(null);
+        } else if (!evac.equals(prevEvac)) {
+            a.setEvacSnapshot(evacs.findById(evac).map(ActivationPlaces::snapshotOf).orElse(null));
+        } else if (refresh || a.getEvacSnapshot() == null) {
+            a.setEvacSnapshot(evacs.findById(evac).map(ActivationPlaces::snapshotOf).orElse(a.getEvacSnapshot()));
+        }
+    }
+
+    /** The live plan's meeting spot as a DTO: its own copy, never the saved row. */
     public static MeetingPlaceSnapshotDto meetingDto(PlanActivation a, MeetingPlaceRepo meetings) {
         if (a == null || a.getMeetingPlaceId() == null) return null;
-        if (a.getMeetingSnapshot() != null) return a.getMeetingSnapshot();
-        return meetings.findById(a.getMeetingPlaceId()).map(ActivationPlaces::snapshotOf).orElse(null);
+        return a.getMeetingSnapshot();
     }
 
     public static EvacuationPlanSnapshotDto evacDto(PlanActivation a, EvacuationPlanRepo evacs) {
         if (a == null || a.getEvacPlanId() == null) return null;
-        if (a.getEvacSnapshot() != null) return a.getEvacSnapshot();
-        return evacs.findById(a.getEvacPlanId()).map(ActivationPlaces::snapshotOf).orElse(null);
+        return a.getEvacSnapshot();
     }
 
     /** The live plan's meeting spot as an entity (for builders that take one); snapshot fields win. */
     public static MeetingPlace meeting(PlanActivation a, MeetingPlaceRepo meetings) {
         if (a == null || a.getMeetingPlaceId() == null) return null;
-        MeetingPlace saved = meetings.findById(a.getMeetingPlaceId()).orElse(null);
         MeetingPlaceSnapshotDto s = a.getMeetingSnapshot();
-        if (s == null) return saved;
+        if (s == null) return null;
+        MeetingPlace saved = meetings.findById(a.getMeetingPlaceId()).orElse(null);
         MeetingPlace m = new MeetingPlace();
         m.setId(s.id());
         m.setName(s.name());
@@ -90,9 +113,9 @@ public final class ActivationPlaces {
 
     public static EvacuationPlan evac(PlanActivation a, EvacuationPlanRepo evacs) {
         if (a == null || a.getEvacPlanId() == null) return null;
-        EvacuationPlan saved = evacs.findById(a.getEvacPlanId()).orElse(null);
         EvacuationPlanSnapshotDto s = a.getEvacSnapshot();
-        if (s == null) return saved;
+        if (s == null) return null;
+        EvacuationPlan saved = evacs.findById(a.getEvacPlanId()).orElse(null);
         EvacuationPlan e = new EvacuationPlan();
         e.setId(s.id());
         e.setName(s.name());

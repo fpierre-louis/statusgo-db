@@ -128,7 +128,8 @@ class PlanActivationPublicContractTest {
         when(meetingPlaceRepo.findById(4242L)).thenReturn(Optional.of(m));
         when(evacuationPlanRepo.findById(9191L)).thenReturn(Optional.of(e));
         when(contactGroupRepo.findAllById(any())).thenReturn(List.of(g));
-        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(activation()));
+        PlanActivation live = activation();
+        when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(live));
     }
 
     private PlanActivation activation() {
@@ -156,6 +157,8 @@ class PlanActivationPublicContractTest {
         a.setMessagePreview("Head to Aunt Rosa's now.");
         a.setActivatedAt(Instant.now());
         a.setExpiresAt(Instant.now().plus(3, ChronoUnit.HOURS));
+        // Every row carries its own copy of its places (V116/V117).
+        ActivationPlaces.snapshot(a, meetingPlaceRepo, evacuationPlanRepo);
         return a;
     }
 

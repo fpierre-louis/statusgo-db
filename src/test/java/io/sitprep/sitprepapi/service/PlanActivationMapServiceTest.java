@@ -124,6 +124,11 @@ class PlanActivationMapServiceTest {
         return e;
     }
 
+    /** Every row carries its own copy of its places (V116/V117); take it after the stubs. */
+    private void snap(PlanActivation a) {
+        ActivationPlaces.snapshot(a, meetingPlaceRepo, evacuationPlanRepo);
+    }
+
     private Instant future() { return Instant.now().plus(24, ChronoUnit.HOURS); }
     private Instant past() { return Instant.now().minus(1, ChronoUnit.HOURS); }
 
@@ -142,6 +147,7 @@ class PlanActivationMapServiceTest {
         when(originLocationRepo.findByOwnerEmailIgnoreCase(OWNER))
                 .thenReturn(List.of(originRow(40.3, -111.3)));
 
+        snap(a);
         List<MapPoiDto> pois = service.getActivationMap(ACT_ID, OWNER);
 
         assertEquals(4, pois.size());
@@ -170,6 +176,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(householdAccess.canReadPlanDataFor("member@x.com", OWNER)).thenReturn(true);
 
+        snap(a);
         assertDoesNotThrow(() -> service.getActivationMap(ACT_ID, "member@x.com"));
     }
 
@@ -183,6 +190,7 @@ class PlanActivationMapServiceTest {
         when(u.getId()).thenReturn("uid-recipient");
         when(userInfoRepo.findByUserEmailIgnoreCase("rec@x.com")).thenReturn(Optional.of(u));
 
+        snap(a);
         assertDoesNotThrow(() -> service.getActivationMap(ACT_ID, "rec@x.com"));
     }
 
@@ -193,6 +201,7 @@ class PlanActivationMapServiceTest {
         when(householdAccess.canReadPlanDataFor("attacker@x.com", OWNER)).thenReturn(false);
         when(userInfoRepo.findByUserEmailIgnoreCase("attacker@x.com")).thenReturn(Optional.empty());
 
+        snap(a);
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.getActivationMap(ACT_ID, "attacker@x.com"));
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
@@ -210,6 +219,7 @@ class PlanActivationMapServiceTest {
     void ownerMap_expired_throwsExpired() {
         PlanActivation a = activation(1L, 2L, 40.0, -111.0, past());
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
+        snap(a);
         assertThrows(ActivationExpiredException.class, () -> service.getActivationMap(ACT_ID, OWNER));
     }
 
@@ -222,6 +232,7 @@ class PlanActivationMapServiceTest {
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
         when(evacuationPlanRepo.findById(2L)).thenReturn(Optional.of(evac(2L, OWNER, 40.2, -111.2)));
 
+        snap(a);
         List<MapPoiDto> pois = service.getRecipientMap(ACT_ID);
 
         assertEquals(2, pois.size());
@@ -240,6 +251,7 @@ class PlanActivationMapServiceTest {
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, null, null))); // no coords
         when(evacuationPlanRepo.findById(2L)).thenReturn(Optional.of(evac(2L, OWNER, 40.2, -111.2)));
 
+        snap(a);
         List<MapPoiDto> pois = service.getRecipientMap(ACT_ID);
         assertEquals(1, pois.size());
         assertEquals("shelter-primary", pois.get(0).placeLabel());
@@ -324,6 +336,7 @@ class PlanActivationMapServiceTest {
         when(ack.getLng()).thenReturn(-111.9);
         when(ackRepo.findByActivationIdOrderByAckedAtAsc(ACT_ID)).thenReturn(List.of(ack));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
         assertEquals(1, d.acks().size()); // owner sees the live roll-up
     }
@@ -344,6 +357,7 @@ class PlanActivationMapServiceTest {
         when(emergencyContactGroupRepo.findAllById(any())).thenReturn(List.of(contactGroup(7L)));
 
         // Guest caller (no token) → public contract.
+        snap(a);
         Object read = service.getActivation(ACT_ID, null).orElseThrow();
         assertInstanceOf(PublicActivationDto.class, read);
 
@@ -366,6 +380,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
@@ -387,6 +402,7 @@ class PlanActivationMapServiceTest {
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
         when(evacuationPlanRepo.findById(2L)).thenReturn(Optional.of(evac(2L, OWNER, 40.2, -111.2)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("EVACUATING", d.activeSituation().operationalMode());
@@ -402,6 +418,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
@@ -416,6 +433,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
@@ -430,6 +448,7 @@ class PlanActivationMapServiceTest {
         a.setMovementDirective("none");
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("PREPARING", d.activeSituation().operationalMode());
@@ -448,6 +467,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().requestedOperationalMode());
@@ -470,6 +490,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());
@@ -491,6 +512,7 @@ class PlanActivationMapServiceTest {
         when(activationRepo.findById(ACT_ID)).thenReturn(Optional.of(a));
         when(meetingPlaceRepo.findById(1L)).thenReturn(Optional.of(meetingPlace(1L, OWNER, 40.1, -111.1)));
 
+        snap(a);
         ActivationDetailDto d = service.getActivationForHousehold(ACT_ID, OWNER).orElseThrow();
 
         assertEquals("GATHERING", d.activeSituation().operationalMode());

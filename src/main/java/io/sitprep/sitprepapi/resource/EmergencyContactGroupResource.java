@@ -84,7 +84,7 @@ public class EmergencyContactGroupResource {
     ) {
         String caller = AuthUtils.requireAuthenticatedEmail();
         ensureOwns(id, caller);
-        updatedGroup.setOwnerEmail(caller); // owner is immutable
+        // The author stays the author: updateGroup never copies ownerEmail.
         EmergencyContactGroup saved = groupService.updateGroup(id, updatedGroup);
         return ResponseEntity.ok(EmergencyContactGroupDto.from(saved));
     }
@@ -102,10 +102,17 @@ public class EmergencyContactGroupResource {
         if (existing.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
+        // A household's contacts are part of its shared plan (household-owned
+        // plans, 2026-05-22): the author, or any owner/admin of the household
+        // the group belongs to, may change it, the same rule as choosing the
+        // Main meeting spot. Plain members still change only their own.
         String owner = existing.get().getOwnerEmail();
-        if (owner == null || !owner.equalsIgnoreCase(caller)) {
+        boolean author = owner != null && owner.equalsIgnoreCase(caller);
+        String hid = existing.get().getHouseholdId();
+        boolean admin = hid != null && access.canWriteHousehold(caller, hid);
+        if (!author && !admin) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Emergency contact group belongs to a different user");
+                    "Only the household's admins can change these contacts");
         }
     }
 }

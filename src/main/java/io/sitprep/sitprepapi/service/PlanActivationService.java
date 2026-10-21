@@ -599,7 +599,13 @@ public class PlanActivationService {
         if (isClosed(a)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This plan has ended");
         }
-        if (req == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to change");
+        boolean refresh = req != null && Boolean.TRUE.equals(req.refreshPlaces());
+        if (req == null || (req.choice() == null && req.stage() == null && req.meetingPlaceId() == null
+                && req.evacPlanId() == null && !refresh)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to change");
+        }
+        Long prevMeet = a.getMeetingPlaceId();
+        Long prevEvac = a.getEvacPlanId();
 
         // Places must belong to the plan's household, exactly as on create.
         assertMeetingPlaceOwned(req.meetingPlaceId(), a.getOwnerEmail());
@@ -687,9 +693,10 @@ public class PlanActivationService {
 
         a.setMeetingPlaceId(meet);
         a.setEvacPlanId(evac);
-        // The live plan keeps what its places ARE now (V116): later edits to the
-        // saved rows never change this instruction silently.
-        ActivationPlaces.snapshot(a, meetingPlaceRepo, evacuationPlanRepo);
+        // The live plan keeps its own copy of its places (V116). A place adopts
+        // the saved row only when this request picked it (a new id) or asked
+        // to refresh ("Update & notify"); a stage step never does.
+        ActivationPlaces.retake(a, prevMeet, prevEvac, refresh, meetingPlaceRepo, evacuationPlanRepo);
         PlanActivation saved = activationRepo.save(a);
         log.info("Activation changed id={} by={} choice={} stage={}", saved.getId(), caller, choice, stage);
 
@@ -1681,6 +1688,7 @@ public class PlanActivationService {
                 viewerCanChange && !closed,
                 !closed && ActivationPlaces.meetingChanged(a, meetingPlaceRepo),
                 !closed && ActivationPlaces.evacChanged(a, evacuationPlanRepo),
+                viewerCanChange && !closed ? resolveHouseholdIdFor(a) : null,
                 a.getMeetingMode(),
                 a.getEvacMode(),
                 a.getMessagePreview(),
