@@ -36,7 +36,7 @@
     ],
     "tags": {
       "evacuated_with_pets": {
-        "text": "You planned to bring every pet when the household evacuated."
+        "text": "You decided your pets would evacuate with you."
       },
       "found_hiding_pet": {
         "text": "You checked where your pet hides and used a familiar carrier."
@@ -150,7 +150,7 @@
             {
               "key": "call_from_door",
               "label": "Call the cat's name from the doorway and wait for it to come out",
-              "consequence": "You wait at the door while the minutes pass.",
+              "consequence": "The minutes pass, and the cat doesn't come out before you have to leave.",
               "feedback": "Ready.gov suggests making note of where your pets hide, so you can find them quickly if you have to leave your house.",
               "tags": [
                 "needs_carrier_practice"
@@ -170,7 +170,7 @@
             {
               "key": "leave_door_open",
               "label": "Leave a door open so the cat can come out and follow",
-              "consequence": "The door stands open, and the cat stays out of sight.",
+              "consequence": "The door stands open, and the cat stays out of sight when it's time to leave.",
               "feedback": "Ready.gov suggests knowing where your pets hide so you can find them quickly, and says pets left behind may end up lost or injured.",
               "tags": [
                 "needs_carrier_practice"
@@ -188,7 +188,7 @@
           "choices": [
             {
               "key": "shelter_assume",
-              "label": "The public shelter, assuming pets can stay with you there",
+              "label": "The public shelter, without checking how it handles pets",
               "consequence": "You head for the shelter without knowing how it handles pets.",
               "feedback": "Ready.gov says most public shelters allow only service animals. The Red Cross says its shelters try to accommodate pets, but pets may need to be housed in a different location.",
               "tags": [
@@ -198,7 +198,7 @@
             },
             {
               "key": "hotel_any",
-              "label": "The first hotel you find, and sort out the pets when you get there",
+              "label": "The first hotel you find, without checking whether it takes pets",
               "consequence": "You drive toward the hotels without knowing which ones take pets.",
               "feedback": "Ready.gov says many public shelters and hotels do not allow pets inside, and suggests knowing a safe place for your pets before an emergency happens.",
               "tags": [
@@ -208,8 +208,8 @@
             },
             {
               "key": "relative_pets_welcome",
-              "label": "Your relative's home, after confirming the pets are welcome too",
-              "consequence": "Your relative says the pets are welcome, and you head there.",
+              "label": "Your relative's home, after checking that your pets are welcome too",
+              "consequence": "Your relative says your pets are welcome, and you head there.",
               "feedback": "Ready.gov suggests knowing a safe place where you can take your pets before an emergency. The Red Cross suggests a list of friends, relatives and others who could care for your animals.",
               "tags": [
                 "arranged_pet_place"

@@ -695,7 +695,7 @@ class PracticeShippedContentTest {
     // -- Evacuating with Pets v1 ------------------------------------------------
 
     static final String PETS = "evacuating-with-pets";
-    static final String PETS_V1_DRAFT_HASH = "sha256:b5fc1a0c706d445f45b3a578f7f6bd5cd520ae99fbe464a56d27ab31d2e9aa62";
+    static final String PETS_V1_DRAFT_HASH = "sha256:3c0377719c90027655fd89c8e7472742e28faf92352985d3d2071383c540073b";
 
     @Test
     void evacuatingWithPetsIsADraftWithASecondChanceAndOpensThePetDrills() {
