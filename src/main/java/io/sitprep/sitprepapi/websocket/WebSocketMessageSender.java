@@ -281,6 +281,19 @@ public class WebSocketMessageSender {
      *
      * <p>Topic: {@code /topic/households/{householdId}/demographic}</p>
      */
+    /**
+     * The household's SAVED plan changed (meeting spots, destinations, origins,
+     * contacts), so every member's app refetches it (plan data consistency,
+     * 2026-10-21). Authorized like the other household topics.
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/plan}</p>
+     */
+    public void sendHouseholdPlan(String householdId, Object frame) {
+        if (householdId == null || householdId.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/plan", frame);
+    }
+
     public void sendHouseholdDemographic(String householdId, Object frame) {
         if (householdId == null || householdId.isBlank() || frame == null) return;
         messagingTemplate.convertAndSend(

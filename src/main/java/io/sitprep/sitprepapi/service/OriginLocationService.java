@@ -14,6 +14,19 @@ public class OriginLocationService {
     private final OriginLocationRepo repo;
     private final HouseholdResolver householdResolver;
 
+    // Setter-injected so tests that build this service by hand stay unchanged.
+    // Starting-point edits used to be the one plan write that told nobody.
+    private ActivationPlanUpdateBroadcastService planUpdates;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPlanUpdates(ActivationPlanUpdateBroadcastService planUpdates) {
+        this.planUpdates = planUpdates;
+    }
+
+    private void announce(String email) {
+        if (planUpdates != null) planUpdates.broadcastOwnerPlanChangedAfterCommit(email, "originLocations");
+    }
+
     public OriginLocationService(OriginLocationRepo repo, HouseholdResolver householdResolver) {
         this.repo = repo;
         this.householdResolver = householdResolver;
@@ -36,7 +49,9 @@ public class OriginLocationService {
         if (origin.getHouseholdId() == null) {
             origin.setHouseholdId(householdResolver.baseHouseholdIdFor(ownerEmail));
         }
-        return repo.save(origin);
+        OriginLocation saved = repo.save(origin);
+        announce(ownerEmail);
+        return saved;
     }
 
     // Update an existing origin for a user
@@ -59,7 +74,9 @@ public class OriginLocationService {
         origin.setHouseholdId(existing.getHouseholdId() != null
                 ? existing.getHouseholdId()
                 : householdResolver.baseHouseholdIdFor(ownerEmail));
-        return repo.save(origin);
+        OriginLocation saved = repo.save(origin);
+        announce(ownerEmail);
+        return saved;
     }
 
     // Delete an origin for a user
@@ -72,6 +89,7 @@ public class OriginLocationService {
         }
 
         repo.deleteById(id);
+        announce(ownerEmail);
     }
 
     // Save all origins for a given user (replaces all)
@@ -87,7 +105,9 @@ public class OriginLocationService {
                 origin.setOwnerEmail(ownerEmail);
                 origin.setHouseholdId(target);
             });
-            return repo.saveAll(origins);
+            List<OriginLocation> saved = repo.saveAll(origins);
+            announce(ownerEmail);
+            return saved;
         }
         // Against the HOUSEHOLD's rows (what the reads show), else the caller's.
         String householdId = householdResolver.baseHouseholdIdFor(ownerEmail);
@@ -99,6 +119,8 @@ public class OriginLocationService {
             origin.setOwnerEmail(ownerEmail);
             if (origin.getHouseholdId() == null) origin.setHouseholdId(householdId);
         });
-        return repo.saveAll(origins);
+        List<OriginLocation> saved = repo.saveAll(origins);
+        announce(ownerEmail);
+        return saved;
     }
 }

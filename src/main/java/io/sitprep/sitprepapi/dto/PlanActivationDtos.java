@@ -147,6 +147,14 @@ public final class PlanActivationDtos {
              * 2026-10-20). Not on the public projection.
              */
             boolean viewerCanChange,
+            /**
+             * The SAVED meeting spot / destination has moved on from what this
+             * live plan uses (edited or deleted since the plan's snapshot, V116).
+             * The live instruction did NOT change; the page offers an explicit
+             * "Update & notify". Household readers only.
+             */
+            boolean meetingPlaceSavedChanged,
+            boolean evacPlanSavedChanged,
             String meetingMode,
             String evacMode,
             String messagePreview,

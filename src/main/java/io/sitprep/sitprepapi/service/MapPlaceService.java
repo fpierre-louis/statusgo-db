@@ -112,8 +112,8 @@ public class MapPlaceService {
         MeetingPlace meet;
         String meetRole;
         if (live != null) {
-            meet = live.getMeetingPlaceId() == null ? null
-                    : meetingPlaceRepo.findById(live.getMeetingPlaceId()).orElse(null);
+            // The live plan's own place (V116 snapshot), never a later edit to the saved row.
+            meet = ActivationPlaces.meeting(live, meetingPlaceRepo);
             meetRole = "selected-meeting";
         } else {
             List<MeetingPlace> meets = meetingPlaceRepo.findByHouseholdId(hid);
@@ -141,8 +141,7 @@ public class MapPlaceService {
         EvacuationPlan shelter;
         String shelterRole;
         if (live != null) {
-            shelter = live.getEvacPlanId() == null ? null
-                    : evacuationPlanRepo.findById(live.getEvacPlanId()).orElse(null);
+            shelter = ActivationPlaces.evac(live, evacuationPlanRepo);
             shelterRole = "selected-shelter";
         } else {
             List<EvacuationPlan> evacs = evacuationPlanRepo.findByHouseholdId(hid);

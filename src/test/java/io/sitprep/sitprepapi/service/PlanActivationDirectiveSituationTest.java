@@ -1,5 +1,7 @@
 package io.sitprep.sitprepapi.service;
 
+import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
+
 import io.sitprep.sitprepapi.dto.PlanActivationDtos;
 
 import io.sitprep.sitprepapi.domain.*;
@@ -47,6 +49,8 @@ class PlanActivationDirectiveSituationTest {
     private AlertIngestService ingest;
     private PlanActivationService service;
     private GroupRepo groupRepo;
+    private MeetingPlace savedMeeting;
+    private MeetingPlaceRepo meetingRepo;
 
     @BeforeEach
     void setUp() {
@@ -67,6 +71,7 @@ class PlanActivationDirectiveSituationTest {
                 new ActivationDirectiveResolver(feed, ingest));
 
         MeetingPlace m = new MeetingPlace();
+        savedMeeting = m;
         m.setId(4242L);
         m.setName("Oak Park");
         m.setAddress("12 Oak St");
@@ -79,6 +84,7 @@ class PlanActivationDirectiveSituationTest {
         e.setLat(40.6);
         e.setLng(-111.8);
         when(meetingPlaceRepo.findById(4242L)).thenReturn(Optional.of(m));
+        meetingRepo = meetingPlaceRepo;
         when(evacuationPlanRepo.findById(9191L)).thenReturn(Optional.of(e));
     }
 
@@ -347,6 +353,60 @@ class PlanActivationDirectiveSituationTest {
         assertThat(s.primaryAction()).isEqualTo("Stay home");
         assertThat(s.suppressedAction()).isNull();
         assertThat(s.suppressedReason()).isNull();
+    }
+
+    // ── SAVED PLACE vs LIVE PLAN (V116 snapshot, 2026-10-21) ─────────────
+
+    private PlanActivation snapshotted(PlanActivation a) {
+        ActivationPlaces.snapshot(a, meetingRepo, mock(EvacuationPlanRepo.class));
+        return a;
+    }
+
+    @Test
+    @DisplayName("editing the saved meeting spot does NOT change the live plan; it raises a flag instead")
+    void savedEditLeavesLivePlanPinned() {
+        PlanActivation a = snapshotted(plainActivation());
+        stored(a);
+        feedReturns();
+
+        savedMeeting.setName("Utah Lake State Park");
+        savedMeeting.setLat(40.2);
+
+        var detail = (PlanActivationDtos.ActivationDetailDto) service.getActivation(ACT_ID, OWNER).orElseThrow();
+        assertThat(detail.meetingPlace().name()).isEqualTo("Oak Park");
+        assertThat(detail.meetingPlaceSavedChanged()).isTrue();
+        assertThat(publicSituation().activeMeetingPlace().name()).isEqualTo("Oak Park");
+        assertThat(service.pushActionSentence(a)).isEqualTo("Meet at Oak Park.");
+    }
+
+    @Test
+    @DisplayName("deleting the saved meeting spot does not blank the live plan")
+    void savedDeleteLeavesLivePlanPinned() {
+        PlanActivation a = snapshotted(plainActivation());
+        stored(a);
+        feedReturns();
+        when(meetingRepo.findById(4242L)).thenReturn(Optional.empty());
+
+        var detail = (PlanActivationDtos.ActivationDetailDto) service.getActivation(ACT_ID, OWNER).orElseThrow();
+        assertThat(detail.meetingPlace().name()).isEqualTo("Oak Park");
+        assertThat(detail.meetingPlaceSavedChanged()).isTrue();
+        assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("meet");
+    }
+
+    @Test
+    @DisplayName("Update & notify: an empty PATCH re-takes the snapshot from the saved row")
+    void explicitUpdateTakesTheNewPlace() {
+        PlanActivation a = snapshotted(plainActivation());
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+        savedMeeting.setName("Utah Lake State Park");
+
+        var detail = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null), OWNER);
+
+        assertThat(detail.meetingPlace().name()).isEqualTo("Utah Lake State Park");
+        assertThat(detail.meetingPlaceSavedChanged()).isFalse();
     }
 
     // ── D6 ──────────────────────────────────────────────────────────────────

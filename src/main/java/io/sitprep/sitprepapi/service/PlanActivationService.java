@@ -268,6 +268,9 @@ public class PlanActivationService {
             }
         }
 
+        // The live plan keeps what its places ARE now (V116): later edits to the
+        // saved rows never change this instruction silently.
+        ActivationPlaces.snapshot(a, meetingPlaceRepo, evacuationPlanRepo);
         PlanActivation saved = activationRepo.save(a);
         log.info("Activation created id={} owner={} expiresAt={}",
                 saved.getId(), ownerEmail, saved.getExpiresAt());
@@ -498,10 +501,11 @@ public class PlanActivationService {
         String requested = normalizeOperationalMode(a.getOperationalMode(),
                 a.getEvacPlanId() != null, a.getMeetingPlaceId() != null, a.getMeetingMode());
         String effective = resolveEffectiveMode(requested, movement);
-        String evac = a.getEvacPlanId() == null ? null : evacuationPlanRepo.findById(a.getEvacPlanId())
-                .map(e -> firstNonBlank(e.getShelterName(), e.getName(), e.getDestination())).orElse(null);
-        String meet = a.getMeetingPlaceId() == null ? null : meetingPlaceRepo.findById(a.getMeetingPlaceId())
-                .map(m -> firstNonBlank(m.getName(), m.getAddress())).orElse(null);
+        // The live plan's own places (snapshot), not whatever the saved rows say now.
+        var evacSnap = ActivationPlaces.evacDto(a, evacuationPlanRepo);
+        var meetSnap = ActivationPlaces.meetingDto(a, meetingPlaceRepo);
+        String evac = evacSnap == null ? null : firstNonBlank(evacSnap.shelterName(), evacSnap.name(), evacSnap.destination());
+        String meet = meetSnap == null ? null : firstNonBlank(meetSnap.name(), meetSnap.address());
 
         if ("avoid_area".equals(movement)) return "Officials say to avoid the affected area.";
         if ("follow_official_instruction".equals(movement)) return "Follow official instructions.";
@@ -683,6 +687,9 @@ public class PlanActivationService {
 
         a.setMeetingPlaceId(meet);
         a.setEvacPlanId(evac);
+        // The live plan keeps what its places ARE now (V116): later edits to the
+        // saved rows never change this instruction silently.
+        ActivationPlaces.snapshot(a, meetingPlaceRepo, evacuationPlanRepo);
         PlanActivation saved = activationRepo.save(a);
         log.info("Activation changed id={} by={} choice={} stage={}", saved.getId(), caller, choice, stage);
 
@@ -734,8 +741,8 @@ public class PlanActivationService {
                 .filter(str -> !str.isBlank())
                 .orElse("Your household");
         String sentence = pushActionSentence(a);
-        String evac = a.getEvacPlanId() == null ? null : evacuationPlanRepo.findById(a.getEvacPlanId())
-                .map(e -> firstNonBlank(e.getShelterName(), e.getName(), e.getDestination())).orElse(null);
+        var evacSnap = ActivationPlaces.evacDto(a, evacuationPlanRepo);
+        String evac = evacSnap == null ? null : firstNonBlank(evacSnap.shelterName(), evacSnap.name(), evacSnap.destination());
         String body = wentNow && evac != null
                 ? name + ": everyone's together. Now go to " + evac + "."
                 : name + " changed the plan." + (sentence != null ? " " + sentence : "");
@@ -1275,7 +1282,7 @@ public class PlanActivationService {
         List<MapPoiDto> pois = new ArrayList<>();
 
         if (a.getMeetingPlaceId() != null) {
-            meetingPlaceRepo.findById(a.getMeetingPlaceId()).ifPresent(m -> {
+            java.util.Optional.ofNullable(ActivationPlaces.meeting(a, meetingPlaceRepo)).ifPresent(m -> {
                 if (GeoUtil.validLatLng(m.getLat(), m.getLng())) {
                     pois.add(planPoi("activation:meeting:" + m.getId(), "amenity", "meetup",
                             m.getName() != null ? m.getName() : "Meeting place",
@@ -1285,7 +1292,7 @@ public class PlanActivationService {
         }
 
         if (a.getEvacPlanId() != null) {
-            evacuationPlanRepo.findById(a.getEvacPlanId()).ifPresent(e -> {
+            java.util.Optional.ofNullable(ActivationPlaces.evac(a, evacuationPlanRepo)).ifPresent(e -> {
                 if (GeoUtil.validLatLng(e.getLat(), e.getLng())) {
                     String name = e.getShelterName() != null ? e.getShelterName()
                             : e.getDestination() != null ? e.getDestination() : "Shelter";
@@ -1624,19 +1631,11 @@ public class PlanActivationService {
 
     private ActivationDetailDto toDetailDto(PlanActivation a, boolean viewerCanEnd, boolean viewerIsOwner,
                                             boolean viewerCanChange) {
-        MeetingPlaceSnapshotDto mp = null;
-        if (a.getMeetingPlaceId() != null) {
-            mp = meetingPlaceRepo.findById(a.getMeetingPlaceId())
-                    .map(this::toMeetingPlaceSnapshot)
-                    .orElse(null);
-        }
-
-        EvacuationPlanSnapshotDto ep = null;
-        if (a.getEvacPlanId() != null) {
-            ep = evacuationPlanRepo.findById(a.getEvacPlanId())
-                    .map(this::toEvacPlanSnapshot)
-                    .orElse(null);
-        }
+        // The live plan's own places (V116 snapshot; pre-V116 rows fall back to
+        // the saved row). A saved edit shows up as a flag below, never as a
+        // silently different instruction.
+        MeetingPlaceSnapshotDto mp = ActivationPlaces.meetingDto(a, meetingPlaceRepo);
+        EvacuationPlanSnapshotDto ep = ActivationPlaces.evacDto(a, evacuationPlanRepo);
 
         List<EmergencyContactGroupSnapshotDto> ecgs;
         if (a.getContactGroupIds() == null || a.getContactGroupIds().isEmpty()) {
@@ -1680,6 +1679,8 @@ public class PlanActivationService {
                 viewerCanEnd,
                 viewerIsOwner,
                 viewerCanChange && !closed,
+                !closed && ActivationPlaces.meetingChanged(a, meetingPlaceRepo),
+                !closed && ActivationPlaces.evacChanged(a, evacuationPlanRepo),
                 a.getMeetingMode(),
                 a.getEvacMode(),
                 a.getMessagePreview(),
@@ -1769,10 +1770,8 @@ public class PlanActivationService {
      * can disagree with the household about whether to evacuate.
      */
     private PublicActivationDto toPublicActivationDto(PlanActivation a) {
-        MeetingPlace m = a.getMeetingPlaceId() == null ? null
-                : meetingPlaceRepo.findById(a.getMeetingPlaceId()).orElse(null);
-        EvacuationPlan e = a.getEvacPlanId() == null ? null
-                : evacuationPlanRepo.findById(a.getEvacPlanId()).orElse(null);
+        MeetingPlace m = ActivationPlaces.meeting(a, meetingPlaceRepo);
+        EvacuationPlan e = ActivationPlaces.evac(a, evacuationPlanRepo);
 
         PublicPlaceDto place = toPublicPlace(m);
         PublicDestinationDto dest = toPublicDestination(e);

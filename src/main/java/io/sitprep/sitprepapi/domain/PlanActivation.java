@@ -112,6 +112,20 @@ public class PlanActivation {
     @Column(name = "stage", length = 16)
     private String stage;
 
+    /**
+     * What the live plan's meeting spot and destination WERE when it was
+     * started or last changed (V116). Live reads use these, so editing or
+     * deleting the saved place never changes a live instruction silently; an
+     * admin re-snapshots on purpose ("Update & notify"). Null on pre-V116 rows.
+     */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "meeting_snapshot")
+    private io.sitprep.sitprepapi.dto.PlanActivationDtos.MeetingPlaceSnapshotDto meetingSnapshot;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "evac_snapshot")
+    private io.sitprep.sitprepapi.dto.PlanActivationDtos.EvacuationPlanSnapshotDto evacSnapshot;
+
     @Column(name = "governing_alert_source")
     private String governingAlertSource;
 
