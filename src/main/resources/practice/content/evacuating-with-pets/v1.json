@@ -223,7 +223,7 @@
         {
           "key": "pets_plan_rehearsed",
           "title": "You walked through an evacuation with pets",
-          "body": "This practice walked through leaving home with pets: bringing them when you evacuate, finding a pet that hides, and knowing where pets can stay. Ready.gov suggests a pet buddy, a neighbor, friend or relative who can care for or evacuate your pets if you can't, and a pet kit kept ready. If you'd like, talk it over together: where does each pet hide, who could be your pet buddy, and where could your pets stay if you had to leave?",
+          "body": "This practice covered leaving home with pets: bringing them when you evacuate, finding a pet that hides, and knowing where pets can stay. Ready.gov suggests a pet buddy, a neighbor, friend or relative who can care for or evacuate your pets if you can't, and a pet kit kept ready. If you'd like, talk it over together: where does each pet hide, who could be your pet buddy, and where could your pets stay if you had to leave?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "pet-buddy-and-place"
