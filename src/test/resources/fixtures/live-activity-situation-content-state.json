@@ -9,5 +9,8 @@
   "pickup": 1,
   "expiresAtEpoch": 1760572800,
   "asOfEpoch": 1760400000,
-  "note": null
+  "note": null,
+  "planStep": "Go to Price West Stake Center.",
+  "canChange": true,
+  "changePath": "/deployedplan?activationId=act-1&change=1"
 }

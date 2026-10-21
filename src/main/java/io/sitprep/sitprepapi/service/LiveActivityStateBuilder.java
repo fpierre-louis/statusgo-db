@@ -63,7 +63,10 @@ public class LiveActivityStateBuilder {
     /** {@code SituationAttributes.ContentState}'s keys, in declaration order. */
     public static final List<String> CONTENT_STATE_KEYS = List.of(
             "phase", "plan", "total", "accounted", "safe", "help", "injured",
-            "pickup", "expiresAtEpoch", "asOfEpoch", "note");
+            "pickup", "expiresAtEpoch", "asOfEpoch", "note",
+            // Evacuation plan clarity D4 (2026-10-20): the live plan's one step,
+            // and, per recipient, whether they may change it and where.
+            "planStep", "canChange", "changePath");
 
     private final GroupRepo groupRepo;
     private final PlanActivationRepo activationRepo;
@@ -71,6 +74,10 @@ public class LiveActivityStateBuilder {
     // Lazy: GroupService → LiveActivityPushService → this → GroupService would
     // be a constructor cycle, and this app does not allow circular references.
     private final ObjectProvider<GroupService> groupService;
+    // D4: the plan's step sentence lives in PlanActivationService (the same
+    // sentence the push carries). Lazy and optional: it injects the push
+    // service, which injects this.
+    private ObjectProvider<PlanActivationService> plans;
 
     public LiveActivityStateBuilder(GroupRepo groupRepo,
                                     PlanActivationRepo activationRepo,
@@ -80,6 +87,11 @@ public class LiveActivityStateBuilder {
         this.activationRepo = activationRepo;
         this.ackRepo = ackRepo;
         this.groupService = groupService;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setPlans(ObjectProvider<PlanActivationService> plans) {
+        this.plans = plans;
     }
 
     /**
@@ -96,7 +108,17 @@ public class LiveActivityStateBuilder {
                             Instant startedAt,
                             Instant expiresAt,
                             boolean plan,
-                            Integer pickup) {
+                            Integer pickup,
+                            /** D4: the live plan's one server-written step; null when no plan. */
+                            String planStep,
+                            /** D4: the live activation the step belongs to (for the change route). */
+                            String planActivationId) {
+        /** The pre-D4 shape: no plan step. */
+        public Situation(String groupId, String groupName, String groupType, CheckInRollupDto rollup,
+                         Instant startedAt, Instant expiresAt, boolean plan, Integer pickup) {
+            this(groupId, groupName, groupType, rollup, startedAt, expiresAt, plan, pickup, null, null);
+        }
+
         public int urgent() {
             return rollup == null ? 0 : Math.max(0, rollup.help()) + Math.max(0, rollup.injured());
         }
@@ -116,8 +138,10 @@ public class LiveActivityStateBuilder {
         if (!"Active".equalsIgnoreCase(g.getAlert())) return Optional.empty();
         CheckInRollupDto rollup = groupService.getObject().checkInRollupFor(g);
         PlanFacts plan = planFacts(g);
+        PlanActivationService.LivePlanStep step = plan.live() ? liveStep(g.getGroupId()) : null;
         return Optional.of(new Situation(g.getGroupId(), g.getGroupName(), g.getGroupType(), rollup,
-                g.getAlertActivatedAt(), g.getAlertExpiresAt(), plan.live(), plan.pickup()));
+                g.getAlertActivatedAt(), g.getAlertExpiresAt(), plan.live(), plan.pickup(),
+                step == null ? null : step.line(), step == null ? null : step.activationId()));
     }
 
     /**
@@ -140,6 +164,28 @@ public class LiveActivityStateBuilder {
     }
 
     private record PlanFacts(boolean live, Integer pickup) {}
+
+    /** D4: the plan's step, or null when the service is absent or the read fails (the card keeps its counts). */
+    private PlanActivationService.LivePlanStep liveStep(String groupId) {
+        PlanActivationService service = plans == null ? null : plans.getIfAvailable();
+        if (service == null) return null;
+        try {
+            return service.currentStep(groupId).orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** D4: may this viewer change the live plan? False when unsure: the button is only a door. */
+    public boolean canChangePlan(String email, String groupId) {
+        PlanActivationService service = plans == null ? null : plans.getIfAvailable();
+        if (service == null || email == null) return false;
+        try {
+            return service.canChangePlan(email, groupId);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
 
     /**
      * Whether a plan is live for this household, and how many people asked
@@ -184,6 +230,16 @@ public class LiveActivityStateBuilder {
      * null or a missing key as nil.
      */
     public static Map<String, Object> contentState(String phase, Situation s, Instant asOf, String note) {
+        return contentState(phase, s, asOf, note, false);
+    }
+
+    /**
+     * The same, for one viewer: {@code canChange} (D4) adds the "Change plan"
+     * door for an owner or household admin on a live plan card. The step shows
+     * to everyone on the plan card; an ended card carries neither.
+     */
+    public static Map<String, Object> contentState(String phase, Situation s, Instant asOf, String note,
+                                                   boolean canChange) {
         CheckInRollupDto r = s.rollup();
         int total = r == null ? 0 : Math.max(0, r.total());
         int safe = r == null ? 0 : Math.max(0, r.safe());
@@ -203,6 +259,13 @@ public class LiveActivityStateBuilder {
         m.put("expiresAtEpoch", PHASE_ENDED.equals(phase) ? null : epoch(s.expiresAt()));
         m.put("asOfEpoch", epoch(asOf));
         m.put("note", note);
+        boolean livePlan = s.plan() && !PHASE_ENDED.equals(phase);
+        String step = livePlan ? blankToNull(s.planStep()) : null;
+        boolean change = livePlan && canChange && s.planActivationId() != null;
+        m.put("planStep", step);
+        m.put("canChange", change);
+        m.put("changePath", change
+                ? io.sitprep.sitprepapi.notifications.NotificationRoutes.planChange(s.planActivationId()) : null);
         return m;
     }
 
@@ -268,5 +331,9 @@ public class LiveActivityStateBuilder {
 
     static Long epoch(Instant t) {
         return t == null ? null : t.getEpochSecond();
+    }
+
+    private static String blankToNull(String v) {
+        return v == null || v.isBlank() ? null : v.trim();
     }
 }

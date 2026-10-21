@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -299,6 +300,38 @@ class LiveActivityPushServiceTest {
 
         assertThat(aps(sent.get(0)).path("content-state").path("plan").asBoolean()).isTrue();
         assertThat(aps(sent.get(0)).path("content-state").path("pickup").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    void aLivePlanShowsItsStepToEveryone_andChangePlanOnlyToWhoMayChangeIt() throws Exception {
+        Situation plan = new Situation("hh-1", "Plouis household", "Household", situation(4, 0).rollup(),
+                START, START.plus(Duration.ofHours(48)), true, 0,
+                "Meet at UVU first, then go to Price West Stake Center.", "act-9");
+        when(builder.currentSituation("hh-1")).thenReturn(Optional.of(plan));
+        when(builder.canChangePlan(OWNER, "hh-1")).thenReturn(true);   // D3: the owner may change it
+
+        service.situationChanged("hh-1");
+        flush();
+
+        JsonNode owner = aps(sent.get(0)).path("content-state");
+        JsonNode admin = aps(sent.get(1)).path("content-state");
+        assertThat(owner.path("planStep").asText()).isEqualTo("Meet at UVU first, then go to Price West Stake Center.");
+        assertThat(owner.path("canChange").asBoolean()).isTrue();
+        assertThat(owner.path("changePath").asText()).isEqualTo("/deployedplan?activationId=act-9&change=1");
+        assertThat(admin.path("planStep").asText()).startsWith("Meet at UVU first");
+        assertThat(admin.path("canChange").asBoolean()).isFalse();
+        assertThat(admin.has("changePath")).isFalse();   // null keys are dropped on the wire
+    }
+
+    @Test
+    void anEndedCardCarriesNoStepAndNoChangeDoor() {
+        Situation plan = new Situation("hh-1", "x", "Household", situation(4, 0).rollup(),
+                START, null, true, 0, "Go to Price West Stake Center.", "act-9");
+        Map<String, Object> ended = LiveActivityStateBuilder.contentState(
+                LiveActivityStateBuilder.PHASE_ENDED, plan, START.plus(Duration.ofHours(1)), "Ended by you.", true);
+        assertThat(ended.get("planStep")).isNull();
+        assertThat(ended.get("canChange")).isEqualTo(false);
+        assertThat(ended.get("changePath")).isNull();
     }
 
     @Test

@@ -330,9 +330,15 @@ public class LiveActivityPushService {
         Map<String, Object> state = LiveActivityStateBuilder.contentState(
                 LiveActivityStateBuilder.PHASE_ACTIVE, s, now, null);
 
+        LiveActivityStateBuilder b = builder.get();
         for (LiveActivityToken t : live) {
             boolean alert = rose && !isSilenced(t.getUserEmail());
-            Map<String, Object> aps = aps("update", state, now, now.plus(STALE_AFTER), null, urgent,
+            // D4: "Change plan" is per recipient (an owner or household admin
+            // on a live plan), so a viewer who may change it gets their own state.
+            Map<String, Object> viewerState = s.plan() && b != null && b.canChangePlan(t.getUserEmail(), groupId)
+                    ? LiveActivityStateBuilder.contentState(LiveActivityStateBuilder.PHASE_ACTIVE, s, now, null, true)
+                    : state;
+            Map<String, Object> aps = aps("update", viewerState, now, now.plus(STALE_AFTER), null, urgent,
                     alert ? alert(LiveActivityStateBuilder.alertTitle(s),
                             LiveActivityStateBuilder.urgentAlertBody(s.rollup())) : null);
             deliver(t, buildMessage(t.getFcmToken(), t.getApnsToken(), apnsTopic, aps,

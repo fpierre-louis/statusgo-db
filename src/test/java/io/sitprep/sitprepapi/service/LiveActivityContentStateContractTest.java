@@ -48,7 +48,8 @@ class LiveActivityContentStateContractTest {
     private static final Path APP_FIXTURE = APP_SHARED.resolve("SituationContentState.fixture.json");
 
     /** Swift optionals: decodeIfPresent, so null or absent decodes to nil. */
-    private static final Set<String> OPTIONAL = Set.of("pickup", "expiresAtEpoch", "note");
+    private static final Set<String> OPTIONAL = Set.of("pickup", "expiresAtEpoch", "note",
+            "planStep", "canChange", "changePath");
 
     private static LinkedHashMap<String, Object> fixture() throws Exception {
         return JSON.readValue(Files.readString(FIXTURE), new TypeReference<>() {});
