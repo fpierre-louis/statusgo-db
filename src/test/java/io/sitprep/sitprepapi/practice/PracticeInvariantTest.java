@@ -48,6 +48,10 @@ class PracticeInvariantTest {
             "io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto",
             // EXEC-I3: the profile's hazard rows, read to order the catalog.
             "io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto",
+            // I10: does the household have pets — named pets or demographic counts, read
+            // with find* only (sharedRepositoriesAreReadOnly) to order the catalog.
+            "io.sitprep.sitprepapi.repo.HouseholdPetRepo",
+            "io.sitprep.sitprepapi.repo.DemographicRepo",
             "io.sitprep.sitprepapi.service.ConcealmentSafetyService",
             "io.sitprep.sitprepapi.repo.UserInfoRepo",
             "io.sitprep.sitprepapi.repo.GroupRepo",
@@ -62,6 +66,8 @@ class PracticeInvariantTest {
     private static final Pattern INLINE_FQN = Pattern.compile("(?<![\\w.\"])io\\.sitprep\\.sitprepapi\\.(?!practice\\b)[\\w.]+");
     private static final Pattern GROUP_REPO_CALL = Pattern.compile("groupRepo\\s*\\.\\s*(\\w+)\\s*\\(");
     private static final Pattern USER_REPO_CALL = Pattern.compile("userInfoRepo\\s*\\.\\s*(\\w+)\\s*\\(");
+    private static final Pattern PET_REPO_CALL = Pattern.compile("petRepo\\s*\\.\\s*(\\w+)\\s*\\(");
+    private static final Pattern DEMOGRAPHIC_REPO_CALL = Pattern.compile("demographicRepo\\s*\\.\\s*(\\w+)\\s*\\(");
 
     @Test
     void practiceDependsOnlyOnReadOnlyOutsideClasses() throws IOException {
@@ -96,7 +102,7 @@ class PracticeInvariantTest {
         List<String> violations = new ArrayList<>();
         for (Path file : sources()) {
             String src = Files.readString(file);
-            for (Pattern p : List.of(GROUP_REPO_CALL, USER_REPO_CALL)) {
+            for (Pattern p : List.of(GROUP_REPO_CALL, USER_REPO_CALL, PET_REPO_CALL, DEMOGRAPHIC_REPO_CALL)) {
                 Matcher m = p.matcher(src);
                 while (m.find()) {
                     if (!m.group(1).startsWith("find")) {

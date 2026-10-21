@@ -1,8 +1,12 @@
 package io.sitprep.sitprepapi.practice;
 
+import io.sitprep.sitprepapi.domain.Demographic;
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.domain.HouseholdPet;
 import io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskDto;
+import io.sitprep.sitprepapi.repo.DemographicRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
+import io.sitprep.sitprepapi.repo.HouseholdPetRepo;
 import io.sitprep.sitprepapi.service.RiskProfileService;
 import org.junit.jupiter.api.Test;
 
@@ -33,21 +37,60 @@ class ScenarioRelevanceTest {
         assertThat(ScenarioRelevance.ranksFor(null)).isEmpty();
     }
 
+    private final GroupRepo groups = mock(GroupRepo.class);
+    private final RiskProfileService risk = mock(RiskProfileService.class);
+    private final HouseholdPetRepo pets = mock(HouseholdPetRepo.class);
+    private final DemographicRepo demographics = mock(DemographicRepo.class);
+    private final ScenarioRelevance relevance = new ScenarioRelevance(groups, risk, pets, demographics);
+
     @Test
     void anUnknownHouseholdOrAnUnreadableProfileChangesNothing() {
-        GroupRepo groups = mock(GroupRepo.class);
-        RiskProfileService risk = mock(RiskProfileService.class);
-        ScenarioRelevance relevance = new ScenarioRelevance(groups, risk);
-
-        assertThat(relevance.ranks(null)).isEmpty();
-        verifyNoInteractions(groups, risk);
+        assertThat(relevance.matches(null)).isEmpty();
+        verifyNoInteractions(groups, risk, pets, demographics);
 
         when(groups.findByGroupId("org")).thenReturn(Optional.of(group("org", "Organization")));
-        assertThat(relevance.ranks("org")).isEmpty();
+        assertThat(relevance.matches("org")).isEmpty();
 
         when(groups.findByGroupId("hh")).thenReturn(Optional.of(group("hh", "Household")));
         when(risk.resolveFor(any())).thenThrow(new IllegalStateException("geocoder down"));
-        assertThat(relevance.ranks("hh")).isEmpty();
+        when(pets.findByHouseholdIdOrderByCreatedAtAsc("hh")).thenReturn(List.of());
+        when(demographics.findFirstByHouseholdIdOrderByIdDesc("hh")).thenReturn(Optional.empty());
+        assertThat(relevance.matches("hh")).isEmpty();
+    }
+
+    // -- I10: a household with pets sees the pets scenario first ----------------
+
+    @Test
+    void aNamedPetPutsThePetsScenarioNearTheTopEvenWhenTheProfileFails() {
+        when(groups.findByGroupId("hh")).thenReturn(Optional.of(group("hh", "Household")));
+        when(risk.resolveFor(any())).thenThrow(new IllegalStateException("geocoder down"));
+        when(pets.findByHouseholdIdOrderByCreatedAtAsc("hh")).thenReturn(List.of(new HouseholdPet()));
+        assertThat(relevance.matches("hh")).containsExactly(Map.entry("evacuating-with-pets",
+                new ScenarioRelevance.Match(1, "Your household has pets")));
+    }
+
+    @Test
+    void aPetCountOnTheDemographicsCountsTooAndNoPetsMeansNoNote() {
+        when(groups.findByGroupId("hh")).thenReturn(Optional.of(group("hh", "Household")));
+        when(pets.findByHouseholdIdOrderByCreatedAtAsc("hh")).thenReturn(List.of());
+        Demographic d = new Demographic();
+        d.setCats(1);
+        when(demographics.findFirstByHouseholdIdOrderByIdDesc("hh")).thenReturn(Optional.of(d));
+        assertThat(relevance.matches("hh")).containsKey("evacuating-with-pets");
+
+        d.setCats(0);
+        assertThat(relevance.matches("hh")).doesNotContainKey("evacuating-with-pets");
+    }
+
+    @Test
+    void aLocalHazardAndPetsBothMatchAndAVeryHighHazardStaysFirst() {
+        when(groups.findByGroupId("hh")).thenReturn(Optional.of(group("hh", "Household")));
+        when(risk.resolveFor(any())).thenReturn(new io.sitprep.sitprepapi.dto.RiskProfileDtos.RiskProfileDto(
+                "saved_home", "CA", "California", List.of(risk("earthquake", "very_high")), List.of(), List.of(), null, null));
+        when(pets.findByHouseholdIdOrderByCreatedAtAsc("hh")).thenReturn(List.of(new HouseholdPet()));
+        var m = relevance.matches("hh");
+        assertThat(m.get("earthquake-first-five-minutes").rank()).isLessThan(m.get("evacuating-with-pets").rank());
+        assertThat(m.get("earthquake-first-five-minutes").note()).isEqualTo("A risk where you live");
     }
 
     private static Group group(String id, String type) {

@@ -116,16 +116,18 @@ public class ScenarioService {
         String hid = householdScope(email, householdId);
         SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
 
-        // EXEC-I3: scenarios for the area's known hazards first, highest tier first; the rest keep catalog order.
-        Map<String, Integer> local = relevance == null ? Map.of() : relevance.ranks(hid);
+        // EXEC-I3: scenarios for the area's known hazards first, highest tier first, and the pets
+        // scenario for a household with pets (I10); the rest keep catalog order.
+        Map<String, ScenarioRelevance.Match> local = relevance == null ? Map.of() : relevance.matches(hid);
         List<ScenarioCardDto> cards = new ArrayList<>();
         for (Entry e : availability.startable(PracticeKind.ADULT_SCENARIO)) {
             Version v = e.version();
             cards.add(new ScenarioCardDto(v.key(), v.version(), v.body().title(), v.body().summary(),
                     v.body().estimatedMinutes(), e.preview(),
-                    local.containsKey(v.key()) ? ScenarioRelevance.LOCAL_NOTE : null));
+                    local.containsKey(v.key()) ? local.get(v.key()).note() : null));
         }
-        cards.sort(java.util.Comparator.comparingInt(c -> local.getOrDefault(c.key(), Integer.MAX_VALUE)));
+        cards.sort(java.util.Comparator.comparingInt(c ->
+                local.containsKey(c.key()) ? local.get(c.key()).rank() : Integer.MAX_VALUE));
 
         List<InProgressDto> inProgress = new ArrayList<>();
         for (ScenarioRun r : scopeRuns(email, hid)) {

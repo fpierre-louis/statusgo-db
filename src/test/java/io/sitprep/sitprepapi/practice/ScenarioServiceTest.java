@@ -402,6 +402,12 @@ class ScenarioServiceTest {
     // -- EXEC-I3: relevant where you live --------------------------------
 
     private ScenarioService withRelevance(Map<String, Integer> ranks) {
+        Map<String, ScenarioRelevance.Match> matches = new java.util.HashMap<>();
+        if (ranks != null) ranks.forEach((k, r) -> matches.put(k, new ScenarioRelevance.Match(r, ScenarioRelevance.LOCAL_NOTE)));
+        return withMatches(ranks == null ? null : matches);
+    }
+
+    private ScenarioService withMatches(Map<String, ScenarioRelevance.Match> matches) {
         Version quake = version(approve(scenario("earthquake-first-five-minutes", 1), PublishState.PUBLISHED));
         PracticeCatalog catalog = PracticeCatalog.of(List.of(live, quake));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -411,9 +417,19 @@ class ScenarioServiceTest {
         household.setGroupId(HH);
         household.setGroupType("Household");
         when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
-        ScenarioRelevance relevance = ranks == null ? null : mock(ScenarioRelevance.class);
-        if (relevance != null) when(relevance.ranks(any())).thenReturn(ranks);
+        ScenarioRelevance relevance = matches == null ? null : mock(ScenarioRelevance.class);
+        if (relevance != null) when(relevance.matches(any())).thenReturn(matches);
         return new ScenarioService(availability, suppression, inMemoryRepo(), groups, access, relevance, clock);
+    }
+
+    @Test
+    void eachMatchCarriesItsOwnNote() {
+        var cards = withMatches(Map.of(
+                "earthquake-first-five-minutes", new ScenarioRelevance.Match(0, ScenarioRelevance.LOCAL_NOTE),
+                KEY, new ScenarioRelevance.Match(1, ScenarioRelevance.PETS_NOTE))).catalog(ME, HH).scenarios();
+        assertThat(keys(cards)).containsExactly("earthquake-first-five-minutes", KEY);
+        assertThat(cards.get(0).localNote()).isEqualTo("A risk where you live");
+        assertThat(cards.get(1).localNote()).isEqualTo("Your household has pets");
     }
 
     private static List<String> keys(List<ScenarioDtos.ScenarioCardDto> cards) {
