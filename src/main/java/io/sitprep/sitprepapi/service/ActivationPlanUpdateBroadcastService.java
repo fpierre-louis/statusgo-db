@@ -64,7 +64,25 @@ public class ActivationPlanUpdateBroadcastService {
         if (householdId != null) {
             activationRepo.findLiveByHouseholdId(householdId, updatedAt).forEach(a -> live.put(a.getId(), a));
         }
-        List<ActivationPlanUpdatedFrame> frames = live.values().stream()
+        dispatch(householdId, live.values(), kind, updatedAt);
+    }
+
+    /**
+     * The same two signals for a writer that already knows the household (go
+     * bags, the meal plan, a plan confirmation): the household's plan frame,
+     * and a nudge to its live plans (the live page shows the household's go
+     * bags). Household Plan dashboard, 2026-10-21.
+     */
+    public void broadcastHouseholdPlanChangedAfterCommit(String householdId, String resourceKind) {
+        String kind = normalizeKind(resourceKind);
+        String hid = householdId == null || householdId.isBlank() ? null : householdId.trim();
+        if (hid == null || kind == null) return;
+        Instant updatedAt = Instant.now();
+        dispatch(hid, activationRepo.findLiveByHouseholdId(hid, updatedAt), kind, updatedAt);
+    }
+
+    private void dispatch(String householdId, java.util.Collection<PlanActivation> live, String kind, Instant updatedAt) {
+        List<ActivationPlanUpdatedFrame> frames = live.stream()
                 .map(a -> toFrame(a, kind, updatedAt))
                 .toList();
         java.util.Map<String, Object> householdFrame = householdId == null ? null : java.util.Map.of(

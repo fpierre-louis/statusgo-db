@@ -93,6 +93,22 @@ class EssentialsReadinessServiceTest {
     }
 
     @Test
+    void aSafeRoomAloneIsNotAMeetingSpot() {
+        allFourPresent();
+        MeetingPlace safe = new MeetingPlace();
+        safe.setMeetingTier(io.sitprep.sitprepapi.domain.MeetingPlaceTier.INDOOR_SAFE_ROOM);
+        MeetingPlace legacySafe = new MeetingPlace();
+        legacySafe.setTierKey("safe_room"); // older row: tier OTHER, key says safe room
+        when(meetingPlaces.findByHouseholdId(HH)).thenReturn(List.of(safe, legacySafe));
+        assertThat(service.evaluate(household, ME, false).evacuation()).isFalse();
+
+        MeetingPlace park = new MeetingPlace();
+        park.setMeetingTier(io.sitprep.sitprepapi.domain.MeetingPlaceTier.OUTSIDE_HOME);
+        when(meetingPlaces.findByHouseholdId(HH)).thenReturn(List.of(safe, park));
+        assertThat(service.evaluate(household, ME, false).evacuation()).isTrue();
+    }
+
+    @Test
     void anEmptyContactGroupStillPasses() {
         allFourPresent();
         EmergencyContactGroup empty = new EmergencyContactGroup();

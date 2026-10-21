@@ -19,6 +19,19 @@ public class MealPlanDataService {
         this.householdResolver = householdResolver;
     }
 
+    // Setter-injected so hand-built tests stay unchanged. The household's plan
+    // frame lets every member's saved-plan dashboard refetch (EXEC-7).
+    private ActivationPlanUpdateBroadcastService planBroadcast;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPlanBroadcast(ActivationPlanUpdateBroadcastService planBroadcast) {
+        this.planBroadcast = planBroadcast;
+    }
+
+    private void announcePlan(String householdId, String kind) {
+        if (planBroadcast != null) planBroadcast.broadcastHouseholdPlanChangedAfterCommit(householdId, kind);
+    }
+
     // getAllMealPlans() removed with its only caller, the deleted dump-all
     // route. See MealPlanDataResource for why.
 
@@ -70,7 +83,7 @@ public class MealPlanDataService {
                     existing.getMealPlan().add(mp);
                 }
             }
-            return repository.save(existing);
+            return announced(repository.save(existing));
         }
 
         // New record. Force a clean INSERT: MealPlanData.id is DB IDENTITY-
@@ -89,7 +102,7 @@ public class MealPlanDataService {
                 mp.setMealPlanData(incoming);
             }
         }
-        return repository.save(incoming);
+        return announced(repository.save(incoming));
     }
 
     /**
@@ -124,7 +137,7 @@ public class MealPlanDataService {
         if (existing == null) return Optional.empty();
 
         existing.setSuppliesGathered(gathered);
-        return Optional.of(repository.save(existing));
+        return Optional.of(announced(repository.save(existing)));
     }
 
     /** Update by route ownerEmail; throw to signal 404 to controller */
@@ -152,7 +165,12 @@ public class MealPlanDataService {
                 existing.getMealPlan().add(mp);
             }
         }
-        return repository.save(existing);
+        return announced(repository.save(existing));
+    }
+
+    private MealPlanData announced(MealPlanData saved) {
+        if (saved != null) announcePlan(saved.getHouseholdId(), "mealPlan");
+        return saved;
     }
 
     @Transactional

@@ -28,7 +28,7 @@ import java.util.function.Supplier;
  *
  * <p>Five checks, AND not OR:</p>
  * <ul>
- *   <li>{@code evacuation}: meeting places &gt; 0 AND evacuation plans (routes) &gt; 0</li>
+ *   <li>{@code evacuation}: meeting places (not the safe room) &gt; 0 AND evacuation plans (routes) &gt; 0</li>
  *   <li>{@code contacts}: contact GROUPS &gt; 0 (an empty group passes, as on Home)</li>
  *   <li>{@code mealPlan}: a {@code MealPlanData} row exists (menus not required, as on Home)</li>
  *   <li>{@code demographics}: head count (people + pets) &gt; 0; no household → fails</li>
@@ -150,9 +150,13 @@ public class EssentialsReadinessService {
         boolean ownerFallback = hid != null && !email.isEmpty() && requesterBase;
         boolean hasHousehold = hid != null && !hid.isBlank();
 
-        int meetingPlaces = householdFirst(
+        // The safe room is where the household STAYS (Stay home), not a place
+        // to meet if it leaves: it does not count as a meeting spot (EXEC-7).
+        int meetingPlaces = (int) householdFirst(
                 hasHousehold ? meetingPlaceRepo.findByHouseholdId(hid) : List.of(),
-                ownerFallback, () -> meetingPlaceRepo.findByOwnerEmail(email)).size();
+                ownerFallback, () -> meetingPlaceRepo.findByOwnerEmail(email)).stream()
+                .filter(m -> !isSafeRoom(m))
+                .count();
         int routes = householdFirst(
                 hasHousehold ? evacuationPlanRepo.findByHouseholdId(hid) : List.of(),
                 ownerFallback, () -> evacuationPlanRepo.findByOwnerEmail(email)).size();
@@ -205,5 +209,14 @@ public class EssentialsReadinessService {
         if (!fallbackAllowed) return List.of();
         List<T> owned = byOwner.get();
         return owned == null ? List.of() : owned;
+    }
+
+    static boolean isSafeRoom(io.sitprep.sitprepapi.domain.MeetingPlace m) {
+        if (m == null) return false;
+        io.sitprep.sitprepapi.domain.MeetingPlaceTier t = m.getMeetingTier();
+        if (t == null || t == io.sitprep.sitprepapi.domain.MeetingPlaceTier.OTHER) {
+            t = io.sitprep.sitprepapi.service.MeetingPlaceService.inferMeetingTier(m.getTierKey());
+        }
+        return t == io.sitprep.sitprepapi.domain.MeetingPlaceTier.INDOOR_SAFE_ROOM;
     }
 }

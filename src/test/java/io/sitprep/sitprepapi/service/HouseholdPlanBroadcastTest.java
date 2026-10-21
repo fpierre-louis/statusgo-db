@@ -39,4 +39,40 @@ class HouseholdPlanBroadcastTest {
         verify(ws).sendActivationPlanUpdate(eq("act-by-dana"), any());
         verify(ws).sendHouseholdPlan(eq("hh-1"), any(Map.class));
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a writer that knows its household (go bags, meal plan, confirm) sends the plan frame and nudges live plans")
+    void broadcastsForAKnownHousehold() {
+        PlanActivationRepo repo = mock(PlanActivationRepo.class);
+        WebSocketMessageSender ws = mock(WebSocketMessageSender.class);
+        ActivationPlanUpdateBroadcastService svc = new ActivationPlanUpdateBroadcastService(repo, ws);
+        io.sitprep.sitprepapi.domain.PlanActivation live = new io.sitprep.sitprepapi.domain.PlanActivation();
+        live.setId("act-live");
+        when(repo.findLiveByHouseholdId(eq("hh-2"), any())).thenReturn(List.of(live));
+
+        svc.broadcastHouseholdPlanChangedAfterCommit("hh-2", "goBags");
+
+        verify(ws).sendHouseholdPlan(eq("hh-2"), any(Map.class));
+        verify(ws).sendActivationPlanUpdate(eq("act-live"), any());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a saved meal plan tells its household")
+    void mealPlanSaveAnnounces() {
+        io.sitprep.sitprepapi.repo.MealPlanDataRepo mealRepo = mock(io.sitprep.sitprepapi.repo.MealPlanDataRepo.class);
+        HouseholdResolver resolver = mock(HouseholdResolver.class);
+        ActivationPlanUpdateBroadcastService bc = mock(ActivationPlanUpdateBroadcastService.class);
+        MealPlanDataService meals = new MealPlanDataService(mealRepo, resolver);
+        meals.setPlanBroadcast(bc);
+        when(resolver.baseHouseholdIdFor("a@x.com")).thenReturn("hh-3");
+        when(mealRepo.findFirstByHouseholdId(any())).thenReturn(java.util.Optional.empty());
+        when(mealRepo.findFirstByOwnerEmailIgnoreCase(any())).thenReturn(java.util.Optional.empty());
+        when(mealRepo.save(any(io.sitprep.sitprepapi.domain.MealPlanData.class))).thenAnswer(i -> i.getArgument(0));
+        io.sitprep.sitprepapi.domain.MealPlanData in = new io.sitprep.sitprepapi.domain.MealPlanData();
+        in.setOwnerEmail("a@x.com");
+
+        meals.upsert(in);
+
+        verify(bc).broadcastHouseholdPlanChangedAfterCommit("hh-3", "mealPlan");
+    }
 }

@@ -76,6 +76,19 @@ public class GoBagService {
         this.ws = ws;
     }
 
+    // Setter-injected so hand-built tests stay unchanged. The household's plan
+    // frame lets every member's saved-plan dashboard refetch (EXEC-7).
+    private ActivationPlanUpdateBroadcastService planBroadcast;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPlanBroadcast(ActivationPlanUpdateBroadcastService planBroadcast) {
+        this.planBroadcast = planBroadcast;
+    }
+
+    private void announcePlan(String householdId, String kind) {
+        if (planBroadcast != null) planBroadcast.broadcastHouseholdPlanChangedAfterCommit(householdId, kind);
+    }
+
     /**
      * Broadcast the current state of a bag to the household's supplies topic so
      * a packed/added/deleted/refreshed item syncs live across every member's
@@ -203,6 +216,7 @@ public class GoBagService {
                             req.seniorNeeds(), req.medicalNeeds()),
                     req.expirySeeds(), List.of());
         }
+        announcePlan(saved.getHouseholdId(), "goBags");
         return toDto(saved, items);
     }
 
@@ -220,6 +234,7 @@ public class GoBagService {
         if (req.strategy() != null) bag.setStrategy(normalizedStrategy(req.strategy()));
         if (req.premadeKitLabel() != null) bag.setPremadeKitLabel(trimToNull(req.premadeKitLabel()));
         bagRepo.save(bag);
+        announcePlan(bag.getHouseholdId(), "goBags");
         return toDto(bag, itemRepo.findByBagIdOrderByPriorityAscCreatedAtAsc(bagId));
     }
 
@@ -228,6 +243,7 @@ public class GoBagService {
         GoBag bag = requireBag(bagId);
         itemRepo.deleteByBagId(bag.getId());
         bagRepo.delete(bag);
+        announcePlan(bag.getHouseholdId(), "goBags");
     }
 
     // ---------------------------------------------------------------------

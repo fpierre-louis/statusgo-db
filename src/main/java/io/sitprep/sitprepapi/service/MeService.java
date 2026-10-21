@@ -714,12 +714,26 @@ public class MeService {
      * responsibility — this method assumes the caller has already
      * verified.</p>
      */
+    // Setter-injected so hand-built tests stay unchanged. The household's plan
+    // frame lets every member's saved-plan dashboard refetch (EXEC-7).
+    private ActivationPlanUpdateBroadcastService planBroadcast;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPlanBroadcast(ActivationPlanUpdateBroadcastService planBroadcast) {
+        this.planBroadcast = planBroadcast;
+    }
+
+    private void announcePlan(String householdId, String kind) {
+        if (planBroadcast != null) planBroadcast.broadcastHouseholdPlanChangedAfterCommit(householdId, kind);
+    }
+
     @Transactional
     public HouseholdPlanDto confirmHouseholdPlan(String householdId) {
         Group g = groupRepo.findByGroupId(householdId)
                 .orElseThrow(() -> new IllegalArgumentException("Household not found: " + householdId));
         g.setPlanLastConfirmedAt(java.time.Instant.now());
         groupRepo.save(g);
+        announcePlan(householdId, "planConfirmed");
         return buildHouseholdPlanDocument(householdId);
     }
 
