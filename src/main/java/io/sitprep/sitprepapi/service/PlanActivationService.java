@@ -751,7 +751,7 @@ public class PlanActivationService {
         var evacSnap = ActivationPlaces.evacDto(a, evacuationPlanRepo);
         String evac = evacSnap == null ? null : firstNonBlank(evacSnap.shelterName(), evacSnap.name(), evacSnap.destination());
         String body = wentNow && evac != null
-                ? name + ": everyone's together. Now go to " + evac + "."
+                ? name + ": your household is together. Now go to " + evac + "."
                 : name + " changed the plan." + (sentence != null ? " " + sentence : "");
 
         List<UserInfo> members = userInfoRepo.findByUserEmailIn(household.getMemberEmails());
@@ -1939,7 +1939,7 @@ public class PlanActivationService {
                 reason = "evacuate".equals(movement)
                         ? "Officials say to evacuate. Use the meeting spot only if you get separated."
                         : MEET_THEN_GO.equals(a.getRoutePlan())
-                                ? "Everyone's together. Use the meeting spot if anyone gets separated."
+                                ? "Your household is together. Use the meeting spot if anyone gets separated."
                                 : "This plan goes to the destination. Use the meeting spot if you get separated.";
             }
         } else if ("SHELTERING".equals(effective)) {

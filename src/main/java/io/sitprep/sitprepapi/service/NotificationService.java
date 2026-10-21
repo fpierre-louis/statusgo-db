@@ -1083,7 +1083,7 @@ public class NotificationService {
      *
      * <p>The initiator is excluded from the fan-out (they're the one
      * asking). {@code initiatorName} is used in the body copy so the
-     * ping reads as personal ("Dana asked everyone to check in") rather
+     * ping reads as personal ("Dana asked your household to check in") rather
      * than system-generated.</p>
      */
     public void notifyCheckInRequest(Group group, String initiatedByEmail, String initiatorName) {
@@ -1099,7 +1099,8 @@ public class NotificationService {
                 ? initiatorName.trim()
                 : "Someone in your household";
         String title = group.getGroupName() != null ? group.getGroupName() : "Check in";
-        String body = who + " asked everyone to check in. Tap to share your status.";
+        // "Your household", not "everyone" (owner 2026-10-21, EXEC-14).
+        String body = who + " asked your household to check in. Tap to share your status.";
         String referenceId = group.getGroupId();
         String targetUrl = "/status-now";
 

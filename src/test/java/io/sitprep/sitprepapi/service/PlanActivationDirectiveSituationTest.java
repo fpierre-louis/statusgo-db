@@ -247,7 +247,7 @@ class PlanActivationDirectiveSituationTest {
         assertThat(a.getStage()).isEqualTo("GOING");
         assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("evacuate");
         assertThat(detail.activeSituation().suppressedReason())
-                .isEqualTo("Everyone's together. Use the meeting spot if anyone gets separated.");
+                .isEqualTo("Your household is together. Use the meeting spot if anyone gets separated.");
         assertThat(detail.viewerCanChange()).isTrue();
     }
 
