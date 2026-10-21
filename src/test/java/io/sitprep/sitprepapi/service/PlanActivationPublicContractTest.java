@@ -212,6 +212,14 @@ class PlanActivationPublicContractTest {
         }
 
         @Test
+        @DisplayName("no edit capability: a link holder never gets Change plan or the saved-plan notice")
+        void noEditCapability() throws Exception {
+            String json = anonymousJson();
+            assertThat(json).doesNotContain("viewerCanChange");
+            assertThat(json).doesNotContain("SavedChanged");
+        }
+
+        @Test
         @DisplayName("internal identity: owner user id, subject linkage, or row ids")
         void noInternalIdentifiers() throws Exception {
             String json = anonymousJson();

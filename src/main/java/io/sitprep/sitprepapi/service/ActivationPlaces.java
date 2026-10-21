@@ -41,10 +41,13 @@ public final class ActivationPlaces {
 
     /** Take (or retake) the live plan's snapshot from the saved rows it points at. */
     public static void snapshot(PlanActivation a, MeetingPlaceRepo meetings, EvacuationPlanRepo evacs) {
+        // A saved row deleted after the plan started keeps the earlier snapshot:
+        // re-snapshotting must never blank a live instruction. Picking another
+        // place is a Change plan, not an update.
         a.setMeetingSnapshot(a.getMeetingPlaceId() == null ? null
-                : meetings.findById(a.getMeetingPlaceId()).map(ActivationPlaces::snapshotOf).orElse(null));
+                : meetings.findById(a.getMeetingPlaceId()).map(ActivationPlaces::snapshotOf).orElse(a.getMeetingSnapshot()));
         a.setEvacSnapshot(a.getEvacPlanId() == null ? null
-                : evacs.findById(a.getEvacPlanId()).map(ActivationPlaces::snapshotOf).orElse(null));
+                : evacs.findById(a.getEvacPlanId()).map(ActivationPlaces::snapshotOf).orElse(a.getEvacSnapshot()));
     }
 
     /** The live plan's meeting spot as a DTO: its snapshot, else (pre-V116) the saved row. */

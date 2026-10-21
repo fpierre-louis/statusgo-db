@@ -409,6 +409,22 @@ class PlanActivationDirectiveSituationTest {
         assertThat(detail.meetingPlaceSavedChanged()).isFalse();
     }
 
+    @Test
+    @DisplayName("Update & notify after a saved delete keeps the earlier place, never blanks it")
+    void updateAfterSavedDeleteKeepsEarlierPlace() {
+        PlanActivation a = snapshotted(plainActivation());
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+        when(meetingRepo.findById(4242L)).thenReturn(Optional.empty());
+
+        var detail = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest(null, null, null, null), OWNER);
+
+        assertThat(detail.meetingPlace().name()).isEqualTo("Oak Park");
+        assertThat(detail.activeSituation().primaryActionKind()).isEqualTo("meet");
+    }
+
     // ── D6 ──────────────────────────────────────────────────────────────────
 
     @Test
