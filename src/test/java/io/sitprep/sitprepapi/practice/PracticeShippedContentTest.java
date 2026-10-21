@@ -691,4 +691,40 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as("production starts v2; runs pinned to v1 still finish").isEqualTo(2));
     }
+
+    // -- Evacuating with Pets v1 ------------------------------------------------
+
+    static final String PETS = "evacuating-with-pets";
+    static final String PETS_V1_DRAFT_HASH = "sha256:b5fc1a0c706d445f45b3a578f7f6bd5cd520ae99fbe464a56d27ab31d2e9aa62";
+
+    @Test
+    void evacuatingWithPetsIsADraftWithASecondChanceAndOpensThePetDrills() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v1 = catalog.exact(PETS, 1).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v1)).isEmpty();
+        assertThat(v1.contentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
+        assertThat(v1.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v1.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v1.body().sources()).allSatisfy(src ->
+                assertThat(src.url()).matches("https://www\\.(ready\\.gov|redcross\\.org)/.*"));
+
+        var sc = v1.body().scenario();
+        Map<String, Node> nodes = new HashMap<>();
+        sc.nodes().forEach(n -> nodes.put(n.key(), n));
+        assertThat(nodes.get("order_issued").choices()).filteredOn(c -> !c.key().equals("bring_pets"))
+                .allSatisfy(c -> assertThat(c.next()).isEqualTo("loading_car"));
+        assertThat(longestPath(sc.startNode(), nodes)).isLessThanOrEqualTo(4);
+        // Both practice lines open a real household drill (FE challenges.js PET_DRILLS).
+        assertThat(v1.body().tags().values()).filteredOn(t -> t.action() != null)
+                .extracting(t -> t.params().get("drillId"))
+                .containsExactlyInAnyOrder("pet-buddy-and-place", "pet-carrier-round");
+        assertThat(sc.outcomes()).singleElement().satisfies(o -> assertThat(o.body()).contains("talk it over together"));
+
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-21T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .noneMatch(e -> e.version().key().equals(PETS));
+    }
 }

@@ -32,6 +32,13 @@ public enum DebriefTag {
     PREPARED_FOR_AFTERSHOCK(Polarity.STRONG),
     NEEDS_EARTHQUAKE_DRILL(Polarity.PRACTICE),
 
+    // Adult scenarios — Evacuating with Pets
+    EVACUATED_WITH_PETS(Polarity.STRONG),
+    FOUND_HIDING_PET(Polarity.STRONG),
+    ARRANGED_PET_PLACE(Polarity.STRONG),
+    NEEDS_PET_PLAN(Polarity.PRACTICE),
+    NEEDS_CARRIER_PRACTICE(Polarity.PRACTICE),
+
     // Adult scenarios — Tornado Warning: Shelter Decision (EXEC-I6)
     SHELTERED_LOWEST_INTERIOR(Polarity.STRONG),
     PROTECTED_FROM_DEBRIS(Polarity.STRONG),

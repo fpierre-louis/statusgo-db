@@ -1,0 +1,235 @@
+{
+  "schema": 1,
+  "key": "evacuating-with-pets",
+  "version": 1,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "reviewedAt": null,
+      "reviewedBy": null,
+      "reviewedContentHash": null,
+      "notes": "Evacuating with Pets v1: an evacuation order with a dog and a cat; bring the pets, find a pet that hides, choose a place that takes pets. Awaiting independent review."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Evacuating with pets",
+    "summary": "An evacuation order comes while your household is home with a dog and a cat. Practice bringing your pets, finding a pet that hides, and choosing where pets can stay.",
+    "objective": "Practice including pets when your household evacuates.",
+    "estimatedMinutes": 4,
+    "sources": [
+      {
+        "label": "Ready.gov — Pets",
+        "url": "https://www.ready.gov/pets"
+      },
+      {
+        "label": "Ready.gov — Evacuation",
+        "url": "https://www.ready.gov/evacuation"
+      },
+      {
+        "label": "American Red Cross — Pet Disaster Preparedness",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/pet-disaster-preparedness.html"
+      }
+    ],
+    "tags": {
+      "evacuated_with_pets": {
+        "text": "You planned to bring every pet when the household evacuated."
+      },
+      "found_hiding_pet": {
+        "text": "You checked where your pet hides and used a familiar carrier."
+      },
+      "arranged_pet_place": {
+        "text": "You chose a place to stay that you knew would welcome your pets."
+      },
+      "needs_pet_plan": {
+        "text": "Pick a pet buddy and a place your pets could stay if you had to leave.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "pet-buddy-and-place"
+        }
+      },
+      "needs_carrier_practice": {
+        "text": "Practice finding each pet and getting it into its carrier.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "pet-carrier-round"
+        }
+      }
+    },
+    "scenario": {
+      "startNode": "order_issued",
+      "nodes": [
+        {
+          "key": "order_issued",
+          "title": "An evacuation order",
+          "scene": "Saturday, 2:10 PM · At home",
+          "body": "Local officials have ordered your neighborhood to evacuate. Your household has a dog and a cat, and you want to be on the road within 15 minutes.",
+          "prompt": "What is the plan for the pets?",
+          "choices": [
+            {
+              "key": "leave_with_food",
+              "label": "Leave the pets inside with extra food and water",
+              "consequence": "The pets stay in the house while everyone else gets ready to leave.",
+              "feedback": "Ready.gov says that if local officials ask you to evacuate, your pet should evacuate too. The Red Cross says that if it's not safe for you to stay behind, it's not safe to leave pets behind either.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "loading_car"
+            },
+            {
+              "key": "bring_pets",
+              "label": "Bring both pets, with the carrier, leash and pet kit",
+              "consequence": "The dog's leash and the pet kit go by the door, and you go to find the cat.",
+              "feedback": "Ready.gov says pets are part of your family's emergency plan, and that if officials ask you to evacuate, your pet should evacuate too.",
+              "tags": [
+                "evacuated_with_pets"
+              ],
+              "next": "cat_hiding"
+            },
+            {
+              "key": "dog_only",
+              "label": "Take the dog, and leave the cat, since cats do fine on their own",
+              "consequence": "The dog's leash goes by the door, and the cat stays in the house.",
+              "feedback": "Ready.gov's advice covers every pet: if you are asked to evacuate, your pet should evacuate too. It says pets left behind may end up lost or injured.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "loading_car"
+            }
+          ]
+        },
+        {
+          "key": "loading_car",
+          "title": "Loading the car",
+          "scene": "2:20 PM · In the driveway",
+          "body": "The car is almost packed. The order covers your whole neighborhood, and you don't know when you'll be allowed back.",
+          "prompt": "What do you do about the pets now?",
+          "choices": [
+            {
+              "key": "leave_now",
+              "label": "Leave now and come back for the pets later",
+              "consequence": "You pull away while the pets are still inside.",
+              "feedback": "Ready.gov says pets left behind may end up lost or injured. The Red Cross says the best way to protect your pets is to evacuate them too.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "where_to_stay"
+            },
+            {
+              "key": "open_window",
+              "label": "Leave a window open so the pets can get out if they need to",
+              "consequence": "The window stays open, and the pets stay inside.",
+              "feedback": "Ready.gov says pets left behind may end up lost or injured, and that if you are asked to evacuate, your pet should evacuate too.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "where_to_stay"
+            },
+            {
+              "key": "go_back_for_pets",
+              "label": "Go back inside for the pets, the carrier and the leash",
+              "consequence": "You head back in for the pets and their things.",
+              "feedback": "Ready.gov says that if officials ask you to evacuate, your pet should evacuate too. The Red Cross says the best way to protect your pets is to evacuate them too.",
+              "tags": [
+                "evacuated_with_pets"
+              ],
+              "next": "cat_hiding"
+            }
+          ]
+        },
+        {
+          "key": "cat_hiding",
+          "title": "The cat is hiding",
+          "scene": "Inside · A few minutes later",
+          "body": "The dog is on its leash by the door, but the cat has disappeared. You need to leave soon.",
+          "prompt": "How do you find the cat?",
+          "choices": [
+            {
+              "key": "call_from_door",
+              "label": "Call the cat's name from the doorway and wait for it to come out",
+              "consequence": "You wait at the door while the minutes pass.",
+              "feedback": "Ready.gov suggests making note of where your pets hide, so you can find them quickly if you have to leave your house.",
+              "tags": [
+                "needs_carrier_practice"
+              ],
+              "next": "where_to_stay"
+            },
+            {
+              "key": "check_spots",
+              "label": "Check the cat's usual hiding spots, with the carrier and a familiar blanket ready",
+              "consequence": "You find the cat under the guest bed and settle it into the carrier.",
+              "feedback": "Ready.gov suggests knowing where your pets hide, and making the carrier familiar with a favorite blanket and treats inside.",
+              "tags": [
+                "found_hiding_pet"
+              ],
+              "next": "where_to_stay"
+            },
+            {
+              "key": "leave_door_open",
+              "label": "Leave a door open so the cat can come out and follow",
+              "consequence": "The door stands open, and the cat stays out of sight.",
+              "feedback": "Ready.gov suggests knowing where your pets hide so you can find them quickly, and says pets left behind may end up lost or injured.",
+              "tags": [
+                "needs_carrier_practice"
+              ],
+              "next": "where_to_stay"
+            }
+          ]
+        },
+        {
+          "key": "where_to_stay",
+          "title": "Where to stay tonight",
+          "scene": "3:00 PM · Outside the evacuation area",
+          "body": "You are outside the evacuation area, and it's time to decide where to stay tonight. The nearest public shelter is open. A relative an hour away has said you can come.",
+          "prompt": "Where do you go?",
+          "choices": [
+            {
+              "key": "shelter_assume",
+              "label": "The public shelter, assuming pets can stay with you there",
+              "consequence": "You head for the shelter without knowing how it handles pets.",
+              "feedback": "Ready.gov says most public shelters allow only service animals. The Red Cross says its shelters try to accommodate pets, but pets may need to be housed in a different location.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "pets_plan_rehearsed"
+            },
+            {
+              "key": "hotel_any",
+              "label": "The first hotel you find, and sort out the pets when you get there",
+              "consequence": "You drive toward the hotels without knowing which ones take pets.",
+              "feedback": "Ready.gov says many public shelters and hotels do not allow pets inside, and suggests knowing a safe place for your pets before an emergency happens.",
+              "tags": [
+                "needs_pet_plan"
+              ],
+              "next": "pets_plan_rehearsed"
+            },
+            {
+              "key": "relative_pets_welcome",
+              "label": "Your relative's home, after confirming the pets are welcome too",
+              "consequence": "Your relative says the pets are welcome, and you head there.",
+              "feedback": "Ready.gov suggests knowing a safe place where you can take your pets before an emergency. The Red Cross suggests a list of friends, relatives and others who could care for your animals.",
+              "tags": [
+                "arranged_pet_place"
+              ],
+              "next": "pets_plan_rehearsed"
+            }
+          ]
+        }
+      ],
+      "outcomes": [
+        {
+          "key": "pets_plan_rehearsed",
+          "title": "You walked through an evacuation with pets",
+          "body": "This practice walked through leaving home with pets: bringing them when you evacuate, finding a pet that hides, and knowing where pets can stay. Ready.gov suggests a pet buddy, a neighbor, friend or relative who can care for or evacuate your pets if you can't, and a pet kit kept ready. If you'd like, talk it over together: where does each pet hide, who could be your pet buddy, and where could your pets stay if you had to leave?",
+          "defaultAction": "OPEN_DRILL",
+          "defaultParams": {
+            "drillId": "pet-buddy-and-place"
+          }
+        }
+      ]
+    }
+  }
+}
