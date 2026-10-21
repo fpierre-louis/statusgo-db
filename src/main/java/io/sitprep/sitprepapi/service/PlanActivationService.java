@@ -130,13 +130,22 @@ public class PlanActivationService {
 
     /** "Meet, then leave" (V115). */
     static final String MEET_THEN_GO = "MEET_THEN_GO";
+    /**
+     * "Meet up" at a place picked from the Destinations list (owner review,
+     * 2026-10-21). Operationally the destination leads (EVACUATING), but the
+     * household chose to MEET there, so every sentence says "Meet at X" and no
+     * surface calls it an evacuation unless officials ordered one.
+     */
+    static final String MEET_AT_DESTINATION = "MEET_AT_DESTINATION";
     static final String STAGE_MEETING = "MEETING";
     static final String STAGE_GOING = "GOING";
 
     private static String normalizeRoutePlan(String raw) {
         if (raw == null) return null;
         String k = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
-        return MEET_THEN_GO.equals(k) || "MEET_THEN_LEAVE".equals(k) ? MEET_THEN_GO : null;
+        if (MEET_THEN_GO.equals(k) || "MEET_THEN_LEAVE".equals(k)) return MEET_THEN_GO;
+        if (MEET_AT_DESTINATION.equals(k)) return MEET_AT_DESTINATION;
+        return null;
     }
 
     private static String upper(String raw) {
@@ -204,7 +213,8 @@ public class PlanActivationService {
         // "Meet, then leave" (V115): both places are required, and the plan
         // starts in the MEETING stage, which reads as GATHERING until an admin
         // taps "We've met, now go".
-        if (MEET_THEN_GO.equals(normalizeRoutePlan(req.routePlan()))) {
+        String routePlan = normalizeRoutePlan(req.routePlan());
+        if (MEET_THEN_GO.equals(routePlan)) {
             if (req.meetingPlaceId() == null || req.evacPlanId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Meet, then leave needs a meeting spot and a destination");
@@ -212,6 +222,20 @@ public class PlanActivationService {
             a.setRoutePlan(MEET_THEN_GO);
             a.setStage(STAGE_MEETING);
             a.setOperationalMode("GATHERING");
+        } else if (MEET_AT_DESTINATION.equals(routePlan)) {
+            if (req.evacPlanId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Meet up needs a place");
+            }
+            // One place: the destination. No meeting spot rides along.
+            a.setRoutePlan(MEET_AT_DESTINATION);
+            a.setMeetingPlaceId(null);
+            a.setMeetingMode("stay-home");
+            a.setOperationalMode("EVACUATING");
+        } else if ("SHELTERING".equals(a.getOperationalMode())) {
+            // "Stay home" is the whole instruction (owner review, 2026-10-21):
+            // nothing else rides along, whatever the client sent.
+            a.setMeetingPlaceId(null);
+            a.setEvacPlanId(null);
         }
         if (req.governingAlert() != null) {
             a.setGoverningAlertSource(trimToNull(req.governingAlert().source()));
@@ -482,7 +506,10 @@ public class PlanActivationService {
         if ("avoid_area".equals(movement)) return "Officials say to avoid the affected area.";
         if ("follow_official_instruction".equals(movement)) return "Follow official instructions.";
         if ("EVACUATING".equals(effective)) {
-            String go = evac != null ? "Go to " + evac + "." : null;
+            String go = evac == null ? null
+                    : MEET_AT_DESTINATION.equals(a.getRoutePlan()) && !"evacuate".equals(movement)
+                            ? "Meet at " + evac + "."
+                            : "Go to " + evac + ".";
             if ("evacuate".equals(movement)) return go != null ? "Officials say to evacuate. " + go : "Officials say to evacuate.";
             return go;
         }
@@ -608,6 +635,15 @@ public class PlanActivationService {
                     a.setEvacMode("shelter");
                     a.setOperationalMode("EVACUATING");
                     a.setRoutePlan(null);
+                    a.setStage(null);
+                }
+                case "MEET_AT_DESTINATION" -> {
+                    if (evac == null) throw badRequest("Meet up needs a place");
+                    meet = null;
+                    a.setMeetingMode("stay-home");
+                    a.setEvacMode("shelter");
+                    a.setOperationalMode("EVACUATING");
+                    a.setRoutePlan(MEET_AT_DESTINATION);
                     a.setStage(null);
                 }
                 case "MEET_THEN_LEAVE", "MEET_THEN_GO" -> {
@@ -1886,9 +1922,10 @@ public class PlanActivationService {
                 reason = "Read the official instructions before heading to a saved place.";
             }
         } else if ("EVACUATING".equals(effective)) {
-            primary = ep != null
-                    ? "Go to the destination"
-                    : "Follow official evacuation instructions";
+            boolean meetUpThere = MEET_AT_DESTINATION.equals(a.getRoutePlan()) && !"evacuate".equals(movement);
+            primary = ep == null
+                    ? "Follow official evacuation instructions"
+                    : meetUpThere ? "Meet at the destination" : "Go to the destination";
             kind = "evacuate";
             if (mp != null) {
                 suppressed = "Navigate to meeting spot";
@@ -1903,11 +1940,12 @@ public class PlanActivationService {
             // to stay reads in plain words (owner, 2026-10-21).
             primary = "shelter_in_place".equals(movement) ? "Shelter in place" : "Stay home";
             kind = "shelter";
-            if (mp != null) {
+            // Only an official order demotes a saved meeting spot, and says so. A
+            // household's own "Stay home" has no place in it at all (owner review,
+            // 2026-10-21), so there is nothing to demote and nothing to mention.
+            if (mp != null && "shelter_in_place".equals(movement)) {
                 suppressed = "Navigate to meeting spot";
-                reason = "shelter_in_place".equals(movement)
-                        ? "Officials say to shelter in place. Stay inside and follow local instructions."
-                        : "This plan is to stay home. Use the meeting spot if you get separated.";
+                reason = "Officials say to shelter in place. Stay inside and follow local instructions.";
             }
         } else if ("GATHERING".equals(effective)) {
             // "Meet, then leave", first step: meet, and say where everyone

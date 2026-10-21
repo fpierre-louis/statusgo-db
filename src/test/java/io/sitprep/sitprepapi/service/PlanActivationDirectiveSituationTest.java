@@ -317,6 +317,38 @@ class PlanActivationDirectiveSituationTest {
         assertThat(service.pushActionSentence(a)).isEqualTo("Go to Primary evac.");
     }
 
+    @Test
+    @DisplayName("meet up at a destination says meet, not go, and carries no meeting spot")
+    void meetUpAtDestinationReadsAsMeetUp() {
+        PlanActivation a = meetThenLeave();
+        stored(a);
+        feedReturns();
+        when(activationRepo.save(any(PlanActivation.class))).thenAnswer(i -> i.getArgument(0));
+
+        var detail = service.changeActivation(ACT_ID,
+                new PlanActivationDtos.ChangeActivationRequest("MEET_AT_DESTINATION", null, null, null), OWNER);
+
+        assertThat(a.getRoutePlan()).isEqualTo("MEET_AT_DESTINATION");
+        assertThat(a.getMeetingPlaceId()).isNull();
+        assertThat(detail.activeSituation().primaryAction()).isEqualTo("Meet at the destination");
+        assertThat(detail.activeSituation().suppressedReason()).isNull();
+        assertThat(service.pushActionSentence(a)).isEqualTo("Meet at Primary evac.");
+    }
+
+    @Test
+    @DisplayName("a household's own stay never mentions a meeting spot, even on an old row that kept one")
+    void householdStayHasNoMeetingSpotReason() {
+        PlanActivation a = plainActivation();
+        a.setOperationalMode("SHELTERING");
+        stored(a);
+        feedReturns();
+
+        ActiveSituationDto s = ownerSituation();
+        assertThat(s.primaryAction()).isEqualTo("Stay home");
+        assertThat(s.suppressedAction()).isNull();
+        assertThat(s.suppressedReason()).isNull();
+    }
+
     // ── D6 ──────────────────────────────────────────────────────────────────
 
     @Test
