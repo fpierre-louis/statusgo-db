@@ -698,13 +698,13 @@ class PracticeShippedContentTest {
     static final String PETS_V1_DRAFT_HASH = "sha256:578235f3db181e8d97c71cf24313148b1b81dcd15eeb0dfc80351162134b545a";
 
     @Test
-    void evacuatingWithPetsIsADraftWithASecondChanceAndOpensThePetDrills() {
+    void evacuatingWithPetsIsPublishedWithASecondChanceAndOpensThePetDrills() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v1 = catalog.exact(PETS, 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(v1)).isEmpty();
         assertThat(v1.contentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
-        assertThat(v1.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v1.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v1.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
         assertThat(v1.body().sources()).allSatisfy(src ->
                 assertThat(src.url()).matches("https://www\\.(ready\\.gov|redcross\\.org)/.*"));
 
@@ -725,6 +725,7 @@ class PracticeShippedContentTest {
         when(repo.findById(any())).thenReturn(Optional.empty());
         Clock clock = Clock.fixed(Instant.parse("2026-10-21T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
-                .noneMatch(e -> e.version().key().equals(PETS));
+                .filteredOn(e -> e.version().key().equals(PETS)).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isFalse());
     }
 }

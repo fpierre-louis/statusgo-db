@@ -4,15 +4,15 @@
   "version": 1,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "reviewedContentHash": null,
-      "notes": "Evacuating with Pets v1: an evacuation order with a dog and a cat; bring the pets, find a pet that hides, choose a place that takes pets. Awaiting independent review."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-21",
+      "reviewedBy": "Independent reviewer agent (Claude Sonnet), under the product owner's written delegation of 2026-10-19",
+      "reviewedContentHash": "sha256:578235f3db181e8d97c71cf24313148b1b81dcd15eeb0dfc80351162134b545a",
+      "notes": "Evacuating with Pets v1 (owner request 2026-10-21: drills and scenarios planning for pets). Sources Ready.gov Pets + Evacuation, American Red Cross Pet Disaster Preparedness. sha256:b5fc1a0c... CHANGES REQUIRED (where_to_stay presumed pets present; evacuated_with_pets overclaimed); sha256:3c037771... APPROVED WITH NOTES; this hash APPROVED 2026-10-21. Drills pet-carrier-round / pet-buddy-and-place / pet-go-kit reviewed with it (APPROVED). Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-21",
     "retiredAt": null
   },
   "content": {
