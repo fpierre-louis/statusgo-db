@@ -13,7 +13,7 @@ public record OriginLocationDto(
         String address,
         Double lat,
         Double lng,
-        /** home | work | school | other, or null (V92). */
+        /** home | work | school | caregiver | activity | other, or null (V92, V119). */
         String kind
 ) {
     public static OriginLocationDto from(OriginLocation o) {
