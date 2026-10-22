@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
  *  - Community-feed comment: /topic/post-comments/{postId}[/delete]
  *  - Activations: /topic/activations/{activationId}/acks and /plan
  *  - Household events / member status / presence / supplies:
- *      /topic/households/{householdId}/{events|members/status|presence|supplies}
+ *      /topic/households/{householdId}/{events|members/status|presence|supplies|practice}
  *  - Group member status / location / alert status:
  *      /topic/group/{groupId}/{members/status|members/location|status}
  *  - DMs: /topic/dm/{lowercased-email}
@@ -292,6 +292,19 @@ public class WebSocketMessageSender {
         if (householdId == null || householdId.isBlank() || frame == null) return;
         messagingTemplate.convertAndSend(
                 "/topic/households/" + householdId + "/plan", frame);
+    }
+
+    /**
+     * Household Practice history was cleared by an owner/admin, so every
+     * member's devices drop cached drill, scenario and Family Practice state
+     * and refetch (2026-10-22). Authorized like the other household topics.
+     *
+     * <p>Topic: {@code /topic/households/{householdId}/practice}</p>
+     */
+    public void sendHouseholdPractice(String householdId, Object frame) {
+        if (householdId == null || householdId.isBlank() || frame == null) return;
+        messagingTemplate.convertAndSend(
+                "/topic/households/" + householdId + "/practice", frame);
     }
 
     public void sendHouseholdDemographic(String householdId, Object frame) {

@@ -59,6 +59,11 @@ class PracticeInvariantTest {
             "io.sitprep.sitprepapi.domain.UserInfo",
             // a semantic action NAME (an enum), so the FE keeps one route map
             "io.sitprep.sitprepapi.readiness.ReadinessAction",
+            // owner/admin clear-history (2026-10-22): an append-only audit row and a realtime
+            // "history cleared" frame. Neither writes emergency state; the clear itself only
+            // empties Practice's own tables and the household's drill/challenge records.
+            "io.sitprep.sitprepapi.service.AdminAuditLogService",
+            "io.sitprep.sitprepapi.websocket.WebSocketMessageSender",
             // idempotent POSTs (annotation only)
             "io.sitprep.sitprepapi.web.Idempotent");
 

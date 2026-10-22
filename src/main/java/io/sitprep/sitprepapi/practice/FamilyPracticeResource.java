@@ -22,9 +22,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class FamilyPracticeResource {
 
     private final FamilyPracticeService service;
+    private final PracticeHistoryService history;
 
-    public FamilyPracticeResource(FamilyPracticeService service) {
+    public FamilyPracticeResource(FamilyPracticeService service, PracticeHistoryService history) {
         this.service = service;
+        this.history = history;
     }
 
     @GetMapping("/api/practice/family")
@@ -55,6 +57,21 @@ public class FamilyPracticeResource {
     public ResponseEntity<ProgressDto> progress(@PathVariable String householdId) {
         return ResponseEntity.ok(service.progress(householdId, AuthUtils.requireAuthenticatedEmail()));
     }
+
+    /**
+     * Owner/admin clears the household's shared Practice history (ruling
+     * 2026-10-22). Requires {@code {"confirm": true}}; a regular member gets 403.
+     */
+    @PostMapping("/api/households/{householdId}/practice/history/clear")
+    @Idempotent
+    public ResponseEntity<PracticeHistoryService.ClearResult> clearHistory(
+            @PathVariable String householdId,
+            @RequestBody(required = false) ClearHistoryRequest body) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(history.clear(caller, householdId, body != null && Boolean.TRUE.equals(body.confirm())));
+    }
+
+    public record ClearHistoryRequest(Boolean confirm) {}
 
     private static String validKey(String key) {
         if (key == null || key.length() > PracticeContentValidator.KEY_MAX
