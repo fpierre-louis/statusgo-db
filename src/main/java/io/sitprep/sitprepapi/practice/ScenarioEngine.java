@@ -68,6 +68,31 @@ public final class ScenarioEngine {
     public record Debrief(Outcome outcome, List<String> tags, List<String> strongChoices,
                           List<String> worthPracticing, NextStep nextStep, String oneThing) {}
 
+    /**
+     * The most decisions left from {@code key} to any outcome (0 at an outcome):
+     * the "of N" in "Decision 2 of 4" (Practice redesign FR-2). The graph is
+     * acyclic (validator), so a memoised walk terminates; an unknown key is 0.
+     */
+    public static int longestDecisionsFrom(Version v, String key) {
+        return longest(v, key, new java.util.HashMap<>());
+    }
+
+    private static int longest(Version v, String key, Map<String, Integer> memo) {
+        if (key == null || outcome(v, key).isPresent()) return 0;
+        Integer seen = memo.get(key);
+        if (seen != null) return seen;
+        Optional<Node> n = node(v, key);
+        int best = 0;
+        if (n.isPresent() && n.get().choices() != null) {
+            for (Choice c : n.get().choices()) {
+                if (c != null) best = Math.max(best, longest(v, c.next(), memo));
+            }
+        }
+        int result = n.isPresent() ? best + 1 : 0;
+        memo.put(key, result);
+        return result;
+    }
+
     public static String startNode(Version v) {
         return v.body().scenario().startNode();
     }
