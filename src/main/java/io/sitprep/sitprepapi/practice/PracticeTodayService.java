@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -65,15 +66,22 @@ public class PracticeTodayService {
         String hid = householdId == null || householdId.isBlank() ? null : householdId;
         Instant now = clock.instant();
 
+        // Household scope: the household's runs. Personal scope (no household): the
+        // caller's own runs, read the same way, so "recently done" holds for them too.
         Map<String, ScenarioProgressDto> progress = new HashMap<>();
+        List<ScenarioRun> runs;
         if (hid != null) {
             ProgressDto p = scenarios.progress(hid, callerEmail);
             for (ScenarioProgressDto s : p.scenarios()) progress.put(s.scenarioKey(), s);
+            runs = runRepo.findByHouseholdIdOrderByStartedAtDesc(hid);
+        } else {
+            runs = runRepo.findByUserEmailAndHouseholdIdIsNullOrderByStartedAtDesc(normalize(callerEmail));
+            progress.putAll(progressFrom(runs));
         }
 
         InProgressDto continueRun = catalog.inProgress().isEmpty() ? null : catalog.inProgress().get(0);
         ScenarioCardDto recommended = recommend(catalog, progress, continueRun, now);
-        String reentry = reentry(hid, now);
+        String reentry = reentry(hid, runs, now);
         return new TodayDto(ScenarioDtos.SCHEMA_VERSION, reentry, recommended, continueRun,
                 relevance == null ? java.util.List.of() : relevance.localHazards(hid), catalog.suppression());
     }
@@ -91,12 +99,30 @@ public class PracticeTodayService {
         return null;
     }
 
-    String reentry(String hid, Instant now) {
-        if (hid == null) return "FIRST";
-        Instant last = null;
-        for (ScenarioRun r : runRepo.findByHouseholdIdOrderByStartedAtDesc(hid)) {
-            last = later(last, r.getCompletedAt() != null ? r.getCompletedAt() : r.getStartedAt());
+    /** Per scenario: completed count, newest completion, a run in progress — from runs newest first. */
+    static Map<String, ScenarioProgressDto> progressFrom(List<ScenarioRun> runs) {
+        Map<String, ScenarioProgressDto> out = new HashMap<>();
+        for (ScenarioRun r : runs) {
+            ScenarioProgressDto p = out.getOrDefault(r.getScenarioKey(), new ScenarioProgressDto(r.getScenarioKey(), 0, null, null));
+            boolean done = r.getStatus() == ScenarioRun.Status.COMPLETED;
+            Instant last = p.lastCompletedAt();
+            if (done && r.getCompletedAt() != null && (last == null || r.getCompletedAt().isAfter(last))) last = r.getCompletedAt();
+            Long active = p.inProgressRunId() != null ? p.inProgressRunId()
+                    : r.getStatus() == ScenarioRun.Status.IN_PROGRESS ? r.getId() : null;
+            out.put(r.getScenarioKey(), new ScenarioProgressDto(r.getScenarioKey(), p.completedCount() + (done ? 1 : 0), last, active));
         }
+        return out;
+    }
+
+    /** When a run was last practised: its last step or completion, not when it started. */
+    static Instant lastTouched(ScenarioRun r) {
+        return later(later(r.getStartedAt(), r.getUpdatedAt()), r.getCompletedAt());
+    }
+
+    String reentry(String hid, List<ScenarioRun> runs, Instant now) {
+        Instant last = null;
+        for (ScenarioRun r : runs) last = later(last, lastTouched(r));
+        if (hid == null) return reentryFor(last, now);
         Group g = groupRepo.findByGroupId(hid).orElse(null);
         if (g != null && g.getDrillLog() != null) {
             for (var c : g.getDrillLog().values()) if (c != null) last = later(last, c.getCompletedAt());
@@ -111,6 +137,10 @@ public class PracticeTodayService {
     static String reentryFor(Instant lastPractice, Instant now) {
         if (lastPractice == null) return "FIRST";
         return Duration.between(lastPractice, now).compareTo(GAP) >= 0 ? "GAP" : "RECENT";
+    }
+
+    private static String normalize(String email) {
+        return email == null ? null : email.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static Instant later(Instant a, Instant b) {

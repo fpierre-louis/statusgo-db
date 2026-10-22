@@ -72,4 +72,36 @@ class PracticeTodayServiceTest {
         assertThat(out.get(0).tier()).isEqualTo("very_high");
         assertThat(ScenarioRelevance.localHazardsFrom(null)).isEmpty();
     }
+
+    private static ScenarioRun run(long id, String key, ScenarioRun.Status status, Instant started, Instant updated, Instant completed) {
+        ScenarioRun r = new ScenarioRun();
+        r.setId(id);
+        r.setScenarioKey(key);
+        r.setStatus(status);
+        r.setStartedAt(started);
+        r.setUpdatedAt(updated);
+        r.setCompletedAt(completed);
+        return r;
+    }
+
+    @Test
+    void aRunIsDatedByItsLastStep_notItsStart() {
+        ScenarioRun advancedYesterday = run(1, "a", ScenarioRun.Status.IN_PROGRESS,
+                NOW.minus(Duration.ofDays(20)), NOW.minus(Duration.ofDays(1)), null);
+        assertThat(PracticeTodayService.lastTouched(advancedYesterday)).isEqualTo(NOW.minus(Duration.ofDays(1)));
+        assertThat(PracticeTodayService.reentryFor(PracticeTodayService.lastTouched(advancedYesterday), NOW)).isEqualTo("RECENT");
+    }
+
+    @Test
+    void personalRunsBuildTheSameProgress_soAJustFinishedStoryIsNotRecommendedAgain() {
+        Map<String, ScenarioProgressDto> p = PracticeTodayService.progressFrom(List.of(
+                run(3, "a", ScenarioRun.Status.COMPLETED, NOW.minus(Duration.ofDays(2)), null, NOW.minus(Duration.ofDays(1))),
+                run(2, "b", ScenarioRun.Status.IN_PROGRESS, NOW.minus(Duration.ofDays(3)), null, null),
+                run(1, "a", ScenarioRun.Status.COMPLETED, NOW.minus(Duration.ofDays(90)), null, NOW.minus(Duration.ofDays(90)))));
+        assertThat(p.get("a").completedCount()).isEqualTo(2);
+        assertThat(p.get("a").lastCompletedAt()).isEqualTo(NOW.minus(Duration.ofDays(1)));
+        assertThat(p.get("b").inProgressRunId()).isEqualTo(2L);
+        assertThat(PracticeTodayService.recommend(catalog(card("a"), card("b"), card("c")), p, null, NOW).key())
+                .isEqualTo("c");
+    }
 }
