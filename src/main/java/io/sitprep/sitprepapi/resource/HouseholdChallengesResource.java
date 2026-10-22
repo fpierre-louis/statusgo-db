@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.MeDto.DrillCompletionDto;
+import io.sitprep.sitprepapi.practice.DrillUndo;
 import io.sitprep.sitprepapi.practice.PracticeIdentity;
 import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
 import io.sitprep.sitprepapi.practice.ScenarioService;
@@ -73,7 +74,7 @@ public class HouseholdChallengesResource {
             Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,62}(#[A-Za-z0-9][A-Za-z0-9_-]{0,31})?$");
 
     /** How long a member may undo their own drill mark (a mis-tap); owners/admins have no limit. */
-    static final Duration UNDO_WINDOW = Duration.ofMinutes(10);
+    static final Duration UNDO_WINDOW = DrillUndo.WINDOW;
 
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
@@ -211,7 +212,7 @@ public class HouseholdChallengesResource {
         log.put(drillKey, new DrillCompletion(Instant.now(), null, identity.userIdFor(caller)));
         groupRepo.save(household);
         tokenEvents.household(TokenEventType.DRILL_COMPLETED, householdId, drillKey);
-        return ResponseEntity.ok(drillDto(log));
+        return ResponseEntity.ok(drillDto(log, caller, householdId));
     }
 
     /**
@@ -249,23 +250,24 @@ public class HouseholdChallengesResource {
         if (log != null && log.remove(drillKey) != null) {
             groupRepo.save(household);
         }
-        return ResponseEntity.ok(drillDto(log));
+        return ResponseEntity.ok(drillDto(log, caller, householdId));
     }
 
     private boolean isOwnRecentMark(DrillCompletion row, String caller) {
-        if (row.getCompletedByUserId() == null || row.getCompletedAt() == null) return false;
-        if (!row.getCompletedByUserId().equals(identity.userIdFor(caller))) return false;
-        return row.getCompletedAt().isAfter(Instant.now().minus(UNDO_WINDOW));
+        return DrillUndo.isOwnRecentMark(row, identity.userIdFor(caller), Instant.now());
     }
 
-    /** Defensive copy — never hand the managed collection out onto the wire. */
-    private static Map<String, DrillCompletionDto> drillDto(Map<String, DrillCompletion> log) {
+    /** Defensive copy — never hand the managed collection out onto the wire. undoUntil is per caller. */
+    private Map<String, DrillCompletionDto> drillDto(Map<String, DrillCompletion> log, String caller, String householdId) {
         Map<String, DrillCompletionDto> out = new HashMap<>();
         if (log == null) return out;
+        String viewerId = identity.userIdFor(caller);
+        boolean admin = access.canWriteHousehold(caller, householdId);
+        Instant now = Instant.now();
         for (Map.Entry<String, DrillCompletion> e : log.entrySet()) {
             DrillCompletion c = e.getValue();
             if (e.getKey() == null || c == null || c.getCompletedAt() == null) continue;
-            out.put(e.getKey(), new DrillCompletionDto(c.getCompletedAt()));
+            out.put(e.getKey(), new DrillCompletionDto(c.getCompletedAt(), DrillUndo.undoUntil(c, viewerId, admin, now)));
         }
         return out;
     }

@@ -57,6 +57,8 @@ class PracticeInvariantTest {
             "io.sitprep.sitprepapi.repo.GroupRepo",
             "io.sitprep.sitprepapi.domain.Group",
             "io.sitprep.sitprepapi.domain.UserInfo",
+            // FR-4: DrillUndo READS a drill mark (who, when) to say how long this viewer's Undo lasts.
+            "io.sitprep.sitprepapi.domain.DrillCompletion",
             // a semantic action NAME (an enum), so the FE keeps one route map
             "io.sitprep.sitprepapi.readiness.ReadinessAction",
             // owner/admin clear-history (2026-10-22): an append-only audit row and a realtime

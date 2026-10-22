@@ -319,8 +319,15 @@ public record MeDto(
     ) {}
 
     /** When a drill was last done. The completer is never shipped (ruling 2026-10-22). */
+    /**
+     * One drill mark. {@code undoUntil} is viewer-relative (Practice redesign
+     * FR-4): when THIS viewer's Undo stops being offered — their own mark, or
+     * any mark for an owner/admin, ten minutes after it was made — or null
+     * when they have none. The client shows Undo only while it is in the future.
+     */
     public record DrillCompletionDto(
-            Instant completedAt
+            Instant completedAt,
+            Instant undoUntil
     ) {}
 
     /**

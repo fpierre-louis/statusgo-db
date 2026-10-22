@@ -90,6 +90,15 @@ class HouseholdDrillLogTest {
     // ── the record ──────────────────────────────────────────────────────────
 
     @Test
+    void theResponseTellsTheCallerHowLongTheirUndoLasts() {
+        Map<String, DrillCompletionDto> log = complete("smoke-alarms");
+        DrillCompletionDto row = log.get("smoke-alarms");
+        assertNotNull(row.undoUntil(), "the member's own fresh mark carries its undo window");
+        assertEquals(row.completedAt().plus(java.time.Duration.ofMinutes(10)), row.undoUntil());
+    }
+
+
+    @Test
     void completeRecordsWhenAndWhoById_neverTheEmail() {
         Map<String, DrillCompletionDto> log = complete("smoke-alarms");
 

@@ -501,7 +501,8 @@ public class MeService {
         }
 
         HouseholdDto householdDto = baseHousehold == null ? null
-                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap, memberLastActiveMap);
+                : toHouseholdDto(baseHousehold, demographic, profileMap, readMap, latestPostMap, muteMap, prefMap, memberLastActiveMap,
+                        user.getId(), email);
 
         ReadinessDto readiness = computeReadiness(
                 user, householdDto, demographic != null, hasMealPlan, hasEvac, hasContacts, email,
@@ -967,6 +968,11 @@ public class MeService {
     }
 
     HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Map<String, java.time.Instant> memberLastActiveMap) {
+        return toHouseholdDto(g, d, profiles, readMap, latestPostMap, muteMap, prefMap, memberLastActiveMap, null, null);
+    }
+
+    HouseholdDto toHouseholdDto(Group g, Demographic d, java.util.Map<String, UserInfo> profiles, java.util.Map<String, java.time.Instant> readMap, java.util.Map<String, java.time.Instant> latestPostMap, java.util.Map<String, java.time.Instant> muteMap, java.util.Map<String, io.sitprep.sitprepapi.domain.GroupMutePref> prefMap, java.util.Map<String, java.time.Instant> memberLastActiveMap,
+                                String viewerUserId, String viewerEmail) {
         DemographicDto demoDto = d == null ? null : new DemographicDto(
                 d.getAdults(), d.getTeens(), d.getKids(), d.getInfants(),
                 d.getDogs(), d.getCats(), d.getPets()
@@ -1016,7 +1022,7 @@ public class MeService {
                             }
                             // Touched inside the live read-only tx → the
                             // secondary selects run; the copies detach.
-                            return HouseholdState.from(fresh);
+                            return HouseholdState.from(fresh, viewerUserId, isHouseholdAdmin(fresh, viewerEmail));
                         },
                         HouseholdState.empty());
         return new HouseholdDto(
@@ -1080,7 +1086,8 @@ public class MeService {
             return new HouseholdState(java.util.Map.of(), java.util.Map.of(), null);
         }
 
-        static HouseholdState from(Group household) {
+        static HouseholdState from(Group household, String viewerUserId, boolean viewerIsAdmin) {
+            java.time.Instant now = java.time.Instant.now();
             java.util.Map<String, Boolean> challenge = household.getChallengeProgress() == null
                     ? java.util.Map.of()
                     : new java.util.HashMap<>(household.getChallengeProgress());
@@ -1094,11 +1101,21 @@ public class MeService {
                     if (entry.getKey() == null || entry.getValue() == null) continue;
                     DrillCompletion c = entry.getValue();
                     if (c.getCompletedAt() == null) continue;
-                    drills.put(entry.getKey(), new DrillCompletionDto(c.getCompletedAt()));
+                    drills.put(entry.getKey(), new DrillCompletionDto(c.getCompletedAt(),
+                            io.sitprep.sitprepapi.practice.DrillUndo.undoUntil(c, viewerUserId, viewerIsAdmin, now)));
                 }
             }
             return new HouseholdState(challenge, drills, household.getChallengeLastShownWeek());
         }
+    }
+
+    /** Owner or admin of this household (HouseholdAccessService.canWriteHousehold's rule, on a loaded group). */
+    static boolean isHouseholdAdmin(Group g, String email) {
+        if (g == null || email == null || email.isBlank()) return false;
+        String e = email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (g.getOwnerEmail() != null && e.equals(g.getOwnerEmail().trim().toLowerCase(java.util.Locale.ROOT))) return true;
+        return g.getAdminEmails() != null && g.getAdminEmails().stream()
+                .anyMatch(a -> a != null && e.equals(a.trim().toLowerCase(java.util.Locale.ROOT)));
     }
 
     private HouseholdSummary toHouseholdSummary(Group g, String userEmail, boolean isBase) {
