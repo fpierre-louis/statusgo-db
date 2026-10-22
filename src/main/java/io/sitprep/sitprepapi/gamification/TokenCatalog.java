@@ -34,10 +34,9 @@ public final class TokenCatalog {
                     "Your household completed three different practices.",
                     "Complete three different practices together.",
                     "practice-cadence", "/practice", 50),
-            new TokenDefinition(TokenKey.SCENARIO_REHEARSAL, TokenScope.HOUSEHOLD, "Rehearsed Together",
-                    "Your household walked through a practice scenario together.",
-                    "Walk through a practice scenario together.",
-                    "scenario-rehearsal", "/practice/scenarios", 55),
+            // SCENARIO_REHEARSAL ("Rehearsed Together") retired 2026-10-22 (owner): out of the
+            // catalog, so it is never listed, awarded or announced, and rows already earned are
+            // filtered by forStoredKey. The enum value stays so those rows still parse.
             new TokenDefinition(TokenKey.STOCKPILE_STEWARD, TokenScope.HOUSEHOLD, "Supplies Taking Shape",
                     "Your household has most of a go bag packed and at least half its home supplies gathered.",
                     "Pack most of a go bag and gather at least half your home supplies.",

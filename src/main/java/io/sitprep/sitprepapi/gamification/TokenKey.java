@@ -15,6 +15,7 @@ public enum TokenKey {
     CONTACT_CIRCLE,
     DRILL_CREW,
     PRACTICE_CADENCE,
+    /** Retired 2026-10-22: not in TokenCatalog; kept so earned ledger rows still parse. */
     SCENARIO_REHEARSAL,
     STOCKPILE_STEWARD,
     HOUSEHOLD_READY,

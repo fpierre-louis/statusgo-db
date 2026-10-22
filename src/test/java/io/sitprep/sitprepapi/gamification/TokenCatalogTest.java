@@ -13,11 +13,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TokenCatalogTest {
 
     @Test
-    void everyKeyHasExactlyOneDefinition() {
-        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length).hasSize(16);
+    void everyLiveKeyHasExactlyOneDefinition() {
+        // SCENARIO_REHEARSAL is retired (2026-10-22): kept as a key, out of the catalog.
+        Set<TokenKey> retired = EnumSet.of(TokenKey.SCENARIO_REHEARSAL);
+        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length - retired.size()).hasSize(15);
         Set<TokenKey> seen = EnumSet.noneOf(TokenKey.class);
         TokenCatalog.all().forEach(d -> assertThat(seen.add(d.key())).as("duplicate %s", d.key()).isTrue());
-        for (TokenKey k : TokenKey.values()) assertThat(TokenCatalog.get(k)).isNotNull();
+        for (TokenKey k : TokenKey.values()) {
+            if (retired.contains(k)) assertThat(TokenCatalog.get(k)).isNull();
+            else assertThat(TokenCatalog.get(k)).isNotNull();
+        }
     }
 
     @Test
@@ -43,9 +48,6 @@ class TokenCatalogTest {
                 Map.entry(TokenKey.CONTACT_CIRCLE, "People to Call"),
                 Map.entry(TokenKey.DRILL_CREW, "First Practice"),
                 Map.entry(TokenKey.PRACTICE_CADENCE, "Practiced Together"),
-                // EXEC-I4 (2026-10-20): owner asked for a scenario token; this name is the lane's
-                // proposal and may be renamed (the key may not).
-                Map.entry(TokenKey.SCENARIO_REHEARSAL, "Rehearsed Together"),
                 Map.entry(TokenKey.STOCKPILE_STEWARD, "Supplies Taking Shape"),
                 Map.entry(TokenKey.HOUSEHOLD_READY, "Ready Together"),
                 Map.entry(TokenKey.FIRST_NEIGHBOR_SIGNAL, "Neighbor Hello"),
@@ -66,10 +68,16 @@ class TokenCatalogTest {
     }
 
     @Test
+    void rehearsedTogetherIsRetiredButOldRowsStillParse() {
+        assertThat(TokenCatalog.get(TokenKey.SCENARIO_REHEARSAL)).isNull();
+        assertThat(TokenCatalog.forStoredKey("SCENARIO_REHEARSAL")).isNull();
+    }
+
+    @Test
     void householdTokensAreHouseholdScoped() {
         assertThat(TokenCatalog.all().stream().filter(d -> d.scope() == TokenScope.HOUSEHOLD).map(TokenDefinition::key))
                 .containsExactlyInAnyOrder(TokenKey.PLAN_ARCHITECT, TokenKey.MEETING_POINT, TokenKey.CONTACT_CIRCLE,
-                        TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE, TokenKey.SCENARIO_REHEARSAL,
+                        TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE,
                         TokenKey.STOCKPILE_STEWARD, TokenKey.HOUSEHOLD_READY);
     }
 

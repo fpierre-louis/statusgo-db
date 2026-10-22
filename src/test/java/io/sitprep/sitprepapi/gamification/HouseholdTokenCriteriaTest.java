@@ -8,8 +8,6 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
 import io.sitprep.sitprepapi.dto.HomeStockpileDtos.HomeStockpileDto;
-import io.sitprep.sitprepapi.practice.ScenarioRun;
-import io.sitprep.sitprepapi.practice.ScenarioRunRepo;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -42,7 +40,6 @@ class HouseholdTokenCriteriaTest {
     private GoBagService goBags;
     private HomeStockpileService stockpile;
     private HouseholdTokenCriteria criteria;
-    private ScenarioRunRepo scenarioRuns;
 
     @BeforeEach
     void setUp() {
@@ -52,8 +49,7 @@ class HouseholdTokenCriteriaTest {
         groups = mock(GroupRepo.class);
         goBags = mock(GoBagService.class);
         stockpile = mock(HomeStockpileService.class);
-        scenarioRuns = mock(ScenarioRunRepo.class);
-        criteria = new HouseholdTokenCriteria(meetingPlaces, contactGroups, evacuationPlans, groups, goBags, stockpile, scenarioRuns);
+        criteria = new HouseholdTokenCriteria(meetingPlaces, contactGroups, evacuationPlans, groups, goBags, stockpile);
     }
 
     private void household(int places, int contacts, boolean route, List<String> drillKeys, int bagPct, int stockPct) {
@@ -107,21 +103,10 @@ class HouseholdTokenCriteriaTest {
                 .doesNotContain(TokenKey.STOCKPILE_STEWARD);
     }
 
-    // EXEC-I4
+    // Owner, 2026-10-22: "Rehearsed Together" is retired as a visible token.
     @Test
-    void rehearsedTogetherFollowsAFinishedScenarioOnly() {
-        household(0, 0, false, List.of(), 0, 0);
-        assertThat(criteria.met(HH)).doesNotContain(TokenKey.SCENARIO_REHEARSAL);
-        when(scenarioRuns.existsByHouseholdIdAndStatus(HH, ScenarioRun.Status.COMPLETED)).thenReturn(true);
-        assertThat(criteria.met(HH)).contains(TokenKey.SCENARIO_REHEARSAL)
-                .doesNotContain(TokenKey.DRILL_CREW); // a scenario is its own token, not a drill
-    }
-
-    @Test
-    void anUnreadableScenarioTableDropsOnlyThatToken() {
+    void aFinishedScenarioNoLongerEarnsAToken() {
         household(1, 2, true, List.of("a"), 0, 0);
-        when(scenarioRuns.existsByHouseholdIdAndStatus(HH, ScenarioRun.Status.COMPLETED))
-                .thenThrow(new IllegalStateException("db"));
         assertThat(criteria.met(HH)).contains(TokenKey.DRILL_CREW).doesNotContain(TokenKey.SCENARIO_REHEARSAL);
     }
 }
