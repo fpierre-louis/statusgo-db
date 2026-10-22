@@ -97,10 +97,15 @@ public final class ScenarioDtos {
     public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen,
                                 MediaDto media) {}
 
-    /** Exactly three sections: Strong choices, Worth practicing, Next family step. No score. */
+    /**
+     * No score. {@code oneThing} (additive, redesign BE-02) is the single
+     * improvement the debrief leads with — the line behind {@code nextStep} —
+     * so a client can say exactly one thing without guessing which of
+     * {@code worthPracticing} matched. Null when nothing was worth practicing.
+     */
     public record DebriefDto(String outcomeTitle, String outcomeBody, List<String> strongChoices,
                              List<String> worthPracticing, NextStepDto nextStep, List<PathStepDto> path,
-                             MediaDto outcomeMedia) {}
+                             MediaDto outcomeMedia, String oneThing) {}
 
     /**
      * One run as the client draws it. {@code contentStatus} says what the run

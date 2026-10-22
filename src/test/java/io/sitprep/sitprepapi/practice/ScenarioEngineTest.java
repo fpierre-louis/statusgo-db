@@ -54,6 +54,8 @@ class ScenarioEngineTest {
         assertThat(d.worthPracticing()).containsExactly("Worth checking your out-of-area contact is current.");
         assertThat(d.nextStep().action()).isEqualTo(ReadinessAction.OPEN_EMERGENCY_CONTACTS);
         assertThat(d.tags()).containsExactly("needs_contact_review");
+        // BE-02: the one improvement named is the line behind the next step.
+        assertThat(d.oneThing()).isEqualTo("Worth checking your out-of-area contact is current.");
     }
 
     @Test
@@ -63,6 +65,7 @@ class ScenarioEngineTest {
         assertThat(d.strongChoices()).containsExactly("You sent a short, clear status.");
         assertThat(d.worthPracticing()).isEmpty();
         assertThat(d.nextStep().action()).isEqualTo(ReadinessAction.OPEN_EVACUATION_PLAN);
+        assertThat(d.oneThing()).isNull();
     }
 
     /**
@@ -84,6 +87,9 @@ class ScenarioEngineTest {
             assertThat(PracticeActions.allowed(d.nextStep().action())).isTrue();
             assertThat(PracticeActions.describe(d.nextStep().action())).isNotNull();
             assertThat(paths.get(i)).hasSizeBetween(4, 5); // open-ended progress: lengths differ by branch
+            // BE-02: exactly one improvement is named whenever there is any, and it is one of them.
+            if (d.worthPracticing().isEmpty()) assertThat(d.oneThing()).isNull();
+            else assertThat(d.worthPracticing()).contains(d.oneThing());
         }
         assertThat(ends).contains("reconnected", "reconnected_check_sources");
     }

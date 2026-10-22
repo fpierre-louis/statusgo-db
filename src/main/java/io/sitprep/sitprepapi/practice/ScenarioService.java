@@ -389,7 +389,7 @@ public class ScenarioService {
                                             .toList()))));
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),
-                d.worthPracticing(), next, path, mediaDto(d.outcome().media()));
+                d.worthPracticing(), next, path, mediaDto(d.outcome().media()), d.oneThing());
     }
 
     private static int stepNumber(ScenarioRun run) {

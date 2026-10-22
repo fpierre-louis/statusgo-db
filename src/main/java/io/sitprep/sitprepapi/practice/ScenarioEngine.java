@@ -58,8 +58,15 @@ public final class ScenarioEngine {
 
     public record NextStep(ReadinessAction action, Map<String, String> params) {}
 
+    /**
+     * {@code oneThing} is the ONE improvement the debrief names (Practice
+     * redesign BE-02): the copy of the worth-practicing tag that produced
+     * {@code nextStep}, so the line and the action beneath it agree; when no
+     * improvement carries an action, the first worth-practicing line in earned
+     * order; null when there is none.
+     */
     public record Debrief(Outcome outcome, List<String> tags, List<String> strongChoices,
-                          List<String> worthPracticing, NextStep nextStep) {}
+                          List<String> worthPracticing, NextStep nextStep, String oneThing) {}
 
     public static String startNode(Version v) {
         return v.body().scenario().startNode();
@@ -114,6 +121,7 @@ public final class ScenarioEngine {
         List<String> strong = new ArrayList<>();
         List<String> practice = new ArrayList<>();
         NextStep next = null;
+        String oneThing = null;
         for (String tag : earned) {
             TagCopy t = copy.get(tag);
             DebriefTag known = DebriefTag.fromWire(tag).orElse(null);
@@ -122,11 +130,15 @@ public final class ScenarioEngine {
                 strong.add(t.text());
             } else {
                 practice.add(t.text());
-                if (next == null && t.action() != null) next = new NextStep(t.action(), params(t.params()));
+                if (next == null && t.action() != null) {
+                    next = new NextStep(t.action(), params(t.params()));
+                    oneThing = t.text();
+                }
             }
         }
         if (next == null) next = new NextStep(outcome.defaultAction(), params(outcome.defaultParams()));
-        return new Debrief(outcome, List.copyOf(earned), strong, practice, next);
+        if (oneThing == null && !practice.isEmpty()) oneThing = practice.get(0);
+        return new Debrief(outcome, List.copyOf(earned), strong, practice, next, oneThing);
     }
 
     private static Map<String, String> params(Map<String, String> p) {
