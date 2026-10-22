@@ -255,7 +255,21 @@ public final class PracticeContent {
             /* Optional presentation copy; null keeps the client's Kit Builder defaults. */
             String finishLabel,
             String summaryTitle,
-            String summaryBody) {}
+            String summaryBody,
+            /* TOGETHER only (redesign FR-8); all nullable so ITEM_SORT files parse and hash as before. */
+            String recommendedStyle,
+            List<String> roles,
+            List<TogetherTurn> turns,
+            String remember,
+            String talkAboutIt,
+            List<String> followUps) {}
+
+    /**
+     * One step of an adult-led Together session. {@code rhythm} is a {@link TogetherRhythm} name,
+     * {@code role} a {@link TogetherRole} name or ADULT / ALL / ANY. Strings, not enums, so a typo is
+     * a validator error that names the turn instead of a parse failure of the whole file.
+     */
+    public record TogetherTurn(String rhythm, String role, String say, String grownUp, String ask) {}
 
     public record ActivityPile(String key, String label) {}
 

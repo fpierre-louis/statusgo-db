@@ -43,6 +43,7 @@ class PracticeHistoryServiceTest {
     private FamilyPracticeCompletionRepo completions;
     private PracticeCheckInAnswerRepo checkInAnswers;
     private PracticeSkillStateRepo skillStates;
+    private PracticeTogetherSessionRepo sessions;
     private AdminAuditLogService audit;
     private WebSocketMessageSender ws;
     private PracticeHistoryService service;
@@ -56,9 +57,11 @@ class PracticeHistoryServiceTest {
         completions = mock(FamilyPracticeCompletionRepo.class);
         checkInAnswers = mock(PracticeCheckInAnswerRepo.class);
         skillStates = mock(PracticeSkillStateRepo.class);
+        sessions = mock(PracticeTogetherSessionRepo.class);
+        when(sessions.deleteAllByHousehold(HH)).thenReturn(6);
         audit = mock(AdminAuditLogService.class);
         ws = mock(WebSocketMessageSender.class);
-        service = new PracticeHistoryService(access, groups, runs, completions, checkInAnswers, skillStates, audit, ws,
+        service = new PracticeHistoryService(access, groups, runs, completions, checkInAnswers, skillStates, sessions, audit, ws,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         household = new Group();
@@ -84,7 +87,7 @@ class PracticeHistoryServiceTest {
 
         assertThat(r.householdId()).isEqualTo(HH);
         assertThat(r.clearedAt()).isEqualTo(NOW);
-        assertThat(r.removed()).isEqualTo(new PracticeHistoryService.Removed(3, 2, 2, 1, 5, 4));
+        assertThat(r.removed()).isEqualTo(new PracticeHistoryService.Removed(3, 2, 2, 1, 5, 4, 6));
         assertThat(household.getDrillLog()).isEmpty();
         assertThat(household.getChallengeProgress()).isEmpty();
         assertThat(household.getChallengeLastShownWeek()).isEqualTo("2026-W40");

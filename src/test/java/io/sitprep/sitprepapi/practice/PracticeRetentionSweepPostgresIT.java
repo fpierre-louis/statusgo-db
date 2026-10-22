@@ -33,6 +33,7 @@ class PracticeRetentionSweepPostgresIT {
     private static final Instant NOW = Instant.parse("2026-10-22T12:00:00Z");
 
     @Autowired ScenarioRunRepo runRepo;
+    @Autowired PracticeTogetherSessionRepo sessionRepo;
     @Autowired FamilyPracticeCompletionRepo completionRepo;
     @Autowired PracticeCheckInAnswerRepo answerRepo;
     @Autowired JdbcTemplate jdbc;
@@ -75,7 +76,7 @@ class PracticeRetentionSweepPostgresIT {
         long f1 = family(hh, 1, "2025-03-01T12:00:00Z");
         long f2 = family(hh, 2, "2025-06-01T12:00:00Z");
 
-        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
+        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, sessionRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
 
         assertThat(exists("scenario_run", older)).isFalse();
         assertThat(exists("scenario_run", abandoned)).isFalse();
@@ -110,7 +111,7 @@ class PracticeRetentionSweepPostgresIT {
                 VALUES (?, 'sk', '2025-03-01T12:00:00Z'::timestamptz, 90, 30, '2025-06-01T12:00:00Z'::timestamptz, 'CORRECT')
                 RETURNING id""", Long.class, hh);
 
-        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
+        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, sessionRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
 
         assertThat(exists("practice_checkin_answer", oldAnswer)).isFalse();
         assertThat(exists("practice_checkin_answer", recentAnswer)).isTrue();

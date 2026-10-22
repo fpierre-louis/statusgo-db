@@ -66,7 +66,7 @@ class FamilyPracticeServiceTest {
         HouseholdAccessService access = mock(HouseholdAccessService.class);
         PracticeIdentity identity = mock(PracticeIdentity.class);
         when(identity.userIdFor(ME)).thenReturn("user-1");
-        service = new FamilyPracticeService(availability, suppression, inMemoryRepo(), groups, access, identity, clock);
+        service = new FamilyPracticeService(availability, suppression, inMemoryRepo(), groups, access, identity, mock(PracticeTogetherSessionRepo.class), clock);
     }
 
     private FamilyPracticeCompletionRepo inMemoryRepo() {
@@ -150,7 +150,7 @@ class FamilyPracticeServiceTest {
         when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
         FamilyPracticeCompletionRepo repo = inMemoryRepo();
         FamilyPracticeService previewService = new FamilyPracticeService(preview, suppression, repo, groups,
-                mock(HouseholdAccessService.class), clock);
+                mock(HouseholdAccessService.class), mock(PracticeTogetherSessionRepo.class), clock);
 
         // Invariant: unpublished/preview content never creates a household completion record.
         CompletionDto done = previewService.complete("kit-builder", ME, HH, 1, draft.contentHash());

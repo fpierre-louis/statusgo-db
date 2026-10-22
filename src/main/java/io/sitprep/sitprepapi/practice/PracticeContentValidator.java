@@ -3,6 +3,7 @@ package io.sitprep.sitprepapi.practice;
 import io.sitprep.sitprepapi.practice.PracticeContent.Activity;
 import io.sitprep.sitprepapi.practice.PracticeContent.ActivityItem;
 import io.sitprep.sitprepapi.practice.PracticeContent.ActivityPile;
+import io.sitprep.sitprepapi.practice.PracticeContent.TogetherTurn;
 import io.sitprep.sitprepapi.practice.PracticeContent.Body;
 import io.sitprep.sitprepapi.practice.PracticeContent.Choice;
 import io.sitprep.sitprepapi.practice.PracticeContent.ContentFile;
@@ -17,6 +18,8 @@ import io.sitprep.sitprepapi.practice.PracticeContent.Version;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -371,7 +374,21 @@ public final class PracticeContentValidator {
     private static void validateActivity(Body b, String where, List<String> errors) {
         Activity a = b.activity();
         String at = where + ": activity";
-        if (!"ITEM_SORT".equals(a.type())) errors.add(at + ".type must be ITEM_SORT");
+        boolean together = "TOGETHER".equals(a.type());
+        if (!together && !"ITEM_SORT".equals(a.type())) errors.add(at + ".type must be ITEM_SORT or TOGETHER");
+        if (together) {
+            validateTogether(a, at, errors);
+        } else {
+            validateItemSort(a, at, errors);
+        }
+        validateActivityCompletion(b, a, where, at, errors);
+    }
+
+    private static void validateItemSort(Activity a, String at, List<String> errors) {
+        if (a.recommendedStyle() != null || a.roles() != null || a.turns() != null || a.remember() != null
+                || a.talkAboutIt() != null || a.followUps() != null) {
+            errors.add(at + ": Together fields belong only to a TOGETHER activity");
+        }
         requireText(a.prompt(), 240, at + ".prompt", errors);
         requireText(a.reminderQuestion(), 240, at + ".reminderQuestion", errors);
         requireText(a.recapTitle(), 120, at + ".recapTitle", errors);
@@ -403,7 +420,90 @@ public final class PracticeContentValidator {
                 errors.add(at + ": item " + item.key() + " artKey must be lower-snake-case");
             }
         }
+    }
 
+    static final int TURNS_MIN = 4;
+    static final int TURNS_MAX = 8;
+
+    /** TOGETHER (FR-8): the rhythm, roles and child-safety rules of an adult-led session. */
+    private static void validateTogether(Activity a, String at, List<String> errors) {
+        if ((a.piles() != null && !a.piles().isEmpty()) || (a.items() != null && !a.items().isEmpty())) {
+            errors.add(at + ": a TOGETHER activity carries no piles or items");
+        }
+        optionalText(a.prompt(), 240, at + ".prompt", errors);
+        optionalText(a.reminderQuestion(), 240, at + ".reminderQuestion", errors);
+        optionalText(a.recapTitle(), 120, at + ".recapTitle", errors);
+        optionalText(a.recapBody(), 500, at + ".recapBody", errors);
+
+        if (a.recommendedStyle() == null || Arrays.stream(TogetherStyle.values())
+                .noneMatch(st -> st.name().equals(a.recommendedStyle()))) {
+            errors.add(at + ".recommendedStyle must be DO_IT_TOGETHER, TAKE_A_TURN or TEEN_LEAD");
+        }
+
+        Set<String> declared = new HashSet<>();
+        List<String> roles = a.roles() == null ? List.of() : a.roles();
+        if (roles.isEmpty()) errors.add(at + ".roles needs at least one role");
+        for (String role : roles) {
+            if (TogetherRole.parse(role).isEmpty()) {
+                errors.add(at + ": unknown role " + role + " (roles come from the server TogetherRole list)");
+            } else if (!declared.add(role)) {
+                errors.add(at + ": duplicate role " + role);
+            }
+        }
+
+        List<TogetherTurn> turns = a.turns() == null ? List.of() : a.turns();
+        if (turns.size() < TURNS_MIN || turns.size() > TURNS_MAX) {
+            errors.add(at + " needs " + TURNS_MIN + "-" + TURNS_MAX + " turns");
+        }
+        int lastRhythm = -1;
+        Set<TogetherRhythm> seen = EnumSet.noneOf(TogetherRhythm.class);
+        int n = 0;
+        for (TogetherTurn t : turns) {
+            n++;
+            String tt = at + ": turn " + n;
+            if (t == null) { errors.add(tt + " is empty"); continue; }
+            TogetherRhythm rhythm = null;
+            for (TogetherRhythm r : TogetherRhythm.values()) if (r.name().equals(t.rhythm())) rhythm = r;
+            if (rhythm == null) {
+                errors.add(tt + ".rhythm must be SHOW_ME, WITH_ME, TRY_IT or TELL_ME_WHY");
+            } else {
+                if (rhythm.ordinal() < lastRhythm) errors.add(tt + ": rhythm goes backwards (show, with, try, tell)");
+                lastRhythm = Math.max(lastRhythm, rhythm.ordinal());
+                seen.add(rhythm);
+            }
+            requireText(t.say(), 120, tt + ".say", errors);
+            requireText(t.grownUp(), 160, tt + ".grownUp", errors);
+            optionalText(t.ask(), 120, tt + ".ask", errors);
+
+            String role = t.role();
+            boolean special = role != null && TogetherRole.SPECIAL.contains(role);
+            Optional<TogetherRole> known = TogetherRole.parse(role);
+            if (!special && (known.isEmpty() || !declared.contains(role))) {
+                errors.add(tt + ".role " + role + " must be ADULT, ALL, ANY or one of the listed roles");
+            }
+            if (rhythm == TogetherRhythm.SHOW_ME && !"ADULT".equals(role)) {
+                errors.add(tt + ": a SHOW_ME turn is led by the ADULT");
+            }
+            if (rhythm == TogetherRhythm.TELL_ME_WHY && isBlank(t.ask())) {
+                errors.add(tt + ": a TELL_ME_WHY turn needs an ask");
+            }
+            if ((rhythm == TogetherRhythm.TRY_IT || rhythm == TogetherRhythm.TELL_ME_WHY)
+                    && known.map(TogetherRole::adultOnly).orElse(false)) {
+                errors.add(tt + ": adult-only role " + role + " cannot be on a child's step (" + t.rhythm() + ")");
+            }
+        }
+        if (seen.size() != TogetherRhythm.values().length) {
+            errors.add(at + ": all four rhythms (SHOW_ME, WITH_ME, TRY_IT, TELL_ME_WHY) must appear");
+        }
+
+        requireText(a.remember(), 160, at + ".remember", errors);
+        requireText(a.talkAboutIt(), 160, at + ".talkAboutIt", errors);
+        List<String> followUps = a.followUps() == null ? List.of() : a.followUps();
+        if (followUps.isEmpty() || followUps.size() > 3) errors.add(at + ".followUps needs 1-3 entries");
+        for (String f : followUps) requireText(f, 80, at + ".followUps entry", errors);
+    }
+
+    private static void validateActivityCompletion(Body b, Activity a, String where, String at, List<String> errors) {
         Set<String> declaredTags = b.tags() == null ? Set.of() : b.tags().keySet();
         List<String> completionTags = a.completionTags() == null ? List.of() : a.completionTags();
         if (completionTags.isEmpty()) errors.add(at + ".completionTags needs at least one tag");
@@ -721,6 +821,9 @@ public final class PracticeContentValidator {
                     a.nextPrompt(), a.nextLabel(), a.nextNote(), a.finishLabel(), a.summaryTitle(), a.summaryBody());
             if (a.piles() != null) a.piles().forEach(p -> { if (p != null) add(texts, p.label()); });
             if (a.items() != null) a.items().forEach(i -> { if (i != null) add(texts, i.label()); });
+            add(texts, a.remember(), a.talkAboutIt());
+            if (a.followUps() != null) a.followUps().forEach(f -> add(texts, f));
+            if (a.turns() != null) a.turns().forEach(t -> { if (t != null) add(texts, t.say(), t.grownUp(), t.ask()); });
         }
 
         List<Pattern> rules = new ArrayList<>(PROHIBITED_ALL);

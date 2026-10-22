@@ -33,6 +33,7 @@ class PracticeHistoryServiceFlushTest {
     @Autowired FamilyPracticeCompletionRepo completions;
     @Autowired PracticeCheckInAnswerRepo checkInAnswers;
     @Autowired PracticeSkillStateRepo skillStates;
+    @Autowired PracticeTogetherSessionRepo sessions;
     @Autowired TestEntityManager em;
     @Autowired JdbcTemplate jdbc;
 
@@ -49,7 +50,7 @@ class PracticeHistoryServiceFlushTest {
         em.clear();
 
         PracticeHistoryService service = new PracticeHistoryService(mock(HouseholdAccessService.class), groups,
-                runs, completions, checkInAnswers, skillStates, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
+                runs, completions, checkInAnswers, skillStates, sessions, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
         PracticeHistoryService.ClearResult result = service.clear("owner@x.com", "hh-flush", true);
         em.flush();
 
@@ -95,7 +96,7 @@ class PracticeHistoryServiceFlushTest {
         em.clear();
 
         PracticeHistoryService service = new PracticeHistoryService(mock(HouseholdAccessService.class), groups,
-                runs, completions, checkInAnswers, skillStates, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
+                runs, completions, checkInAnswers, skillStates, sessions, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
         PracticeHistoryService.ClearResult result = service.clear("owner@x.com", "hh-ci-clear", true);
         em.flush();
         em.clear();

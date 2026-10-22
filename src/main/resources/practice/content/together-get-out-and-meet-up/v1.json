@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "key": "together-get-out-and-meet-up",
+  "version": 1,
+  "kind": "FAMILY_ACTIVITY",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT pilot Together activity (redesign FR-8), authored 2026-10-22 by Claude (agent) from 07_content_templates/TOGETHER_ACTIVITY_TEMPLATE.md. Every instruction is limited to four facts from the cited sources: plan two ways out, get out and stay out, meet at the meeting spot outside, count everyone. Needs the independent CHILD_SAFETY_REVIEW at the exact hash before it can be PUBLISHED; the author does not approve it. Source pages: NFPA escape planning page and the USFA home fire escape plans page were reachable when authored; the American Red Cross fire page returned HTTP 403 to the automated fetch and must be opened by the reviewer."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Get out and meet up",
+    "summary": "A short, adult-led home fire escape practice. Find two ways out, walk to your meeting spot outside, and count everyone.",
+    "objective": "Practice a home fire escape plan together: two ways out, a meeting spot outside, a head count, and staying out.",
+    "estimatedMinutes": 10,
+    "sources": [
+      {
+        "label": "American Red Cross — Home fire safety and escape plans",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/fire.html"
+      },
+      {
+        "label": "U.S. Fire Administration — Home fire escape plans",
+        "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/"
+      },
+      {
+        "label": "NFPA — How to make a home fire escape plan",
+        "url": "https://www.nfpa.org/education-and-research/home-fire-safety/escape-planning"
+      }
+    ],
+    "ageGuidance": ["Family / all ages"],
+    "facilitation": "You lead. Walk through your own home at a calm pace, one step at a time. Pass the phone only when a step says so. If a step is not working for your household, skip it and talk it through instead.",
+    "tags": {
+      "practiced_home_fire_escape": {
+        "text": "Your household practiced getting out and meeting up together."
+      }
+    },
+    "activity": {
+      "type": "TOGETHER",
+      "recommendedStyle": "TAKE_A_TURN",
+      "roles": ["CHECKER", "HEAD_COUNTER"],
+      "turns": [
+        {
+          "rhythm": "SHOW_ME",
+          "role": "ADULT",
+          "say": "Let's find two ways out of this room.",
+          "grownUp": "Point to the door, then to a second way out, such as a window. Say that every room needs two ways out."
+        },
+        {
+          "rhythm": "WITH_ME",
+          "role": "ALL",
+          "say": "Walk together to our meeting spot outside.",
+          "grownUp": "Walk out with everyone. Say where your meeting spot is: outside the home, where everyone meets."
+        },
+        {
+          "rhythm": "TRY_IT",
+          "role": "CHECKER",
+          "say": "Point to our meeting spot. Then lead everyone there.",
+          "grownUp": "Follow the Checker. Look at your household plan together to see if this is the spot you chose."
+        },
+        {
+          "rhythm": "TRY_IT",
+          "role": "HEAD_COUNTER",
+          "say": "At the meeting spot, count everyone out loud.",
+          "grownUp": "Help count every person in your household, including you. Say it is how we know we are all out."
+        },
+        {
+          "rhythm": "TELL_ME_WHY",
+          "role": "ANY",
+          "say": "Why do we all meet at the same spot?",
+          "grownUp": "Listen to the answer. A good answer: so we can count everyone and know we are all out.",
+          "ask": "Why do we all meet at the same spot outside?"
+        },
+        {
+          "rhythm": "TELL_ME_WHY",
+          "role": "ANY",
+          "say": "What do we do once we are outside?",
+          "grownUp": "Say it together: once we are out, we stay out.",
+          "ask": "Once we are out, do we go back in?"
+        }
+      ],
+      "remember": "Two ways out. Get out and stay out. Meet at our spot and count everyone.",
+      "talkAboutIt": "What would we do if one way out were blocked?",
+      "followUps": [
+        "Check that every room has two ways out",
+        "Pick one meeting spot outside, together"
+      ],
+      "completionTags": ["practiced_home_fire_escape"],
+      "nextAction": "OPEN_EVACUATION_PLAN",
+      "nextParams": {},
+      "nextPrompt": "Check your meeting place in your plan.",
+      "nextLabel": "Review your plan",
+      "nextNote": "Opens your real plan. Nothing changes unless you save it."
+    }
+  }
+}

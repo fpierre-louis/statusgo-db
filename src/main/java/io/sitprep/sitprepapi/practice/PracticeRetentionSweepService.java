@@ -29,6 +29,7 @@ import java.util.function.Function;
  *       would un-complete the activity.</li>
  *   <li>{@code practice_checkin_answer}: rows past the window go. {@code practice_skill_state}
  *       is the recall schedule itself and is kept.</li>
+ *   <li>{@code practice_together_session}: expired (24 h) sessions go on every tick.</li>
  *   <li>{@code group_drill_log} is already one row per drill (latest state)
  *       and is left alone. Token ledgers are not Practice history.</li>
  * </ul>
@@ -48,6 +49,7 @@ public class PracticeRetentionSweepService {
     private final ScenarioRunRepo runRepo;
     private final FamilyPracticeCompletionRepo completionRepo;
     private final PracticeCheckInAnswerRepo checkInAnswerRepo;
+    private final PracticeTogetherSessionRepo sessionRepo;
     private final Clock clock;
 
     @Value("${app.retention.practiceHistoryMonths:" + DEFAULT_RETENTION_MONTHS + "}")
@@ -61,12 +63,15 @@ public class PracticeRetentionSweepService {
 
     @Autowired
     public PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo,
-                                         PracticeCheckInAnswerRepo checkInAnswerRepo) {
-        this(runRepo, completionRepo, checkInAnswerRepo, Clock.systemUTC());
+                                         PracticeCheckInAnswerRepo checkInAnswerRepo,
+                                         PracticeTogetherSessionRepo sessionRepo) {
+        this(runRepo, completionRepo, checkInAnswerRepo, sessionRepo, Clock.systemUTC());
     }
 
     PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo,
-                                  PracticeCheckInAnswerRepo checkInAnswerRepo, Clock clock) {
+                                  PracticeCheckInAnswerRepo checkInAnswerRepo, PracticeTogetherSessionRepo sessionRepo,
+                                  Clock clock) {
+        this.sessionRepo = sessionRepo;
         this.runRepo = runRepo;
         this.completionRepo = completionRepo;
         this.checkInAnswerRepo = checkInAnswerRepo;
@@ -84,7 +89,8 @@ public class PracticeRetentionSweepService {
         Instant cutoff = clock.instant().atZone(ZoneOffset.UTC).minusMonths(retentionMonths).toInstant();
         return drain("PracticeScenarioRunRetention", cutoff, this::sweepScenarioRunsOnce)
                 + drain("PracticeFamilyCompletionRetention", cutoff, this::sweepFamilyCompletionsOnce)
-                + drain("PracticeCheckInAnswerRetention", cutoff, this::sweepCheckInAnswersOnce);
+                + drain("PracticeCheckInAnswerRetention", cutoff, this::sweepCheckInAnswersOnce)
+                + drain("PracticeTogetherSessionRetention", cutoff, c -> sweepTogetherSessionsOnce());
     }
 
     /** One batch; a batch shorter than {@code sweepBatchSize} means nothing more is eligible. */
@@ -102,6 +108,12 @@ public class PracticeRetentionSweepService {
     int sweepCheckInAnswersOnce(Instant cutoff) {
         List<Long> ids = checkInAnswerRepo.findSweepableIds(cutoff, sweepBatchSize);
         return ids.isEmpty() ? 0 : checkInAnswerRepo.deleteByIdIn(ids);
+    }
+
+    /** Together sessions expire after 24 h; an expired one is deleted whatever the history window. */
+    int sweepTogetherSessionsOnce() {
+        List<Long> ids = sessionRepo.findExpiredIds(clock.instant(), sweepBatchSize);
+        return ids.isEmpty() ? 0 : sessionRepo.deleteByIdIn(ids);
     }
 
     void configure(int months, int batchSize, int maxBatches) {

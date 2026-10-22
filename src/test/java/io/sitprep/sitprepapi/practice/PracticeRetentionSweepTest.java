@@ -30,13 +30,14 @@ class PracticeRetentionSweepTest {
     @Autowired FamilyPracticeCompletionRepo completionRepo;
     @Autowired PracticeCheckInAnswerRepo answerRepo;
     @Autowired PracticeSkillStateRepo stateRepo;
+    @Autowired PracticeTogetherSessionRepo sessionRepo;
     @Autowired TestEntityManager em;
 
     private PracticeRetentionSweepService sweep;
 
     @BeforeEach
     void setUp() {
-        sweep = new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC));
+        sweep = new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, sessionRepo, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     /** The bulk delete bypasses the persistence context, so drop it before asserting on findById. */

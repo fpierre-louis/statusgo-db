@@ -1,6 +1,9 @@
 package io.sitprep.sitprepapi.practice;
 
+import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.ActiveSessionDto;
 import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.ActivityCardDto;
+import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.RoleDto;
+import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.TurnDto;
 import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.ActivityDetailDto;
 import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.ActivityDto;
 import io.sitprep.sitprepapi.practice.FamilyPracticeDtos.CatalogDto;
@@ -44,25 +47,29 @@ public class FamilyPracticeService {
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
     private final PracticeIdentity identity;
+    private final PracticeTogetherSessionRepo sessionRepo;
     private final Clock clock;
 
     @Autowired
     public FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                                  FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
-                                 HouseholdAccessService access, PracticeIdentity identity) {
-        this(availability, suppression, completionRepo, groupRepo, access, identity, Clock.systemUTC());
+                                 HouseholdAccessService access, PracticeIdentity identity,
+                                 PracticeTogetherSessionRepo sessionRepo) {
+        this(availability, suppression, completionRepo, groupRepo, access, identity, sessionRepo, Clock.systemUTC());
     }
 
     FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                           FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
-                          HouseholdAccessService access, Clock clock) {
-        this(availability, suppression, completionRepo, groupRepo, access, PracticeIdentity.NONE, clock);
+                          HouseholdAccessService access, PracticeTogetherSessionRepo sessionRepo, Clock clock) {
+        this(availability, suppression, completionRepo, groupRepo, access, PracticeIdentity.NONE, sessionRepo, clock);
     }
 
     FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                           FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
-                          HouseholdAccessService access, PracticeIdentity identity, Clock clock) {
+                          HouseholdAccessService access, PracticeIdentity identity,
+                          PracticeTogetherSessionRepo sessionRepo, Clock clock) {
         this.identity = identity;
+        this.sessionRepo = sessionRepo;
         this.availability = availability;
         this.suppression = suppression;
         this.completionRepo = completionRepo;
@@ -96,13 +103,21 @@ public class FamilyPracticeService {
         FamilyPracticeCompletion prior = completionRepo
                 .findByHouseholdIdAndActivityKeyAndContentVersion(hid, v.key(), v.version()).orElse(null);
         SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
+        ActiveSessionDto active = null;
+        if ("TOGETHER".equals(v.body().activity().type())) {
+            active = sessionRepo.findFirstByHouseholdIdAndActivityKeyAndContentVersionAndExpiresAtAfterOrderByStartedAtDescIdDesc(
+                            hid, v.key(), v.version(), clock.instant())
+                    .map(x -> new ActiveSessionDto(x.getId(), x.getStyle(), x.getTurnIndex(), x.getExpiresAt()))
+                    .orElse(null);
+        }
         return new ActivityDetailDto(FamilyPracticeDtos.SCHEMA_VERSION, v.key(), v.version(), v.contentHash(),
                 v.body().title(), v.body().summary(), v.body().objective(), v.body().estimatedMinutes(),
                 safe(v.body().ageGuidance()), v.body().facilitation(),
                 v.body().sources().stream().map(s -> new SourceDto(s.label(), s.url())).toList(),
                 activityDto(v.body().activity()), start.entry().preview(), waiting,
                 prior == null ? null : prior.getCompletedAt(),
-                waiting == null ? AlertHeadsUpDto.of(suppression.headsUp(hid).orElse(null)) : null);
+                waiting == null ? AlertHeadsUpDto.of(suppression.headsUp(hid).orElse(null)) : null,
+                active);
     }
 
     /** Idempotent per household + activity + version. No picks or child data enter this method. */
@@ -116,6 +131,9 @@ public class FamilyPracticeService {
         if (contentVersion != v.version() || contentHash == null || !contentHash.equals(v.contentHash())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This activity changed; reload before recording it");
         }
+        // Finishing ends the household's Together sessions for this activity (any version): nothing
+        // is left to resume. Idempotent, so a replayed completion cleans up too.
+        sessionRepo.deleteByHouseholdAndActivity(hid, v.key());
         if (start.entry().preview()) {
             // A preview build rehearses unreviewed content and records nothing.
             // Publishing keeps the same version and hash, so a stored preview
@@ -169,10 +187,17 @@ public class FamilyPracticeService {
     }
 
     private static ActivityDto activityDto(Activity a) {
+        List<RoleDto> roles = safe(a.roles()).stream()
+                .map(k -> TogetherRole.parse(k).map(r -> new RoleDto(r.name(), r.label(), r.adultOnly())).orElse(null))
+                .filter(java.util.Objects::nonNull).toList();
+        List<TurnDto> turns = a.turns() == null ? List.of() : a.turns().stream()
+                .map(t -> new TurnDto(t.rhythm(), t.role(), TogetherRole.labelFor(t.role()), t.say(), t.grownUp(), t.ask()))
+                .toList();
         return new ActivityDto(a.type(), a.prompt(), a.reminderQuestion(), a.recapTitle(), a.recapBody(),
-                a.piles().stream().map(p -> new PileDto(p.key(), p.label())).toList(),
-                a.items().stream().map(i -> new ItemDto(i.key(), i.label(), i.artKey())).toList(),
-                nextStep(a), a.finishLabel(), a.summaryTitle(), a.summaryBody());
+                a.piles() == null ? List.of() : a.piles().stream().map(p -> new PileDto(p.key(), p.label())).toList(),
+                a.items() == null ? List.of() : a.items().stream().map(i -> new ItemDto(i.key(), i.label(), i.artKey())).toList(),
+                nextStep(a), a.finishLabel(), a.summaryTitle(), a.summaryBody(),
+                a.recommendedStyle(), roles, turns, a.remember(), a.talkAboutIt(), safe(a.followUps()));
     }
 
     private static CompletionDto completionDto(FamilyPracticeCompletion row, Version v) {
