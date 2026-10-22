@@ -59,6 +59,17 @@ class ScenarioEngineTest {
     }
 
     @Test
+    void decisionCountsFollowTheLongestPathAhead() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version tornado = catalog.exact("tornado-warning-shelter-decision", 2).orElseThrow();
+        // warning_issued → storm_closer → in_shelter → warning_ends is the longest path: 4 decisions.
+        assertThat(ScenarioEngine.longestDecisionsFrom(tornado, ScenarioEngine.startNode(tornado))).isEqualTo(4);
+        assertThat(ScenarioEngine.longestDecisionsFrom(tornado, "warning_ends")).isEqualTo(1);
+        assertThat(ScenarioEngine.longestDecisionsFrom(tornado, "warning_rehearsed")).isZero();
+        assertThat(ScenarioEngine.longestDecisionsFrom(tornado, "nope")).isZero();
+    }
+
+    @Test
     void debriefFallsBackToTheOutcomeDefault() {
         var d = ScenarioEngine.debrief(fixture, List.of(
                 new TraceStep("start", "text", "t"), new TraceStep("second", "improvise", "t")), "partial");

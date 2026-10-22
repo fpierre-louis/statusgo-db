@@ -42,8 +42,10 @@ public final class ScenarioDtos {
      * scenario rehearses a hazard the household's area is known for, else null;
      * such rows also come first, highest tier first.
      */
+    /** {@code hazard} (a presentation tag) and {@code decisionCount} (longest path) are additive (redesign FR-2). */
     public record ScenarioCardDto(String key, int version, String title, String summary,
-                                  Integer estimatedMinutes, boolean preview, String localNote) {}
+                                  Integer estimatedMinutes, boolean preview, String localNote,
+                                  String hazard, Integer decisionCount) {}
 
     /** "Continue where you left off". */
     public record InProgressDto(long runId, String scenarioKey, String title, int stepNumber, String nodeTitle) {}
@@ -55,7 +57,7 @@ public final class ScenarioDtos {
     public record ScenarioDetailDto(int schemaVersion, String key, int version, String title, String summary,
                                     String objective, Integer estimatedMinutes, List<SourceDto> sources,
                                     boolean preview, SuppressionDto suppression, Long inProgressRunId,
-                                    AlertHeadsUpDto alertHeadsUp) {}
+                                    AlertHeadsUpDto alertHeadsUp, String hazard, Integer decisionCount) {}
 
     public record ChoiceDto(String key, String label) {}
 
@@ -125,7 +127,9 @@ public final class ScenarioDtos {
     public record RunDto(int schemaVersion, long runId, String scenarioKey, int contentVersion, String title,
                          String status, String contentStatus, boolean preview, int stepNumber,
                          NodeDto node, CommittedDto lastCommit, boolean atOutcome, DebriefDto debrief,
-                         SuppressionDto suppression, Instant startedAt, Instant completedAt) {}
+                         SuppressionDto suppression, Instant startedAt, Instant completedAt,
+                         /** Decisions taken + the longest path still ahead: the "of N" (redesign FR-2). */
+                         Integer decisionsTotal) {}
 
     public record StartRequest(String householdId) {}
 

@@ -133,7 +133,8 @@ public class ScenarioService {
             Version v = e.version();
             cards.add(new ScenarioCardDto(v.key(), v.version(), v.body().title(), v.body().summary(),
                     v.body().estimatedMinutes(), e.preview(),
-                    local.containsKey(v.key()) ? local.get(v.key()).note() : null));
+                    local.containsKey(v.key()) ? local.get(v.key()).note() : null,
+                    hazardTag(v.key()), ScenarioEngine.longestDecisionsFrom(v, ScenarioEngine.startNode(v))));
         }
         cards.sort(java.util.Comparator.comparingInt(c ->
                 local.containsKey(c.key()) ? local.get(c.key()).rank() : Integer.MAX_VALUE));
@@ -164,7 +165,21 @@ public class ScenarioService {
         SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
         return new ScenarioDetailDto(ScenarioDtos.SCHEMA_VERSION, v.key(), v.version(), v.body().title(),
                 v.body().summary(), v.body().objective(), v.body().estimatedMinutes(), sources,
-                start.entry().preview(), waiting, runId, waiting == null ? alertHeadsUp(hid) : null);
+                start.entry().preview(), waiting, runId, waiting == null ? alertHeadsUp(hid) : null,
+                hazardTag(v.key()), ScenarioEngine.longestDecisionsFrom(v, ScenarioEngine.startNode(v)));
+    }
+
+    /**
+     * The intro's and catalog's kind tag (handoff SCENARIO_COMPONENTS ScenarioIntro
+     * "hazard tag"): the hazard the scenario rehearses, or its topic. Presentation,
+     * so it lives here, not in reviewed content.
+     */
+    static String hazardTag(String scenarioKey) {
+        String hazard = ScenarioRelevance.SCENARIO_HAZARD.get(scenarioKey);
+        if (hazard != null) return hazard;
+        if ("comms-outage-family-reconnect".equals(scenarioKey)) return "communications";
+        if ("evacuating-with-pets".equals(scenarioKey)) return "pets";
+        return null;
     }
 
     /** The alert nudge, only where nothing outranks it. */
@@ -355,7 +370,7 @@ public class ScenarioService {
                 title, run.getStatus().name(), check.status().name(),
                 v != null && v.publishState() != PublishState.PUBLISHED && v.publishState() != PublishState.RETIRED,
                 stepNumber(run), node, lastCommit, atOutcome, debrief, waiting,
-                run.getStartedAt(), run.getCompletedAt());
+                run.getStartedAt(), run.getCompletedAt(), decisionsTotal(v, run, showContent));
     }
 
     private static NodeDto nodeDto(Node n) {
@@ -405,6 +420,14 @@ public class ScenarioService {
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),
                 d.worthPracticing(), next, path, mediaDto(d.outcome().media()), d.oneThing());
+    }
+
+    /** Taken so far + the longest path ahead; null when the content can't be shown. */
+    private static Integer decisionsTotal(Version v, ScenarioRun run, boolean showContent) {
+        if (!showContent || v == null) return null;
+        int taken = run.getDecisionTrace() == null ? 0 : run.getDecisionTrace().size();
+        if (run.getStatus() != Status.IN_PROGRESS) return taken;
+        return taken + ScenarioEngine.longestDecisionsFrom(v, run.getLastNodeKey());
     }
 
     private static int stepNumber(ScenarioRun run) {
