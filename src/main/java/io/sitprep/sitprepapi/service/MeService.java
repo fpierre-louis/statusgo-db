@@ -1094,10 +1094,7 @@ public class MeService {
                     if (entry.getKey() == null || entry.getValue() == null) continue;
                     DrillCompletion c = entry.getValue();
                     if (c.getCompletedAt() == null) continue;
-                    drills.put(entry.getKey(), new DrillCompletionDto(
-                            c.getCompletedAt(),
-                            c.getCompletedBy()
-                    ));
+                    drills.put(entry.getKey(), new DrillCompletionDto(c.getCompletedAt()));
                 }
             }
             return new HouseholdState(challenge, drills, household.getChallengeLastShownWeek());

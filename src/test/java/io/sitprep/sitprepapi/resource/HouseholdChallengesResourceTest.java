@@ -41,7 +41,8 @@ class HouseholdChallengesResourceTest {
         suppression = mock(PracticeSuppressionService.class);
         when(suppression.check(anyString(), anyString())).thenReturn(Optional.empty());
         resource = new HouseholdChallengesResource(groupRepo, access,
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class), suppression);
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class), suppression,
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.practice.PracticeIdentity.class));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                         CALLER, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))));

@@ -5,6 +5,7 @@ import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.MeDto.DrillCompletionDto;
+import io.sitprep.sitprepapi.practice.PracticeIdentity;
 import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
 import io.sitprep.sitprepapi.practice.ScenarioService;
 import io.sitprep.sitprepapi.repo.GroupRepo;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -70,15 +72,21 @@ public class HouseholdChallengesResource {
     private static final Pattern DRILL_KEY =
             Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,62}(#[A-Za-z0-9][A-Za-z0-9_-]{0,31})?$");
 
+    /** How long a member may undo their own drill mark (a mis-tap); owners/admins have no limit. */
+    static final Duration UNDO_WINDOW = Duration.ofMinutes(10);
+
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
 
     private final TokenEventPublisher tokenEvents;
     private final PracticeSuppressionService suppression;
+    private final PracticeIdentity identity;
 
     public HouseholdChallengesResource(GroupRepo groupRepo, HouseholdAccessService access,
                                        TokenEventPublisher tokenEvents,
-                                       PracticeSuppressionService suppression) {
+                                       PracticeSuppressionService suppression,
+                                       PracticeIdentity identity) {
+        this.identity = identity;
         this.groupRepo = groupRepo;
         this.access = access;
         this.tokenEvents = tokenEvents;
@@ -199,7 +207,8 @@ public class HouseholdChallengesResource {
             household.setDrillLog(log);
         }
 
-        log.put(drillKey, new DrillCompletion(Instant.now(), caller));
+        // Identified by the stable user id; the raw email is no longer stored (ruling 2026-10-22).
+        log.put(drillKey, new DrillCompletion(Instant.now(), null, identity.userIdFor(caller)));
         groupRepo.save(household);
         tokenEvents.household(TokenEventType.DRILL_COMPLETED, householdId, drillKey);
         return ResponseEntity.ok(drillDto(log));
@@ -213,6 +222,12 @@ public class HouseholdChallengesResource {
      * <p>Idempotent: removing something that is not there is a 200 with the
      * unchanged log, not a 404. The caller's intent — "this should not be
      * marked done" — is already satisfied.</p>
+     *
+     * <p><b>Who may undo (ruling 2026-10-22).</b> A household owner/admin always;
+     * a regular member only their OWN mark within {@link #UNDO_WINDOW} (a
+     * mis-tap), matched on the stable user id. Legacy rows carry no id, so only
+     * an owner/admin can clear them. A member cannot quietly delete shared
+     * history. Undo still stays open during a live response.</p>
      */
     @DeleteMapping("/{householdId}/drills/{drillKey}")
     @Transactional
@@ -226,10 +241,21 @@ public class HouseholdChallengesResource {
 
         Group household = householdOr404(householdId);
         Map<String, DrillCompletion> log = household.getDrillLog();
+        DrillCompletion row = log == null ? null : log.get(drillKey);
+        if (row != null && !access.canWriteHousehold(caller, householdId) && !isOwnRecentMark(row, caller)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only a household owner or admin can clear practice history");
+        }
         if (log != null && log.remove(drillKey) != null) {
             groupRepo.save(household);
         }
         return ResponseEntity.ok(drillDto(log));
+    }
+
+    private boolean isOwnRecentMark(DrillCompletion row, String caller) {
+        if (row.getCompletedByUserId() == null || row.getCompletedAt() == null) return false;
+        if (!row.getCompletedByUserId().equals(identity.userIdFor(caller))) return false;
+        return row.getCompletedAt().isAfter(Instant.now().minus(UNDO_WINDOW));
     }
 
     /** Defensive copy — never hand the managed collection out onto the wire. */
@@ -239,7 +265,7 @@ public class HouseholdChallengesResource {
         for (Map.Entry<String, DrillCompletion> e : log.entrySet()) {
             DrillCompletion c = e.getValue();
             if (e.getKey() == null || c == null || c.getCompletedAt() == null) continue;
-            out.put(e.getKey(), new DrillCompletionDto(c.getCompletedAt(), c.getCompletedBy()));
+            out.put(e.getKey(), new DrillCompletionDto(c.getCompletedAt()));
         }
         return out;
     }

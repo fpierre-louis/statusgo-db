@@ -318,9 +318,9 @@ public record MeDto(
             Instant alertActivatedAt
     ) {}
 
+    /** When a drill was last done. The completer is never shipped (ruling 2026-10-22). */
     public record DrillCompletionDto(
-            Instant completedAt,
-            String completedBy
+            Instant completedAt
     ) {}
 
     /**

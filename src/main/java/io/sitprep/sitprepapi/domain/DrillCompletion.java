@@ -2,7 +2,6 @@ package io.sitprep.sitprepapi.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -30,13 +29,29 @@ import java.time.Instant;
 @Getter
 @Setter
 @NoArgsConstructor
-@AllArgsConstructor
 public class DrillCompletion {
 
     @Column(name = "completed_at", nullable = false)
     private Instant completedAt;
 
-    /** The member who reported it. Null only for rows written before this field existed. */
+    /**
+     * Legacy reporter email. Null on rows written since V121 (completers are
+     * identified by {@link #completedByUserId}); never shipped to clients.
+     */
     @Column(name = "completed_by", length = 320)
     private String completedBy;
+
+    /** Stable {@code UserInfo.id} of the member who reported it; null for legacy rows or an unresolved caller. */
+    @Column(name = "completed_by_user_id", length = 255)
+    private String completedByUserId;
+
+    public DrillCompletion(Instant completedAt, String completedBy) {
+        this(completedAt, completedBy, null);
+    }
+
+    public DrillCompletion(Instant completedAt, String completedBy, String completedByUserId) {
+        this.completedAt = completedAt;
+        this.completedBy = completedBy;
+        this.completedByUserId = completedByUserId;
+    }
 }

@@ -73,13 +73,14 @@ public class ScenarioService {
     private final HouseholdAccessService access;
     private final ScenarioRelevance relevance;
     private final ApplicationEventPublisher events;
+    private final PracticeIdentity identity;
     private final Clock clock;
 
     @Autowired
     public ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                            ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
-                           ScenarioRelevance relevance, ApplicationEventPublisher events) {
-        this(availability, suppression, runRepo, groupRepo, access, relevance, events, Clock.systemUTC());
+                           ScenarioRelevance relevance, ApplicationEventPublisher events, PracticeIdentity identity) {
+        this(availability, suppression, runRepo, groupRepo, access, relevance, events, identity, Clock.systemUTC());
     }
 
     ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
@@ -96,6 +97,14 @@ public class ScenarioService {
     ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                     ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
                     ScenarioRelevance relevance, ApplicationEventPublisher events, Clock clock) {
+        this(availability, suppression, runRepo, groupRepo, access, relevance, events, PracticeIdentity.NONE, clock);
+    }
+
+    ScenarioService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
+                    ScenarioRunRepo runRepo, GroupRepo groupRepo, HouseholdAccessService access,
+                    ScenarioRelevance relevance, ApplicationEventPublisher events, PracticeIdentity identity,
+                    Clock clock) {
+        this.identity = identity;
         this.availability = availability;
         this.suppression = suppression;
         this.runRepo = runRepo;
@@ -222,7 +231,8 @@ public class ScenarioService {
 
         ScenarioRun run = new ScenarioRun();
         run.setHouseholdId(hid);
-        run.setUserEmail(email);
+        run.setUserEmail(email);   // operational run ownership for personal runs; not a completer record
+        run.setUserId(identity.userIdFor(email));
         run.setScenarioKey(v.key());
         run.setContentVersion(v.version());
         run.setContentHash(v.contentHash());

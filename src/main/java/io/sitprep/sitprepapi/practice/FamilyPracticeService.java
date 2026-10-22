@@ -43,18 +43,26 @@ public class FamilyPracticeService {
     private final FamilyPracticeCompletionRepo completionRepo;
     private final GroupRepo groupRepo;
     private final HouseholdAccessService access;
+    private final PracticeIdentity identity;
     private final Clock clock;
 
     @Autowired
     public FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                                  FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
-                                 HouseholdAccessService access) {
-        this(availability, suppression, completionRepo, groupRepo, access, Clock.systemUTC());
+                                 HouseholdAccessService access, PracticeIdentity identity) {
+        this(availability, suppression, completionRepo, groupRepo, access, identity, Clock.systemUTC());
     }
 
     FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
                           FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
                           HouseholdAccessService access, Clock clock) {
+        this(availability, suppression, completionRepo, groupRepo, access, PracticeIdentity.NONE, clock);
+    }
+
+    FamilyPracticeService(PracticeAvailabilityService availability, PracticeSuppressionService suppression,
+                          FamilyPracticeCompletionRepo completionRepo, GroupRepo groupRepo,
+                          HouseholdAccessService access, PracticeIdentity identity, Clock clock) {
+        this.identity = identity;
         this.availability = availability;
         this.suppression = suppression;
         this.completionRepo = completionRepo;
@@ -125,7 +133,8 @@ public class FamilyPracticeService {
         row.setContentVersion(v.version());
         row.setContentHash(v.contentHash());
         row.setCompletedAt(clock.instant());
-        row.setCompletedByEmail(email);
+        // The stable user id, not the email (ruling 2026-10-22); null id tolerated.
+        row.setCompletedByUserId(identity.userIdFor(email));
         row.setDebriefTags(new ArrayList<>(v.body().activity().completionTags()));
         try {
             return completionDto(completionRepo.saveAndFlush(row), v);

@@ -57,6 +57,10 @@ public class ScenarioRun {
     @Column(name = "user_email", nullable = false, length = 320)
     private String userEmail;
 
+    /** Stable {@code UserInfo.id} of the starter; null for runs begun before V121 or an unresolved caller. */
+    @Column(name = "user_id", length = 255)
+    private String userId;
+
     @Column(name = "scenario_key", nullable = false, length = 96)
     private String scenarioKey;
 

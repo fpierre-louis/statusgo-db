@@ -64,7 +64,9 @@ class FamilyPracticeServiceTest {
         household.setGroupType("Household");
         when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
         HouseholdAccessService access = mock(HouseholdAccessService.class);
-        service = new FamilyPracticeService(availability, suppression, inMemoryRepo(), groups, access, clock);
+        PracticeIdentity identity = mock(PracticeIdentity.class);
+        when(identity.userIdFor(ME)).thenReturn("user-1");
+        service = new FamilyPracticeService(availability, suppression, inMemoryRepo(), groups, access, identity, clock);
     }
 
     private FamilyPracticeCompletionRepo inMemoryRepo() {
@@ -113,7 +115,9 @@ class FamilyPracticeServiceTest {
 
         assertThat(again.completedAt()).isEqualTo(first.completedAt()).isEqualTo(NOW);
         assertThat(table).hasSize(1);
-        assertThat(table.get(0).getCompletedByEmail()).isEqualTo(ME);
+        // Ruling 2026-10-22: the stable user id is stored; the raw email is not.
+        assertThat(table.get(0).getCompletedByEmail()).isNull();
+        assertThat(table.get(0).getCompletedByUserId()).isEqualTo("user-1");
         assertThat(table.get(0).getDebriefTags()).containsExactly("discussed_core_kit_items");
         assertThat(service.progress(HH, ME).activities()).singleElement()
                 .satisfies(p -> assertThat(p.completedVersions()).isEqualTo(1));

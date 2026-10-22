@@ -41,10 +41,12 @@ class HouseholdDrillLogTest {
 
     private static final String HH = "hh-1";
     private static final String MEMBER = "member@x.com";
+    private static final String OTHER = "other@x.com";
     private static final String OUTSIDER = "outsider@x.com";
 
     private GroupRepo groupRepo;
     private HouseholdAccessService access;
+    private io.sitprep.sitprepapi.practice.PracticeIdentity identity;
     private HouseholdChallengesResource resource;
     private Group household;
 
@@ -52,10 +54,14 @@ class HouseholdDrillLogTest {
     void setUp() {
         groupRepo = mock(GroupRepo.class);
         access = mock(HouseholdAccessService.class);
+        identity = mock(io.sitprep.sitprepapi.practice.PracticeIdentity.class);
+        when(identity.userIdFor(MEMBER)).thenReturn("u-member");
+        when(identity.userIdFor(OTHER)).thenReturn("u-other");
         resource = new HouseholdChallengesResource(groupRepo, access,
                 org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class),
                 // Calm: a mocked check returns Optional.empty() (redesign BE-01).
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.practice.PracticeSuppressionService.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.practice.PracticeSuppressionService.class),
+                identity);
 
         household = new Group();
         household.setGroupId(HH);
@@ -84,12 +90,14 @@ class HouseholdDrillLogTest {
     // ── the record ──────────────────────────────────────────────────────────
 
     @Test
-    void completeRecordsWhenAndWho() {
+    void completeRecordsWhenAndWhoById_neverTheEmail() {
         Map<String, DrillCompletionDto> log = complete("smoke-alarms");
 
         assertTrue(log.containsKey("smoke-alarms"));
         assertNotNull(log.get("smoke-alarms").completedAt());
-        assertEquals(MEMBER, log.get("smoke-alarms").completedBy());
+        DrillCompletion stored = household.getDrillLog().get("smoke-alarms");
+        assertEquals("u-member", stored.getCompletedByUserId());
+        assertNull(stored.getCompletedBy(), "new rows store the user id, not the raw email");
         assertEquals(1, household.getDrillLog().size());
     }
 
@@ -140,6 +148,59 @@ class HouseholdDrillLogTest {
         assertEquals(HttpStatus.OK, res.getStatusCode());
         assertTrue(res.getBody().isEmpty());
         verify(groupRepo, never()).save(any(Group.class));
+    }
+
+    // ── who may undo (owner ruling 2026-10-22) ──────────────────────────────
+
+    private void seed(String key, Instant at, String userId) {
+        Map<String, DrillCompletion> log = new HashMap<>();
+        log.put(key, new DrillCompletion(at, null, userId));
+        household.setDrillLog(log);
+    }
+
+    @Test
+    void aMemberMayUndoTheirOwnMarkWithinTenMinutes() {
+        seed("smoke-alarms", Instant.now().minusSeconds(5 * 60), "u-member");
+
+        assertTrue(resource.clearDrill(HH, "smoke-alarms").getBody().isEmpty());
+        assertTrue(household.getDrillLog().isEmpty());
+    }
+
+    @Test
+    void aMemberMayNotUndoTheirOwnMarkAfterTenMinutes() {
+        seed("smoke-alarms", Instant.now().minusSeconds(11 * 60), "u-member");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> resource.clearDrill(HH, "smoke-alarms"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals(1, household.getDrillLog().size());
+    }
+
+    @Test
+    void aMemberMayNotUndoSomeoneElsesRecentMark() {
+        seed("smoke-alarms", Instant.now().minusSeconds(60), "u-other");
+
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> resource.clearDrill(HH, "smoke-alarms")).getStatusCode());
+        assertEquals(1, household.getDrillLog().size());
+    }
+
+    @Test
+    void aLegacyRowWithNoUserIdNeedsAnOwnerOrAdmin() {
+        seed("smoke-alarms", Instant.now().minusSeconds(60), null);
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> resource.clearDrill(HH, "smoke-alarms")).getStatusCode());
+
+        when(access.canWriteHousehold(MEMBER, HH)).thenReturn(true);
+        assertTrue(resource.clearDrill(HH, "smoke-alarms").getBody().isEmpty());
+    }
+
+    @Test
+    void anOwnerOrAdminMayUndoAnyMarkAtAnyAge() {
+        when(access.canWriteHousehold(MEMBER, HH)).thenReturn(true);
+        seed("smoke-alarms", Instant.now().minusSeconds(30L * 24 * 3600), "u-other");
+
+        assertTrue(resource.clearDrill(HH, "smoke-alarms").getBody().isEmpty());
     }
 
     // ── the wire ────────────────────────────────────────────────────────────

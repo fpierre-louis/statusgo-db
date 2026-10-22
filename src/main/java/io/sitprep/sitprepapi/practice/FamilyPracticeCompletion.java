@@ -46,8 +46,13 @@ public class FamilyPracticeCompletion {
     @Column(name = "completed_at", nullable = false)
     private Instant completedAt;
 
-    @Column(name = "completed_by_email", nullable = false, length = 320)
+    /** Legacy completer email. Null on rows written since V121; history is not rewritten. */
+    @Column(name = "completed_by_email", length = 320)
     private String completedByEmail;
+
+    /** Stable {@code UserInfo.id} of the completer; null for legacy rows or an unresolved caller. */
+    @Column(name = "completed_by_user_id", length = 255)
+    private String completedByUserId;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "debrief_tags", nullable = false)
