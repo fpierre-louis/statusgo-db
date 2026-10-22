@@ -467,6 +467,45 @@ class PracticeCheckInServiceTest {
     }
 
     @Test
+    void aDueCheckInOnAPhysicalSkillReadsRefreshNotNew() {
+        completedRun("tornado-warning-shelter-decision", T0);
+        clock.now = T0.plus(Duration.ofDays(2));
+        assertThat(states().get(KNOW).status()).isEqualTo("REFRESH");
+    }
+
+    @Test
+    void anEarlyAnswerIsRecordedButDoesNotClimbTheLadder() {
+        service.answer(USER, ckey(KNOW), HH, correctChoice(KNOW));
+        clock.now = T0.plus(Duration.ofHours(1));
+        service.answer(USER, ckey(KNOW), HH, correctChoice(KNOW));
+        PracticeSkillState st = stateRepo.findByHouseholdIdAndSkillKey(HH, KNOW).orElseThrow();
+        assertThat(st.getIntervalDays()).isEqualTo(9);
+        assertThat(st.getNextDueAt()).isEqualTo(T0.plus(Duration.ofDays(9)));
+        assertThat(answerRepo.count()).isEqualTo(2);
+    }
+
+    @Test
+    void anAnswerOnceDueClimbsAgain() {
+        service.answer(USER, ckey(KNOW), HH, correctChoice(KNOW));
+        clock.now = T0.plus(Duration.ofDays(9));
+        service.answer(USER, ckey(KNOW), HH, correctChoice(KNOW));
+        assertThat(stateRepo.findByHouseholdIdAndSkillKey(HH, KNOW).orElseThrow().getIntervalDays()).isEqualTo(30);
+    }
+
+    @Test
+    void anAnswerRacingTheFirstInsertIs409NotAServerError() {
+        PracticeSkillStateRepo racing = mock(PracticeSkillStateRepo.class);
+        when(racing.findByHouseholdIdAndSkillKey(anyString(), anyString())).thenReturn(Optional.empty());
+        when(racing.saveAndFlush(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("dup"));
+        PracticeSkillStateService skillState = new PracticeSkillStateService(availability, stateRepo, runs, groups, access, clock);
+        PracticeCheckInService svc = new PracticeCheckInService(availability, suppression, skillState, racing, answerRepo, access, clock);
+        assertThatThrownBy(() -> svc.answer(USER, ckey(KNOW), HH, correctChoice(KNOW)))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(409));
+    }
+
+    @Test
     void aDrillPhaseMarkCountsForItsDrill() {
         drillMark("tornado-safe-room-speed-round#night", T0);
         assertThat(states().get(KNOW).lastPracticedAt()).isEqualTo(T0);

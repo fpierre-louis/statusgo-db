@@ -126,6 +126,28 @@ class ScenarioServiceTest {
         when(controls.findAll()).thenReturn(List.of(c));
     }
 
+    @Test
+    void aCheckInOrSkillKeyIsNotAScenario() {
+        PracticeCatalog shipped = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PracticeAvailabilityService preview = new PracticeAvailabilityService(shipped, controls, true, true, clock);
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioService s = new ScenarioService(preview, suppression, inMemoryRepo(), groups, access, clock);
+        for (String key : List.of("tornado-know-where-to-go", "tornado-know-where-to-go-checkin")) {
+            for (PracticeKind kind : List.of(PracticeKind.SKILL, PracticeKind.CHECKIN)) {
+                for (String k : shipped.keys(kind)) {
+                    assertThat(status(() -> s.detail(k, ME, HH))).as("detail " + k).isEqualTo(404);
+                    assertThat(status(() -> s.start(k, ME, HH))).as("start " + k).isEqualTo(404);
+                }
+            }
+        }
+        assertThat(table).isEmpty();
+    }
+
     // -- start / resume -------------------------------------------------
 
     @Test

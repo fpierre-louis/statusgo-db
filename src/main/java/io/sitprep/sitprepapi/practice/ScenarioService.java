@@ -160,6 +160,7 @@ public class ScenarioService {
         StartCheck start = availability.checkStart(scenarioKey);
         if (!start.allowed()) throw startDenied(start);
         Version v = start.entry().version();
+        if (v.kind() != PracticeKind.ADULT_SCENARIO) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scenario not found");
         List<SourceDto> sources = v.body().sources().stream().map(s -> new SourceDto(s.label(), s.url())).toList();
         Long runId = activeRun(email, hid, scenarioKey).map(ScenarioRun::getId).orElse(null);
         SuppressionDto waiting = SuppressionDto.of(suppression.check(hid, email).orElse(null));
@@ -243,6 +244,7 @@ public class ScenarioService {
         StartCheck start = availability.checkStart(scenarioKey);
         if (!start.allowed()) throw startDenied(start);
         Version v = start.entry().version();
+        if (v.kind() != PracticeKind.ADULT_SCENARIO) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scenario not found");
 
         ScenarioRun run = new ScenarioRun();
         run.setHouseholdId(hid);

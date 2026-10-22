@@ -200,23 +200,34 @@ public class PracticeCheckInService {
         a.setAnsweredAt(now);
         a = answerRepo.save(a);
 
-        PracticeSkillState st = stateRepo.findByHouseholdIdAndSkillKey(hid, c.skill()).orElseGet(() -> {
-            PracticeSkillState fresh = new PracticeSkillState();
-            fresh.setHouseholdId(hid);
-            fresh.setSkillKey(c.skill());
-            fresh.setIntervalDays(FIRST_INTERVAL);
-            return fresh;
-        });
-        int prior = st.getIntervalDays();
-        int next = nextInterval(prior, correct, null);
-        st.setPriorIntervalDays(prior);
-        st.setIntervalDays(next);
+        PracticeSkillState existing = stateRepo.findByHouseholdIdAndSkillKey(hid, c.skill()).orElse(null);
+        PracticeSkillState st = existing;
+        if (st == null) {
+            st = new PracticeSkillState();
+            st.setHouseholdId(hid);
+            st.setSkillKey(c.skill());
+            st.setIntervalDays(FIRST_INTERVAL);
+        }
+        // A correct answer that arrives before the skill is due is recorded but does not climb the
+        // ladder; a miss always counts (it resets to the first interval).
+        boolean early = correct && existing != null && existing.getNextDueAt() != null && existing.getNextDueAt().isAfter(now);
+        if (!early) {
+            int prior = st.getIntervalDays();
+            int next = nextInterval(prior, correct, null);
+            st.setPriorIntervalDays(prior);
+            st.setIntervalDays(next);
+            st.setNextDueAt(now.plus(next, ChronoUnit.DAYS));
+            st.setLastResult(correct ? "CORRECT" : "INCORRECT");
+            st.setLastConfidence(null);
+        }
         st.setLastSeenAt(now);
-        st.setNextDueAt(now.plus(next, ChronoUnit.DAYS));
-        st.setLastResult(correct ? "CORRECT" : "INCORRECT");
-        st.setLastConfidence(null);
         st.setUpdatedAt(now);
-        stateRepo.save(st);
+        try {
+            stateRepo.saveAndFlush(st);
+        } catch (org.springframework.dao.DataIntegrityViolationException raced) {
+            // Two first answers raced on the unique row; the loser rolls back and retries.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Please try again");
+        }
 
         return new AnswerDto(a.getId(), c.remember(), correct ? null : c.fullerExplanation());
     }

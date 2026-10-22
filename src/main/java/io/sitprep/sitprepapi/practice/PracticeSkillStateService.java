@@ -98,8 +98,8 @@ public class PracticeSkillStateService {
         Instant now = clock.instant();
         List<SkillStateDto> out = new ArrayList<>();
         for (Standing s : standings(hid)) {
-            String status = s.practicedAt() == null ? "NEW"
-                    : withCheckIn.contains(s.skillKey()) && s.dueBy(now) ? "REFRESH" : "PRACTICED";
+            String status = withCheckIn.contains(s.skillKey()) && s.dueBy(now) ? "REFRESH"
+                    : s.practicedAt() == null ? "NEW" : "PRACTICED";
             out.add(new SkillStateDto(s.skillKey(), status, s.practicedAt()));
         }
         return new SkillStatesDto(PracticeCheckInDtos.SCHEMA_VERSION, out);
