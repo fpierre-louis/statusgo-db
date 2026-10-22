@@ -80,7 +80,17 @@ public final class ScenarioDtos {
      * the client then shows {@code feedback} alone.
      */
     public record CommittedDto(String nodeKey, String nodeTitle, String choiceKey, String choiceLabel,
-                               String consequence, String feedback, MediaDto media) {}
+                               String consequence, String feedback, MediaDto media,
+                               List<OtherChoiceDto> otherChoices) {}
+
+    /**
+     * One option the household did NOT pick at the step just committed
+     * (Practice redesign BE-03), for "What if I picked something else?". Sent
+     * only after the choice is locked, and only for that step: no {@code next}
+     * edge and no tag polarity, so nothing about the rest of the graph leaks.
+     * It is the same reviewed copy the completed debrief's path already shows.
+     */
+    public record OtherChoiceDto(String key, String label, String consequence, String feedback) {}
 
     public record NextStepDto(ReadinessAction action, Map<String, String> params,
                               String prompt, String label, String note) {}

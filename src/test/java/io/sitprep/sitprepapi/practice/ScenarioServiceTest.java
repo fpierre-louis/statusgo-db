@@ -195,6 +195,13 @@ class ScenarioServiceTest {
         assertThat(after.lastCommit().feedback()).isEqualTo("Texts often get through when calls do not.");
         // Reloading the run shows the same two-line reflection.
         assertThat(twoLine.get(id, ME).lastCommit().consequence()).isEqualTo("Consequence for text: the reply comes.");
+        // BE-03: the step's OTHER options, after the choice is locked: reviewed copy only, no edges.
+        assertThat(after.lastCommit().otherChoices()).isNotEmpty();
+        assertThat(after.lastCommit().otherChoices()).extracting(ScenarioDtos.OtherChoiceDto::key).doesNotContain("text");
+        assertThat(after.lastCommit().otherChoices()).allSatisfy(o -> {
+            assertThat(o.label()).isNotBlank();
+            assertThat(o.feedback()).isNotBlank();
+        });
     }
 
     @Test
