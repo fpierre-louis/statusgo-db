@@ -136,6 +136,8 @@ public final class PracticeContentValidator {
             }
         } else if (f.kind() == PracticeKind.FAMILY_ACTIVITY && b.activity() != null) {
             validateActivity(b, where, errors);
+        } else if (f.kind() == PracticeKind.SKILL) {
+            validateSkill(b, where, errors);
         }
         validateCopy(f.kind(), b, where, errors);
         return errors;
@@ -258,7 +260,9 @@ public final class PracticeContentValidator {
         requireText(b.title(), 160, where + ": content.title", errors);
         requireText(b.summary(), 500, where + ": content.summary", errors);
         if (b.objective() != null) requireText(b.objective(), 240, where + ": content.objective", errors);
-        if (b.estimatedMinutes() == null || b.estimatedMinutes() < 1 || b.estimatedMinutes() > 60) {
+        if (kind == PracticeKind.SKILL) {
+            if (b.estimatedMinutes() != null) errors.add(where + ": a SKILL has no estimatedMinutes (its activities do)");
+        } else if (b.estimatedMinutes() == null || b.estimatedMinutes() < 1 || b.estimatedMinutes() > 60) {
             errors.add(where + ": content.estimatedMinutes must be 1-60");
         }
 
@@ -273,7 +277,9 @@ public final class PracticeContentValidator {
             }
         }
 
-        if (b.tags() == null || b.tags().isEmpty()) {
+        if (kind == PracticeKind.SKILL) {
+            if (b.tags() != null && !b.tags().isEmpty()) errors.add(where + ": a SKILL carries no debrief tags");
+        } else if (b.tags() == null || b.tags().isEmpty()) {
             errors.add(where + ": content.tags (debrief copy) is required");
         } else {
             for (Map.Entry<String, TagCopy> e : b.tags().entrySet()) {
@@ -317,6 +323,16 @@ public final class PracticeContentValidator {
             if (b.activity() != null) {
                 errors.add(where + ": an ADULT_SCENARIO must not carry an activity body");
             }
+        } else if (kind == PracticeKind.SKILL) {
+            if (b.skill() == null) errors.add(where + ": a SKILL needs content.skill");
+            if (b.scenario() != null || b.activity() != null) {
+                errors.add(where + ": a SKILL carries no scenario graph or activity body");
+            }
+            if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) errors.add(where + ": a SKILL has no ageGuidance");
+            if (b.facilitation() != null) errors.add(where + ": a SKILL has no facilitation copy");
+        }
+        if (kind != PracticeKind.SKILL && b.skill() != null) {
+            errors.add(where + ": only a SKILL carries content.skill");
         }
     }
 
@@ -561,6 +577,56 @@ public final class PracticeContentValidator {
     }
 
     // ------------------------------------------------------------------
+    // Skill (Practice redesign BE-04)
+    // ------------------------------------------------------------------
+
+    /** {@code scenario-key#node_key}. */
+    static final Pattern SCENARIO_NODE_REF = Pattern.compile("^[a-z][a-z0-9]*(-[a-z0-9]+)*#[a-z][a-z0-9_]{0,63}$");
+    /** An FE drill id (the drill log's key shape, without a phase). */
+    static final Pattern DRILL_REF = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$");
+    static final Pattern IF_THEN_ROUTINE = Pattern.compile("^[a-z][a-z0-9]*(-[a-z0-9]+)*$");
+
+    private static void validateSkill(Body b, String where, List<String> errors) {
+        PracticeContent.Skill k = b.skill();
+        if (k == null) return;
+        if (k.hazard() == null || !KEY_FORMAT.matcher(k.hazard()).matches()) {
+            errors.add(where + ": skill.hazard must be a lower-kebab hazard key");
+        }
+        requireText(k.cue(), 240, where + ": skill.cue", errors);
+        requireText(k.action(), 240, where + ": skill.action (the protective action)", errors);
+        requireText(k.why(), 240, where + ": skill.why", errors);
+        if (k.physicalRehearsal() == null) errors.add(where + ": skill.physicalRehearsal is required");
+        if (k.reviewTier() == null) errors.add(where + ": skill.reviewTier is required");
+        if (k.physicalRehearsal() == PracticeContent.PhysicalRehearsal.REQUIRED
+                && (k.drills() == null || k.drills().isEmpty())) {
+            errors.add(where + ": a skill whose physical rehearsal is REQUIRED needs at least one drill");
+        }
+        List<String> prompts = k.checkInPrompts();
+        if (prompts == null || prompts.size() < 2 || prompts.size() > 4) {
+            errors.add(where + ": skill.checkInPrompts needs 2-4 phrasings");
+        } else {
+            for (String q : prompts) requireText(q, 240, where + ": skill.checkInPrompts entry", errors);
+        }
+        if (k.scenarioNodes() != null) for (String ref : k.scenarioNodes()) {
+            if (ref == null || !SCENARIO_NODE_REF.matcher(ref).matches()) {
+                errors.add(where + ": skill.scenarioNodes entry '" + ref + "' must be scenario-key#node_key");
+            }
+        }
+        if (k.drills() != null) for (String d : k.drills()) {
+            if (d == null || !DRILL_REF.matcher(d).matches()) errors.add(where + ": skill.drills entry '" + d + "' is not a drill id");
+        }
+        if (k.confusedWith() != null) for (String c : k.confusedWith()) {
+            if (c == null || !KEY_FORMAT.matcher(c).matches()) errors.add(where + ": skill.confusedWith entry '" + c + "' is not a skill key");
+        }
+        if (k.ifThen() != null) {
+            if (k.ifThen().routine() == null || !IF_THEN_ROUTINE.matcher(k.ifThen().routine()).matches()) {
+                errors.add(where + ": skill.ifThen.routine must be a lower-kebab routine key");
+            }
+            requireText(k.ifThen().template(), 240, where + ": skill.ifThen.template", errors);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Copy guards
     // ------------------------------------------------------------------
 
@@ -568,6 +634,12 @@ public final class PracticeContentValidator {
         List<String> texts = new ArrayList<>();
         List<String> consequences = new ArrayList<>();
         add(texts, b.title(), b.summary(), b.objective(), b.facilitation());
+        if (b.skill() != null) {
+            PracticeContent.Skill k = b.skill();
+            add(texts, k.cue(), k.action(), k.why());
+            if (k.checkInPrompts() != null) k.checkInPrompts().forEach(q -> add(texts, q));
+            if (k.ifThen() != null) add(texts, k.ifThen().template());
+        }
         if (b.tags() != null) b.tags().values().forEach(t -> { if (t != null) add(texts, t.text()); });
         if (b.scenario() != null) {
             Scenario s = b.scenario();

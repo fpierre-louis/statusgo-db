@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "key": "tornado-know-where-to-go",
+  "version": 1,
+  "kind": "SKILL",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Know where to go",
+    "summary": "Choose the safest room in your home before a warning ever comes.",
+    "sources": [
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      },
+      {
+        "label": "National Weather Service — Understand Tornado Alerts",
+        "url": "https://www.weather.gov/safety/tornado-ww"
+      },
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      }
+    ],
+    "skill": {
+      "hazard": "tornado",
+      "cue": "A tornado warning for your area: a tornado has been sighted or indicated by radar.",
+      "action": "Go to an interior room on the lowest floor of a sturdy building, away from windows.",
+      "why": "Ready.gov says to stay away from windows, doors, and outside walls, and to watch out for flying debris.",
+      "physicalRehearsal": "REQUIRED",
+      "reviewTier": "LIFE_SAFETY",
+      "scenarioNodes": [
+        "tornado-warning-shelter-decision#warning_issued",
+        "tornado-warning-shelter-decision#storm_closer"
+      ],
+      "drills": [
+        "tornado-safe-room-speed-round"
+      ],
+      "checkInPrompts": [
+        "A tornado warning comes in while you're home. Where does everyone go?",
+        "The warning sounds while you're upstairs. What do you do?"
+      ],
+      "confusedWith": [
+        "earthquake-protect-in-place"
+      ],
+      "ifThen": {
+        "routine": "tornado-night-routine",
+        "template": "If a tornado warning comes {when}, {who} {does} and everyone goes to {place}."
+      }
+    }
+  }
+}

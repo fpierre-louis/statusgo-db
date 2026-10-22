@@ -77,7 +77,48 @@ public final class PracticeContent {
             MediaStyle mediaStyle,
             Scenario scenario,
             /** FAMILY_ACTIVITY body; local choices are not persisted. */
-            Activity activity) {}
+            Activity activity,
+            /**
+             * SKILL body (redesign BE-04). Additive and nullable: files without it
+             * parse and hash exactly as before (the hash is over the file's JSON).
+             */
+            Skill skill) {}
+
+    /**
+     * One protective capability (Practice redesign BE-04). {@code title} on the
+     * body is its capability phrasing ("Know where to go"); {@code summary} its
+     * learning purpose. Every line is reviewed content like a scenario's.
+     *
+     * <ul>
+     *   <li>{@code scenarioNodes}: {@code scenario-key#node_key} steps that rehearse it.</li>
+     *   <li>{@code drills}: FE catalog drill ids (checked against the cross-repo contract).</li>
+     *   <li>{@code checkInPrompts}: 2–4 retrieval phrasings for spaced refresh.</li>
+     *   <li>{@code confusedWith}: skill keys whose rules a learner may mix up with this one.</li>
+     *   <li>{@code ifThen}: the household routine this skill feeds (one plan line per routine,
+     *       shared by several skills), saved only on an explicit tap.</li>
+     * </ul>
+     */
+    public record Skill(
+            String hazard,
+            String cue,
+            String action,
+            String why,
+            PhysicalRehearsal physicalRehearsal,
+            ReviewTier reviewTier,
+            List<String> scenarioNodes,
+            List<String> drills,
+            List<String> checkInPrompts,
+            List<String> confusedWith,
+            IfThen ifThen) {}
+
+    /** {@code REQUIRED}: shown as practiced only after its drill is done. */
+    public enum PhysicalRehearsal { REQUIRED, OPTIONAL, NONE }
+
+    /** {@code LIFE_SAFETY} needs independent review at the exact hash; {@code PREP} the standard review. */
+    public enum ReviewTier { LIFE_SAFETY, PREP }
+
+    /** A household routine's if-then line, with {placeholders} filled from the plan or free text. */
+    public record IfThen(String routine, String template) {}
 
     public record Source(String label, String url) {}
 

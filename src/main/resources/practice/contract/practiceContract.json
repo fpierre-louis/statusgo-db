@@ -1,0 +1,182 @@
+{
+  "schema": 1,
+  "source": "SitPrep FE src/me/challenges/challenges.js (generated; do not edit by hand)",
+  "drills": [
+    {
+      "id": "anywhere-book-cpr"
+    },
+    {
+      "id": "anywhere-choking-response"
+    },
+    {
+      "id": "anywhere-stop-the-bleed"
+    },
+    {
+      "id": "blizzard-car-kit-mini-pack",
+      "guideSlug": "blizzard-prep"
+    },
+    {
+      "id": "blizzard-warm-room-sprint",
+      "guideSlug": "blizzard-prep"
+    },
+    {
+      "id": "contact-tree"
+    },
+    {
+      "id": "earthquake-drop-cover-relay",
+      "guideSlug": "earthquake-prep"
+    },
+    {
+      "id": "earthquake-one-thing-secure",
+      "guideSlug": "earthquake-prep"
+    },
+    {
+      "id": "emergency-roles"
+    },
+    {
+      "id": "evac-route"
+    },
+    {
+      "id": "exit-drill"
+    },
+    {
+      "id": "first-aid"
+    },
+    {
+      "id": "flashlights"
+    },
+    {
+      "id": "flood-high-ground-route",
+      "guideSlug": "flood-prep"
+    },
+    {
+      "id": "flood-underpass-scan",
+      "guideSlug": "flood-prep"
+    },
+    {
+      "id": "go-bag"
+    },
+    {
+      "id": "household-roster"
+    },
+    {
+      "id": "hurricane-evac-pack-draft",
+      "guideSlug": "hurricane-prep"
+    },
+    {
+      "id": "hurricane-water-window-count",
+      "guideSlug": "hurricane-prep"
+    },
+    {
+      "id": "key-documents"
+    },
+    {
+      "id": "medical-needs"
+    },
+    {
+      "id": "meet-a-neighbor"
+    },
+    {
+      "id": "meeting-spots"
+    },
+    {
+      "id": "out-alerts-on"
+    },
+    {
+      "id": "out-dead-phone-card"
+    },
+    {
+      "id": "out-no-signal-drill"
+    },
+    {
+      "id": "out-of-town"
+    },
+    {
+      "id": "out-separated-rule"
+    },
+    {
+      "id": "pet-buddy-and-place"
+    },
+    {
+      "id": "pet-carrier-round"
+    },
+    {
+      "id": "pet-go-kit"
+    },
+    {
+      "id": "poweroutage-blackout-test",
+      "guideSlug": "power-outage"
+    },
+    {
+      "id": "poweroutage-fridge-first-menu",
+      "guideSlug": "power-outage"
+    },
+    {
+      "id": "road-breakdown-talk-through"
+    },
+    {
+      "id": "road-glovebox-audit"
+    },
+    {
+      "id": "road-jump-start-order"
+    },
+    {
+      "id": "road-locked-out-plan"
+    },
+    {
+      "id": "road-tire-dry-run"
+    },
+    {
+      "id": "road-winter-drive-rules"
+    },
+    {
+      "id": "school-early-release-plan"
+    },
+    {
+      "id": "school-pickup-list-check"
+    },
+    {
+      "id": "school-reunification-where"
+    },
+    {
+      "id": "school-wait-for-word"
+    },
+    {
+      "id": "smoke-alarms"
+    },
+    {
+      "id": "tornado-night-alert-test",
+      "guideSlug": "tornado-prep"
+    },
+    {
+      "id": "tornado-safe-room-speed-round",
+      "guideSlug": "tornado-prep"
+    },
+    {
+      "id": "utility-shutoffs"
+    },
+    {
+      "id": "water-3day"
+    },
+    {
+      "id": "wildfire-route-backup",
+      "guideSlug": "wildfire-prep"
+    },
+    {
+      "id": "wildfire-smoke-go-hunt",
+      "guideSlug": "wildfire-prep"
+    },
+    {
+      "id": "work-contact-on-file"
+    },
+    {
+      "id": "work-desk-kit"
+    },
+    {
+      "id": "work-shelter-spot"
+    },
+    {
+      "id": "work-two-ways-out"
+    }
+  ]
+}

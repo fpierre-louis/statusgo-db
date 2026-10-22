@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "key": "tornado-protect-yourselves",
+  "version": 1,
+  "kind": "SKILL",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Protect yourselves",
+    "summary": "Know how to shield heads and necks once you reach your shelter room.",
+    "sources": [
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      },
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      }
+    ],
+    "skill": {
+      "hazard": "tornado",
+      "cue": "You are in your shelter room and the tornado warning is still in effect.",
+      "action": "Cover your heads and necks with your arms and put blankets around or on top of you.",
+      "why": "Ready.gov says to watch out for flying debris.",
+      "physicalRehearsal": "REQUIRED",
+      "reviewTier": "LIFE_SAFETY",
+      "scenarioNodes": [
+        "tornado-warning-shelter-decision#in_shelter"
+      ],
+      "drills": [
+        "tornado-safe-room-speed-round"
+      ],
+      "checkInPrompts": [
+        "You're in the shelter room and the wind is rising. How do you protect yourselves?",
+        "What goes over everyone while you wait out a tornado warning?"
+      ],
+      "confusedWith": [],
+      "ifThen": {
+        "routine": "tornado-night-routine",
+        "template": "If a tornado warning comes {when}, {who} {does} and everyone goes to {place}."
+      }
+    }
+  }
+}

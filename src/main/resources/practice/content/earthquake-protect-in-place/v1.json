@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "key": "earthquake-protect-in-place",
+  "version": 1,
+  "kind": "SKILL",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Protect yourselves where you are",
+    "summary": "Make Drop, Cover, and Hold On automatic, including the seated way.",
+    "sources": [
+      {
+        "label": "Ready.gov — Earthquakes",
+        "url": "https://www.ready.gov/earthquakes"
+      },
+      {
+        "label": "Earthquake Country Alliance (Great ShakeOut) — Drop, Cover, and Hold On",
+        "url": "https://www.earthquakecountry.org/dropcoverholdon/"
+      }
+    ],
+    "skill": {
+      "hazard": "earthquake",
+      "cue": "The room starts shaking.",
+      "action": "Drop onto your hands and knees, cover your head and neck, and hold on until the shaking stops. If you use a wheelchair or walker, lock your wheels, get as low as you can, and cover your head and neck.",
+      "why": "Ready.gov says: if you are inside, stay and do not run outside.",
+      "physicalRehearsal": "REQUIRED",
+      "reviewTier": "LIFE_SAFETY",
+      "scenarioNodes": [
+        "earthquake-first-five-minutes#shaking_starts",
+        "earthquake-first-five-minutes#still_shaking",
+        "earthquake-first-five-minutes#aftershock"
+      ],
+      "drills": [
+        "earthquake-drop-cover-relay"
+      ],
+      "checkInPrompts": [
+        "The floor starts shaking. What do you do?",
+        "An aftershock starts while you're checking the room. What now?"
+      ],
+      "confusedWith": [
+        "tornado-know-where-to-go"
+      ],
+      "ifThen": {
+        "routine": "earthquake-protect-routine",
+        "template": "If the ground shakes, we drop, cover and hold on. {who} checks {person} after."
+      }
+    }
+  }
+}
