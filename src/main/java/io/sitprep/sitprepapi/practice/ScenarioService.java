@@ -63,7 +63,7 @@ import java.util.Optional;
 @Service
 public class ScenarioService {
 
-    static final String WAITING = "Practice can wait right now";
+    public static final String WAITING = "Practice can wait right now";
     static final String WITHDRAWN = "This practice was taken out of service for review";
 
     private final PracticeAvailabilityService availability;

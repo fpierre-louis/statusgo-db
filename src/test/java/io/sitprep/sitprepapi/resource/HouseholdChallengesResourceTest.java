@@ -1,6 +1,9 @@
 package io.sitprep.sitprepapi.resource;
 
 import io.sitprep.sitprepapi.domain.Group;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService.Reason;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService.Suppression;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,13 +32,16 @@ class HouseholdChallengesResourceTest {
     private GroupRepo groupRepo;
     private HouseholdAccessService access;
     private HouseholdChallengesResource resource;
+    private PracticeSuppressionService suppression;
 
     @BeforeEach
     void setUp() {
         groupRepo = mock(GroupRepo.class);
         access = mock(HouseholdAccessService.class);
+        suppression = mock(PracticeSuppressionService.class);
+        when(suppression.check(anyString(), anyString())).thenReturn(Optional.empty());
         resource = new HouseholdChallengesResource(groupRepo, access,
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class), suppression);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                         CALLER, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
@@ -82,6 +89,41 @@ class HouseholdChallengesResourceTest {
 
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         verifyNoInteractions(access, groupRepo);
+    }
+
+    // ── Practice redesign BE-01: recording practice waits during a live response ──
+
+    private void respondingNow() {
+        when(suppression.check(HOUSEHOLD, CALLER)).thenReturn(Optional.of(new Suppression(
+                Reason.CHECK_IN, "Your household is checking in", "Practice can wait. Follow your plan first.",
+                null, Map.of())));
+    }
+
+    @Test
+    void drillCompleteWaitsDuringALiveResponse() {
+        respondingNow();
+        var ex = assertThrows(ResponseStatusException.class,
+                () -> resource.markDrillComplete(HOUSEHOLD, "exit-drill"));
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(groupRepo, never()).save(any());
+    }
+
+    @Test
+    void weeklyChallengeCompleteWaitsDuringALiveResponse() {
+        respondingNow();
+        var ex = assertThrows(ResponseStatusException.class,
+                () -> resource.markComplete(HOUSEHOLD, "2026-W35"));
+        assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(groupRepo, never()).save(any());
+    }
+
+    @Test
+    void undoStaysOpenDuringALiveResponse() {
+        respondingNow();
+        Group household = household();
+        household.setDrillLog(new HashMap<>());
+        when(groupRepo.findByGroupId(HOUSEHOLD)).thenReturn(Optional.of(household));
+        assertThat(resource.clearDrill(HOUSEHOLD, "exit-drill").getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     private static Group household() {

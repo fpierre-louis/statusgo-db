@@ -5,6 +5,8 @@ import io.sitprep.sitprepapi.gamification.TokenEventType;
 import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.dto.MeDto.DrillCompletionDto;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
+import io.sitprep.sitprepapi.practice.ScenarioService;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.service.HouseholdAccessService;
 import io.sitprep.sitprepapi.util.AuthUtils;
@@ -72,12 +74,28 @@ public class HouseholdChallengesResource {
     private final HouseholdAccessService access;
 
     private final TokenEventPublisher tokenEvents;
+    private final PracticeSuppressionService suppression;
 
     public HouseholdChallengesResource(GroupRepo groupRepo, HouseholdAccessService access,
-                                       TokenEventPublisher tokenEvents) {
+                                       TokenEventPublisher tokenEvents,
+                                       PracticeSuppressionService suppression) {
         this.groupRepo = groupRepo;
         this.access = access;
         this.tokenEvents = tokenEvents;
+        this.suppression = suppression;
+    }
+
+    /**
+     * Practice waits during a live response (Practice redesign BE-01). The
+     * scenario and Family Practice writes already refuse with 409 while the
+     * household is responding; recording a drill or the week's challenge did
+     * not, so a drill could be "done" mid-check-in. Same check, same 409, same
+     * message. Undo and "shown" stay open: neither records practice.
+     */
+    private void requireCalm(String householdId, String caller) {
+        if (suppression.check(householdId, caller).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, ScenarioService.WAITING);
+        }
     }
 
     /**
@@ -99,6 +117,7 @@ public class HouseholdChallengesResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         validateWeekKey(weekKey);
         access.requireCanReadHousehold(caller, householdId);
+        requireCalm(householdId, caller);
 
         Group household = householdOr404(householdId);
 
@@ -171,6 +190,7 @@ public class HouseholdChallengesResource {
         String caller = AuthUtils.requireAuthenticatedEmail();
         validateDrillKey(drillKey);
         access.requireCanReadHousehold(caller, householdId);
+        requireCalm(householdId, caller);
 
         Group household = householdOr404(householdId);
         Map<String, DrillCompletion> log = household.getDrillLog();

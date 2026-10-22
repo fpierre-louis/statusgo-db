@@ -3,6 +3,9 @@ package io.sitprep.sitprepapi.service;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserAlertPreference;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService.Reason;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService.Suppression;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserAlertPreferenceRepo;
@@ -18,6 +21,7 @@ import org.springframework.data.domain.Pageable;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,13 +46,14 @@ class HouseholdChallengeSchedulerTest {
     @Mock UserAlertPreferenceRepo preferenceRepo;
     @Mock NotificationLogRepo notificationLogRepo;
     @Mock NotificationService notificationService;
+    @Mock PracticeSuppressionService suppression;
 
     private HouseholdChallengeScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         scheduler = new HouseholdChallengeScheduler(
-                groupRepo, userInfoRepo, preferenceRepo, notificationLogRepo, notificationService);
+                groupRepo, userInfoRepo, preferenceRepo, notificationLogRepo, notificationService, suppression);
         lenient().when(preferenceRepo.findByEmail(anyString())).thenReturn(Optional.empty());
     }
 
@@ -212,6 +217,21 @@ class HouseholdChallengeSchedulerTest {
 
         assertThat(sent).isEqualTo(1);
         verify(groupRepo).findHouseholdsForChallengeSweep(any(Pageable.class));
+    }
+
+    @Test
+    void noWeeklyPushWhileTheHouseholdIsResponding() {
+        // A live plan activation: household.alert is not "active", so only the
+        // Practice suppression check can hold this push (redesign BE-01).
+        Group household = household(List.of("owner@example.com"));
+        when(suppression.check(HOUSEHOLD, null)).thenReturn(Optional.of(new Suppression(
+                Reason.PLAN_ACTIVATION, "Your plan is active", "Practice can wait. Follow your plan first.",
+                null, Map.of())));
+
+        int sent = scheduler.maybeSendForHousehold(household, Instant.parse("2026-08-31T15:05:00Z"));
+
+        assertThat(sent).isZero();
+        verifyNoInteractions(notificationService);
     }
 
     private static Group household(List<String> members) {

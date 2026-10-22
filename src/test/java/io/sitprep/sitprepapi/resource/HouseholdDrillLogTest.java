@@ -53,7 +53,9 @@ class HouseholdDrillLogTest {
         groupRepo = mock(GroupRepo.class);
         access = mock(HouseholdAccessService.class);
         resource = new HouseholdChallengesResource(groupRepo, access,
-                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class));
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.gamification.TokenEventPublisher.class),
+                // Calm: a mocked check returns Optional.empty() (redesign BE-01).
+                org.mockito.Mockito.mock(io.sitprep.sitprepapi.practice.PracticeSuppressionService.class));
 
         household = new Group();
         household.setGroupId(HH);

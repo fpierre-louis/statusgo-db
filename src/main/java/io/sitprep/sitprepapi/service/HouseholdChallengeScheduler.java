@@ -4,6 +4,7 @@ import io.sentry.Sentry;
 import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.UserAlertPreference;
 import io.sitprep.sitprepapi.domain.UserInfo;
+import io.sitprep.sitprepapi.practice.PracticeSuppressionService;
 import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.NotificationLogRepo;
 import io.sitprep.sitprepapi.repo.UserAlertPreferenceRepo;
@@ -56,6 +57,7 @@ public class HouseholdChallengeScheduler {
     private final UserAlertPreferenceRepo preferenceRepo;
     private final NotificationLogRepo notificationLogRepo;
     private final NotificationService notificationService;
+    private final PracticeSuppressionService suppression;
 
     @Value("${app.householdChallenge.sweepBatchSize:300}")
     private int sweepBatchSize = 300;
@@ -64,12 +66,14 @@ public class HouseholdChallengeScheduler {
                                        UserInfoRepo userInfoRepo,
                                        UserAlertPreferenceRepo preferenceRepo,
                                        NotificationLogRepo notificationLogRepo,
-                                       NotificationService notificationService) {
+                                       NotificationService notificationService,
+                                       PracticeSuppressionService suppression) {
         this.groupRepo = groupRepo;
         this.userInfoRepo = userInfoRepo;
         this.preferenceRepo = preferenceRepo;
         this.notificationLogRepo = notificationLogRepo;
         this.notificationService = notificationService;
+        this.suppression = suppression;
     }
 
     @Scheduled(fixedDelayString = "PT15M", initialDelayString = "PT9M")
@@ -129,6 +133,16 @@ public class HouseholdChallengeScheduler {
 
         Slot slot = dueSlot(now, zone).orElse(null);
         if (slot == null) return 0;
+
+        // Practice waits during a live response (Practice redesign BE-01). The
+        // "alert == active" test above only sees an open check-in; a live plan
+        // activation, or a state the server can't read, must hold the push too.
+        // Checked only once a slot is due, so the sweep doesn't resolve every
+        // household's situation every 15 minutes. A held push is not logged,
+        // so the next sweep inside the same slot tries again once things are calm.
+        if (suppression.check(household.getGroupId(), null).isPresent()) {
+            return 0;
+        }
 
         Instant weekStart = weekStartInstant(now, zone);
         List<UserInfo> users = userInfoRepo.findByUserEmailLowerIn(memberEmails);
