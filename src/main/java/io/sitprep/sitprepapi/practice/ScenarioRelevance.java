@@ -107,6 +107,40 @@ public class ScenarioRelevance {
                 .orElse(false);
     }
 
+    /**
+     * The household's local hazards, highest risk first (very high → high →
+     * moderate; low and unknown tiers are left out): the Practice home's
+     * "A risk where you live" (redesign FR-5). Empty when nothing is known.
+     */
+    public List<ScenarioDtos.LocalHazardDto> localHazards(String householdId) {
+        if (householdId == null || householdId.isBlank()) return List.of();
+        try {
+            Group household = groupRepo.findByGroupId(householdId)
+                    .filter(g -> "Household".equalsIgnoreCase(g.getGroupType()))
+                    .orElse(null);
+            if (household == null) return List.of();
+            RiskProfileDto profile = riskProfileService.resolveFor(household);
+            return localHazardsFrom(profile == null ? null : profile.risks());
+        } catch (RuntimeException e) {
+            log.warn("Practice local hazards: household {} risk profile unreadable", householdId, e);
+            return List.of();
+        }
+    }
+
+    static List<ScenarioDtos.LocalHazardDto> localHazardsFrom(List<RiskDto> risks) {
+        if (risks == null || risks.isEmpty()) return List.of();
+        Map<String, RiskDto> best = new java.util.LinkedHashMap<>();
+        for (RiskDto r : risks) {
+            if (r.hazard() == null || tierRank(r.tier()) < 0) continue;
+            RiskDto seen = best.get(r.hazard());
+            if (seen == null || tierRank(r.tier()) < tierRank(seen.tier())) best.put(r.hazard(), r);
+        }
+        return best.values().stream()
+                .sorted(java.util.Comparator.comparingInt(r -> tierRank(r.tier())))
+                .map(r -> new ScenarioDtos.LocalHazardDto(r.hazard(), r.label(), r.tier()))
+                .toList();
+    }
+
     static Map<String, Integer> ranksFor(List<RiskDto> risks) {
         if (risks == null || risks.isEmpty()) return Map.of();
         Map<String, Integer> byHazard = new HashMap<>();

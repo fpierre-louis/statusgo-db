@@ -36,9 +36,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class PracticeScenarioResource {
 
     private final ScenarioService service;
+    private final PracticeTodayService today;
 
-    public PracticeScenarioResource(ScenarioService service) {
+    public PracticeScenarioResource(ScenarioService service, PracticeTodayService today) {
         this.service = service;
+        this.today = today;
+    }
+
+    /** The Practice home's Today (redesign FR-5): re-entry line, one story, continue, local hazards. */
+    @GetMapping("/api/practice/today")
+    public ResponseEntity<ScenarioDtos.TodayDto> today(@RequestParam(value = "householdId", required = false) String householdId) {
+        String caller = AuthUtils.requireAuthenticatedEmail();
+        return ResponseEntity.ok(today.today(caller, householdId));
     }
 
     @GetMapping("/api/practice/scenarios")

@@ -139,4 +139,17 @@ public final class ScenarioDtos {
                                       Long inProgressRunId) {}
 
     public record ProgressDto(int schemaVersion, String householdId, List<ScenarioProgressDto> scenarios) {}
+
+    /** A hazard where the household lives (risk profile), highest risk first. */
+    public record LocalHazardDto(String hazard, String label, String tier) {}
+
+    /**
+     * The Practice home's Today (redesign FR-5; handoff TODAY_FLOW), composed by
+     * the server from data it holds: {@code reentry} FIRST | GAP | RECENT (the
+     * header's subtitle), at most one {@code recommended} story, the newest run
+     * to {@code continueRun}, and the {@code localHazards}. The drill block is the
+     * client's (drill cadences live in its catalog). Nothing here is a count.
+     */
+    public record TodayDto(int schemaVersion, String reentry, ScenarioCardDto recommended, InProgressDto continueRun,
+                           List<LocalHazardDto> localHazards, SuppressionDto suppression) {}
 }
