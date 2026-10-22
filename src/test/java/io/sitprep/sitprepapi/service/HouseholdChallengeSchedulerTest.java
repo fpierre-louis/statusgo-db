@@ -234,6 +234,31 @@ class HouseholdChallengeSchedulerTest {
         verifyNoInteractions(notificationService);
     }
 
+    @Test
+    void noWeeklyPushOnceAnyDrillWasRecordedThisWeek() {
+        // PR-0.2: the drill log is the record of practice; the week flag is not needed.
+        Group household = household(List.of("owner@example.com"));
+        Map<String, io.sitprep.sitprepapi.domain.DrillCompletion> log = new HashMap<>();
+        log.put("exit-drill", new io.sitprep.sitprepapi.domain.DrillCompletion(
+                Instant.parse("2026-08-31T14:00:00Z"), "owner@example.com")); // Monday 8 AM Denver, this week
+        household.setDrillLog(log);
+
+        int sent = scheduler.maybeSendForHousehold(household, Instant.parse("2026-08-31T15:05:00Z"));
+
+        assertThat(sent).isZero();
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void aDrillFromLastWeekDoesNotCountForThisWeek() {
+        Group household = household(List.of("owner@example.com"));
+        Map<String, io.sitprep.sitprepapi.domain.DrillCompletion> log = new HashMap<>();
+        log.put("exit-drill", new io.sitprep.sitprepapi.domain.DrillCompletion(
+                Instant.parse("2026-08-28T14:00:00Z"), "owner@example.com")); // the Friday before
+        household.setDrillLog(log);
+        assertThat(HouseholdChallengeScheduler.practicedSince(household, Instant.parse("2026-08-31T06:00:00Z"))).isFalse();
+    }
+
     private static Group household(List<String> members) {
         Group g = new Group();
         g.setGroupId(HOUSEHOLD);

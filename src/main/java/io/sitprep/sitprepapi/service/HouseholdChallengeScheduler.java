@@ -112,6 +112,15 @@ public class HouseholdChallengeScheduler {
         return sent;
     }
 
+    static boolean practicedSince(Group household, Instant since) {
+        Map<String, io.sitprep.sitprepapi.domain.DrillCompletion> log = household.getDrillLog();
+        if (log == null || log.isEmpty()) return false;
+        for (io.sitprep.sitprepapi.domain.DrillCompletion c : log.values()) {
+            if (c != null && c.getCompletedAt() != null && !c.getCompletedAt().isBefore(since)) return true;
+        }
+        return false;
+    }
+
     int maybeSendForHousehold(Group household, Instant now) {
         if (household == null || household.getGroupId() == null) return 0;
         if (!HouseholdEventService.HOUSEHOLD_GROUP_TYPE.equalsIgnoreCase(household.getGroupType())) {
@@ -128,6 +137,13 @@ public class HouseholdChallengeScheduler {
         String weekKey = currentWeekKey(now, zone);
         Map<String, Boolean> progress = household.getChallengeProgress();
         if (progress != null && Boolean.TRUE.equals(progress.get(weekKey))) {
+            return 0;
+        }
+        // ONE SOURCE OF TRUTH (Practice redesign PR-0.2): the per-drill log is
+        // the record of practice. A household that recorded ANY drill since this
+        // week began (its own time zone) has practised this week: no nudge, even
+        // if it never touched the weekly card.
+        if (practicedSince(household, weekStartInstant(now, zone))) {
             return 0;
         }
 
