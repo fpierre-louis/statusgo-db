@@ -13,7 +13,9 @@ public enum TokenKey {
     PLAN_ARCHITECT,
     MEETING_POINT,
     CONTACT_CIRCLE,
+    /** Retired 2026-10-22: not in TokenCatalog; kept so earned ledger rows still parse. */
     DRILL_CREW,
+    /** Retired 2026-10-22: not in TokenCatalog; kept so earned ledger rows still parse. */
     PRACTICE_CADENCE,
     /** Retired 2026-10-22: not in TokenCatalog; kept so earned ledger rows still parse. */
     SCENARIO_REHEARSAL,

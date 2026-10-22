@@ -1,16 +1,13 @@
 package io.sitprep.sitprepapi.gamification;
 
-import io.sitprep.sitprepapi.domain.DrillCompletion;
 import io.sitprep.sitprepapi.domain.EmergencyContact;
 import io.sitprep.sitprepapi.domain.EmergencyContactGroup;
 import io.sitprep.sitprepapi.domain.EvacuationPlan;
-import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
 import io.sitprep.sitprepapi.dto.GoBagDtos.GoBagSummaryDto;
 import io.sitprep.sitprepapi.dto.HomeStockpileDtos.HomeStockpileDto;
 import io.sitprep.sitprepapi.repo.EmergencyContactGroupRepo;
 import io.sitprep.sitprepapi.repo.EvacuationPlanRepo;
-import io.sitprep.sitprepapi.repo.GroupRepo;
 import io.sitprep.sitprepapi.repo.MeetingPlaceRepo;
 import io.sitprep.sitprepapi.service.GoBagService;
 import io.sitprep.sitprepapi.service.HomeStockpileService;
@@ -19,10 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -36,7 +30,6 @@ class HouseholdTokenCriteriaTest {
     private MeetingPlaceRepo meetingPlaces;
     private EmergencyContactGroupRepo contactGroups;
     private EvacuationPlanRepo evacuationPlans;
-    private GroupRepo groups;
     private GoBagService goBags;
     private HomeStockpileService stockpile;
     private HouseholdTokenCriteria criteria;
@@ -46,13 +39,12 @@ class HouseholdTokenCriteriaTest {
         meetingPlaces = mock(MeetingPlaceRepo.class);
         contactGroups = mock(EmergencyContactGroupRepo.class);
         evacuationPlans = mock(EvacuationPlanRepo.class);
-        groups = mock(GroupRepo.class);
         goBags = mock(GoBagService.class);
         stockpile = mock(HomeStockpileService.class);
-        criteria = new HouseholdTokenCriteria(meetingPlaces, contactGroups, evacuationPlans, groups, goBags, stockpile);
+        criteria = new HouseholdTokenCriteria(meetingPlaces, contactGroups, evacuationPlans, goBags, stockpile);
     }
 
-    private void household(int places, int contacts, boolean route, List<String> drillKeys, int bagPct, int stockPct) {
+    private void household(int places, int contacts, boolean route, int bagPct, int stockPct) {
         List<MeetingPlace> mp = new ArrayList<>();
         for (int i = 0; i < places; i++) mp.add(new MeetingPlace());
         when(meetingPlaces.findByHouseholdId(HH)).thenReturn(mp);
@@ -67,12 +59,6 @@ class HouseholdTokenCriteriaTest {
         plan.setPrimaryRouteNotes(route ? "North on Main to I-15" : "  ");
         when(evacuationPlans.findByHouseholdId(HH)).thenReturn(List.of(plan));
 
-        Group house = new Group();
-        Map<String, DrillCompletion> log = new HashMap<>();
-        drillKeys.forEach(k -> log.put(k, new DrillCompletion(Instant.now(), "ana@x.com")));
-        house.setDrillLog(log);
-        when(groups.findById(HH)).thenReturn(Optional.of(house));
-
         when(goBags.summariesForHousehold(HH)).thenReturn(List.of(
                 new GoBagSummaryDto("b1", "Car", "car", null, 0, 10, bagPct, 0)));
         when(stockpile.getForHousehold(HH)).thenReturn(new HomeStockpileDto(
@@ -81,32 +67,34 @@ class HouseholdTokenCriteriaTest {
 
     @Test
     void aHouseholdThatHasDoneEverythingMeetsEveryRecordToken() {
-        household(1, 2, true, List.of("go-bag", "go-bag#papers", "meeting-walk", "contact-test"), 80, 50);
+        household(1, 2, true, 80, 50);
         assertThat(criteria.met(HH)).containsExactlyInAnyOrder(
                 TokenKey.MEETING_POINT, TokenKey.CONTACT_CIRCLE, TokenKey.PLAN_ARCHITECT,
-                TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE, TokenKey.STOCKPILE_STEWARD);
+                TokenKey.STOCKPILE_STEWARD);
     }
 
     @Test
     void oneShortOfEachThresholdMeetsNothingItShouldNot() {
-        // 1 contact, a blank route, 2 distinct drills (the # step is the same drill), 79 % bag, 49 % stockpile.
-        household(1, 1, false, List.of("go-bag", "go-bag#papers", "meeting-walk"), 79, 49);
-        assertThat(criteria.met(HH)).containsExactlyInAnyOrder(TokenKey.MEETING_POINT, TokenKey.DRILL_CREW);
+        // 1 contact, a blank route, 79 % bag, 49 % stockpile.
+        household(1, 1, false, 79, 49);
+        assertThat(criteria.met(HH)).containsExactly(TokenKey.MEETING_POINT);
     }
 
     @Test
     void aFailingSourceDropsOnlyItsOwnToken() {
-        household(1, 2, true, List.of("go-bag"), 100, 100);
+        household(1, 2, true, 100, 100);
         when(stockpile.getForHousehold(HH)).thenThrow(new RuntimeException("food planner down"));
         assertThat(criteria.met(HH))
-                .contains(TokenKey.PLAN_ARCHITECT, TokenKey.DRILL_CREW)
+                .contains(TokenKey.PLAN_ARCHITECT)
                 .doesNotContain(TokenKey.STOCKPILE_STEWARD);
     }
 
-    // Owner, 2026-10-22: "Rehearsed Together" is retired as a visible token.
+    // Owner, 2026-10-22: Practice has no token economy. "Rehearsed Together", "First Practice"
+    // and "Practiced Together" are retired, so neither scenarios nor drills earn a token.
     @Test
-    void aFinishedScenarioNoLongerEarnsAToken() {
-        household(1, 2, true, List.of("a"), 0, 0);
-        assertThat(criteria.met(HH)).contains(TokenKey.DRILL_CREW).doesNotContain(TokenKey.SCENARIO_REHEARSAL);
+    void practiceNoLongerEarnsAnyToken() {
+        household(1, 2, true, 0, 0);
+        assertThat(criteria.met(HH)).doesNotContain(
+                TokenKey.SCENARIO_REHEARSAL, TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE);
     }
 }

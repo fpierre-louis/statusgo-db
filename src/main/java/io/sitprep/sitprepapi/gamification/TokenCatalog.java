@@ -26,24 +26,17 @@ public final class TokenCatalog {
                     "Your household saved at least two emergency contacts.",
                     "Save at least two people your household can call in an emergency.",
                     "contact-circle", "/emergency-contacts", 30),
-            new TokenDefinition(TokenKey.DRILL_CREW, TokenScope.HOUSEHOLD, "First Practice",
-                    "Your household completed its first practice.",
-                    "Complete a practice together.",
-                    "drill-crew", "/practice", 40),
-            new TokenDefinition(TokenKey.PRACTICE_CADENCE, TokenScope.HOUSEHOLD, "Practiced Together",
-                    "Your household completed three different practices.",
-                    "Complete three different practices together.",
-                    "practice-cadence", "/practice", 50),
+            // DRILL_CREW ("First Practice"), PRACTICE_CADENCE ("Practiced Together") and
             // SCENARIO_REHEARSAL ("Rehearsed Together") retired 2026-10-22 (owner): out of the
-            // catalog, so it is never listed, awarded or announced, and rows already earned are
-            // filtered by forStoredKey. The enum value stays so those rows still parse.
+            // catalog, so they are never listed, awarded or announced, and rows already earned are
+            // filtered by forStoredKey. The enum values stay so those rows still parse.
             new TokenDefinition(TokenKey.STOCKPILE_STEWARD, TokenScope.HOUSEHOLD, "Supplies Taking Shape",
                     "Your household has most of a go bag packed and at least half its home supplies gathered.",
                     "Pack most of a go bag and gather at least half your home supplies.",
                     "stockpile-steward", "/go-bag", 60),
             new TokenDefinition(TokenKey.HOUSEHOLD_READY, TokenScope.HOUSEHOLD, "Ready Together",
-                    "Your household has a plan, supplies, and practice behind it.",
-                    "Put your plan in place, gather supplies, and complete your first practice.",
+                    "Your household has a plan and supplies in place.",
+                    "Put your plan in place and gather supplies.",
                     "household-ready", null, 70),
 
             // ── Individual ──────────────────────────────────────────────────

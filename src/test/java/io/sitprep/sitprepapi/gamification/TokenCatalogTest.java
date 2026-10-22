@@ -14,9 +14,9 @@ class TokenCatalogTest {
 
     @Test
     void everyLiveKeyHasExactlyOneDefinition() {
-        // SCENARIO_REHEARSAL is retired (2026-10-22): kept as a key, out of the catalog.
-        Set<TokenKey> retired = EnumSet.of(TokenKey.SCENARIO_REHEARSAL);
-        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length - retired.size()).hasSize(15);
+        // Retired 2026-10-22 (Practice has no token economy): kept as keys, out of the catalog.
+        Set<TokenKey> retired = EnumSet.of(TokenKey.SCENARIO_REHEARSAL, TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE);
+        assertThat(TokenCatalog.all()).hasSize(TokenKey.values().length - retired.size()).hasSize(13);
         Set<TokenKey> seen = EnumSet.noneOf(TokenKey.class);
         TokenCatalog.all().forEach(d -> assertThat(seen.add(d.key())).as("duplicate %s", d.key()).isTrue());
         for (TokenKey k : TokenKey.values()) {
@@ -46,8 +46,6 @@ class TokenCatalogTest {
                 Map.entry(TokenKey.PLAN_ARCHITECT, "Plan in Place"),
                 Map.entry(TokenKey.MEETING_POINT, "Meeting Spot"),
                 Map.entry(TokenKey.CONTACT_CIRCLE, "People to Call"),
-                Map.entry(TokenKey.DRILL_CREW, "First Practice"),
-                Map.entry(TokenKey.PRACTICE_CADENCE, "Practiced Together"),
                 Map.entry(TokenKey.STOCKPILE_STEWARD, "Supplies Taking Shape"),
                 Map.entry(TokenKey.HOUSEHOLD_READY, "Ready Together"),
                 Map.entry(TokenKey.FIRST_NEIGHBOR_SIGNAL, "Neighbor Hello"),
@@ -74,10 +72,24 @@ class TokenCatalogTest {
     }
 
     @Test
+    void practiceTokensAreRetiredButOldRowsStillParse() {
+        for (TokenKey k : new TokenKey[]{TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE}) {
+            assertThat(TokenCatalog.get(k)).isNull();
+            assertThat(TokenCatalog.forStoredKey(k.name())).isNull();
+        }
+    }
+
+    @Test
+    void readyTogetherNoLongerPromisesPractice() {
+        TokenDefinition ready = TokenCatalog.get(TokenKey.HOUSEHOLD_READY);
+        assertThat(ready.description()).isEqualTo("Your household has a plan and supplies in place.");
+        assertThat(ready.description() + ready.lockedHint()).doesNotContainIgnoringCase("practice");
+    }
+
+    @Test
     void householdTokensAreHouseholdScoped() {
         assertThat(TokenCatalog.all().stream().filter(d -> d.scope() == TokenScope.HOUSEHOLD).map(TokenDefinition::key))
                 .containsExactlyInAnyOrder(TokenKey.PLAN_ARCHITECT, TokenKey.MEETING_POINT, TokenKey.CONTACT_CIRCLE,
-                        TokenKey.DRILL_CREW, TokenKey.PRACTICE_CADENCE,
                         TokenKey.STOCKPILE_STEWARD, TokenKey.HOUSEHOLD_READY);
     }
 
@@ -94,6 +106,6 @@ class TokenCatalogTest {
     void aRetiredStoredKeyResolvesToNullRatherThanThrowing() {
         assertThat(TokenCatalog.forStoredKey("PLAN_KEPT_FRESH")).isNull();
         assertThat(TokenCatalog.forStoredKey(null)).isNull();
-        assertThat(TokenCatalog.forStoredKey("DRILL_CREW").key()).isEqualTo(TokenKey.DRILL_CREW);
+        assertThat(TokenCatalog.forStoredKey("MEETING_POINT").key()).isEqualTo(TokenKey.MEETING_POINT);
     }
 }

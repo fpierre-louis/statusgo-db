@@ -27,9 +27,9 @@ public class TokenEvaluationService {
 
     private static final Logger log = LoggerFactory.getLogger(TokenEvaluationService.class);
 
-    /** Household Ready = holding all three of these. */
+    /** Household Ready = holding both of these (a plan and supplies; Practice has no token economy). */
     static final List<TokenKey> HOUSEHOLD_READY_PARTS =
-            List.of(TokenKey.PLAN_ARCHITECT, TokenKey.STOCKPILE_STEWARD, TokenKey.DRILL_CREW);
+            List.of(TokenKey.PLAN_ARCHITECT, TokenKey.STOCKPILE_STEWARD);
 
     private final HouseholdTokenCriteria householdCriteria;
     private final UserTokenCriteria userCriteria;
@@ -77,7 +77,9 @@ public class TokenEvaluationService {
 
         Set<TokenKey> met = householdCriteria.met(householdId);
         for (TokenKey key : met) {
-            if (key == TokenKey.HOUSEHOLD_READY || TokenCatalog.get(key).scope() != TokenScope.HOUSEHOLD) continue;
+            // A key that left the catalog (a retired token) is skipped, never an NPE that aborts the loop.
+            TokenDefinition def = TokenCatalog.get(key);
+            if (key == TokenKey.HOUSEHOLD_READY || def == null || def.scope() != TokenScope.HOUSEHOLD) continue;
             awardHousehold(householdId, key, actor, event);
         }
 
@@ -98,7 +100,9 @@ public class TokenEvaluationService {
     private void evaluateUser(TokenEvent event) {
         for (UserTokenCriteria.Candidate c : userCriteria.candidates(event)) {
             try {
-                if (c == null || c.key() == null || TokenCatalog.get(c.key()).scope() != TokenScope.USER) continue;
+                if (c == null || c.key() == null) continue;
+                TokenDefinition def = TokenCatalog.get(c.key());
+                if (def == null || def.scope() != TokenScope.USER) continue;
                 awards.awardUser(c.email(), c.key(), c.sourceType(), c.sourceId(), c.metadata())
                         .ifPresent(notifier::userAwarded);
             } catch (Exception e) {

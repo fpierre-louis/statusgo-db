@@ -117,21 +117,21 @@ class TokenPipelineTest {
     @Test
     void aMetHouseholdTokenIsAwardedAndNotifiedOnlyWhenNew() {
         when(access.canReadHousehold(ME, HH)).thenReturn(true);
-        when(householdCriteria.met(HH)).thenReturn(EnumSet.of(TokenKey.DRILL_CREW, TokenKey.MEETING_POINT));
-        HouseholdTokenLedger drill = new HouseholdTokenLedger();
-        when(awards.awardHousehold(eq(HH), eq(TokenKey.DRILL_CREW), eq(ME), anyString(), any(), any()))
-                .thenReturn(Optional.of(drill));
+        when(householdCriteria.met(HH)).thenReturn(EnumSet.of(TokenKey.PLAN_ARCHITECT, TokenKey.MEETING_POINT));
+        HouseholdTokenLedger plan = new HouseholdTokenLedger();
+        when(awards.awardHousehold(eq(HH), eq(TokenKey.PLAN_ARCHITECT), eq(ME), anyString(), any(), any()))
+                .thenReturn(Optional.of(plan));
         when(awards.awardHousehold(eq(HH), eq(TokenKey.MEETING_POINT), eq(ME), anyString(), any(), any()))
                 .thenReturn(Optional.empty());   // already held
 
         evaluator.evaluate(TokenEvent.household(TokenEventType.DRILL_COMPLETED, "Ana@X.com", HH, "go-bag"));
 
-        verify(notifier, times(1)).householdAwarded(drill);
+        verify(notifier, times(1)).householdAwarded(plan);
         verify(awards, never()).awardHousehold(any(), eq(TokenKey.HOUSEHOLD_READY), any(), any(), any(), any());
     }
 
     @Test
-    void householdReadyFollowsFromHoldingItsThreeParts() {
+    void householdReadyFollowsFromHoldingItsTwoParts() {
         when(access.canReadHousehold(ME, HH)).thenReturn(true);
         when(householdCriteria.met(HH)).thenReturn(EnumSet.noneOf(TokenKey.class));
         when(householdLedger.existsByHouseholdIdAndTokenKey(eq(HH), anyString())).thenReturn(true);
@@ -140,6 +140,36 @@ class TokenPipelineTest {
         evaluator.evaluate(TokenEvent.household(TokenEventType.SUPPLIES_CHANGED, ME, HH, null));
 
         verify(awards).awardHousehold(eq(HH), eq(TokenKey.HOUSEHOLD_READY), eq(ME), eq("SUPPLIES_CHANGED"), any(), any());
+    }
+
+    // A key that left the catalog (a retired token) used to NPE at TokenCatalog.get(key).scope() and
+    // abort the loop before STOCKPILE_STEWARD / HOUSEHOLD_READY. It is skipped now.
+    @Test
+    void anOffCatalogKeyNeverBlocksStockpileStewardOrHouseholdReady() {
+        when(access.canReadHousehold(ME, HH)).thenReturn(true);
+        when(householdCriteria.met(HH)).thenReturn(EnumSet.of(TokenKey.DRILL_CREW, TokenKey.STOCKPILE_STEWARD));
+        when(householdLedger.existsByHouseholdIdAndTokenKey(eq(HH), anyString())).thenReturn(true);
+        when(awards.awardHousehold(any(), any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        evaluator.evaluate(TokenEvent.household(TokenEventType.SUPPLIES_CHANGED, ME, HH, null));
+
+        verify(awards, never()).awardHousehold(any(), eq(TokenKey.DRILL_CREW), any(), any(), any(), any());
+        verify(awards).awardHousehold(eq(HH), eq(TokenKey.STOCKPILE_STEWARD), eq(ME), anyString(), any(), any());
+        verify(awards).awardHousehold(eq(HH), eq(TokenKey.HOUSEHOLD_READY), eq(ME), anyString(), any(), any());
+    }
+
+    @Test
+    void householdReadyNeedsNoPracticeRow() {
+        when(access.canReadHousehold(ME, HH)).thenReturn(true);
+        when(householdCriteria.met(HH)).thenReturn(EnumSet.noneOf(TokenKey.class));
+        when(householdLedger.existsByHouseholdIdAndTokenKey(eq(HH), anyString())).thenReturn(false);
+        when(householdLedger.existsByHouseholdIdAndTokenKey(HH, "PLAN_ARCHITECT")).thenReturn(true);
+        when(householdLedger.existsByHouseholdIdAndTokenKey(HH, "STOCKPILE_STEWARD")).thenReturn(true);
+        when(awards.awardHousehold(any(), any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        evaluator.evaluate(TokenEvent.household(TokenEventType.SUPPLIES_CHANGED, ME, HH, null));
+
+        verify(awards).awardHousehold(eq(HH), eq(TokenKey.HOUSEHOLD_READY), eq(ME), anyString(), any(), any());
     }
 
     @Test
@@ -155,14 +185,14 @@ class TokenPipelineTest {
     void userCandidatesAwardTheNamedPersonAndSkipWrongScopes() {
         when(userCriteria.candidates(any())).thenReturn(List.of(
                 new UserTokenCriteria.Candidate("bo@x.com", TokenKey.TRUSTED_ANSWER, "ASK_ANSWER_ACCEPTED", "5", Map.of()),
-                new UserTokenCriteria.Candidate(ME, TokenKey.DRILL_CREW, "X", "1", Map.of())));   // household key: ignored
+                new UserTokenCriteria.Candidate(ME, TokenKey.MEETING_POINT, "X", "1", Map.of())));   // household key: ignored
         UserTokenLedger row = new UserTokenLedger();
         when(awards.awardUser(eq("bo@x.com"), eq(TokenKey.TRUSTED_ANSWER), any(), any(), any())).thenReturn(Optional.of(row));
 
         evaluator.evaluate(TokenEvent.user(TokenEventType.ASK_ANSWER_ACCEPTED, ME, 5L));
 
         verify(notifier).userAwarded(row);
-        verify(awards, never()).awardUser(any(), eq(TokenKey.DRILL_CREW), any(), any(), any());
+        verify(awards, never()).awardUser(any(), eq(TokenKey.MEETING_POINT), any(), any(), any());
     }
 
     // ── Notifier ────────────────────────────────────────────────────────────
@@ -206,7 +236,7 @@ class TokenPipelineTest {
         HouseholdTokenLedger award = new HouseholdTokenLedger();
         award.setId(3L);
         award.setHouseholdId(HH);
-        award.setTokenKey("DRILL_CREW");
+        award.setTokenKey("MEETING_POINT");
 
         n.householdAwarded(award);
 

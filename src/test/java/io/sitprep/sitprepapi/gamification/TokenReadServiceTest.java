@@ -86,7 +86,7 @@ class TokenReadServiceTest {
         when(resolver.baseHouseholdIdFor(ME)).thenReturn(HH);
         when(access.canReadHousehold(ME, HH)).thenReturn(true);
         when(householdLedger.findByHouseholdIdOrderByEarnedAtDesc(HH)).thenReturn(List.of(
-                householdRow(10, "DRILL_CREW", "dana@x.com", NOW.minus(Duration.ofDays(1))),
+                householdRow(10, "PLAN_ARCHITECT", "dana@x.com", NOW.minus(Duration.ofDays(1))),
                 householdRow(11, "MEETING_POINT", ME, NOW.minus(Duration.ofDays(30)))));
         when(householdSeen.findSeenAwardIds(eq(ME), anyCollection())).thenReturn(List.of());
         UserInfo dana = new UserInfo();
@@ -96,7 +96,7 @@ class TokenReadServiceTest {
 
         TokensResponse r = service.forViewer(ME);
 
-        assertThat(r.catalog()).hasSize(15); // SCENARIO_REHEARSAL retired 2026-10-22
+        assertThat(r.catalog()).hasSize(13); // SCENARIO_REHEARSAL, DRILL_CREW, PRACTICE_CADENCE retired 2026-10-22
         assertThat(r.householdId()).isEqualTo(HH);
         assertThat(r.userTokens()).extracting(Award::id).containsExactly("user:1", "user:2");
         Award drill = r.householdTokens().get(0);
@@ -131,8 +131,8 @@ class TokenReadServiceTest {
     @Test
     void markSeenTouchesOnlyTheViewersOwnAwards() {
         when(userLedger.markSeen(eq(ME), anyCollection())).thenReturn(1);
-        HouseholdTokenLedger mine = householdRow(10, "DRILL_CREW", ME, NOW);
-        HouseholdTokenLedger theirs = householdRow(20, "DRILL_CREW", "x@y.com", NOW);
+        HouseholdTokenLedger mine = householdRow(10, "MEETING_POINT", ME, NOW);
+        HouseholdTokenLedger theirs = householdRow(20, "MEETING_POINT", "x@y.com", NOW);
         theirs.setHouseholdId("hh-other");
         when(householdLedger.findAllById(anyCollection())).thenReturn(List.of(mine, theirs));
         when(access.canReadHousehold(ME, HH)).thenReturn(true);
