@@ -41,6 +41,8 @@ class PracticeHistoryServiceTest {
     private GroupRepo groups;
     private ScenarioRunRepo runs;
     private FamilyPracticeCompletionRepo completions;
+    private PracticeCheckInAnswerRepo checkInAnswers;
+    private PracticeSkillStateRepo skillStates;
     private AdminAuditLogService audit;
     private WebSocketMessageSender ws;
     private PracticeHistoryService service;
@@ -52,9 +54,11 @@ class PracticeHistoryServiceTest {
         groups = mock(GroupRepo.class);
         runs = mock(ScenarioRunRepo.class);
         completions = mock(FamilyPracticeCompletionRepo.class);
+        checkInAnswers = mock(PracticeCheckInAnswerRepo.class);
+        skillStates = mock(PracticeSkillStateRepo.class);
         audit = mock(AdminAuditLogService.class);
         ws = mock(WebSocketMessageSender.class);
-        service = new PracticeHistoryService(access, groups, runs, completions, audit, ws,
+        service = new PracticeHistoryService(access, groups, runs, completions, checkInAnswers, skillStates, audit, ws,
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         household = new Group();
@@ -69,6 +73,8 @@ class PracticeHistoryServiceTest {
         when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
         when(runs.deleteAllByHousehold(HH)).thenReturn(3);
         when(completions.deleteAllByHousehold(HH)).thenReturn(2);
+        when(checkInAnswers.deleteAllByHousehold(HH)).thenReturn(5);
+        when(skillStates.deleteAllByHousehold(HH)).thenReturn(4);
     }
 
     @Test
@@ -78,7 +84,7 @@ class PracticeHistoryServiceTest {
 
         assertThat(r.householdId()).isEqualTo(HH);
         assertThat(r.clearedAt()).isEqualTo(NOW);
-        assertThat(r.removed()).isEqualTo(new PracticeHistoryService.Removed(3, 2, 2, 1));
+        assertThat(r.removed()).isEqualTo(new PracticeHistoryService.Removed(3, 2, 2, 1, 5, 4));
         assertThat(household.getDrillLog()).isEmpty();
         assertThat(household.getChallengeProgress()).isEmpty();
         assertThat(household.getChallengeLastShownWeek()).isEqualTo("2026-W40");
@@ -99,7 +105,7 @@ class PracticeHistoryServiceTest {
         assertThatThrownBy(() -> service.clear("m@x.com", HH, true))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
-        verifyNoInteractions(runs, completions, ws, audit);
+        verifyNoInteractions(runs, completions, checkInAnswers, skillStates, ws, audit);
         assertThat(household.getDrillLog()).hasSize(2);
     }
 
@@ -109,6 +115,8 @@ class PracticeHistoryServiceTest {
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
         verify(runs, never()).deleteAllByHousehold(any());
+        verify(checkInAnswers, never()).deleteAllByHousehold(any());
+        verify(skillStates, never()).deleteAllByHousehold(any());
         verify(ws, never()).sendHouseholdPractice(any(), any());
     }
 }

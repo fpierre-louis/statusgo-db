@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "key": "checkin-tornado-protect-yourselves",
+  "version": 1,
+  "kind": "CHECKIN",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Protect yourselves",
+    "summary": "A quick recall check on how to shield yourselves once you reach your shelter room.",
+    "sources": [
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      },
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      }
+    ],
+    "checkin": {
+      "skill": "tornado-protect-yourselves",
+      "format": "CHOICE",
+      "prompt": "You're in your shelter room and the tornado warning is still in effect. How do you protect yourselves?",
+      "choices": [
+        {
+          "key": "sit_up",
+          "label": "Sit upright and wait without covering up",
+          "correct": false
+        },
+        {
+          "key": "cover",
+          "label": "Cover your heads and necks with your arms, with blankets around or on top of you",
+          "correct": true
+        },
+        {
+          "key": "go_out",
+          "label": "Go back out to see whether it has passed",
+          "correct": false
+        }
+      ],
+      "remember": "Cover your heads and necks with your arms, and put blankets around or on top of you.",
+      "fullerExplanation": "Ready.gov says to watch out for flying debris. While the warning is in effect, cover your heads and necks with your arms and put blankets around or on top of you.",
+      "objective": true
+    }
+  }
+}

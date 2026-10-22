@@ -28,13 +28,15 @@ class PracticeRetentionSweepTest {
 
     @Autowired ScenarioRunRepo runRepo;
     @Autowired FamilyPracticeCompletionRepo completionRepo;
+    @Autowired PracticeCheckInAnswerRepo answerRepo;
+    @Autowired PracticeSkillStateRepo stateRepo;
     @Autowired TestEntityManager em;
 
     private PracticeRetentionSweepService sweep;
 
     @BeforeEach
     void setUp() {
-        sweep = new PracticeRetentionSweepService(runRepo, completionRepo, Clock.fixed(NOW, ZoneOffset.UTC));
+        sweep = new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     /** The bulk delete bypasses the persistence context, so drop it before asserting on findById. */
@@ -67,6 +69,42 @@ class PracticeRetentionSweepTest {
         c.setContentHash("sha256:" + version);
         c.setCompletedAt(at);
         return completionRepo.saveAndFlush(c);
+    }
+
+    private PracticeCheckInAnswer answer(String hh, String skill, Instant at) {
+        PracticeCheckInAnswer a = new PracticeCheckInAnswer();
+        a.setHouseholdId(hh);
+        a.setSkillKey(skill);
+        a.setCheckinKey("checkin-" + skill);
+        a.setContentVersion(1);
+        a.setCorrect(true);
+        a.setAnsweredAt(at);
+        return answerRepo.saveAndFlush(a);
+    }
+
+    @Test
+    void checkInAnswersPastTheWindowGoButSkillStateIsKept() {
+        PracticeCheckInAnswer old = answer("hh-1", "sk", OLD);
+        PracticeCheckInAnswer older = answer("hh-1", "sk", OLDER);
+        PracticeCheckInAnswer recent = answer("hh-1", "sk", RECENT);
+        PracticeSkillState st = new PracticeSkillState();
+        st.setHouseholdId("hh-1");
+        st.setSkillKey("sk");
+        st.setLastSeenAt(OLD);
+        st.setIntervalDays(90);
+        st.setPriorIntervalDays(30);
+        st.setNextDueAt(OLD.plusSeconds(90L * 86400));
+        st.setLastResult("CORRECT");
+        st.setUpdatedAt(OLD);
+        st = stateRepo.saveAndFlush(st);
+
+        int removed = sweepAndDetach();
+
+        assertThat(removed).isEqualTo(2);
+        assertThat(answerRepo.findById(old.getId())).isEmpty();
+        assertThat(answerRepo.findById(older.getId())).isEmpty();
+        assertThat(answerRepo.findById(recent.getId())).isPresent();
+        assertThat(stateRepo.findById(st.getId())).as("the schedule outlives the history").isPresent();
     }
 
     @Test

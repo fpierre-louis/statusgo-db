@@ -80,6 +80,9 @@ public final class PracticeRegistryCheck {
             if (v.body().activity() != null) {
                 drillRef(v.body().activity().nextAction(), v.body().activity().nextParams(), drillIds, at + " activity", out);
             }
+            if (v.body().checkin() != null && !skillKeys.contains(v.body().checkin().skill())) {
+                out.add(at + ": check-in skill " + v.body().checkin().skill() + " is not a skill");
+            }
             Skill k = v.body().skill();
             if (k == null) continue;
             if (k.scenarioNodes() != null) for (String ref : k.scenarioNodes()) {

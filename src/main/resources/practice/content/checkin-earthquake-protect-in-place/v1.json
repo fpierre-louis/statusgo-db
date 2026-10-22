@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "key": "checkin-earthquake-protect-in-place",
+  "version": 1,
+  "kind": "CHECKIN",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Protect yourselves where you are",
+    "summary": "A quick recall check on what to do the moment the shaking starts.",
+    "sources": [
+      {
+        "label": "Ready.gov — Earthquakes",
+        "url": "https://www.ready.gov/earthquakes"
+      },
+      {
+        "label": "Earthquake Country Alliance (Great ShakeOut) — Drop, Cover, and Hold On",
+        "url": "https://www.earthquakecountry.org/dropcoverholdon/"
+      }
+    ],
+    "checkin": {
+      "skill": "earthquake-protect-in-place",
+      "format": "CHOICE",
+      "prompt": "The room starts shaking and you're inside. What do you do?",
+      "choices": [
+        {
+          "key": "run_out",
+          "label": "Run outside as fast as you can",
+          "correct": false
+        },
+        {
+          "key": "drop_cover",
+          "label": "Drop onto your hands and knees, cover your head and neck, and hold on",
+          "correct": true
+        },
+        {
+          "key": "stand",
+          "label": "Stay on your feet until the shaking stops",
+          "correct": false
+        }
+      ],
+      "remember": "Drop, cover your head and neck, and hold on until the shaking stops. If you're inside, stay and do not run outside.",
+      "fullerExplanation": "Ready.gov says: if you are inside, stay and do not run outside. Drop onto your hands and knees, cover your head and neck, and hold on until the shaking stops.",
+      "objective": true
+    }
+  }
+}

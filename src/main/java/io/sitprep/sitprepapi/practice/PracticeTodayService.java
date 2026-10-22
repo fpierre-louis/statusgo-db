@@ -41,16 +41,25 @@ public class PracticeTodayService {
     private final ScenarioRunRepo runRepo;
     private final GroupRepo groupRepo;
     private final FamilyPracticeCompletionRepo familyRepo;
+    private final PracticeCheckInService checkIns;
     private final Clock clock;
 
     @Autowired
     public PracticeTodayService(ScenarioService scenarios, ScenarioRelevance relevance, ScenarioRunRepo runRepo,
-                                GroupRepo groupRepo, FamilyPracticeCompletionRepo familyRepo) {
-        this(scenarios, relevance, runRepo, groupRepo, familyRepo, Clock.systemUTC());
+                                GroupRepo groupRepo, FamilyPracticeCompletionRepo familyRepo,
+                                PracticeCheckInService checkIns) {
+        this(scenarios, relevance, runRepo, groupRepo, familyRepo, checkIns, Clock.systemUTC());
     }
 
     PracticeTodayService(ScenarioService scenarios, ScenarioRelevance relevance, ScenarioRunRepo runRepo,
                          GroupRepo groupRepo, FamilyPracticeCompletionRepo familyRepo, Clock clock) {
+        this(scenarios, relevance, runRepo, groupRepo, familyRepo, null, clock);
+    }
+
+    PracticeTodayService(ScenarioService scenarios, ScenarioRelevance relevance, ScenarioRunRepo runRepo,
+                         GroupRepo groupRepo, FamilyPracticeCompletionRepo familyRepo,
+                         PracticeCheckInService checkIns, Clock clock) {
+        this.checkIns = checkIns;
         this.scenarios = scenarios;
         this.relevance = relevance;
         this.runRepo = runRepo;
@@ -83,7 +92,19 @@ public class PracticeTodayService {
         ScenarioCardDto recommended = recommend(catalog, progress, continueRun, now);
         String reentry = reentry(hid, runs, now);
         return new TodayDto(ScenarioDtos.SCHEMA_VERSION, reentry, recommended, continueRun,
-                relevance == null ? java.util.List.of() : relevance.localHazards(hid), catalog.suppression());
+                relevance == null ? java.util.List.of() : relevance.localHazards(hid), catalog.suppression(),
+                refresh(hid, catalog.suppression() != null));
+    }
+
+    /**
+     * A due check-in (FR-7). Household scope only (state is the household's), and never while
+     * Practice waits: the catalog already said so, and a waiting household gets no refresh.
+     */
+    private ScenarioDtos.RefreshDto refresh(String hid, boolean waiting) {
+        if (checkIns == null || hid == null || waiting) return null;
+        PracticeCheckInDtos.DueDto due = checkIns.dueCards(hid);
+        if (due.cards().isEmpty()) return null;
+        return new ScenarioDtos.RefreshDto(due.hazard(), due.hazardLabel(), due.cards().get(0).prompt(), due.cards().size());
     }
 
     /** The first card in catalog (risk) order that isn't being continued and wasn't just done. */

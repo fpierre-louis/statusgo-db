@@ -29,7 +29,8 @@ import java.util.Map;
  * confirmation at the resource. It removes, in ONE transaction: the
  * household's {@code scenario_run} rows (every status, including an in-progress
  * run, so nothing resumes against cleared history), its
- * {@code family_practice_completion} rows, {@code Group.drillLog} and
+ * {@code family_practice_completion} rows, its check-in answers and skill
+ * recall state (V122), {@code Group.drillLog} and
  * {@code Group.challengeProgress}. {@code challengeLastShownWeek} is kept: it
  * only suppresses the weekly prompt. Personal runs ({@code household_id} NULL)
  * and the token ledgers are never touched; Practice has no token economy and
@@ -46,7 +47,8 @@ public class PracticeHistoryService {
 
     static final String AUDIT_ACTION = "CLEARED_PRACTICE_HISTORY";
 
-    public record Removed(int scenarioRuns, int familyCompletions, int drillRecords, int weekFlags) {}
+    public record Removed(int scenarioRuns, int familyCompletions, int drillRecords, int weekFlags,
+                          int checkInAnswers, int skillStates) {}
 
     public record ClearResult(String householdId, Instant clearedAt, Removed removed) {}
 
@@ -54,20 +56,26 @@ public class PracticeHistoryService {
     private final GroupRepo groupRepo;
     private final ScenarioRunRepo runRepo;
     private final FamilyPracticeCompletionRepo completionRepo;
+    private final PracticeCheckInAnswerRepo checkInAnswerRepo;
+    private final PracticeSkillStateRepo skillStateRepo;
     private final AdminAuditLogService audit;
     private final WebSocketMessageSender ws;
     private final Clock clock;
 
     @Autowired
     public PracticeHistoryService(HouseholdAccessService access, GroupRepo groupRepo, ScenarioRunRepo runRepo,
-                                  FamilyPracticeCompletionRepo completionRepo, AdminAuditLogService audit,
+                                  FamilyPracticeCompletionRepo completionRepo, PracticeCheckInAnswerRepo checkInAnswerRepo,
+                                  PracticeSkillStateRepo skillStateRepo, AdminAuditLogService audit,
                                   WebSocketMessageSender ws) {
-        this(access, groupRepo, runRepo, completionRepo, audit, ws, Clock.systemUTC());
+        this(access, groupRepo, runRepo, completionRepo, checkInAnswerRepo, skillStateRepo, audit, ws, Clock.systemUTC());
     }
 
     PracticeHistoryService(HouseholdAccessService access, GroupRepo groupRepo, ScenarioRunRepo runRepo,
-                           FamilyPracticeCompletionRepo completionRepo, AdminAuditLogService audit,
+                           FamilyPracticeCompletionRepo completionRepo, PracticeCheckInAnswerRepo checkInAnswerRepo,
+                           PracticeSkillStateRepo skillStateRepo, AdminAuditLogService audit,
                            WebSocketMessageSender ws, Clock clock) {
+        this.checkInAnswerRepo = checkInAnswerRepo;
+        this.skillStateRepo = skillStateRepo;
         this.access = access;
         this.groupRepo = groupRepo;
         this.runRepo = runRepo;
@@ -90,6 +98,8 @@ public class PracticeHistoryService {
 
         int runs = runRepo.deleteAllByHousehold(householdId);
         int completions = completionRepo.deleteAllByHousehold(householdId);
+        int answers = checkInAnswerRepo.deleteAllByHousehold(householdId);
+        int states = skillStateRepo.deleteAllByHousehold(householdId);
 
         int drills = household.getDrillLog() == null ? 0 : household.getDrillLog().size();
         int weeks = household.getChallengeProgress() == null ? 0 : household.getChallengeProgress().size();
@@ -100,11 +110,12 @@ public class PracticeHistoryService {
         // No groupRepo.save: the household is managed in this transaction, so clearing its collections
         // flushes at commit (and PracticeInvariantTest keeps Practice to find* calls on GroupRepo).
 
-        Removed removed = new Removed(runs, completions, drills, weeks);
+        Removed removed = new Removed(runs, completions, drills, weeks, answers, states);
         Instant now = clock.instant();
         audit.record(callerEmail, AUDIT_ACTION, "group", householdId,
                 "scenarioRuns=" + runs + " familyCompletions=" + completions
-                        + " drillRecords=" + drills + " weekFlags=" + weeks);
+                        + " drillRecords=" + drills + " weekFlags=" + weeks
+                        + " checkInAnswers=" + answers + " skillStates=" + states);
         log.info("Practice history cleared for household {}: {}", householdId, removed);
 
         Map<String, Object> frame = Map.of("type", "practice-history-cleared",

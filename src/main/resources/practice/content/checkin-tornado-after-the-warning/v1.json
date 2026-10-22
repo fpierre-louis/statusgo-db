@@ -1,0 +1,47 @@
+{
+  "schema": 2,
+  "key": "checkin-tornado-after-the-warning",
+  "version": 1,
+  "kind": "CHECKIN",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "After the warning ends",
+    "summary": "A quick recall check on what to do before anyone leaves the shelter room.",
+    "sources": [
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      }
+    ],
+    "checkin": {
+      "skill": "tornado-after-the-warning",
+      "format": "CHOICE",
+      "prompt": "The tornado warning has ended, and you don't know yet whether there is damage nearby. What do you do first?",
+      "choices": [
+        {
+          "key": "go_outside",
+          "label": "Go outside right away to look around",
+          "correct": false
+        },
+        {
+          "key": "check_updates",
+          "label": "Check official updates before you leave the room",
+          "correct": true
+        },
+        {
+          "key": "move_lines",
+          "label": "Move any fallen power lines out of the way",
+          "correct": false
+        }
+      ],
+      "remember": "Check official updates before you leave the room, and stay clear of fallen power lines.",
+      "fullerExplanation": "Ready.gov says to pay attention to EAS, NOAA Weather Radio, and local authorities for updated information. Check those before you leave the room, and stay clear of fallen power lines.",
+      "objective": true
+    }
+  }
+}

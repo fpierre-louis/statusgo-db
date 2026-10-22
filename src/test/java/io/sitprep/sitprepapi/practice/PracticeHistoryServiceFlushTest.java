@@ -31,6 +31,8 @@ class PracticeHistoryServiceFlushTest {
     @Autowired GroupRepo groups;
     @Autowired ScenarioRunRepo runs;
     @Autowired FamilyPracticeCompletionRepo completions;
+    @Autowired PracticeCheckInAnswerRepo checkInAnswers;
+    @Autowired PracticeSkillStateRepo skillStates;
     @Autowired TestEntityManager em;
     @Autowired JdbcTemplate jdbc;
 
@@ -47,7 +49,7 @@ class PracticeHistoryServiceFlushTest {
         em.clear();
 
         PracticeHistoryService service = new PracticeHistoryService(mock(HouseholdAccessService.class), groups,
-                runs, completions, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
+                runs, completions, checkInAnswers, skillStates, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
         PracticeHistoryService.ClearResult result = service.clear("owner@x.com", "hh-flush", true);
         em.flush();
 
@@ -55,5 +57,54 @@ class PracticeHistoryServiceFlushTest {
         assertThat(result.removed().weekFlags()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM group_drill_log WHERE group_id = 'hh-flush'", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM group_challenge_progress WHERE group_id = 'hh-flush'", Integer.class)).isZero();
+    }
+
+    @Test
+    void clearDeletesTheHouseholdsCheckInAnswersAndSkillStateAndNobodyElses() {
+        PracticeCheckInAnswer mine = new PracticeCheckInAnswer();
+        mine.setHouseholdId("hh-ci-clear");
+        mine.setSkillKey("sk");
+        mine.setCheckinKey("checkin-sk");
+        mine.setContentVersion(1);
+        mine.setCorrect(true);
+        checkInAnswers.saveAndFlush(mine);
+        PracticeCheckInAnswer theirs = new PracticeCheckInAnswer();
+        theirs.setHouseholdId("hh-ci-other");
+        theirs.setSkillKey("sk");
+        theirs.setCheckinKey("checkin-sk");
+        theirs.setContentVersion(1);
+        theirs.setCorrect(false);
+        checkInAnswers.saveAndFlush(theirs);
+        for (String hh : new String[] {"hh-ci-clear", "hh-ci-other"}) {
+            PracticeSkillState st = new PracticeSkillState();
+            st.setHouseholdId(hh);
+            st.setSkillKey("sk");
+            st.setLastSeenAt(Instant.parse("2026-10-01T00:00:00Z"));
+            st.setIntervalDays(9);
+            st.setPriorIntervalDays(2);
+            st.setNextDueAt(Instant.parse("2026-10-10T00:00:00Z"));
+            st.setLastResult("CORRECT");
+            st.setUpdatedAt(Instant.parse("2026-10-01T00:00:00Z"));
+            skillStates.saveAndFlush(st);
+        }
+        Group g = new Group();
+        g.setGroupId("hh-ci-clear");
+        g.setGroupType("Household");
+        g.setGroupName("Clear");
+        groups.saveAndFlush(g);
+        em.clear();
+
+        PracticeHistoryService service = new PracticeHistoryService(mock(HouseholdAccessService.class), groups,
+                runs, completions, checkInAnswers, skillStates, mock(AdminAuditLogService.class), mock(WebSocketMessageSender.class));
+        PracticeHistoryService.ClearResult result = service.clear("owner@x.com", "hh-ci-clear", true);
+        em.flush();
+        em.clear();
+
+        assertThat(result.removed().checkInAnswers()).isEqualTo(1);
+        assertThat(result.removed().skillStates()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM practice_checkin_answer WHERE household_id = 'hh-ci-clear'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM practice_skill_state WHERE household_id = 'hh-ci-clear'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM practice_checkin_answer WHERE household_id = 'hh-ci-other'", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM practice_skill_state WHERE household_id = 'hh-ci-other'", Integer.class)).isEqualTo(1);
     }
 }

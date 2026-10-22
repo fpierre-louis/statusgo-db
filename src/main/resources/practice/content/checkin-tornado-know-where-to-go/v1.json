@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "key": "checkin-tornado-know-where-to-go",
+  "version": 1,
+  "kind": "CHECKIN",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": null,
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Know where to go",
+    "summary": "A quick recall check on where to take shelter when a tornado warning comes.",
+    "sources": [
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      },
+      {
+        "label": "National Weather Service — Understand Tornado Alerts",
+        "url": "https://www.weather.gov/safety/tornado-ww"
+      },
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      }
+    ],
+    "checkin": {
+      "skill": "tornado-know-where-to-go",
+      "format": "CHOICE",
+      "prompt": "A tornado warning comes in for your area while you're home. Where does everyone go?",
+      "choices": [
+        {
+          "key": "interior",
+          "label": "An interior room on the lowest floor, away from windows",
+          "correct": true
+        },
+        {
+          "key": "window",
+          "label": "A room with big windows, so you can watch for it",
+          "correct": false
+        },
+        {
+          "key": "outside_wall",
+          "label": "Against an outside wall, near a door",
+          "correct": false
+        }
+      ],
+      "remember": "Go to an interior room on the lowest floor, away from windows.",
+      "fullerExplanation": "Ready.gov says to stay away from windows, doors, and outside walls, and to watch out for flying debris. So the plan is an interior room on the lowest floor of a sturdy building, away from windows.",
+      "objective": true
+    }
+  }
+}

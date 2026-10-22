@@ -82,7 +82,28 @@ public final class PracticeContent {
              * SKILL body (redesign BE-04). Additive and nullable: files without it
              * parse and hash exactly as before (the hash is over the file's JSON).
              */
-            Skill skill) {}
+            Skill skill,
+            /** CHECKIN body (redesign FR-7). Additive and nullable like {@code skill}. */
+            CheckIn checkin) {}
+
+    /**
+     * One recall card for one skill. {@code correct} on a choice is server-internal: it
+     * steers scheduling and is never in any DTO. {@code fullerExplanation} is shown only
+     * after a different choice; {@code remember} is shown after every answer.
+     */
+    public record CheckIn(
+            String skill,
+            CheckInFormat format,
+            String prompt,
+            List<CheckInChoice> choices,
+            String remember,
+            String fullerExplanation,
+            Boolean objective) {}
+
+    /** Only {@code CHOICE} exists in FR-7; sort and free recall come with later units. */
+    public enum CheckInFormat { CHOICE }
+
+    public record CheckInChoice(String key, String label, Boolean correct) {}
 
     /**
      * One protective capability (Practice redesign BE-04). {@code title} on the

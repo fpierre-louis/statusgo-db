@@ -27,6 +27,8 @@ import java.util.function.Function;
  *   <li>{@code family_practice_completion}: rows past the window go unless
  *       they are the newest for their (household, activity); deleting that one
  *       would un-complete the activity.</li>
+ *   <li>{@code practice_checkin_answer}: rows past the window go. {@code practice_skill_state}
+ *       is the recall schedule itself and is kept.</li>
  *   <li>{@code group_drill_log} is already one row per drill (latest state)
  *       and is left alone. Token ledgers are not Practice history.</li>
  * </ul>
@@ -45,6 +47,7 @@ public class PracticeRetentionSweepService {
 
     private final ScenarioRunRepo runRepo;
     private final FamilyPracticeCompletionRepo completionRepo;
+    private final PracticeCheckInAnswerRepo checkInAnswerRepo;
     private final Clock clock;
 
     @Value("${app.retention.practiceHistoryMonths:" + DEFAULT_RETENTION_MONTHS + "}")
@@ -57,13 +60,16 @@ public class PracticeRetentionSweepService {
     private int maxBatchesPerTick = 50;
 
     @Autowired
-    public PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo) {
-        this(runRepo, completionRepo, Clock.systemUTC());
+    public PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo,
+                                         PracticeCheckInAnswerRepo checkInAnswerRepo) {
+        this(runRepo, completionRepo, checkInAnswerRepo, Clock.systemUTC());
     }
 
-    PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo, Clock clock) {
+    PracticeRetentionSweepService(ScenarioRunRepo runRepo, FamilyPracticeCompletionRepo completionRepo,
+                                  PracticeCheckInAnswerRepo checkInAnswerRepo, Clock clock) {
         this.runRepo = runRepo;
         this.completionRepo = completionRepo;
+        this.checkInAnswerRepo = checkInAnswerRepo;
         this.clock = clock;
     }
 
@@ -77,7 +83,8 @@ public class PracticeRetentionSweepService {
     public int sweepAll() {
         Instant cutoff = clock.instant().atZone(ZoneOffset.UTC).minusMonths(retentionMonths).toInstant();
         return drain("PracticeScenarioRunRetention", cutoff, this::sweepScenarioRunsOnce)
-                + drain("PracticeFamilyCompletionRetention", cutoff, this::sweepFamilyCompletionsOnce);
+                + drain("PracticeFamilyCompletionRetention", cutoff, this::sweepFamilyCompletionsOnce)
+                + drain("PracticeCheckInAnswerRetention", cutoff, this::sweepCheckInAnswersOnce);
     }
 
     /** One batch; a batch shorter than {@code sweepBatchSize} means nothing more is eligible. */
@@ -89,6 +96,12 @@ public class PracticeRetentionSweepService {
     int sweepFamilyCompletionsOnce(Instant cutoff) {
         List<Long> ids = completionRepo.findSweepableIds(cutoff, sweepBatchSize);
         return ids.isEmpty() ? 0 : completionRepo.deleteByIdIn(ids);
+    }
+
+    /** Check-in answers past the window. Skill state ({@code practice_skill_state}) is never swept: it is the schedule. */
+    int sweepCheckInAnswersOnce(Instant cutoff) {
+        List<Long> ids = checkInAnswerRepo.findSweepableIds(cutoff, sweepBatchSize);
+        return ids.isEmpty() ? 0 : checkInAnswerRepo.deleteByIdIn(ids);
     }
 
     void configure(int months, int batchSize, int maxBatches) {

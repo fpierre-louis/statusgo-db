@@ -138,6 +138,8 @@ public final class PracticeContentValidator {
             validateActivity(b, where, errors);
         } else if (f.kind() == PracticeKind.SKILL) {
             validateSkill(b, where, errors);
+        } else if (f.kind() == PracticeKind.CHECKIN) {
+            validateCheckIn(b, where, errors);
         }
         validateCopy(f.kind(), b, where, errors);
         return errors;
@@ -262,6 +264,8 @@ public final class PracticeContentValidator {
         if (b.objective() != null) requireText(b.objective(), 240, where + ": content.objective", errors);
         if (kind == PracticeKind.SKILL) {
             if (b.estimatedMinutes() != null) errors.add(where + ": a SKILL has no estimatedMinutes (its activities do)");
+        } else if (kind == PracticeKind.CHECKIN) {
+            if (b.estimatedMinutes() != null) errors.add(where + ": a CHECKIN has no estimatedMinutes");
         } else if (b.estimatedMinutes() == null || b.estimatedMinutes() < 1 || b.estimatedMinutes() > 60) {
             errors.add(where + ": content.estimatedMinutes must be 1-60");
         }
@@ -277,8 +281,8 @@ public final class PracticeContentValidator {
             }
         }
 
-        if (kind == PracticeKind.SKILL) {
-            if (b.tags() != null && !b.tags().isEmpty()) errors.add(where + ": a SKILL carries no debrief tags");
+        if (kind == PracticeKind.SKILL || kind == PracticeKind.CHECKIN) {
+            if (b.tags() != null && !b.tags().isEmpty()) errors.add(where + ": a " + kind + " carries no debrief tags");
         } else if (b.tags() == null || b.tags().isEmpty()) {
             errors.add(where + ": content.tags (debrief copy) is required");
         } else {
@@ -330,9 +334,19 @@ public final class PracticeContentValidator {
             }
             if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) errors.add(where + ": a SKILL has no ageGuidance");
             if (b.facilitation() != null) errors.add(where + ": a SKILL has no facilitation copy");
+        } else if (kind == PracticeKind.CHECKIN) {
+            if (b.checkin() == null) errors.add(where + ": a CHECKIN needs content.checkin");
+            if (b.scenario() != null || b.activity() != null) {
+                errors.add(where + ": a CHECKIN carries no scenario graph or activity body");
+            }
+            if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) errors.add(where + ": a CHECKIN has no ageGuidance");
+            if (b.facilitation() != null) errors.add(where + ": a CHECKIN has no facilitation copy");
         }
         if (kind != PracticeKind.SKILL && b.skill() != null) {
             errors.add(where + ": only a SKILL carries content.skill");
+        }
+        if (kind != PracticeKind.CHECKIN && b.checkin() != null) {
+            errors.add(where + ": only a CHECKIN carries content.checkin");
         }
     }
 
@@ -627,6 +641,48 @@ public final class PracticeContentValidator {
     }
 
     // ------------------------------------------------------------------
+    // Check-in (Practice redesign FR-7)
+    // ------------------------------------------------------------------
+
+    static final int CHECKIN_PROMPT_MAX = 160;
+    static final int CHECKIN_LABEL_MAX = 120;
+    static final int CHECKIN_REMEMBER_MAX = 160;
+    static final int CHECKIN_EXPLANATION_MAX = 280;
+    static final Pattern CHECKIN_CHOICE_KEY = Pattern.compile("^[a-z][a-z0-9_]{0,31}$");
+
+    private static void validateCheckIn(Body b, String where, List<String> errors) {
+        PracticeContent.CheckIn c = b.checkin();
+        if (c == null) return;
+        if (c.skill() == null || !KEY_FORMAT.matcher(c.skill()).matches()) {
+            errors.add(where + ": checkin.skill must be a skill key");
+        }
+        if (c.format() == null) errors.add(where + ": checkin.format is required (CHOICE)");
+        requireText(c.prompt(), CHECKIN_PROMPT_MAX, where + ": checkin.prompt", errors);
+        requireText(c.remember(), CHECKIN_REMEMBER_MAX, where + ": checkin.remember", errors);
+        requireText(c.fullerExplanation(), CHECKIN_EXPLANATION_MAX, where + ": checkin.fullerExplanation", errors);
+        if (c.objective() == null) errors.add(where + ": checkin.objective is required");
+        List<PracticeContent.CheckInChoice> choices = c.choices();
+        if (choices == null || choices.size() < 2 || choices.size() > 3) {
+            errors.add(where + ": checkin.choices needs 2-3 choices");
+            return;
+        }
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        int correct = 0;
+        for (PracticeContent.CheckInChoice ch : choices) {
+            if (ch == null) { errors.add(where + ": checkin.choices has a null entry"); continue; }
+            if (ch.key() == null || !CHECKIN_CHOICE_KEY.matcher(ch.key()).matches()) {
+                errors.add(where + ": checkin choice key '" + ch.key() + "' must match " + CHECKIN_CHOICE_KEY.pattern());
+            } else if (!seen.add(ch.key())) {
+                errors.add(where + ": duplicate checkin choice key " + ch.key());
+            }
+            requireText(ch.label(), CHECKIN_LABEL_MAX, where + ": checkin choice " + ch.key() + " label", errors);
+            if (ch.correct() == null) errors.add(where + ": checkin choice " + ch.key() + " needs correct true/false");
+            else if (ch.correct()) correct++;
+        }
+        if (correct != 1) errors.add(where + ": checkin.choices needs exactly one correct choice (found " + correct + ")");
+    }
+
+    // ------------------------------------------------------------------
     // Copy guards
     // ------------------------------------------------------------------
 
@@ -639,6 +695,11 @@ public final class PracticeContentValidator {
             add(texts, k.cue(), k.action(), k.why());
             if (k.checkInPrompts() != null) k.checkInPrompts().forEach(q -> add(texts, q));
             if (k.ifThen() != null) add(texts, k.ifThen().template());
+        }
+        if (b.checkin() != null) {
+            PracticeContent.CheckIn c = b.checkin();
+            add(texts, c.prompt(), c.remember(), c.fullerExplanation());
+            if (c.choices() != null) c.choices().forEach(ch -> { if (ch != null) add(texts, ch.label()); });
         }
         if (b.tags() != null) b.tags().values().forEach(t -> { if (t != null) add(texts, t.text()); });
         if (b.scenario() != null) {

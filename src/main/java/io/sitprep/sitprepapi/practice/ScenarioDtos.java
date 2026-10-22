@@ -151,5 +151,11 @@ public final class ScenarioDtos {
      * client's (drill cadences live in its catalog). Nothing here is a count.
      */
     public record TodayDto(int schemaVersion, String reentry, ScenarioCardDto recommended, InProgressDto continueRun,
-                           List<LocalHazardDto> localHazards, SuppressionDto suppression) {}
+                           List<LocalHazardDto> localHazards, SuppressionDto suppression, RefreshDto refresh) {}
+
+    /**
+     * A due check-in outranks the story (TODAY_FLOW rule 1): the hazard, its label, the first
+     * card's prompt and how many cards are due. Null when nothing is due or Practice waits.
+     */
+    public record RefreshDto(String hazard, String hazardLabel, String title, int count) {}
 }

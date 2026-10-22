@@ -34,6 +34,7 @@ class PracticeRetentionSweepPostgresIT {
 
     @Autowired ScenarioRunRepo runRepo;
     @Autowired FamilyPracticeCompletionRepo completionRepo;
+    @Autowired PracticeCheckInAnswerRepo answerRepo;
     @Autowired JdbcTemplate jdbc;
 
     private String household() {
@@ -74,7 +75,7 @@ class PracticeRetentionSweepPostgresIT {
         long f1 = family(hh, 1, "2025-03-01T12:00:00Z");
         long f2 = family(hh, 2, "2025-06-01T12:00:00Z");
 
-        new PracticeRetentionSweepService(runRepo, completionRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
+        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
 
         assertThat(exists("scenario_run", older)).isFalse();
         assertThat(exists("scenario_run", abandoned)).isFalse();
@@ -92,5 +93,27 @@ class PracticeRetentionSweepPostgresIT {
         long id = family(hh, 1, "2026-10-01T12:00:00Z");
         assertThat(jdbc.queryForObject("SELECT completed_by_email FROM family_practice_completion WHERE id = ?",
                 String.class, id)).isNull();
+    }
+
+    @Test
+    void checkInAnswersAreSweptButSkillStateIsKeptOnPostgres() {
+        String hh = household();
+        long oldAnswer = jdbc.queryForObject("""
+                INSERT INTO practice_checkin_answer (household_id, skill_key, checkin_key, content_version, correct, answered_at)
+                VALUES (?, 'sk', 'checkin-sk', 1, true, '2025-03-01T12:00:00Z'::timestamptz) RETURNING id""", Long.class, hh);
+        long recentAnswer = jdbc.queryForObject("""
+                INSERT INTO practice_checkin_answer (household_id, skill_key, checkin_key, content_version, correct, answered_at)
+                VALUES (?, 'sk', 'checkin-sk', 1, true, '2026-09-01T12:00:00Z'::timestamptz) RETURNING id""", Long.class, hh);
+        long state = jdbc.queryForObject("""
+                INSERT INTO practice_skill_state (household_id, skill_key, last_seen_at, interval_days, prior_interval_days,
+                    next_due_at, last_result)
+                VALUES (?, 'sk', '2025-03-01T12:00:00Z'::timestamptz, 90, 30, '2025-06-01T12:00:00Z'::timestamptz, 'CORRECT')
+                RETURNING id""", Long.class, hh);
+
+        new PracticeRetentionSweepService(runRepo, completionRepo, answerRepo, Clock.fixed(NOW, ZoneOffset.UTC)).sweepAll();
+
+        assertThat(exists("practice_checkin_answer", oldAnswer)).isFalse();
+        assertThat(exists("practice_checkin_answer", recentAnswer)).isTrue();
+        assertThat(exists("practice_skill_state", state)).isTrue();
     }
 }
