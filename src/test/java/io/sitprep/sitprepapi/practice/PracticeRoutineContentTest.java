@@ -158,7 +158,7 @@ class PracticeRoutineContentTest {
         ObjectNode root = routine("fixture-routine", "reconnect", null);
         assertThat(errors(root)).isEmpty();
         assertThat(PracticeRoutines.preview(version(root).body().routine()))
-                .isEqualTo("a grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route.");
+                .isEqualTo("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route.");
     }
 
     @Test
@@ -360,7 +360,7 @@ class PracticeRoutineContentTest {
         PracticeRoutines.RoutineOfferDto offer = PracticeRoutines.offerFor(availability(catalog, true), true, "reconnect");
         assertThat(offer.routineKey()).isEqualTo("fixture-routine");
         assertThat(offer.title()).isEqualTo("Fixture routine");
-        assertThat(offer.preview()).isEqualTo("a grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route.");
+        assertThat(offer.preview()).isEqualTo("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route.");
         assertThat(PracticeRoutines.offerFor(availability(catalog, true), true, "other-scenario")).isNull();
         // Offered to the activity list, not the scenario list.
         assertThat(PracticeRoutines.offerFor(availability(catalog, true), false, "reconnect")).isNull();

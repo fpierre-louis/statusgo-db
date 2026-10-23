@@ -571,7 +571,7 @@ class ScenarioServiceTest {
         assertThat(previewed.debrief().routineOffer()).isNotNull();
         assertThat(previewed.debrief().routineOffer().routineKey()).isEqualTo("reconnect-routine");
         assertThat(previewed.debrief().routineOffer().title()).isEqualTo("Fixture routine");
-        assertThat(previewed.debrief().routineOffer().preview()).startsWith("a grown-up calls our out-of-area contact");
+        assertThat(previewed.debrief().routineOffer().preview()).startsWith("A grown-up calls our out-of-area contact");
     }
 
     @Test

@@ -322,7 +322,7 @@ class HouseholdRoutineServiceTest {
         // A second save is an update of the same row, not a second row.
         as(OWNER);
         mvc.perform(save(body("{\"who\":{\"value\":\"a grown-up\"}}"))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.thenText").value("a grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."));
+                .andExpect(jsonPath("$.thenText").value("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."));
         assertThat(table).hasSize(1);
         assertThat(table.get(0).getCreatedByEmail()).isEqualTo(ADMIN);
         assertThat(table.get(0).getUpdatedByEmail()).isEqualTo(OWNER);
@@ -333,7 +333,7 @@ class HouseholdRoutineServiceTest {
     void anEmptySaveKeepsEveryFallback() throws Exception {
         as(OWNER);
         mvc.perform(save("{\"contentVersion\":1}")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.thenText").value("a grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."))
+                .andExpect(jsonPath("$.thenText").value("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."))
                 .andExpect(jsonPath("$.slots").isEmpty());
     }
 
