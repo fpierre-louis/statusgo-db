@@ -247,9 +247,9 @@ class ScenarioServiceTest {
     @Test
     void reflectionsAreNeverSentAheadOfTheCommit() {
         RunDto run = service.start(KEY, ME, HH);
-        // NodeDto carries no feedback field at all; ChoiceDto is {key, label}.
+        // NodeDto carries no feedback field at all; ChoiceDto is {key, label, thumb} (EXEC-M3: the thumb is pre-choice decoration, never feedback).
         assertThat(ScenarioDtos.ChoiceDto.class.getRecordComponents()).extracting(c -> c.getName())
-                .containsExactly("key", "label");
+                .containsExactly("key", "label", "thumb");
         assertThat(run.lastCommit()).isNull();
     }
 

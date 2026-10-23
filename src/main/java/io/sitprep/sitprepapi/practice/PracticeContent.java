@@ -189,7 +189,9 @@ public final class PracticeContent {
     public record Scenario(
             String startNode,
             List<Node> nodes,
-            List<Outcome> outcomes) {}
+            List<Outcome> outcomes,
+            /** INTRO still (EXEC-M3): the situation's context, 4:3, on the scenario intro only. Slot {@code <scenario>.intro}. */
+            Media introMedia) {}
 
     /**
      * One decision step. {@code scene} and {@code messages} are the optional
@@ -238,7 +240,9 @@ public final class PracticeContent {
             List<String> tags,
             String next,
             /** RETIRED (EXEC-M2): REACTION media no longer exists. Kept only so the validator can reject it. */
-            Media media) {}
+            Media media,
+            /** CHOICE_THUMB (EXEC-M3): 4:3 room/option still shown beside the choice; all-or-none per node. */
+            Media thumb) {}
 
     /** A terminal state. {@code defaultAction} is the next step when no "Worth practicing" tag names one. */
     public record Outcome(

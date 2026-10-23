@@ -144,6 +144,38 @@
       "focal": "center 40%",
       "bytes": 106317,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:3cbf96be93c67f4e9c466159e79ed94b0160997e031df3d7806d2f142f6b08cf",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-intro-3cbf96be",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 941,
+      "focal": "center center",
+      "bytes": 139736,
+      "durationMs": null
+    },
+    {
+      "sha256": "sha256:2909a881eaf03d2d231861d65bc2050ff38cc2b001d5b174b15144fb62eb385f",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-ending-2909a881",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 111430,
+      "durationMs": null
     }
   ]
 }

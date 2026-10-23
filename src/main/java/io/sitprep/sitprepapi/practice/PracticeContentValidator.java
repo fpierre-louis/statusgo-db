@@ -165,6 +165,10 @@ public final class PracticeContentValidator {
                                               String where, List<String> errors) {
         PracticeContent.Scenario s = b.scenario();
         int count = 0;
+        if (s.introMedia() != null) {
+            count++;
+            validateThumbOrIntro(s.introMedia(), b.mediaStyle(), key + ".intro", manifest, where + ": introMedia", "an intro", errors);
+        }
         for (PracticeContent.Node n : s.nodes() == null ? List.<PracticeContent.Node>of() : s.nodes()) {
             if (n == null) continue;
             String at = where + ": node " + n.key();
@@ -180,10 +184,23 @@ public final class PracticeContentValidator {
                     errors.add(at + " explanationMedia: an explanation is a still");
                 }
             }
-            for (PracticeContent.Choice c : n.choices() == null ? List.<PracticeContent.Choice>of() : n.choices()) {
-                if (c != null && c.media() != null) {
+            List<PracticeContent.Choice> choices = n.choices() == null ? List.of() : n.choices();
+            int thumbs = 0;
+            for (PracticeContent.Choice c : choices) {
+                if (c == null) continue;
+                if (c.media() != null) {
                     errors.add(at + " choice " + c.key() + ": choice (reaction) media is retired; use node explanationMedia");
                 }
+                if (c.thumb() != null) {
+                    thumbs++;
+                    count++;
+                    validateThumbOrIntro(c.thumb(), b.mediaStyle(), key + "." + n.key() + "." + c.key() + ".thumb", manifest,
+                            at + " choice " + c.key() + " thumb", "a choice thumb", errors);
+                }
+            }
+            if (thumbs != 0 && thumbs != choices.size()) {
+                // A picture on some options and not others would grade the choice (MEDIA-RULE-02).
+                errors.add(at + ": choice thumbs are all-or-none per node (" + thumbs + " of " + choices.size() + ")");
             }
         }
         for (PracticeContent.Outcome o : s.outcomes() == null ? List.<PracticeContent.Outcome>of() : s.outcomes()) {
@@ -196,6 +213,22 @@ public final class PracticeContentValidator {
         if (count > 0 && b.mediaStyle() == null) errors.add(where + ": content.mediaStyle is required when media is present");
         if (count == 0 && b.mediaStyle() != null) errors.add(where + ": content.mediaStyle is only valid with media");
         if (count > 0 && !manifest.problems().isEmpty()) errors.add(where + ": media manifest is invalid: " + manifest.problems());
+    }
+
+    /** CHOICE_THUMB and INTRO: a still, 4:3 within 1% by the manifest's own dimensions. */
+    private static void validateThumbOrIntro(PracticeContent.Media m, PracticeContent.MediaStyle style, String slot,
+                                      PracticeMediaManifest manifest, String at, String what, List<String> errors) {
+        validateMedia(m, style, slot, manifest, at, errors);
+        if (m.kind() != PracticeContent.MediaKind.STILL) errors.add(at + ": " + what + " is a still");
+        if (m.assetSha256() == null) return;
+        manifest.find(m.assetSha256()).ifPresent(a -> {
+            Integer w = a.width(), h = a.height();
+            if (w == null || h == null || w <= 0 || h <= 0) {
+                errors.add(at + ": the manifest asset has no width/height to check the 4:3 aspect");
+            } else if (Math.abs(w * 3.0 - h * 4.0) > 0.01 * h * 4.0) {
+                errors.add(at + ": " + what + " is 4:3 (asset is " + w + "x" + h + ")");
+            }
+        });
     }
 
     private static void validateActivityMedia(Integer schema, String key, Body b, Activity a,

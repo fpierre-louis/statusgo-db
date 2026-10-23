@@ -132,7 +132,7 @@ public class PracticeCheckInService {
             Version v = bySkill.get(s.skillKey()).version();
             CheckIn c = v.body().checkin();
             cards.add(new CardDto(v.key(), v.version(), s.skillKey(), c.prompt(),
-                    c.choices().stream().map(ch -> new ChoiceDto(ch.key(), ch.label())).toList(),
+                    c.choices().stream().map(ch -> new ChoiceDto(ch.key(), ch.label(), null)).toList(),
                     Boolean.TRUE.equals(c.objective())));
         }
         return new DueDto(PracticeCheckInDtos.SCHEMA_VERSION, hazard, hazardLabel(hazard), cards, null);

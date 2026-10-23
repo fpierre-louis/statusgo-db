@@ -167,7 +167,8 @@ public class ScenarioService {
         return new ScenarioDetailDto(ScenarioDtos.SCHEMA_VERSION, v.key(), v.version(), v.body().title(),
                 v.body().summary(), v.body().objective(), v.body().estimatedMinutes(), sources,
                 start.entry().preview(), waiting, runId, waiting == null ? alertHeadsUp(hid) : null,
-                hazardTag(v.key()), ScenarioEngine.longestDecisionsFrom(v, ScenarioEngine.startNode(v)));
+                hazardTag(v.key()), ScenarioEngine.longestDecisionsFrom(v, ScenarioEngine.startNode(v)),
+                mediaDto(v.body().scenario().introMedia()));
     }
 
     /**
@@ -376,7 +377,7 @@ public class ScenarioService {
     }
 
     static NodeDto nodeDto(Node n) {
-        List<ChoiceDto> choices = n.choices().stream().map(c -> new ChoiceDto(c.key(), c.label())).toList();
+        List<ChoiceDto> choices = n.choices().stream().map(c -> new ChoiceDto(c.key(), c.label(), mediaDto(c.thumb()))).toList();
         List<ScenarioDtos.MessageDto> messages = n.messages() == null ? null : n.messages().stream()
                 .map(m -> new ScenarioDtos.MessageDto(m.from(), m.text(), Boolean.TRUE.equals(m.outgoing())))
                 .toList();

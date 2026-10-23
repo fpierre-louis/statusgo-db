@@ -57,9 +57,12 @@ public final class ScenarioDtos {
     public record ScenarioDetailDto(int schemaVersion, String key, int version, String title, String summary,
                                     String objective, Integer estimatedMinutes, List<SourceDto> sources,
                                     boolean preview, SuppressionDto suppression, Long inProgressRunId,
-                                    AlertHeadsUpDto alertHeadsUp, String hazard, Integer decisionCount) {}
+                                    AlertHeadsUpDto alertHeadsUp, String hazard, Integer decisionCount,
+                                    /** INTRO still (EXEC-M3); null when the scenario has none. */
+                                    MediaDto introMedia) {}
 
-    public record ChoiceDto(String key, String label) {}
+    /** {@code thumb}: CHOICE_THUMB still (EXEC-M3), identical in kind for every option of a node, null when the node has none. */
+    public record ChoiceDto(String key, String label, MediaDto thumb) {}
 
     /** One step. {@code scene} / {@code messages}: optional story touches (EXEC-I5), null when the content has none. */
     public record NodeDto(String key, String title, String body, String prompt, List<ChoiceDto> choices,

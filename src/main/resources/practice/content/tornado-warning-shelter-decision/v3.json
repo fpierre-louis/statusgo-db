@@ -1,0 +1,256 @@
+{
+  "schema": 2,
+  "key": "tornado-warning-shelter-decision",
+  "version": 3,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT (EXEC-M3, authored 2026-10-23 by Claude, agent): Tornado v2 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v2 stays PUBLISHED, approved at sha256:83619bb7...) plus schema 2, mediaStyle ILLUSTRATION, the intro still MEDIA-016 (master 3cbf96be..., design-approved PREP 2026-10-23) and the ending MEDIA-011 (master 2909a881..., design-approved PREP) on the single outcome warning_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a household stepping out of a windowless bathroom into a hallway, a neutral post-practice state with no hazard, damage, protective posture or reward cue, so it restates the outcome's own guidance and does not grade the player's choices. Reviewers should confirm that reading at both gates. PLANNED EMPTY SLOTS, filled one at a time as each image clears Gate 1 and Gate 2 (each fill is a new hash and a new review): SCENE warning_issued <- MEDIA-017 (revising); CHOICE_THUMB on warning_issued, all three options or none <- MEDIA-018 bedroom (upstairs_window), MEDIA-019 bathroom (interior_room), tornado.rooms.outside (look_outside; requested from Codex Media; MEDIA-020 kitchen retired as unmatched); EXPLANATION in_shelter <- MEDIA-021 (revising). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Tornado warning: shelter decision",
+    "summary": "A tornado warning is issued while your household is at home. Practice where to go, how to protect yourselves there, and what to do when the warning ends.",
+    "objective": "Practice moving to an interior room on the lowest floor at home during a tornado warning and protecting yourselves until it ends.",
+    "estimatedMinutes": 4,
+    "sources": [
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      },
+      {
+        "label": "National Weather Service — Understand Tornado Alerts",
+        "url": "https://www.weather.gov/safety/tornado-ww"
+      },
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      },
+      {
+        "label": "NOAA Storm Prediction Center — Tornado Safety",
+        "url": "https://www.spc.noaa.gov/faq/tornado/safety.html"
+      }
+    ],
+    "tags": {
+      "sheltered_lowest_interior": {
+        "text": "You took everyone to a small interior room on the lowest floor, away from windows."
+      },
+      "protected_from_debris": {
+        "text": "You covered heads and necks and put blankets over everyone."
+      },
+      "recognized_official_source": {
+        "text": "You checked official updates before going outside."
+      },
+      "needs_tornado_drill": {
+        "text": "Practice your household's tornado shelter routine together.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "tornado-safe-room-speed-round"
+        }
+      },
+      "needs_contact_review": {
+        "text": "Agree on a short text your household sends after a storm.",
+        "action": "OPEN_EMERGENCY_CONTACTS"
+      },
+      "needs_update_check": {
+        "text": "Keep listening for official updates after a storm, and stay clear of fallen power lines.",
+        "action": "OPEN_ALERT_PREFERENCES"
+      }
+    },
+    "scenario": {
+      "startNode": "warning_issued",
+      "nodes": [
+        {
+          "key": "warning_issued",
+          "title": "A tornado warning for your area",
+          "scene": "Sunday, 4:05 PM · At home",
+          "body": "Storms have been building all afternoon. A tornado warning is issued for your area. Your sturdy home has no basement. There is a small bathroom in the middle of the ground floor, and a bedroom with large windows upstairs.",
+          "prompt": "Where do you take your household?",
+          "choices": [
+            {
+              "key": "upstairs_window",
+              "label": "The upstairs bedroom, so you can watch the storm",
+              "consequence": "The room is on an upper floor, next to large windows.",
+              "feedback": "The National Weather Service says to go to the lowest floor and avoid windows. Ready.gov says to stay away from windows, doors, and outside walls.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "storm_closer"
+            },
+            {
+              "key": "interior_room",
+              "label": "The small bathroom in the middle of the ground floor",
+              "consequence": "Everyone is together in a small room with no windows, on the lowest floor.",
+              "feedback": "The National Weather Service says to move to an interior room on the lowest floor of a sturdy building and avoid windows.",
+              "tags": [
+                "sheltered_lowest_interior"
+              ],
+              "next": "in_shelter"
+            },
+            {
+              "key": "look_outside",
+              "label": "Step outside to see how close the storm is",
+              "consequence": "You are outdoors while the warning is in effect.",
+              "feedback": "A tornado warning means a tornado has been sighted or indicated by radar. The National Weather Service says to move to an interior room on the lowest floor of a sturdy building and avoid windows.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "storm_closer"
+            }
+          ]
+        },
+        {
+          "key": "storm_closer",
+          "title": "The storm gets closer",
+          "body": "From inside the house, you hear the wind picking up, and rain is blowing sideways against the windows. The tornado warning is still in effect.",
+          "prompt": "What do you do now?",
+          "choices": [
+            {
+              "key": "open_windows",
+              "label": "Open a few windows so the air pressure can even out",
+              "consequence": "You spend the next few minutes near the windows, opening them one by one.",
+              "feedback": "NOAA's Storm Prediction Center says to forget the old idea of opening windows to equalize pressure. The National Weather Service says to avoid windows and move to an interior room on the lowest floor.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "in_shelter"
+            },
+            {
+              "key": "go_down_now",
+              "label": "Bring everyone to the small bathroom in the middle of the ground floor now",
+              "consequence": "Everyone is together in a small room with no windows, on the lowest floor.",
+              "feedback": "The National Weather Service says to move to an interior room on the lowest floor of a sturdy building and avoid windows.",
+              "tags": [
+                "sheltered_lowest_interior"
+              ],
+              "next": "in_shelter"
+            },
+            {
+              "key": "keep_watching",
+              "label": "Keep watching the sky from a window to see if it is coming",
+              "consequence": "You stay at the glass while the wind keeps rising.",
+              "feedback": "Ready.gov says to watch out for flying debris, and the National Weather Service says to avoid windows during a tornado warning.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "in_shelter"
+            }
+          ],
+          "scene": "4:07 PM · A few minutes later"
+        },
+        {
+          "key": "in_shelter",
+          "title": "Waiting it out",
+          "scene": "4:08 PM · Waiting it out",
+          "body": "Heavy wind and rain are hitting the house. The warning is still in effect.",
+          "messages": [
+            {
+              "from": "Family member at work",
+              "text": "Got the warning too. We're going to our shelter area here."
+            }
+          ],
+          "prompt": "How do you protect yourselves while you wait?",
+          "choices": [
+            {
+              "key": "door_open",
+              "label": "Keep a door open so you can watch a window",
+              "consequence": "The open door leaves you facing a window in the next room.",
+              "feedback": "Ready.gov says to stay away from windows and to watch out for flying debris.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "warning_ends"
+            },
+            {
+              "key": "drive_away",
+              "label": "Drive across town to a relative's house",
+              "consequence": "You would be on the road while the warning is in effect.",
+              "feedback": "The National Weather Service says being in a vehicle during a tornado is not safe. At home during a warning, it says to go to a basement, safe room, or an interior room away from windows.",
+              "tags": [
+                "needs_tornado_drill"
+              ],
+              "next": "warning_ends"
+            },
+            {
+              "key": "cover_up",
+              "label": "Cover your heads and necks with your arms and pull blankets over you",
+              "consequence": "Everyone has their head and neck covered, with blankets on top.",
+              "feedback": "Ready.gov says to protect yourself by covering your head or neck with your arms and putting materials such as blankets around or on top of you.",
+              "tags": [
+                "protected_from_debris"
+              ],
+              "next": "warning_ends"
+            }
+          ]
+        },
+        {
+          "key": "warning_ends",
+          "title": "The warning ends",
+          "scene": "4:40 PM · The wind has eased",
+          "body": "The tornado warning's end time has passed and the wind has eased. You don't know yet whether there is damage nearby, or whether more storms are coming.",
+          "prompt": "What do you do next?",
+          "choices": [
+            {
+              "key": "go_look",
+              "label": "Go outside right away to look for damage",
+              "consequence": "You head outside before hearing any updates.",
+              "feedback": "Ready.gov says to pay attention to EAS, NOAA Weather Radio, and local authorities for updated information, and to stay clear of fallen power lines or broken utility lines.",
+              "tags": [
+                "needs_update_check"
+              ],
+              "next": "warning_rehearsed"
+            },
+            {
+              "key": "check_updates",
+              "label": "Check official updates before leaving the room",
+              "consequence": "You hear what local officials are saying about your area.",
+              "feedback": "Ready.gov says to pay attention to EAS, NOAA Weather Radio, and local authorities for updated information after a tornado.",
+              "tags": [
+                "recognized_official_source"
+              ],
+              "next": "warning_rehearsed"
+            },
+            {
+              "key": "call_everyone",
+              "label": "Call everyone in the family to check on them",
+              "consequence": "You spend the next few minutes on calls, one person at a time.",
+              "feedback": "Ready.gov says to save phone calls for emergencies and use text messaging or social media to communicate with family and friends.",
+              "tags": [
+                "needs_contact_review"
+              ],
+              "next": "warning_rehearsed"
+            }
+          ]
+        }
+      ],
+      "outcomes": [
+        {
+          "key": "warning_rehearsed",
+          "title": "You walked through a tornado warning",
+          "body": "You walked through a tornado warning at home: where to shelter, how to protect yourselves while you wait, and what to do when the warning ends. The National Weather Service says to go to an interior room on the lowest floor of a sturdy building and avoid windows. If you do go out afterward, Ready.gov says to stay clear of fallen power lines or broken utility lines. The National Weather Service says a mobile home is not a safe place during a tornado; if you live in one, know the closest sturdy shelter. If you'd like, talk it over together: which room is your shelter during a tornado warning, and where will you keep blankets or other coverings near it?",
+          "defaultAction": "OPEN_DRILL",
+          "defaultParams": {
+            "drillId": "tornado-safe-room-speed-round"
+          },
+          "media": {
+            "slotKey": "tornado-warning-shelter-decision.warning_rehearsed.ending",
+            "kind": "STILL",
+            "assetSha256": "sha256:2909a881eaf03d2d231861d65bc2050ff38cc2b001d5b174b15144fb62eb385f",
+            "alt": "Three family members step from a tidy windowless bathroom into a softly lit hallway; one adult carries a folded blanket."
+          }
+        }
+      ],
+      "introMedia": {
+        "slotKey": "tornado-warning-shelter-decision.intro",
+        "kind": "STILL",
+        "assetSha256": "sha256:3cbf96be93c67f4e9c466159e79ed94b0160997e031df3d7806d2f142f6b08cf",
+        "alt": "Storm clouds build over a quiet residential street in the late afternoon."
+      }
+    },
+    "mediaStyle": "ILLUSTRATION"
+  }
+}

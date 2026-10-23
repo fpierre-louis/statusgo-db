@@ -478,13 +478,19 @@ class PracticeContentValidatorTest {
     private static final String STILL = "sha256:" + "1".repeat(64);
     private static final String STILL2 = "sha256:" + "2".repeat(64);
     private static final String CLIP = "sha256:" + "3".repeat(64);
+    private static final String T43 = "sha256:" + "4".repeat(64);      // REALISM 1440x1080 (4:3)
+    private static final String T43_NEAR = "sha256:" + "5".repeat(64); // REALISM 1000x751 (within 1%)
+    private static final String T43_OFF = "sha256:" + "6".repeat(64);  // REALISM 1000x780 (outside 1%)
 
     private static PracticeMediaManifest testManifest() {
         var style = PracticeContent.MediaStyle.REALISM;
         return new PracticeMediaManifest(new PracticeMediaManifest.File(1, List.of(
                 new PracticeMediaManifest.Asset(STILL, style, PracticeContent.MediaKind.STILL, "/images/a", List.of(640), 1280, 720, "center", 5L, null),
                 new PracticeMediaManifest.Asset(STILL2, PracticeContent.MediaStyle.ILLUSTRATION, PracticeContent.MediaKind.STILL, "/images/b", List.of(640), 1280, 720, "center", 5L, null),
-                new PracticeMediaManifest.Asset(CLIP, style, PracticeContent.MediaKind.CLIP, "/media/c", null, 1280, 720, "center", 5L, 8000))));
+                new PracticeMediaManifest.Asset(CLIP, style, PracticeContent.MediaKind.CLIP, "/media/c", null, 1280, 720, "center", 5L, 8000),
+                new PracticeMediaManifest.Asset(T43, style, PracticeContent.MediaKind.STILL, "/images/t", List.of(640), 1440, 1080, "center", 5L, null),
+                new PracticeMediaManifest.Asset(T43_NEAR, style, PracticeContent.MediaKind.STILL, "/images/tn", List.of(640), 1000, 751, "center", 5L, null),
+                new PracticeMediaManifest.Asset(T43_OFF, style, PracticeContent.MediaKind.STILL, "/images/to", List.of(640), 1000, 780, "center", 5L, null))));
     }
 
     private static List<String> mediaErrors(ObjectNode root) {
@@ -599,5 +605,112 @@ class PracticeContentValidatorTest {
         String a = version(withScene(scenario("k", 1), STILL)).contentHash();
         String b = version(withScene(scenario("k", 1), CLIP)).contentHash();
         assertThat(a).isNotEqualTo(b);
+    }
+
+    // -- CHOICE_THUMB + INTRO (EXEC-M3) -------------------------------------
+
+    private static ObjectNode withThumbs(ObjectNode root, String sha) {
+        root.put("schema", 2);
+        content(root).put("mediaStyle", "REALISM");
+        var n = node(root, 0);
+        for (var c : n.get("choices")) {
+            ((ObjectNode) c).putObject("thumb")
+                    .put("slotKey", root.get("key").asText() + "." + n.get("key").asText() + "." + c.get("key").asText() + ".thumb")
+                    .put("kind", "STILL").put("assetSha256", sha).put("alt", "A room.");
+        }
+        return root;
+    }
+
+    private static ObjectNode thumbOf(ObjectNode root, int choice) {
+        return (ObjectNode) choiceAt(root, 0, choice).get("thumb");
+    }
+
+    @Test
+    void aThumbOnEveryChoiceOfANodeValidatesAndCountsTowardTheSchema2Rules() {
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43))).isEmpty();
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43_NEAR))).isEmpty(); // 4:3 within 1%
+
+        ObjectNode s1 = withThumbs(scenario("k", 1), T43); s1.put("schema", 1);
+        assertThat(mediaErrors(s1)).anyMatch(e -> e.contains("media requires schema 2"));
+
+        ObjectNode noStyle = withThumbs(scenario("k", 1), T43); content(noStyle).remove("mediaStyle");
+        assertThat(mediaErrors(noStyle)).anyMatch(e -> e.contains("mediaStyle is required"));
+    }
+
+    @Test
+    void thumbsAreAllOrNonePerNode() {
+        ObjectNode mixed = withThumbs(scenario("k", 1), T43);
+        choiceAt(mixed, 0, 1).remove("thumb");
+        assertThat(mediaErrors(mixed)).anyMatch(e -> e.contains("choice thumbs are all-or-none per node (1 of 2)"));
+
+        // A different node may carry none while this one carries all.
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43)))
+                .noneMatch(e -> e.contains("all-or-none"));
+    }
+
+    @Test
+    void aThumbIsA4by3StillWithinOnePercent() {
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), STILL))).anyMatch(e -> e.contains("a choice thumb is 4:3 (asset is 1280x720)"));
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43_OFF))).anyMatch(e -> e.contains("a choice thumb is 4:3 (asset is 1000x780)"));
+
+        ObjectNode clip = withThumbs(scenario("k", 1), CLIP);
+        thumbOf(clip, 0).put("kind", "CLIP").put("posterSha256", T43).put("durationMs", 8000);
+        assertThat(mediaErrors(clip)).anyMatch(e -> e.contains("a choice thumb is a still"));
+    }
+
+    @Test
+    void aThumbNeedsItsSlotKeyTheManifestAndTheContentStyle() {
+        ObjectNode badSlot = withThumbs(scenario("k", 1), T43);
+        thumbOf(badSlot, 0).put("slotKey", "k.start.text.reaction");
+        assertThat(mediaErrors(badSlot)).anyMatch(e -> e.contains("slotKey must be k.start.text.thumb"));
+
+        // Another choice's slot on this choice is also wrong.
+        ObjectNode swapped = withThumbs(scenario("k", 1), T43);
+        thumbOf(swapped, 1).put("slotKey", "k.start.text.thumb");
+        assertThat(mediaErrors(swapped)).anyMatch(e -> e.contains("slotKey must be k.start.call.thumb"));
+
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), "sha256:" + "9".repeat(64))))
+                .anyMatch(e -> e.contains("not in the media manifest"));
+
+        ObjectNode wrongStyle = withThumbs(scenario("k", 1), T43);
+        content(wrongStyle).put("mediaStyle", "ILLUSTRATION");
+        assertThat(mediaErrors(wrongStyle)).anyMatch(e -> e.contains("style does not match"));
+
+        ObjectNode noAlt = withThumbs(scenario("k", 1), T43);
+        thumbOf(noAlt, 0).remove("alt");
+        assertThat(mediaErrors(noAlt)).anyMatch(e -> e.contains(".alt is required"));
+    }
+
+    @Test
+    void choiceMediaStaysRejectedEvenAlongsideThumbs() {
+        ObjectNode r = withThumbs(scenario("k", 1), T43);
+        choiceAt(r, 0, 0).putObject("media").put("slotKey", "k.start.text.reaction").put("kind", "STILL");
+        assertThat(mediaErrors(r)).anyMatch(e -> e.contains("choice (reaction) media is retired"));
+    }
+
+    private static ObjectNode withIntro(ObjectNode root, String sha) {
+        root.put("schema", 2);
+        content(root).put("mediaStyle", "REALISM");
+        ((ObjectNode) content(root).get("scenario")).putObject("introMedia")
+                .put("slotKey", root.get("key").asText() + ".intro")
+                .put("kind", "STILL").put("assetSha256", sha).put("alt", "A calm street.");
+        return root;
+    }
+
+    @Test
+    void anIntroIsA4by3StillInItsSlotAndCountsTowardTheSchema2Rules() {
+        assertThat(mediaErrors(withIntro(scenario("k", 1), T43))).isEmpty();
+        assertThat(mediaErrors(withIntro(scenario("k", 1), STILL))).anyMatch(e -> e.contains("an intro is 4:3 (asset is 1280x720)"));
+
+        ObjectNode badSlot = withIntro(scenario("k", 1), T43);
+        ((ObjectNode) content(badSlot).get("scenario").get("introMedia")).put("slotKey", "k.start.scene");
+        assertThat(mediaErrors(badSlot)).anyMatch(e -> e.contains("slotKey must be k.intro"));
+
+        ObjectNode s1 = withIntro(scenario("k", 1), T43); s1.put("schema", 1);
+        assertThat(mediaErrors(s1)).anyMatch(e -> e.contains("media requires schema 2"));
+
+        ObjectNode clip = withIntro(scenario("k", 1), CLIP);
+        ((ObjectNode) content(clip).get("scenario").get("introMedia")).put("kind", "CLIP").put("posterSha256", T43).put("durationMs", 8000);
+        assertThat(mediaErrors(clip)).anyMatch(e -> e.contains("an intro is a still"));
     }
 }

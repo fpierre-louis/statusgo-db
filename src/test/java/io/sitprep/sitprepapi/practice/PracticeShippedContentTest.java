@@ -447,6 +447,68 @@ class PracticeShippedContentTest {
                 .satisfies(e -> assertThat(e.version().version()).isEqualTo(2));
     }
 
+    // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (DRAFT) ----
+
+    static final String TORNADO_V2_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
+    static final String TORNADO_V3_DRAFT_HASH = "sha256:20c903ded235e6a80eb95515f19050620440439475c0d50d97c3b5d65d185fb0";
+
+    private static com.fasterxml.jackson.databind.node.ObjectNode tornadoFile(int v) throws java.io.IOException {
+        return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                java.nio.file.Files.readString(java.nio.file.Path.of(
+                        "src/main/resources/practice/content/tornado-warning-shelter-decision/v" + v + ".json")));
+    }
+
+    @Test
+    void tornadoV3IsADraftThatAddsOnlyMediaToV2AndV2IsUntouched() throws Exception {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
+        Version v3 = catalog.exact(TORNADO, 3).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v3)).isEmpty();
+        assertThat(v2.contentHash()).isEqualTo(TORNADO_V2_HASH);
+        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.contentHash()).isEqualTo(TORNADO_V3_DRAFT_HASH);
+        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v3.file().lifecycle().safetyReview().notes())
+                .contains("MEDIA-017", "MEDIA-018", "MEDIA-019", "tornado.rooms.outside", "MEDIA-021", "PLANNED EMPTY SLOTS");
+
+        // Text verbatim: strip the media additions from v3 and the tree equals v2's content.
+        var c2 = tornadoFile(2).get("content");
+        var c3 = tornadoFile(3).get("content").deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) c3).remove("mediaStyle");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) c3.get("scenario")).remove("introMedia");
+        c3.get("scenario").get("outcomes").forEach(o -> ((com.fasterxml.jackson.databind.node.ObjectNode) o).remove("media"));
+        assertThat(c3).isEqualTo(c2);
+
+        // Media: the intro and the single outcome's ending only; no scene, thumb or explanation yet.
+        assertThat(v3.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
+        assertThat(v3.body().scenario().introMedia().assetSha256()).endsWith("3cbf96be93c67f4e9c466159e79ed94b0160997e031df3d7806d2f142f6b08cf");
+        assertThat(v3.body().scenario().outcomes()).singleElement()
+                .satisfies(o -> assertThat(o.media().assetSha256()).endsWith("2909a881eaf03d2d231861d65bc2050ff38cc2b001d5b174b15144fb62eb385f"));
+        assertThat(v3.body().scenario().nodes()).allSatisfy(n -> {
+            assertThat(n.media()).isNull();
+            assertThat(n.explanationMedia()).isNull();
+            assertThat(n.choices()).allSatisfy(ch -> assertThat(ch.thumb()).isNull());
+        });
+    }
+
+    @Test
+    void productionStillStartsTornadoV2WhileV3IsPreviewOnly() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-23T12:00:00Z"), ZoneOffset.UTC);
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
+                .satisfies(e -> assertThat(e.preview()).isFalse())
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2));
+        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, clock).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(3))
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
+
     // -- EXEC-M: Comms v4 = reviewed v3 text + hashed stills ------------------
 
     static final String COMMS_V4_DRAFT_HASH = "sha256:75cc5709c6edcd2b2d84dce577c5d9ced8bab673a3093e85f07b9a8e2916b654";
