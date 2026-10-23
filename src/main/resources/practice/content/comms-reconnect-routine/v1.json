@@ -1,0 +1,50 @@
+{
+  "schema": 2,
+  "key": "comms-reconnect-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Reaching each other",
+    "summary": "Keep a short routine on your household plan for when calls and texts are not getting through: text first, then reach your out-of-area contact.",
+    "sources": [
+      {
+        "label": "Ready.gov — Make a Plan",
+        "url": "https://www.ready.gov/plan"
+      },
+      {
+        "label": "American Red Cross — Make a Plan",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/make-a-plan.html"
+      }
+    ],
+    "routine": {
+      "hazard": "communication",
+      "title": "Reaching each other",
+      "ifText": "If we can't reach each other",
+      "thenTemplate": "We text first, then contact {contact}.",
+      "reviewTier": "PREP",
+      "slots": [
+        {
+          "key": "contact",
+          "source": "CONTACT",
+          "contactType": "OUT_OF_AREA",
+          "fallback": "our out-of-area contact"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "comms-outage-family-reconnect"
+        ],
+        "activities": []
+      }
+    }
+  }
+}

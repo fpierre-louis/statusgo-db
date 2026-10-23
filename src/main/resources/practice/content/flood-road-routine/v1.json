@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "key": "flood-road-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Water on the road",
+    "summary": "Keep a short flooded-road routine on your household plan: turn around, and the backup route your household takes instead.",
+    "sources": [
+      {
+        "label": "National Weather Service — During a Flood",
+        "url": "https://www.weather.gov/safety/flood-during"
+      },
+      {
+        "label": "National Weather Service — Turn Around Don't Drown®",
+        "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown"
+      },
+      {
+        "label": "National Weather Service — Before a Flood",
+        "url": "https://www.weather.gov/safety/flood-before"
+      }
+    ],
+    "routine": {
+      "hazard": "flood",
+      "title": "Water on the road",
+      "ifText": "If water covers the road",
+      "thenTemplate": "We turn around and take {route}.",
+      "reviewTier": "LIFE_SAFETY",
+      "slots": [
+        {
+          "key": "route",
+          "source": "TEXT",
+          "fallback": "our backup route"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "flash-flood-turn-around-route"
+        ],
+        "activities": []
+      }
+    }
+  }
+}

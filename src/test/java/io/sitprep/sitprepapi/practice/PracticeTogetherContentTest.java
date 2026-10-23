@@ -386,4 +386,41 @@ class PracticeTogetherContentTest {
         activity(none).remove("heroMedia");
         assertRejected(none, "mediaStyle is only valid with media");
     }
+
+    // -- EXEC-R1: the routine offer on the activity detail --------------------
+
+    @Test
+    void theActivityDetailOffersTheRoutineThatNamesIt() {
+        Version v = version(together());
+        Version routine = version(PracticeFixtures.routine("fire-fixture-routine", null, v.key()));
+        PracticeContentControlRepo controls = org.mockito.Mockito.mock(PracticeContentControlRepo.class);
+        when(controls.findAll()).thenReturn(List.of());
+        when(controls.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-23T12:00:00Z"), ZoneOffset.UTC);
+        for (boolean preview : new boolean[]{true, false}) {
+            PracticeAvailabilityService availability = new PracticeAvailabilityService(
+                    PracticeCatalog.of(List.of(v, routine)), controls, true, preview, clock);
+            PracticeSuppressionService suppression = mock(PracticeSuppressionService.class);
+            when(suppression.check(anyString(), anyString())).thenReturn(Optional.empty());
+            GroupRepo groups = mock(GroupRepo.class);
+            Group g = new Group();
+            g.setGroupId("hh");
+            g.setGroupType("Household");
+            when(groups.findByGroupId("hh")).thenReturn(Optional.of(g));
+            FamilyPracticeCompletionRepo completions = mock(FamilyPracticeCompletionRepo.class);
+            when(completions.findByHouseholdIdAndActivityKeyAndContentVersion(any(), any(), any(Integer.class)))
+                    .thenReturn(Optional.empty());
+            FamilyPracticeService svc = new FamilyPracticeService(availability, suppression, completions, groups,
+                    mock(HouseholdAccessService.class), mock(PracticeTogetherSessionRepo.class), clock);
+            if (preview) {
+                ActivityDetailDto d = svc.detail(v.key(), "a@x.com", "hh");
+                assertThat(d.routineOffer()).isNotNull();
+                assertThat(d.routineOffer().routineKey()).isEqualTo("fire-fixture-routine");
+                assertThat(d.routineOffer().preview()).doesNotContain("{");
+            } else {
+                // The activity itself is a DRAFT, so it is not served at all without the preview gate.
+                assertThat(PracticeRoutines.offerFor(availability, false, v.key())).isNull();
+            }
+        }
+    }
 }

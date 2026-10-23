@@ -365,7 +365,7 @@ public class ScenarioService {
             }
             lastCommit = lastCommit(v, run.getDecisionTrace());
             if (run.getStatus() == Status.COMPLETED && run.getOutcomeKey() != null) {
-                debrief = debriefDto(v, run);
+                debrief = debriefDto(v, run, PracticeRoutines.offerFor(availability, true, run.getScenarioKey()));
             }
         }
         return new RunDto(ScenarioDtos.SCHEMA_VERSION, run.getId(), run.getScenarioKey(), run.getContentVersion(),
@@ -405,7 +405,7 @@ public class ScenarioService {
                 others);
     }
 
-    private static DebriefDto debriefDto(Version v, ScenarioRun run) {
+    private static DebriefDto debriefDto(Version v, ScenarioRun run, PracticeRoutines.RoutineOfferDto routineOffer) {
         ScenarioEngine.Debrief d = ScenarioEngine.debrief(v, run.getDecisionTrace(), run.getOutcomeKey());
         PracticeActions.StepCopy copy = PracticeActions.describe(d.nextStep().action());
         NextStepDto next = copy == null ? null : new NextStepDto(d.nextStep().action(), d.nextStep().params(),
@@ -421,7 +421,7 @@ public class ScenarioService {
                                             .toList()))));
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),
-                d.worthPracticing(), next, path, mediaDto(d.outcome().media()), d.oneThing());
+                d.worthPracticing(), next, path, mediaDto(d.outcome().media()), d.oneThing(), routineOffer);
     }
 
     /** Taken so far + the longest path ahead; null when the content can't be shown. */

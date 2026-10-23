@@ -84,7 +84,41 @@ public final class PracticeContent {
              */
             Skill skill,
             /** CHECKIN body (redesign FR-7). Additive and nullable like {@code skill}. */
-            CheckIn checkin) {}
+            CheckIn checkin,
+            /** ROUTINE body (EXEC-R1). Additive and nullable like {@code skill}. */
+            Routine routine) {}
+
+    /**
+     * A household routine template (EXEC-R1). {@code thenTemplate} holds {@code {slot}}
+     * placeholders, each declared in {@code slots} and each used. {@code offeredBy} names the
+     * scenarios and Together/family activities whose end offers "Save to plan"; a scenario or
+     * activity is offered by at most one routine, so published content never needs re-versioning
+     * to attach a key. Holds no household data, role, turn or child data.
+     */
+    public record Routine(
+            String hazard,
+            String title,
+            String ifText,
+            String thenTemplate,
+            ReviewTier reviewTier,
+            List<RoutineSlot> slots,
+            OfferedBy offeredBy) {}
+
+    /**
+     * One fill-in. {@code tier} (PLACE) and {@code contactType} (CONTACT) narrow the plan options,
+     * {@code options} (CHOICE) is the closed list; every slot has a {@code fallback}.
+     */
+    public record RoutineSlot(
+            String key,
+            RoutineSlotSource source,
+            String tier,
+            String contactType,
+            List<String> options,
+            String fallback) {}
+
+    public enum RoutineSlotSource { ADULT, PLACE, CONTACT, CHOICE, TEXT }
+
+    public record OfferedBy(List<String> scenarios, List<String> activities) {}
 
     /**
      * One recall card for one skill. {@code correct} on a choice is server-internal: it

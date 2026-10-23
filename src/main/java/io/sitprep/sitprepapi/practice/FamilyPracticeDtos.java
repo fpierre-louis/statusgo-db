@@ -50,7 +50,9 @@ public final class FamilyPracticeDtos {
                                     List<String> ageGuidance, String facilitation, List<SourceDto> sources,
                                     ActivityDto activity, boolean preview, SuppressionDto suppression,
                                     Instant completedAt, AlertHeadsUpDto alertHeadsUp,
-                                    ActiveSessionDto activeSession) {}
+                                    ActiveSessionDto activeSession,
+                                    /** EXEC-R1: the household routine this activity offers to save, when servable; else null. */
+                                    PracticeRoutines.RoutineOfferDto routineOffer) {}
 
     /** The client proves which immutable content it completed; it sends no sorting choices. */
     public record CompleteRequest(Integer contentVersion, String contentHash) {}

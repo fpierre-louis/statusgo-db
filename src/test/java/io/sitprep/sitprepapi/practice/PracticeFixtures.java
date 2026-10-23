@@ -117,6 +117,48 @@ final class PracticeFixtures {
         return root;
     }
 
+    /**
+     * A valid DRAFT routine with one slot of every source. {@code scenarioKey} / {@code activityKey}
+     * (either may be null) become its offeredBy. Fixture copy, not reviewed guidance.
+     */
+    static ObjectNode routine(String key, String scenarioKey, String activityKey) {
+        ObjectNode root = M.createObjectNode();
+        root.put("schema", 2);
+        root.put("key", key);
+        root.put("version", 1);
+        root.put("kind", "ROUTINE");
+        ObjectNode lifecycle = root.putObject("lifecycle");
+        lifecycle.put("publishState", "DRAFT");
+        lifecycle.putObject("safetyReview").put("status", "PENDING");
+        ObjectNode content = root.putObject("content");
+        content.put("title", "Fixture routine");
+        content.put("summary", "Keep a short fixture routine on your plan.");
+        content.putArray("sources").addObject()
+                .put("label", "Ready.gov — Make a Plan").put("url", "https://www.ready.gov/plan");
+        ObjectNode r = content.putObject("routine");
+        r.put("hazard", "fixture");
+        r.put("title", "Fixture routine");
+        r.put("ifText", "If the fixture happens");
+        r.put("thenTemplate", "{who} calls {contact} {when}; we go to {place} and take {route}.");
+        r.put("reviewTier", "PREP");
+        ArrayNode slots = r.putArray("slots");
+        slots.addObject().put("key", "who").put("source", "ADULT").put("fallback", "a grown-up");
+        slots.addObject().put("key", "contact").put("source", "CONTACT").put("contactType", "OUT_OF_AREA")
+                .put("fallback", "our out-of-area contact");
+        ObjectNode when = slots.addObject();
+        when.put("key", "when").put("source", "CHOICE").put("fallback", "right away");
+        when.putArray("options").add("right away").add("after we are safe");
+        slots.addObject().put("key", "place").put("source", "PLACE").put("tier", "INDOOR_SAFE_ROOM")
+                .put("fallback", "our safe room");
+        slots.addObject().put("key", "route").put("source", "TEXT").put("fallback", "our backup route");
+        ObjectNode by = r.putObject("offeredBy");
+        ArrayNode sc = by.putArray("scenarios");
+        if (scenarioKey != null) sc.add(scenarioKey);
+        ArrayNode ac = by.putArray("activities");
+        if (activityKey != null) ac.add(activityKey);
+        return root;
+    }
+
     static void choice(ArrayNode choices, String key, String label, String feedback, String next, String... tags) {
         ObjectNode c = choices.addObject();
         c.put("key", key);

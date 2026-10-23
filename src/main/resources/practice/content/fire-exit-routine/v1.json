@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "key": "fire-exit-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Smoke alarm exit",
+    "summary": "Keep a short home fire routine on your household plan: leave by the nearest safe exit, meet at your spot outside, and stay out.",
+    "sources": [
+      {
+        "label": "American Red Cross — Home fire safety and escape plans",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/fire.html"
+      },
+      {
+        "label": "U.S. Fire Administration — Home fire escape plans",
+        "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/"
+      },
+      {
+        "label": "NFPA — How to make a home fire escape plan",
+        "url": "https://www.nfpa.org/education-and-research/home-fire-safety/escape-planning"
+      }
+    ],
+    "routine": {
+      "hazard": "home-fire",
+      "title": "Smoke alarm exit",
+      "ifText": "If the smoke alarm sounds",
+      "thenTemplate": "We use the nearest safe exit and meet at {place}. Once we're out, we stay out.",
+      "reviewTier": "LIFE_SAFETY",
+      "slots": [
+        {
+          "key": "place",
+          "source": "PLACE",
+          "tier": "OUTSIDE_HOME",
+          "fallback": "our meeting spot outside"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [],
+        "activities": [
+          "together-get-out-and-meet-up"
+        ]
+      }
+    }
+  }
+}

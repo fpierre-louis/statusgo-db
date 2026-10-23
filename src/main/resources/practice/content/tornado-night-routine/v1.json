@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "key": "tornado-night-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Tornado at night",
+    "summary": "Keep a short night-time tornado warning routine on your household plan: who wakes everyone, and the safe room you all go to.",
+    "sources": [
+      {
+        "label": "National Weather Service — Tornado Safety: During",
+        "url": "https://www.weather.gov/safety/tornado-during"
+      },
+      {
+        "label": "Ready.gov — Tornadoes",
+        "url": "https://www.ready.gov/tornadoes"
+      },
+      {
+        "label": "NOAA Storm Prediction Center — Tornado Safety",
+        "url": "https://www.spc.noaa.gov/faq/tornado/safety.html"
+      }
+    ],
+    "routine": {
+      "hazard": "tornado",
+      "title": "Tornado at night",
+      "ifText": "If a tornado warning comes at night",
+      "thenTemplate": "{who} wakes everyone and we all go to {place}.",
+      "reviewTier": "LIFE_SAFETY",
+      "slots": [
+        {
+          "key": "who",
+          "source": "ADULT",
+          "fallback": "a grown-up"
+        },
+        {
+          "key": "place",
+          "source": "PLACE",
+          "tier": "INDOOR_SAFE_ROOM",
+          "fallback": "our safe room"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "tornado-warning-shelter-decision"
+        ],
+        "activities": []
+      }
+    }
+  }
+}

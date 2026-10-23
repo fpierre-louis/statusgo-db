@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -144,6 +145,8 @@ public final class PracticeContentValidator {
             validateSkill(b, where, errors);
         } else if (f.kind() == PracticeKind.CHECKIN) {
             validateCheckIn(b, where, errors);
+        } else if (f.kind() == PracticeKind.ROUTINE) {
+            validateRoutine(f.key(), b, where, errors);
         }
         validateCopy(f.kind(), b, where, errors);
         return errors;
@@ -288,6 +291,8 @@ public final class PracticeContentValidator {
             if (b.estimatedMinutes() != null) errors.add(where + ": a SKILL has no estimatedMinutes (its activities do)");
         } else if (kind == PracticeKind.CHECKIN) {
             if (b.estimatedMinutes() != null) errors.add(where + ": a CHECKIN has no estimatedMinutes");
+        } else if (kind == PracticeKind.ROUTINE) {
+            if (b.estimatedMinutes() != null) errors.add(where + ": a ROUTINE has no estimatedMinutes");
         } else if (b.estimatedMinutes() == null || b.estimatedMinutes() < 1 || b.estimatedMinutes() > 60) {
             errors.add(where + ": content.estimatedMinutes must be 1-60");
         }
@@ -303,7 +308,7 @@ public final class PracticeContentValidator {
             }
         }
 
-        if (kind == PracticeKind.SKILL || kind == PracticeKind.CHECKIN) {
+        if (kind == PracticeKind.SKILL || kind == PracticeKind.CHECKIN || kind == PracticeKind.ROUTINE) {
             if (b.tags() != null && !b.tags().isEmpty()) errors.add(where + ": a " + kind + " carries no debrief tags");
         } else if (b.tags() == null || b.tags().isEmpty()) {
             errors.add(where + ": content.tags (debrief copy) is required");
@@ -363,6 +368,17 @@ public final class PracticeContentValidator {
             }
             if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) errors.add(where + ": a CHECKIN has no ageGuidance");
             if (b.facilitation() != null) errors.add(where + ": a CHECKIN has no facilitation copy");
+        } else if (kind == PracticeKind.ROUTINE) {
+            if (b.routine() == null) errors.add(where + ": a ROUTINE needs content.routine");
+            if (b.scenario() != null || b.activity() != null || b.skill() != null || b.checkin() != null) {
+                errors.add(where + ": a ROUTINE carries only content.routine");
+            }
+            if (b.ageGuidance() != null && !b.ageGuidance().isEmpty()) errors.add(where + ": a ROUTINE has no ageGuidance");
+            if (b.facilitation() != null) errors.add(where + ": a ROUTINE has no facilitation copy");
+            if (b.mediaStyle() != null) errors.add(where + ": a ROUTINE carries no media");
+        }
+        if (kind != PracticeKind.ROUTINE && b.routine() != null) {
+            errors.add(where + ": only a ROUTINE carries content.routine");
         }
         if (kind != PracticeKind.SKILL && b.skill() != null) {
             errors.add(where + ": only a SKILL carries content.skill");
@@ -763,6 +779,130 @@ public final class PracticeContentValidator {
     }
 
     // ------------------------------------------------------------------
+    // Routine (EXEC-R1)
+    // ------------------------------------------------------------------
+
+    public static final int ROUTINE_IF_MAX = 120;
+    public static final int ROUTINE_THEN_MAX = 240;
+    /** A household's own words for one slot (also the server's limit on a saved value). */
+    public static final int ROUTINE_VALUE_MAX = 80;
+    /** The saved then_text column (V124); a household's typed values can make a line longer than the template's own cap. */
+    public static final int ROUTINE_SAVED_THEN_MAX = 300;
+    static final int ROUTINE_SLOTS_MAX = 6;
+    static final int ROUTINE_OPTIONS_MAX = 8;
+    static final Pattern SLOT_KEY = Pattern.compile("^[a-z][a-z0-9]{0,23}$");
+    public static final Set<String> PLACE_TIERS = Set.of("INDOOR_SAFE_ROOM", "OUTSIDE_HOME", "OUT_OF_TOWN");
+    public static final Set<String> CONTACT_TYPES = Set.of("OUT_OF_AREA", "LOCAL", "ANY");
+
+    private static void validateRoutine(String fileKey, Body b, String where, List<String> errors) {
+        PracticeContent.Routine r = b.routine();
+        if (r == null) return;
+        String at = where + ": routine";
+        if (r.hazard() == null || !KEY_FORMAT.matcher(r.hazard()).matches()) {
+            errors.add(at + ".hazard must be a lower-kebab hazard key");
+        }
+        requireText(r.title(), 160, at + ".title", errors);
+        if (r.title() != null && b.title() != null && !r.title().equals(b.title())) {
+            errors.add(at + ".title must equal content.title");
+        }
+        requireText(r.ifText(), ROUTINE_IF_MAX, at + ".ifText", errors);
+        requireText(r.thenTemplate(), 400, at + ".thenTemplate", errors);
+        if (r.reviewTier() == null) errors.add(at + ".reviewTier is required");
+
+        List<PracticeContent.RoutineSlot> slots = r.slots() == null ? List.of() : r.slots();
+        if (slots.size() > ROUTINE_SLOTS_MAX) errors.add(at + ".slots allows at most " + ROUTINE_SLOTS_MAX);
+        Map<String, PracticeContent.RoutineSlot> declared = new LinkedHashMap<>();
+        for (PracticeContent.RoutineSlot s : slots) {
+            if (s == null) { errors.add(at + ".slots has a null entry"); continue; }
+            String sa = at + " slot " + s.key();
+            if (s.key() == null || !SLOT_KEY.matcher(s.key()).matches()) {
+                errors.add(sa + ": key must match " + SLOT_KEY.pattern());
+                continue;
+            }
+            if (declared.put(s.key(), s) != null) errors.add(sa + ": duplicate slot key");
+            if (s.source() == null) { errors.add(sa + ": source is required"); continue; }
+            requireText(s.fallback(), ROUTINE_VALUE_MAX, sa + " fallback", errors);
+            boolean place = s.source() == PracticeContent.RoutineSlotSource.PLACE;
+            boolean contact = s.source() == PracticeContent.RoutineSlotSource.CONTACT;
+            boolean choice = s.source() == PracticeContent.RoutineSlotSource.CHOICE;
+            if (place && (s.tier() == null || !PLACE_TIERS.contains(s.tier()))) {
+                errors.add(sa + ": a PLACE slot needs tier " + PLACE_TIERS);
+            }
+            if (!place && s.tier() != null) errors.add(sa + ": tier belongs only to a PLACE slot");
+            if (contact && (s.contactType() == null || !CONTACT_TYPES.contains(s.contactType()))) {
+                errors.add(sa + ": a CONTACT slot needs contactType " + CONTACT_TYPES);
+            }
+            if (!contact && s.contactType() != null) errors.add(sa + ": contactType belongs only to a CONTACT slot");
+            if (choice) {
+                List<String> opts = s.options() == null ? List.of() : s.options();
+                if (opts.isEmpty() || opts.size() > ROUTINE_OPTIONS_MAX) {
+                    errors.add(sa + ": a CHOICE slot needs 1-" + ROUTINE_OPTIONS_MAX + " options");
+                }
+                Set<String> seen = new HashSet<>();
+                for (String o : opts) {
+                    requireText(o, ROUTINE_VALUE_MAX, sa + " option", errors);
+                    if (o != null && !seen.add(o)) errors.add(sa + ": duplicate option '" + o + "'");
+                }
+            } else if (s.options() != null) {
+                errors.add(sa + ": options belong only to a CHOICE slot");
+            }
+        }
+
+        // Every {slot} in the template is declared; every declared slot is used.
+        Set<String> used = new HashSet<>();
+        if (r.thenTemplate() != null) {
+            Matcher m = PracticeRoutines.PLACEHOLDER.matcher(r.thenTemplate());
+            while (m.find()) {
+                used.add(m.group(1));
+                if (!declared.containsKey(m.group(1))) {
+                    errors.add(at + ".thenTemplate uses {" + m.group(1) + "} which is not a declared slot");
+                }
+            }
+            String stripped = m.reset().replaceAll("");
+            if (stripped.indexOf('{') >= 0 || stripped.indexOf('}') >= 0) {
+                errors.add(at + ".thenTemplate has a stray brace");
+            }
+        }
+        for (String k : declared.keySet()) {
+            if (!used.contains(k)) errors.add(at + " slot " + k + " is declared but not used in thenTemplate");
+        }
+
+        // The line must fit once every slot holds its longest fallback or option. (What a household
+        // types is capped at ROUTINE_VALUE_MAX per slot and the saved line at ROUTINE_SAVED_THEN_MAX,
+        // both enforced by HouseholdRoutineService.)
+        if (r.thenTemplate() != null && errors.stream().noneMatch(e -> e.startsWith(at + ".thenTemplate"))) {
+            int longest = PracticeRoutines.render(r, key -> {
+                PracticeContent.RoutineSlot s = declared.get(key);
+                if (s == null) return null;
+                int len = Math.max(s.fallback() == null ? 0 : s.fallback().length(),
+                        s.options() == null ? 0 : s.options().stream().mapToInt(String::length).max().orElse(0));
+                return "x".repeat(len);
+            }).length();
+            if (longest > ROUTINE_THEN_MAX) {
+                errors.add(at + ".thenTemplate renders to " + longest + " characters with the longest fallbacks; max "
+                        + ROUTINE_THEN_MAX);
+            }
+        }
+
+        PracticeContent.OfferedBy by = r.offeredBy();
+        if (by == null) {
+            errors.add(at + ".offeredBy is required");
+        } else {
+            checkKeyList(by.scenarios(), at + ".offeredBy.scenarios", errors);
+            checkKeyList(by.activities(), at + ".offeredBy.activities", errors);
+        }
+    }
+
+    private static void checkKeyList(List<String> keys, String at, List<String> errors) {
+        if (keys == null) { errors.add(at + " is required (use [])"); return; }
+        Set<String> seen = new HashSet<>();
+        for (String k : keys) {
+            if (k == null || !KEY_FORMAT.matcher(k).matches()) errors.add(at + " entry '" + k + "' is not a content key");
+            else if (!seen.add(k)) errors.add(at + " lists " + k + " twice");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Check-in (Practice redesign FR-7)
     // ------------------------------------------------------------------
 
@@ -817,6 +957,15 @@ public final class PracticeContentValidator {
             add(texts, k.cue(), k.action(), k.why());
             if (k.checkInPrompts() != null) k.checkInPrompts().forEach(q -> add(texts, q));
             if (k.ifThen() != null) add(texts, k.ifThen().template());
+        }
+        if (b.routine() != null) {
+            PracticeContent.Routine r = b.routine();
+            add(texts, r.title(), r.ifText(), r.thenTemplate());
+            if (r.slots() != null) for (PracticeContent.RoutineSlot sl : r.slots()) {
+                if (sl == null) continue;
+                add(texts, sl.fallback());
+                if (sl.options() != null) sl.options().forEach(o -> add(texts, o));
+            }
         }
         if (b.checkin() != null) {
             PracticeContent.CheckIn c = b.checkin();

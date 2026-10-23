@@ -544,4 +544,45 @@ class ScenarioServiceTest {
             assertThat(m.outgoing()).isTrue();
         });
     }
+
+    // -- EXEC-R1: the routine offer on the debrief ---------------------------
+
+    private RunDto finishedRunWith(PracticeCatalog catalog, boolean preview) {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PracticeAvailabilityService availability = new PracticeAvailabilityService(catalog, controls, true, preview, clock);
+        GroupRepo groups = mock(GroupRepo.class);
+        Group household = new Group();
+        household.setGroupId(HH);
+        household.setGroupType("Household");
+        when(groups.findByGroupId(HH)).thenReturn(Optional.of(household));
+        ScenarioService svc = new ScenarioService(availability, suppression, inMemoryRepo(), groups, access, clock);
+        long id = svc.start(KEY, ME, HH).runId();
+        svc.commit(id, ME, "start", "call");
+        svc.commit(id, ME, "second", "plan");
+        return svc.complete(id, ME);
+    }
+
+    @Test
+    void theDebriefOffersTheRoutineThatNamesThisScenario() {
+        Version routine = version(PracticeFixtures.routine("reconnect-routine", KEY, null));
+        PracticeCatalog catalog = PracticeCatalog.of(List.of(live, routine));
+
+        RunDto previewed = finishedRunWith(catalog, true);
+        assertThat(previewed.debrief().routineOffer()).isNotNull();
+        assertThat(previewed.debrief().routineOffer().routineKey()).isEqualTo("reconnect-routine");
+        assertThat(previewed.debrief().routineOffer().title()).isEqualTo("Fixture routine");
+        assertThat(previewed.debrief().routineOffer().preview()).startsWith("a grown-up calls our out-of-area contact");
+    }
+
+    @Test
+    void noRoutineOfferWhenTheRoutineIsNotServableOrNamesAnotherScenario() {
+        Version routine = version(PracticeFixtures.routine("reconnect-routine", KEY, null));
+        // DRAFT with the preview gate off: production never shows it.
+        assertThat(finishedRunWith(PracticeCatalog.of(List.of(live, routine)), false).debrief().routineOffer()).isNull();
+        // A routine offered by a different scenario.
+        Version other = version(PracticeFixtures.routine("other-routine", "some-other-scenario", null));
+        assertThat(finishedRunWith(PracticeCatalog.of(List.of(live, other)), true).debrief().routineOffer()).isNull();
+        // No routine at all: the field is simply null.
+        assertThat(finishedRunWith(PracticeCatalog.of(List.of(live)), true).debrief().routineOffer()).isNull();
+    }
 }

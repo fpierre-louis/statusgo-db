@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "key": "pets-evac-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Leaving with our pets",
+    "summary": "Keep a short evacuation routine on your household plan: who gets the pets ready, so they come with you.",
+    "sources": [
+      {
+        "label": "Ready.gov — Pets",
+        "url": "https://www.ready.gov/pets"
+      },
+      {
+        "label": "Ready.gov — Evacuation",
+        "url": "https://www.ready.gov/evacuation"
+      },
+      {
+        "label": "American Red Cross — Pet Disaster Preparedness",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/pet-disaster-preparedness.html"
+      }
+    ],
+    "routine": {
+      "hazard": "pets",
+      "title": "Leaving with our pets",
+      "ifText": "If we have to leave",
+      "thenTemplate": "{who} gets the pets into carriers or on leashes, and they come with us.",
+      "reviewTier": "PREP",
+      "slots": [
+        {
+          "key": "who",
+          "source": "ADULT",
+          "fallback": "a grown-up"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "evacuating-with-pets"
+        ],
+        "activities": []
+      }
+    }
+  }
+}

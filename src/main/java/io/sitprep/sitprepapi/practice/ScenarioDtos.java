@@ -118,7 +118,9 @@ public final class ScenarioDtos {
      */
     public record DebriefDto(String outcomeTitle, String outcomeBody, List<String> strongChoices,
                              List<String> worthPracticing, NextStepDto nextStep, List<PathStepDto> path,
-                             MediaDto outcomeMedia, String oneThing) {}
+                             MediaDto outcomeMedia, String oneThing,
+                             /** EXEC-R1: the household routine this scenario offers to save, when servable; else null. */
+                             PracticeRoutines.RoutineOfferDto routineOffer) {}
 
     /**
      * One run as the client draws it. {@code contentStatus} says what the run

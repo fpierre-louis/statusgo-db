@@ -117,7 +117,7 @@ public class FamilyPracticeService {
                 activityDto(v.body().activity()), start.entry().preview(), waiting,
                 prior == null ? null : prior.getCompletedAt(),
                 waiting == null ? AlertHeadsUpDto.of(suppression.headsUp(hid).orElse(null)) : null,
-                active);
+                active, PracticeRoutines.offerFor(availability, false, v.key()));
     }
 
     /** Idempotent per household + activity + version. No picks or child data enter this method. */

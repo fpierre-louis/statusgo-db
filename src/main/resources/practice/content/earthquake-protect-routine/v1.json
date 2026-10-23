@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "key": "earthquake-protect-routine",
+  "version": 1,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "When the ground shakes",
+    "summary": "Keep a short earthquake routine on your household plan: drop, cover and hold on, then who checks on everyone when the shaking stops.",
+    "sources": [
+      {
+        "label": "Ready.gov — Earthquakes",
+        "url": "https://www.ready.gov/earthquakes"
+      },
+      {
+        "label": "Earthquake Country Alliance (Great ShakeOut) — Drop, Cover, and Hold On",
+        "url": "https://www.earthquakecountry.org/dropcoverholdon/"
+      }
+    ],
+    "routine": {
+      "hazard": "earthquake",
+      "title": "When the ground shakes",
+      "ifText": "If the ground shakes",
+      "thenTemplate": "We drop, cover and hold on where we are. When it stops, {who} checks on everyone.",
+      "reviewTier": "LIFE_SAFETY",
+      "slots": [
+        {
+          "key": "who",
+          "source": "ADULT",
+          "fallback": "a grown-up"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "earthquake-first-five-minutes"
+        ],
+        "activities": []
+      }
+    }
+  }
+}

@@ -56,12 +56,32 @@ public final class PracticeRegistryCheck {
         List<String> out = new ArrayList<>();
         Set<String> skillKeys = new HashSet<>();
         Set<String> scenarioNodes = new HashSet<>();
+        Set<String> routineKeys = new HashSet<>();
+        Set<String> scenarioKeys = new HashSet<>();
+        Set<String> activityKeys = new HashSet<>();
         for (Version v : versions) {
             if (v.kind() == PracticeKind.SKILL) skillKeys.add(v.key());
+            if (v.kind() == PracticeKind.ROUTINE) routineKeys.add(v.key());
+            if (v.kind() == PracticeKind.ADULT_SCENARIO) scenarioKeys.add(v.key());
+            if (v.kind() == PracticeKind.FAMILY_ACTIVITY) activityKeys.add(v.key());
             if (v.kind() == PracticeKind.ADULT_SCENARIO && v.body() != null && v.body().scenario() != null
                     && v.body().scenario().nodes() != null) {
                 for (Node n : v.body().scenario().nodes()) if (n != null) scenarioNodes.add(v.key() + "#" + n.key());
             }
+        }
+        // EXEC-R1: a routine is offered by existing content, and each scenario/activity by at most one routine.
+        Map<String, String> offeredScenario = new java.util.HashMap<>();
+        Map<String, String> offeredActivity = new java.util.HashMap<>();
+        Set<String> routineKeysSeen = new HashSet<>();
+        for (Version v : versions) {
+            if (v.kind() != PracticeKind.ROUTINE || v.body() == null || v.body().routine() == null
+                    || v.body().routine().offeredBy() == null) continue;
+            // Only the newest version of a routine counts; older versions are history.
+            if (!routineKeysSeen.add(v.key())) continue;
+            String at = v.key() + " v" + v.version();
+            PracticeContent.OfferedBy by = v.body().routine().offeredBy();
+            offers(by.scenarios(), scenarioKeys, offeredScenario, "scenario", v.key(), at, out);
+            offers(by.activities(), activityKeys, offeredActivity, "activity", v.key(), at, out);
         }
         for (Version v : versions) {
             String at = v.key() + " v" + v.version();
@@ -85,6 +105,9 @@ public final class PracticeRegistryCheck {
             }
             Skill k = v.body().skill();
             if (k == null) continue;
+            if (k.ifThen() != null && k.ifThen().routine() != null && !routineKeys.contains(k.ifThen().routine())) {
+                out.add(at + ": ifThen.routine " + k.ifThen().routine() + " is not a routine");
+            }
             if (k.scenarioNodes() != null) for (String ref : k.scenarioNodes()) {
                 if (!scenarioNodes.contains(ref)) out.add(at + ": scenario node " + ref + " does not exist");
             }
@@ -97,6 +120,18 @@ public final class PracticeRegistryCheck {
             }
         }
         return out;
+    }
+
+    private static void offers(List<String> keys, Set<String> known, Map<String, String> claimedBy, String what,
+                               String routineKey, String at, List<String> out) {
+        if (keys == null) return;
+        for (String k : keys) {
+            if (!known.contains(k)) out.add(at + ": offeredBy " + what + " " + k + " does not exist");
+            String prior = claimedBy.putIfAbsent(k, routineKey);
+            if (prior != null && !prior.equals(routineKey)) {
+                out.add(at + ": " + what + " " + k + " is already offered by routine " + prior);
+            }
+        }
     }
 
     private static void drillRef(ReadinessAction action, Map<String, String> params, Set<String> drillIds,
