@@ -26,7 +26,7 @@
       }
     ],
     "routine": {
-      "hazard": "communication",
+      "hazard": "communications",
       "title": "Reaching each other",
       "ifText": "If we can't reach each other",
       "thenTemplate": "We text first, then contact {contact}.",

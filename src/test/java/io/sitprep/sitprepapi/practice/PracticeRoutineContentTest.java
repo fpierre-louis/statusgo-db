@@ -29,7 +29,7 @@ class PracticeRoutineContentTest {
     /** The hashes the independent reviewer must read. Any edit to a routine fails here first. */
     static final Map<String, String> DRAFT_HASHES = Map.of(
             "tornado-night-routine", "sha256:eaecfc959c3987634c45ba4dfc573516030741b2b6d9fa34d057f6d725dec680",
-            "comms-reconnect-routine", "sha256:e757b9d59361c10e75d9ae7e1f3e293e7a7c5999946742e4b99cfe97d3db57d6",
+            "comms-reconnect-routine", "sha256:cdd5e258a0d674a01ffc8d1ae07dc95a2f09bc44d7d81cdca8b42d964dcbdd3e",
             "fire-exit-routine", "sha256:ea8fc76762aebc09196a745a3d8d1eb35746396dc356f99fe356dc34c649b706",
             "earthquake-protect-routine", "sha256:2b2474351285be2097c97e048ff31092c1dcc81daaaa4aaa3a0928bd7d37d2ea",
             "flood-road-routine", "sha256:e6f33253c167e3c1d2d3cb712c351e86b50f2e1186511a4f5de4df034f59db68",
