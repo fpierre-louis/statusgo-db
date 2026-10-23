@@ -4,12 +4,15 @@
   "version": 1,
   "kind": "ROUTINE",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 2 (final): OpenAI independent review lane, GPT-5.6 Sol; Gate 1: Claude Opus 5.5 (separate session), both APPROVED at this hash, under the owner's two-gate process of 2026-10-23",
+      "reviewedContentHash": "sha256:cdd5e258a0d674a01ffc8d1ae07dc95a2f09bc44d7d81cdca8b42d964dcbdd3e",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Gate 1 APPROVED (text first, then the out-of-area contact, matches Ready.gov and Red Cross; fallback harmless). Gate 2 APPROVED: consistent with Ready.gov/Red Cross family communication guidance. Records: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md and GATE_2_SAFETY_REVIEW_2026-10-23.md. Published lifecycle-only; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

@@ -56,19 +56,30 @@ class PracticeRoutineContentTest {
     // -- the six shipped DRAFT routines ---------------------------------------
 
     @Test
-    void sixRoutinesShipAsPendingDraftsAtPinnedHashes() {
+    void sixRoutinesShipAtPinnedHashesAndOnlyGate2ApprovedOnesArePublished() {
         assertThat(SHIPPED.rejected()).isEmpty();
         assertThat(SHIPPED.keys(PracticeKind.ROUTINE)).containsExactlyInAnyOrderElementsOf(DRAFT_HASHES.keySet());
         for (var e : DRAFT_HASHES.entrySet()) {
             Version v = SHIPPED.exact(e.getKey(), 1).orElseThrow();
             assertThat(v.contentHash()).as(e.getKey()).isEqualTo(e.getValue());
-            assertThat(v.publishState()).isEqualTo(PublishState.DRAFT);
-            assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
-            assertThat(SHIPPED.latestStartable(e.getKey(), false)).as("production never serves " + e.getKey()).isEmpty();
-            assertThat(SHIPPED.latestStartable(e.getKey(), true)).isPresent();
             assertThat(v.body().sources()).hasSizeBetween(1, 3);
+            if (PUBLISHED.contains(e.getKey())) {
+                // Published lifecycle-only at the hash Gate 2 approved (two-gate process, 2026-10-23).
+                assertThat(v.publishState()).as(e.getKey()).isEqualTo(PublishState.PUBLISHED);
+                assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+                assertThat(v.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(v.contentHash());
+                assertThat(SHIPPED.latestStartable(e.getKey(), false)).as("production serves " + e.getKey()).isPresent();
+            } else {
+                assertThat(v.publishState()).as(e.getKey()).isEqualTo(PublishState.DRAFT);
+                assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+                assertThat(SHIPPED.latestStartable(e.getKey(), false)).as("production never serves " + e.getKey()).isEmpty();
+                assertThat(SHIPPED.latestStartable(e.getKey(), true)).isPresent();
+            }
         }
     }
+
+    /** Gate 2 APPROVED at the pinned hash: GATE_2_SAFETY_REVIEW_2026-10-23.md. */
+    static final java.util.Set<String> PUBLISHED = java.util.Set.of("comms-reconnect-routine");
 
     @Test
     void reviewTiersAndOfferedByFollowTheContract() {
