@@ -99,6 +99,15 @@ public class GlobalExceptionHandler {
                         req));
     }
 
+    /** A household routine save that failed validation (EXEC-R1): 400 with the stable ROUTINE_INVALID code. */
+    @ExceptionHandler(io.sitprep.sitprepapi.routine.RoutineInvalidException.class)
+    public ResponseEntity<Map<String, Object>> handleRoutineInvalid(
+            io.sitprep.sitprepapi.routine.RoutineInvalidException ex, HttpServletRequest req) {
+        log.warn("Routine rejected on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildErrorBody("ROUTINE_INVALID", safeMessage(ex), req));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex, HttpServletRequest req) {
         log.warn("Bad request on {} {}: {}", req.getMethod(), req.getRequestURI(), ex.getMessage());

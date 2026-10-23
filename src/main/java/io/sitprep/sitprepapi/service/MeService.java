@@ -684,6 +684,12 @@ public class MeService {
                 safeGetInline("hh.standingConditions", logCtx,
                         () -> standingConditionService.activeForProjection(householdId), List.of());
 
+        // EXEC-R1 · saved household routines ride the plan document (plan data: offline + print).
+        List<io.sitprep.sitprepapi.dto.HouseholdRoutineDtos.HouseholdRoutineDto> routines =
+                safeGetInline("hh.routines", logCtx,
+                        () -> routineService == null ? List.<io.sitprep.sitprepapi.dto.HouseholdRoutineDtos.HouseholdRoutineDto>of()
+                                : routineService.listForPlan(householdId), List.of());
+
         HouseholdPlanDto content = new HouseholdPlanDto(
                 householdId,
                 g == null ? null : g.getGroupName(),
@@ -703,9 +709,18 @@ public class MeService {
                 supportAssignments,
                 standingConditions,
                 null,
-                null
+                null,
+                routines
         );
         return withPrintState(content, g);
+    }
+
+    // Setter-injected so hand-built tests stay unchanged (EXEC-R1).
+    private io.sitprep.sitprepapi.routine.HouseholdRoutineService routineService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRoutineService(io.sitprep.sitprepapi.routine.HouseholdRoutineService routineService) {
+        this.routineService = routineService;
     }
 
     // Printables P8: Spring's own mapper, so plan entities serialize for the
@@ -734,7 +749,7 @@ public class MeService {
                 d.demographic(), d.meetingPlaces(), d.evacuationPlans(), d.originLocations(),
                 d.mealPlan(), d.contactGroups(), d.goBags(), d.planLastConfirmedAt(),
                 d.supportProfiles(), d.supportAssignments(), d.standingConditions(),
-                printedAt, outdated);
+                printedAt, outdated, d.routines());
     }
 
     /**

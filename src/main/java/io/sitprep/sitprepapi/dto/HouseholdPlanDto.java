@@ -83,5 +83,11 @@ public record HouseholdPlanDto(
          * ({@code PlanPrintFingerprint}); false when the paper still matches;
          * null when the plan has never been printed, so nothing nags.
          */
-        Boolean printedPlanOutdated
+        Boolean printedPlanOutdated,
+        /**
+         * Household routines (EXEC-R1): the if-then lines this household chose to keep,
+         * sorted by hazard then title. Plan data, so they ride the plan document like the
+         * support profiles: cached offline and printed. Never practice history.
+         */
+        List<HouseholdRoutineDtos.HouseholdRoutineDto> routines
 ) {}

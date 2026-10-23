@@ -66,6 +66,14 @@ public final class PlanPrintFingerprint {
         printed.put("contactGroups", doc.contactGroups());
         printed.put("supportProfiles", doc.supportProfiles());
         printed.put("supportAssignments", doc.supportAssignments());
+        // EXEC-R1: routines print. Only the words on paper (if + then), sorted, and only when there
+        // are any, so a household without routines keeps the fingerprint its paper was stamped with.
+        if (doc.routines() != null && !doc.routines().isEmpty()) {
+            List<String> lines = new ArrayList<>();
+            for (var r : doc.routines()) lines.add(r.ifText() + "\n" + r.thenText());
+            lines.sort(String::compareTo);
+            printed.put("routines", lines);
+        }
         JsonNode canonical = canonicalize(mapper.valueToTree(printed));
         try {
             byte[] bytes = MAPPER.writeValueAsBytes(canonical);
