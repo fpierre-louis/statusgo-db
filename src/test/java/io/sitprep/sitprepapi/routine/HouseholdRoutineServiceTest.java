@@ -290,7 +290,7 @@ class HouseholdRoutineServiceTest {
         mvc.perform(get("/api/households/" + HH + "/routines/" + KEY + "/offer")).andExpect(status().isForbidden());
         as(MEMBER);
         mvc.perform(get("/api/households/" + HH + "/routines/no-such-routine/offer")).andExpect(status().isNotFound());
-        mvc.perform(get("/api/households/nope/routines/" + KEY + "/offer")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/households/nope/routines/" + KEY + "/offer")).andExpect(status().isForbidden());
         mvc.perform(get("/api/households/" + HH + "/routines/" + KEY + "/offer"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.routineKey").value(KEY))
@@ -409,7 +409,7 @@ class HouseholdRoutineServiceTest {
     @Test
     void valuesAreTrimmedBoundedAndFreeOfControlCharacters() throws Exception {
         as(OWNER);
-        for (String value : List.of("   ", "", "x".repeat(81), "line\\nbreak", "tab\\there", "nul\\u0000", "sep\\u2028x")) {
+        for (String value : List.of("   ", "", "x".repeat(81), "line\\nbreak", "tab\\there", "nul\\u0000", "sep\\u2028x", "bidi\\u202Ex", "zw\\u200Bx")) {
             mvc.perform(save(body("{\"route\":{\"value\":\"" + value + "\"}}"))).andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error.code").value("ROUTINE_INVALID"));
         }
@@ -443,7 +443,7 @@ class HouseholdRoutineServiceTest {
                         .content(body("{}")))
                 .andExpect(status().isNotFound());
         mvc.perform(put("/api/households/nope/routines/" + KEY).contentType(MediaType.APPLICATION_JSON).content(body("{}")))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -519,7 +519,7 @@ class HouseholdRoutineServiceTest {
         // Removing it again is still a 204, and announces nothing.
         mvc.perform(delete("/api/households/" + HH + "/routines/" + KEY)).andExpect(status().isNoContent());
         verify(broadcast, org.mockito.Mockito.times(2)).broadcastHouseholdPlanChangedAfterCommit(eq(HH), eq("routines"));
-        mvc.perform(delete("/api/households/nope/routines/" + KEY)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/households/nope/routines/" + KEY)).andExpect(status().isForbidden());
     }
 
     @Test

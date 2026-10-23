@@ -122,8 +122,8 @@ public class HouseholdRoutineService {
     /** The builder's data: the reviewed template, the plan-derived options, the saved row, and whether the viewer may save. */
     @Transactional(readOnly = true)
     public RoutineOfferDto offer(String householdId, String routineKey, String callerEmail) {
-        Group household = requireHousehold(householdId);
         access.requireCanReadHousehold(callerEmail, householdId);
+        Group household = requireHousehold(householdId);
         PracticeAvailabilityService.Entry entry = servable(routineKey);
         Routine r = entry.version().body().routine();
         Map<String, List<OptionDto>> options = resolveOptions(household, r);
@@ -160,8 +160,8 @@ public class HouseholdRoutineService {
      */
     @Transactional
     public HouseholdRoutineDto save(String householdId, String routineKey, String callerEmail, JsonNode body) {
-        Group household = requireHousehold(householdId);
         access.requireCanAdminHousehold(callerEmail, householdId);
+        Group household = requireHousehold(householdId);
         PracticeAvailabilityService.Entry entry = servable(routineKey);
         Routine r = entry.version().body().routine();
 
@@ -215,8 +215,8 @@ public class HouseholdRoutineService {
     /** Remove a routine from the plan. Idempotent: removing one that is not there is still a 204. */
     @Transactional
     public void delete(String householdId, String routineKey, String callerEmail) {
-        requireHousehold(householdId);
         access.requireCanAdminHousehold(callerEmail, householdId);
+        requireHousehold(householdId);
         if (repo.deleteByHouseholdIdAndRoutineKey(householdId, routineKey) > 0) announce(householdId);
     }
 
@@ -271,7 +271,7 @@ public class HouseholdRoutineService {
         if (value.isEmpty() || value.length() > PracticeContentValidator.ROUTINE_VALUE_MAX) {
             throw new RoutineInvalidException(at + " must be 1-" + PracticeContentValidator.ROUTINE_VALUE_MAX + " characters");
         }
-        if (value.codePoints().anyMatch(c -> Character.isISOControl(c) || c == 0x2028 || c == 0x2029)) {
+        if (value.codePoints().anyMatch(c -> Character.isISOControl(c) || Character.getType(c) == Character.FORMAT || c == 0x2028 || c == 0x2029)) {
             throw new RoutineInvalidException(at + " has a control character");
         }
         String ref = raw.refId() == null || raw.refId().isBlank() ? null : raw.refId().strip();

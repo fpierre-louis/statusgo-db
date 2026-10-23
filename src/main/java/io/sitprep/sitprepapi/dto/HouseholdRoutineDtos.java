@@ -24,5 +24,5 @@ public final class HouseholdRoutineDtos {
 
     public record RoutineOfferDto(String routineKey, int contentVersion, String hazard, String title,
                                   String ifText, String thenTemplate, List<SlotOfferDto> slots,
-                                  HouseholdRoutineDto saved, boolean canSave, boolean preview) {}
+                                  HouseholdRoutineDto saved, boolean canSave, boolean previewGated) {}
 }
