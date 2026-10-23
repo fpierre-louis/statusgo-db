@@ -31,7 +31,9 @@
         "url": "https://www.nfpa.org/education-and-research/home-fire-safety/escape-planning"
       }
     ],
-    "ageGuidance": ["Family / all ages"],
+    "ageGuidance": [
+      "Family / all ages"
+    ],
     "facilitation": "You lead. Walk through your own home at a calm pace, one step at a time. Pass the phone only when a step says so. If a step is not working for your household, skip it and talk it through instead.",
     "tags": {
       "practiced_home_fire_escape": {
@@ -41,7 +43,10 @@
     "activity": {
       "type": "TOGETHER",
       "recommendedStyle": "TAKE_A_TURN",
-      "roles": ["CHECKER", "HEAD_COUNTER"],
+      "roles": [
+        "CHECKER",
+        "HEAD_COUNTER"
+      ],
       "turns": [
         {
           "rhythm": "SHOW_ME",
@@ -88,12 +93,15 @@
         "Check that every room has two ways out",
         "Pick one meeting spot outside, together"
       ],
-      "completionTags": ["practiced_home_fire_escape"],
+      "completionTags": [
+        "practiced_home_fire_escape"
+      ],
       "nextAction": "OPEN_EVACUATION_PLAN",
       "nextParams": {},
       "nextPrompt": "Check your meeting place in your plan.",
       "nextLabel": "Review your plan",
-      "nextNote": "Opens your real plan. Nothing changes unless you save it."
+      "nextNote": "Opens your real plan. Nothing changes unless you save it.",
+      "topic": "Home fire"
     }
   }
 }

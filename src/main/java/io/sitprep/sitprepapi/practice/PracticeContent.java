@@ -262,7 +262,9 @@ public final class PracticeContent {
             List<TogetherTurn> turns,
             String remember,
             String talkAboutIt,
-            List<String> followUps) {}
+            List<String> followUps,
+            /* TOGETHER only, optional: the setup overline's topic ("Home fire"). */
+            String topic) {}
 
     /**
      * One step of an adult-led Together session. {@code rhythm} is a {@link TogetherRhythm} name,

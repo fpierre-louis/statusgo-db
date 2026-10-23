@@ -386,7 +386,7 @@ public final class PracticeContentValidator {
 
     private static void validateItemSort(Activity a, String at, List<String> errors) {
         if (a.recommendedStyle() != null || a.roles() != null || a.turns() != null || a.remember() != null
-                || a.talkAboutIt() != null || a.followUps() != null) {
+                || a.talkAboutIt() != null || a.followUps() != null || a.topic() != null) {
             errors.add(at + ": Together fields belong only to a TOGETHER activity");
         }
         requireText(a.prompt(), 240, at + ".prompt", errors);
@@ -498,6 +498,9 @@ public final class PracticeContentValidator {
 
         requireText(a.remember(), 160, at + ".remember", errors);
         requireText(a.talkAboutIt(), 160, at + ".talkAboutIt", errors);
+        if (a.topic() != null && (a.topic().isBlank() || a.topic().length() > 40)) {
+            errors.add(at + ".topic must be 1-40 characters when present");
+        }
         List<String> followUps = a.followUps() == null ? List.of() : a.followUps();
         if (followUps.isEmpty() || followUps.size() > 3) errors.add(at + ".followUps needs 1-3 entries");
         for (String f : followUps) requireText(f, 80, at + ".followUps entry", errors);

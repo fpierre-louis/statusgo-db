@@ -32,7 +32,8 @@ public final class FamilyPracticeDtos {
                               String finishLabel, String summaryTitle, String summaryBody,
                               // TOGETHER only (FR-8); null / empty for ITEM_SORT.
                               String recommendedStyle, List<RoleDto> roles, List<TurnDto> turns,
-                              String remember, String talkAboutIt, List<String> followUps) {}
+                              String remember, String talkAboutIt, List<String> followUps,
+                              String topic) {}
 
     /** A role card; {@code adultOnly} comes from the server enum, never from content. */
     public record RoleDto(String key, String label, boolean adultOnly) {}

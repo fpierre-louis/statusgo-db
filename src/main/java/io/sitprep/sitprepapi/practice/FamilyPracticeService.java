@@ -197,7 +197,7 @@ public class FamilyPracticeService {
                 a.piles() == null ? List.of() : a.piles().stream().map(p -> new PileDto(p.key(), p.label())).toList(),
                 a.items() == null ? List.of() : a.items().stream().map(i -> new ItemDto(i.key(), i.label(), i.artKey())).toList(),
                 nextStep(a), a.finishLabel(), a.summaryTitle(), a.summaryBody(),
-                a.recommendedStyle(), roles, turns, a.remember(), a.talkAboutIt(), safe(a.followUps()));
+                a.recommendedStyle(), roles, turns, a.remember(), a.talkAboutIt(), safe(a.followUps()), a.topic());
     }
 
     private static CompletionDto completionDto(FamilyPracticeCompletion row, Version v) {
