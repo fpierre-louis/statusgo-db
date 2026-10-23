@@ -342,6 +342,17 @@ class HouseholdRoutineServiceTest {
     }
 
     @Test
+    void aLegacySafeRoomTierIsInferredSoItStillFillsThePlace() throws Exception {
+        // Gate 1 R2 note: tier OTHER + tierKey safe_room is an indoor safe room to the rest of the plan.
+        MeetingPlace legacy = place(7, "Downstairs bathroom", MeetingPlaceTier.OTHER);
+        legacy.setTierKey("safe_room");
+        when(meetingPlaceRepo.findByHouseholdId(HH)).thenReturn(List.of(legacy, place(2, "Mailbox", MeetingPlaceTier.OUTSIDE_HOME)));
+        as(OWNER);
+        mvc.perform(save("{\"contentVersion\":1}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.slots[?(@.key=='place')].refId").value("place:7"));
+    }
+
+    @Test
     void withNothingSavedTheGenericFallbacksStand() throws Exception {
         when(meetingPlaceRepo.findByHouseholdId(HH)).thenReturn(List.of());
         when(contactGroupRepo.findByHouseholdId(HH)).thenReturn(List.of());

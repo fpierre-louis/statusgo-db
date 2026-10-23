@@ -8,6 +8,8 @@ import io.sitprep.sitprepapi.domain.Group;
 import io.sitprep.sitprepapi.domain.HouseholdManualMember;
 import io.sitprep.sitprepapi.domain.HouseholdMemberBand;
 import io.sitprep.sitprepapi.domain.MeetingPlace;
+import io.sitprep.sitprepapi.service.MeetingPlaceService;
+import io.sitprep.sitprepapi.domain.MeetingPlaceTier;
 import io.sitprep.sitprepapi.domain.UserInfo;
 import io.sitprep.sitprepapi.dto.HouseholdRoutineDtos.HouseholdRoutineDto;
 import io.sitprep.sitprepapi.dto.HouseholdRoutineDtos.OptionDto;
@@ -385,7 +387,8 @@ public class HouseholdRoutineService {
     private static List<OptionDto> placeOptions(List<MeetingPlace> places, String tier) {
         List<MeetingPlace> match = new ArrayList<>();
         for (MeetingPlace p : places) {
-            if (p.getMeetingTier() != null && p.getMeetingTier().name().equals(tier) && clean(p.getName()) != null) match.add(p);
+            MeetingPlaceTier t = effectiveTier(p);
+            if (t != null && t.name().equals(tier) && clean(p.getName()) != null) match.add(p);
         }
         // The plan's primary pick first, then oldest first.
         match.sort(Comparator.comparing((MeetingPlace p) -> !p.isDeploy())
@@ -393,6 +396,20 @@ public class HouseholdRoutineService {
         List<OptionDto> out = new ArrayList<>();
         for (MeetingPlace p : match) out.add(new OptionDto(cap(clean(p.getName())), "place:" + p.getId()));
         return out;
+    }
+
+    /**
+     * The place's tier as the rest of the plan reads it: a legacy row (no tier, or OTHER with a
+     * tierKey such as {@code safe_room}) is inferred the same way EssentialsReadinessService.isSafeRoom
+     * does (Gate 1 R2 note, 2026-10-23), so an older safe room still fills the tornado routine.
+     */
+    static MeetingPlaceTier effectiveTier(MeetingPlace p) {
+        MeetingPlaceTier t = p.getMeetingTier();
+        if (t == null || t == MeetingPlaceTier.OTHER) {
+            MeetingPlaceTier inferred = MeetingPlaceService.inferMeetingTier(p.getTierKey());
+            if (inferred != null) t = inferred;
+        }
+        return t;
     }
 
     private List<EmergencyContact> contactsOf(String householdId) {
