@@ -4,12 +4,15 @@
   "version": 1,
   "kind": "FAMILY_ACTIVITY",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT pilot Together activity (redesign FR-8), authored 2026-10-22 by Claude (agent) from 07_content_templates/TOGETHER_ACTIVITY_TEMPLATE.md. Every instruction is limited to four facts from the cited sources: plan two ways out, get out and stay out, meet at the meeting spot outside, count everyone. Needs the independent CHILD_SAFETY_REVIEW at the exact hash before it can be PUBLISHED; the author does not approve it. Source pages: NFPA escape planning page and the USFA home fire escape plans page were reachable when authored; the American Red Cross fire page returned HTTP 403 to the automated fetch and must be opened by the reviewer. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:82c9d5ef…): turn 1 now separates naming a window as a way out from practising it (today we only point; a grown-up checks doors and windows open easily and whether upstairs needs an escape ladder, NFPA); turn 6 makes staying out explicit (even for a pet or a toy) and has a grown-up call 911 from outside (NFPA/USFA)."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:4a45a2458c586684d6878935f28fc93873738988c92c290d9ec9505efa40dc8a",
+      "notes": "DRAFT pilot Together activity (redesign FR-8), authored 2026-10-22 by Claude (agent) from 07_content_templates/TOGETHER_ACTIVITY_TEMPLATE.md. Every instruction is limited to four facts from the cited sources: plan two ways out, get out and stay out, meet at the meeting spot outside, count everyone. Needs the independent CHILD_SAFETY_REVIEW at the exact hash before it can be PUBLISHED; the author does not approve it. Source pages: NFPA escape planning page and the USFA home fire escape plans page were reachable when authored; the American Red Cross fire page returned HTTP 403 to the automated fetch and must be opened by the reviewer. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:82c9d5ef…): turn 1 now separates naming a window as a way out from practising it (today we only point; a grown-up checks doors and windows open easily and whether upstairs needs an escape ladder, NFPA); turn 6 makes staying out explicit (even for a pet or a toy) and has a grown-up call 911 from outside (NFPA/USFA). Gate 1 round 2 APPROVED at this hash (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md, §Round 2 and §Single gate); the owner confirmed the single-gate ruling directly to the Practice lane on 2026-10-23. Published lifecycle-only; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {
