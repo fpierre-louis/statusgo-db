@@ -710,7 +710,9 @@ public class MeService {
                 standingConditions,
                 null,
                 null,
-                routines
+                routines,
+                safeGetInline("hh.routinesOffered", logCtx,
+                        () -> routineService != null && routineService.routinesOffered(), false)
         );
         return withPrintState(content, g);
     }
@@ -749,7 +751,7 @@ public class MeService {
                 d.demographic(), d.meetingPlaces(), d.evacuationPlans(), d.originLocations(),
                 d.mealPlan(), d.contactGroups(), d.goBags(), d.planLastConfirmedAt(),
                 d.supportProfiles(), d.supportAssignments(), d.standingConditions(),
-                printedAt, outdated, d.routines());
+                printedAt, outdated, d.routines(), d.routinesOffered());
     }
 
     /**

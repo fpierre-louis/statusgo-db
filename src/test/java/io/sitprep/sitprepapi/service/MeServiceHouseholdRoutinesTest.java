@@ -78,6 +78,24 @@ class MeServiceHouseholdRoutinesTest {
     }
 
     @Test
+    void routinesOfferedSaysWhetherPracticeCanOfferOneAndSurvivesThePrintCopy() {
+        when(routines.listForPlan(HH)).thenReturn(List.of());
+        when(routines.routinesOffered()).thenReturn(false);
+        assertThat(service().buildHouseholdPlanDocument(HH).routinesOffered()).isFalse();
+        when(routines.routinesOffered()).thenReturn(true);
+        MeService s = service();
+        assertThat(s.buildHouseholdPlanDocument(HH).routinesOffered()).isTrue();
+        assertThat(s.markHouseholdPlanPrinted(HH).routinesOffered()).isTrue();
+    }
+
+    @Test
+    void anOfferCheckFailureSaysNotOffered() {
+        when(routines.listForPlan(HH)).thenReturn(List.of());
+        when(routines.routinesOffered()).thenThrow(new IllegalStateException("catalog down"));
+        assertThat(service().buildHouseholdPlanDocument(HH).routinesOffered()).isFalse();
+    }
+
+    @Test
     void aRoutinesFailureDegradesOnlyThatSection() {
         when(routines.listForPlan(HH)).thenThrow(new IllegalStateException("table missing"));
         HouseholdPlanDto doc = service().buildHouseholdPlanDocument(HH);

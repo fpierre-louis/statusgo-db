@@ -24,7 +24,7 @@ class PlanPrintFingerprintTest {
     private static HouseholdPlanDto doc(List<MeetingPlace> spots, Instant confirmed, String name) {
         return new HouseholdPlanDto("hh1", name, "4053 Rivermist Ln N", "40.39", "-111.85", "84043",
                 null, spots, List.of(), List.of(), null, List.of(), List.of(), confirmed,
-                List.of(), List.of(), List.of(), null, null, List.of());
+                List.of(), List.of(), List.of(), null, null, List.of(), null);
     }
 
     @Test
@@ -66,7 +66,7 @@ class PlanPrintFingerprintTest {
         return new HouseholdPlanDto(d.householdId(), d.name(), d.address(), d.latitude(), d.longitude(), d.zipCode(),
                 d.demographic(), d.meetingPlaces(), d.evacuationPlans(), d.originLocations(), d.mealPlan(), d.contactGroups(),
                 d.goBags(), d.planLastConfirmedAt(), d.supportProfiles(), d.supportAssignments(), d.standingConditions(),
-                null, null, routines);
+                null, null, routines, null);
     }
 
     @Test

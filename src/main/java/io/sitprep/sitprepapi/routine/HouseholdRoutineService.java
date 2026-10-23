@@ -141,6 +141,11 @@ public class HouseholdRoutineService {
 
     /** The household's saved routines for the plan document: hazard, then title. No access check (the plan resource gates). */
     @Transactional(readOnly = true)
+    /** True when any routine template is servable in this environment (EXEC-R1, plan view gating). */
+    public boolean routinesOffered() {
+        return !availability.startable(io.sitprep.sitprepapi.practice.PracticeKind.ROUTINE).isEmpty();
+    }
+
     public List<HouseholdRoutineDto> listForPlan(String householdId) {
         List<HouseholdRoutineDto> out = new ArrayList<>();
         for (HouseholdRoutine row : repo.findByHouseholdId(householdId)) out.add(toDto(row));

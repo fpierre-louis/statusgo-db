@@ -89,5 +89,13 @@ public record HouseholdPlanDto(
          * sorted by hazard then title. Plan data, so they ride the plan document like the
          * support profiles: cached offline and printed. Never practice history.
          */
-        List<HouseholdRoutineDtos.HouseholdRoutineDto> routines
+        List<HouseholdRoutineDtos.HouseholdRoutineDto> routines,
+        /**
+         * True when at least one routine template is servable here (published, or the
+         * preview gate is on), so Practice can actually offer "Save to plan". The plan
+         * view shows its empty "Household routines" state only then: an empty chapter
+         * promising something Practice can't offer yet would be a fake feature.
+         * Saved routines always show, whatever this says. Not printed.
+         */
+        Boolean routinesOffered
 ) {}
