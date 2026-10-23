@@ -34,14 +34,32 @@ class PracticeTogetherContentTest {
     static final Path PILOT = Path.of("src/main/resources/practice/content/together-get-out-and-meet-up/v1.json");
 
     /** The hash the reviewer must read. Any edit to the pilot fails here first. */
-    static final String PILOT_DRAFT_HASH = "sha256:4a45a2458c586684d6878935f28fc93873738988c92c290d9ec9505efa40dc8a";
+    static final String PILOT_HASH = "sha256:4a45a2458c586684d6878935f28fc93873738988c92c290d9ec9505efa40dc8a";
 
-    static ObjectNode together() {
+    /** The shipped pilot file, exactly as it ships (PUBLISHED since 2026-10-23). */
+    static ObjectNode shippedPilot() {
         try {
             return (ObjectNode) PracticeFixtures.M.readTree(Files.readString(PILOT));
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * A DRAFT working copy of the pilot for rule tests that edit it: a reviewed file that is
+     * edited would (rightly) fail "content changed since its safety review", so the copy drops
+     * the review before any edit. The content hash ignores the lifecycle block.
+     */
+    static ObjectNode together() {
+        ObjectNode root = shippedPilot();
+        ObjectNode lc = (ObjectNode) root.get("lifecycle");
+        lc.put("publishState", "DRAFT");
+        lc.putNull("publishedAt");
+        ObjectNode sr = PracticeFixtures.M.createObjectNode();
+        sr.put("status", "PENDING");
+        sr.put("notes", "Test working copy of the pilot.");
+        lc.set("safetyReview", sr);
+        return root;
     }
 
     static ObjectNode activity(ObjectNode root) {
@@ -63,24 +81,25 @@ class PracticeTogetherContentTest {
     // -- positives ---------------------------------------------------------
 
     @Test
-    void thePilotValidatesAndStaysDraftWithItsSources() {
-        ObjectNode root = together();
+    void thePilotIsPublishedAtItsGate1HashWithItsSources() {
+        ObjectNode root = shippedPilot();
         assertThat(errors(root)).isEmpty();
         Version v = version(root);
-        assertThat(v.publishState()).isEqualTo(PublishState.DRAFT);
+        // Gate 1 round 2 APPROVED, final under the owner's single-gate ruling (2026-10-23).
+        assertThat(v.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(v.contentHash());
         assertThat(v.body().sources()).extracting(PracticeContent.Source::url)
                 .anySatisfy(u -> assertThat(u).contains("redcross.org"))
                 .anySatisfy(u -> assertThat(u).contains("usfa.fema.gov"))
                 .anySatisfy(u -> assertThat(u).contains("nfpa.org"));
-        assertThat(v.contentHash()).isEqualTo(PILOT_DRAFT_HASH);
+        assertThat(v.contentHash()).isEqualTo(PILOT_HASH);
     }
 
     @Test
-    void thePilotIsLoadedByTheCatalogAsDraftOnly() {
+    void thePilotIsServedInProductionOnceReviewed() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         assertThat(catalog.rejected()).isEmpty();
-        assertThat(catalog.latestStartable("together-get-out-and-meet-up", false)).isEmpty();
-        assertThat(catalog.latestStartable("together-get-out-and-meet-up", true)).isPresent();
+        assertThat(catalog.latestStartable("together-get-out-and-meet-up", false)).isPresent();
     }
 
     @Test

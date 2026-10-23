@@ -4,12 +4,15 @@
   "version": 1,
   "kind": "ROUTINE",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:ee868c8d…): carriers for cats and small pets, a secure leash/harness or carrier for dogs (Ready.gov pets), instead of the interchangeable 'carriers or leashes'."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:0ca1a3e14ab525d2cc2789a03f3140ad83a4964e75ad75cef31ed7e2252570f3",
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:ee868c8d…): carriers for cats and small pets, a secure leash/harness or carrier for dogs (Ready.gov pets), instead of the interchangeable 'carriers or leashes'. Gate 1 round 2 APPROVED at this hash (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md, §Round 2 and §Single gate); the owner confirmed the single-gate ruling directly to the Practice lane on 2026-10-23. Published lifecycle-only; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

@@ -56,7 +56,7 @@ class PracticeRoutineContentTest {
     // -- the six shipped DRAFT routines ---------------------------------------
 
     @Test
-    void sixRoutinesShipAtPinnedHashesAndOnlyGate2ApprovedOnesArePublished() {
+    void sixRoutinesShipAtPinnedHashesAndOnlyReviewedOnesArePublished() {
         assertThat(SHIPPED.rejected()).isEmpty();
         assertThat(SHIPPED.keys(PracticeKind.ROUTINE)).containsExactlyInAnyOrderElementsOf(DRAFT_HASHES.keySet());
         for (var e : DRAFT_HASHES.entrySet()) {
@@ -78,8 +78,12 @@ class PracticeRoutineContentTest {
         }
     }
 
-    /** Gate 2 APPROVED at the pinned hash: GATE_2_SAFETY_REVIEW_2026-10-23.md. */
-    static final java.util.Set<String> PUBLISHED = java.util.Set.of("comms-reconnect-routine");
+    /**
+     * Reviewed at the pinned hash and published lifecycle-only: comms (Gate 1 + Gate 2), the other
+     * five at Gate 1 round 2, final under the owner's single-gate ruling (2026-10-23).
+     */
+    static final java.util.Set<String> PUBLISHED = java.util.Set.of("comms-reconnect-routine",
+            "tornado-night-routine", "fire-exit-routine", "earthquake-protect-routine", "flood-road-routine", "pets-evac-routine");
 
     @Test
     void reviewTiersAndOfferedByFollowTheContract() {
