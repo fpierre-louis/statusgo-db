@@ -28,12 +28,12 @@ class PracticeRoutineContentTest {
 
     /** The hashes the independent reviewer must read. Any edit to a routine fails here first. */
     static final Map<String, String> DRAFT_HASHES = Map.of(
-            "tornado-night-routine", "sha256:eaecfc959c3987634c45ba4dfc573516030741b2b6d9fa34d057f6d725dec680",
+            "tornado-night-routine", "sha256:2bf50de7597237724d3dbc54b1f37ef1d409d3df935341dba0367384cd0c39ea",
             "comms-reconnect-routine", "sha256:cdd5e258a0d674a01ffc8d1ae07dc95a2f09bc44d7d81cdca8b42d964dcbdd3e",
-            "fire-exit-routine", "sha256:ea8fc76762aebc09196a745a3d8d1eb35746396dc356f99fe356dc34c649b706",
-            "earthquake-protect-routine", "sha256:2b2474351285be2097c97e048ff31092c1dcc81daaaa4aaa3a0928bd7d37d2ea",
-            "flood-road-routine", "sha256:e6f33253c167e3c1d2d3cb712c351e86b50f2e1186511a4f5de4df034f59db68",
-            "pets-evac-routine", "sha256:ee868c8d36ed2644975a529836dfd0ced4318ef8f6473083a918017f35fb8cfa");
+            "fire-exit-routine", "sha256:38d93ca7e9788474883eb64f5bf9bb07b25e093f7eb1f2de2ea3e91291065349",
+            "earthquake-protect-routine", "sha256:9a8d130009a959525018c5af875f4ebb03c52befcc5ec2864aea975ba8e918ee",
+            "flood-road-routine", "sha256:4358db75a3c354ed6e9e69150b72d0856b0b8a5e529c155ee5e94ad0290311e9",
+            "pets-evac-routine", "sha256:0ca1a3e14ab525d2cc2789a03f3140ad83a4964e75ad75cef31ed7e2252570f3");
 
     private static final PracticeCatalog SHIPPED = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
 
@@ -110,12 +110,12 @@ class PracticeRoutineContentTest {
     @Test
     void theIfThenTextIsTheOwnerApprovedWording() {
         Map<String, String[]> wording = Map.of(
-                "tornado-night-routine", new String[]{"If a tornado warning comes at night", "{who} wakes everyone and we all go to {place}."},
+                "tornado-night-routine", new String[]{"If a tornado warning comes at night", "{who} wakes everyone and we all go to {place}, and we cover our heads and necks."},
                 "comms-reconnect-routine", new String[]{"If we can't reach each other", "We text first, then contact {contact}."},
-                "fire-exit-routine", new String[]{"If the smoke alarm sounds", "We use the nearest safe exit and meet at {place}. Once we're out, we stay out."},
-                "earthquake-protect-routine", new String[]{"If the ground shakes", "We drop, cover and hold on where we are. When it stops, {who} checks on everyone."},
-                "flood-road-routine", new String[]{"If water covers the road", "We turn around and take {route}."},
-                "pets-evac-routine", new String[]{"If we have to leave", "{who} gets the pets into carriers or on leashes, and they come with us."});
+                "fire-exit-routine", new String[]{"If the smoke alarm sounds", "We use the nearest safe way out and meet at {place}. Once we're out, we stay out and call 911 from outside."},
+                "earthquake-protect-routine", new String[]{"If the ground shakes", "We drop, cover and hold on where we are; anyone using a wheelchair locks, covers and holds on. When it stops, {who} checks on everyone."},
+                "flood-road-routine", new String[]{"If water covers the road", "We turn around and never drive or walk into water. We take {route} only if it's open and dry, or wait somewhere high."},
+                "pets-evac-routine", new String[]{"If we have to leave", "{who} puts cats and small pets in carriers and dogs on a secure leash or harness, or in a carrier, and they all come with us."});
         for (var e : wording.entrySet()) {
             PracticeContent.Routine rt = SHIPPED.exact(e.getKey(), 1).orElseThrow().body().routine();
             assertThat(rt.ifText()).isEqualTo(e.getValue()[0]);
@@ -143,7 +143,7 @@ class PracticeRoutineContentTest {
         assertThat(tornado.slots()).extracting(PracticeContent.RoutineSlot::key, PracticeContent.RoutineSlot::source,
                         PracticeContent.RoutineSlot::tier, PracticeContent.RoutineSlot::fallback)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("who", PracticeContent.RoutineSlotSource.ADULT, null, "a grown-up"),
-                        org.assertj.core.groups.Tuple.tuple("place", PracticeContent.RoutineSlotSource.PLACE, "INDOOR_SAFE_ROOM", "our safe room"));
+                        org.assertj.core.groups.Tuple.tuple("place", PracticeContent.RoutineSlotSource.PLACE, "INDOOR_SAFE_ROOM", "a basement or small interior room on the lowest floor away from windows"));
         PracticeContent.RoutineSlot contact = SHIPPED.exact("comms-reconnect-routine", 1).orElseThrow().body().routine().slots().get(0);
         assertThat(contact.source()).isEqualTo(PracticeContent.RoutineSlotSource.CONTACT);
         assertThat(contact.contactType()).isEqualTo("OUT_OF_AREA");
@@ -153,7 +153,7 @@ class PracticeRoutineContentTest {
         assertThat(spot.fallback()).isEqualTo("our meeting spot outside");
         PracticeContent.RoutineSlot route = SHIPPED.exact("flood-road-routine", 1).orElseThrow().body().routine().slots().get(0);
         assertThat(route.source()).isEqualTo(PracticeContent.RoutineSlotSource.TEXT);
-        assertThat(route.fallback()).isEqualTo("our backup route");
+        assertThat(route.fallback()).isEqualTo("another road that isn't flooded");
     }
 
     @Test

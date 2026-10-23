@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT pilot Together activity (redesign FR-8), authored 2026-10-22 by Claude (agent) from 07_content_templates/TOGETHER_ACTIVITY_TEMPLATE.md. Every instruction is limited to four facts from the cited sources: plan two ways out, get out and stay out, meet at the meeting spot outside, count everyone. Needs the independent CHILD_SAFETY_REVIEW at the exact hash before it can be PUBLISHED; the author does not approve it. Source pages: NFPA escape planning page and the USFA home fire escape plans page were reachable when authored; the American Red Cross fire page returned HTTP 403 to the automated fetch and must be opened by the reviewer."
+      "notes": "DRAFT pilot Together activity (redesign FR-8), authored 2026-10-22 by Claude (agent) from 07_content_templates/TOGETHER_ACTIVITY_TEMPLATE.md. Every instruction is limited to four facts from the cited sources: plan two ways out, get out and stay out, meet at the meeting spot outside, count everyone. Needs the independent CHILD_SAFETY_REVIEW at the exact hash before it can be PUBLISHED; the author does not approve it. Source pages: NFPA escape planning page and the USFA home fire escape plans page were reachable when authored; the American Red Cross fire page returned HTTP 403 to the automated fetch and must be opened by the reviewer. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:82c9d5ef…): turn 1 now separates naming a window as a way out from practising it (today we only point; a grown-up checks doors and windows open easily and whether upstairs needs an escape ladder, NFPA); turn 6 makes staying out explicit (even for a pet or a toy) and has a grown-up call 911 from outside (NFPA/USFA)."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -52,7 +52,7 @@
           "rhythm": "SHOW_ME",
           "role": "ADULT",
           "say": "Let's find two ways out of this room.",
-          "grownUp": "Point to the door, then to a second way out, such as a window. Say that every room needs two ways out."
+          "grownUp": "Point to the door, then a window. Today we only point. Later, a grown-up checks that doors and windows open easily and whether upstairs needs an escape ladder."
         },
         {
           "rhythm": "WITH_ME",
@@ -83,7 +83,7 @@
           "rhythm": "TELL_ME_WHY",
           "role": "ANY",
           "say": "What do we do once we are outside?",
-          "grownUp": "Say it together: once we are out, we stay out.",
+          "grownUp": "Say it together: once we are out, we stay out, even for a pet or a toy. A grown-up calls 911 from outside.",
           "ask": "Once we are out, do we go back in?"
         }
       ],

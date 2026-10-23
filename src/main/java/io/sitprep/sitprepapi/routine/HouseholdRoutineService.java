@@ -185,6 +185,17 @@ public class HouseholdRoutineService {
             chosen.put(slot.key(), validateSlot(slot, e.getValue(), options.getOrDefault(slot.key(), List.of())));
         }
 
+        // A place or contact left blank resolves to the household's own saved one (the plan's
+        // primary pick first) before the template's generic fallback: Gate 2, 2026-10-23 — "resolve
+        // to the saved indoor safe room when available". Nothing is invented: no saved one, no value.
+        for (RoutineSlot s : r.slots()) {
+            if (s.source() != RoutineSlotSource.PLACE && s.source() != RoutineSlotSource.CONTACT) continue;
+            HouseholdRoutine.SlotValue v = chosen.get(s.key());
+            if (v != null && v.value() != null && !v.value().isBlank()) continue;
+            List<OptionDto> saved = options.getOrDefault(s.key(), List.of());
+            if (!saved.isEmpty()) chosen.put(s.key(), new HouseholdRoutine.SlotValue(saved.get(0).value(), saved.get(0).refId()));
+        }
+
         String thenText = PracticeRoutines.render(r, k -> chosen.containsKey(k) ? chosen.get(k).value() : null);
         if (thenText.length() > PracticeContentValidator.ROUTINE_SAVED_THEN_MAX) {
             throw new RoutineInvalidException("That line is too long to save; shorten what you typed");

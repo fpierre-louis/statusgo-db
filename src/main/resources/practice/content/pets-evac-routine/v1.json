@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier PREP: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:ee868c8d…): carriers for cats and small pets, a secure leash/harness or carrier for dogs (Ready.gov pets), instead of the interchangeable 'carriers or leashes'."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -33,7 +33,7 @@
       "hazard": "pets",
       "title": "Leaving with our pets",
       "ifText": "If we have to leave",
-      "thenTemplate": "{who} gets the pets into carriers or on leashes, and they come with us.",
+      "thenTemplate": "{who} puts cats and small pets in carriers and dogs on a secure leash or harness, or in a carrier, and they all come with us.",
       "reviewTier": "PREP",
       "slots": [
         {

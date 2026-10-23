@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:e6f33253…): restates the absolute rule (NWS: never drive or walk into flood waters) and makes the saved route conditional on being open and dry, with a wait-high alternative, so a stored route never reads as automatically safe; fallback names an unflooded road instead of an empty 'our backup route'."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -33,13 +33,13 @@
       "hazard": "flood",
       "title": "Water on the road",
       "ifText": "If water covers the road",
-      "thenTemplate": "We turn around and take {route}.",
+      "thenTemplate": "We turn around and never drive or walk into water. We take {route} only if it's open and dry, or wait somewhere high.",
       "reviewTier": "LIFE_SAFETY",
       "slots": [
         {
           "key": "route",
           "source": "TEXT",
-          "fallback": "our backup route"
+          "fallback": "another road that isn't flooded"
         }
       ],
       "offeredBy": {

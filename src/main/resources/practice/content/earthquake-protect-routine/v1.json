@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:2b247435…): adds the Lock, Cover and Hold On variant (Earthquake Country Alliance), matching the offering scenario's answer and the drill copy. Unconditional by design: the household plan holds no reliable 'uses a wheelchair' fact (support profiles carry only 'cannot use stairs' and a free-text note), so a conditional clause would have to guess; the clause is harmless where no one uses a wheelchair."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -29,7 +29,7 @@
       "hazard": "earthquake",
       "title": "When the ground shakes",
       "ifText": "If the ground shakes",
-      "thenTemplate": "We drop, cover and hold on where we are. When it stops, {who} checks on everyone.",
+      "thenTemplate": "We drop, cover and hold on where we are; anyone using a wheelchair locks, covers and holds on. When it stops, {who} checks on everyone.",
       "reviewTier": "LIFE_SAFETY",
       "slots": [
         {

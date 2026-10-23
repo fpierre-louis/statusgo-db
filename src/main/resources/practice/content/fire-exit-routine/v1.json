@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:ea8fc767…): adds calling 911 from outside (NFPA/USFA); keeps the nearest-safe-way-out wording, the meeting place and the stay-out instruction."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -33,7 +33,7 @@
       "hazard": "home-fire",
       "title": "Smoke alarm exit",
       "ifText": "If the smoke alarm sounds",
-      "thenTemplate": "We use the nearest safe exit and meet at {place}. Once we're out, we stay out.",
+      "thenTemplate": "We use the nearest safe way out and meet at {place}. Once we're out, we stay out and call 911 from outside.",
       "reviewTier": "LIFE_SAFETY",
       "slots": [
         {

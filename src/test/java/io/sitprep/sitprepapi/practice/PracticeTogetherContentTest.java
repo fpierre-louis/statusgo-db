@@ -34,7 +34,7 @@ class PracticeTogetherContentTest {
     static final Path PILOT = Path.of("src/main/resources/practice/content/together-get-out-and-meet-up/v1.json");
 
     /** The hash the reviewer must read. Any edit to the pilot fails here first. */
-    static final String PILOT_DRAFT_HASH = "sha256:82c9d5ef37bbe938a11f86afb5c798e3d88510bf11b1eeb1031d523234d79bf6";
+    static final String PILOT_DRAFT_HASH = "sha256:4a45a2458c586684d6878935f28fc93873738988c92c290d9ec9505efa40dc8a";
 
     static ObjectNode together() {
         try {

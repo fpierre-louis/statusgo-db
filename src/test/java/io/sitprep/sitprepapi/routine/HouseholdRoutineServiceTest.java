@@ -310,11 +310,11 @@ class HouseholdRoutineServiceTest {
                 .andExpect(jsonPath("$.hazard").value("fixture"))
                 .andExpect(jsonPath("$.title").value("Fixture routine"))
                 .andExpect(jsonPath("$.ifText").value("If the fixture happens"))
-                .andExpect(jsonPath("$.thenText").value("Sam calls our out-of-area contact right away; we go to Hall closet and take Ridge Rd."))
+                .andExpect(jsonPath("$.thenText").value("Sam calls Rosa right away; we go to Hall closet and take Ridge Rd."))
                 .andExpect(jsonPath("$.contentVersion").value(1))
                 .andExpect(jsonPath("$.slots[0].key").value("who"))
                 .andExpect(jsonPath("$.slots[0].refId").value("user:u-3"))
-                .andExpect(jsonPath("$.slots[3].value").value("Ridge Rd"));
+                .andExpect(jsonPath("$.slots[?(@.key=='route')].value").value("Ridge Rd"));
         assertThat(table).hasSize(1);
         assertThat(table.get(0).getCreatedByEmail()).isEqualTo(ADMIN);
         verify(broadcast).broadcastHouseholdPlanChangedAfterCommit(HH, "routines");
@@ -322,15 +322,29 @@ class HouseholdRoutineServiceTest {
         // A second save is an update of the same row, not a second row.
         as(OWNER);
         mvc.perform(save(body("{\"who\":{\"value\":\"a grown-up\"}}"))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.thenText").value("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."));
+                .andExpect(jsonPath("$.thenText").value("A grown-up calls Rosa right away; we go to Basement storage room and take our backup route."));
         assertThat(table).hasSize(1);
         assertThat(table.get(0).getCreatedByEmail()).isEqualTo(ADMIN);
         assertThat(table.get(0).getUpdatedByEmail()).isEqualTo(OWNER);
-        assertThat(table.get(0).getSlotValues()).containsOnlyKeys("who");
+        // Blank place/contact resolved to the household's own saved ones (Gate 2, 2026-10-23).
+        assertThat(table.get(0).getSlotValues()).containsOnlyKeys("who", "contact", "place");
     }
 
     @Test
-    void anEmptySaveKeepsEveryFallback() throws Exception {
+    void anEmptySaveResolvesPlaceAndContactToTheHouseholdsOwnThenFallsBack() throws Exception {
+        // Gate 2 (2026-10-23): a blank place/contact resolves to the household's saved one (the
+        // plan's primary pick first); only a slot with nothing saved reads its generic fallback.
+        as(OWNER);
+        mvc.perform(save("{\"contentVersion\":1}")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.thenText").value("A grown-up calls Rosa right away; we go to Basement storage room and take our backup route."))
+                .andExpect(jsonPath("$.slots[?(@.key=='place')].refId").value("place:1"))
+                .andExpect(jsonPath("$.slots[?(@.key=='contact')].refId").value("contact:10"));
+    }
+
+    @Test
+    void withNothingSavedTheGenericFallbacksStand() throws Exception {
+        when(meetingPlaceRepo.findByHouseholdId(HH)).thenReturn(List.of());
+        when(contactGroupRepo.findByHouseholdId(HH)).thenReturn(List.of());
         as(OWNER);
         mvc.perform(save("{\"contentVersion\":1}")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.thenText").value("A grown-up calls our out-of-area contact right away; we go to our safe room and take our backup route."))

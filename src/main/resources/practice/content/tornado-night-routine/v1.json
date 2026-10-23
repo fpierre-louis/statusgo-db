@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then."
+      "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:eaecfc95…): the place fallback is now the NWS/SPC shelter rule itself (Gate 2's wording: a basement or small interior room on the lowest floor away from windows) instead of an empty 'our safe room'; a saved indoor safe room still wins, and an empty slot resolves to it server-side; head and neck protection added."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -33,7 +33,7 @@
       "hazard": "tornado",
       "title": "Tornado at night",
       "ifText": "If a tornado warning comes at night",
-      "thenTemplate": "{who} wakes everyone and we all go to {place}.",
+      "thenTemplate": "{who} wakes everyone and we all go to {place}, and we cover our heads and necks.",
       "reviewTier": "LIFE_SAFETY",
       "slots": [
         {
@@ -45,7 +45,7 @@
           "key": "place",
           "source": "PLACE",
           "tier": "INDOOR_SAFE_ROOM",
-          "fallback": "our safe room"
+          "fallback": "a basement or small interior room on the lowest floor away from windows"
         }
       ],
       "offeredBy": {
