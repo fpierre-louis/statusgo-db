@@ -529,14 +529,61 @@ class PracticeContentValidatorTest {
         assertThat(mediaErrors(stray)).anyMatch(e -> e.contains("mediaStyle is only valid with media"));
     }
 
+    private static ObjectNode withExplanation(ObjectNode root, String sha) {
+        root.put("schema", 2);
+        content(root).put("mediaStyle", "REALISM");
+        var n = (ObjectNode) content(root).get("scenario").get("nodes").get(0);
+        n.putObject("explanationMedia").put("slotKey", root.get("key").asText() + "." + n.get("key").asText() + ".explanation")
+                .put("kind", "STILL").put("assetSha256", sha).put("alt", "A calm explanation of the step.");
+        return root;
+    }
+
+    private static ObjectNode explanationOf(ObjectNode root) {
+        return (ObjectNode) content(root).get("scenario").get("nodes").get(0).get("explanationMedia");
+    }
+
     @Test
-    void reactionMediaIsAllOrNoneAndClipsNeedAPosterAndAShortDuration() {
-        ObjectNode partial = withScene(scenario("k", 1), STILL);
-        var c0 = choiceAt(partial, 0, 0);
+    void anExplanationStillValidatesAndCountsTowardTheSchema2Rules() {
+        assertThat(mediaErrors(withExplanation(scenario("k", 1), STILL))).isEmpty();
+
+        ObjectNode s1 = withExplanation(scenario("k", 1), STILL); s1.put("schema", 1);
+        assertThat(mediaErrors(s1)).anyMatch(e -> e.contains("media requires schema 2"));
+
+        ObjectNode noStyle = withExplanation(scenario("k", 1), STILL); content(noStyle).remove("mediaStyle");
+        assertThat(mediaErrors(noStyle)).anyMatch(e -> e.contains("mediaStyle is required"));
+    }
+
+    @Test
+    void anExplanationNeedsItsSlotTheManifestTheContentStyleAndAStill() {
+        ObjectNode badSlot = withExplanation(scenario("k", 1), STILL);
+        explanationOf(badSlot).put("slotKey", "k.start.scene");
+        assertThat(mediaErrors(badSlot)).anyMatch(e -> e.contains("slotKey must be k.start.explanation"));
+
+        assertThat(mediaErrors(withExplanation(scenario("k", 1), "sha256:" + "9".repeat(64))))
+                .anyMatch(e -> e.contains("not in the media manifest"));
+        assertThat(mediaErrors(withExplanation(scenario("k", 1), STILL2)))
+                .anyMatch(e -> e.contains("style does not match"));
+
+        ObjectNode clip = withExplanation(scenario("k", 1), CLIP);
+        explanationOf(clip).put("kind", "CLIP").put("posterSha256", STILL).put("durationMs", 8000);
+        assertThat(mediaErrors(clip)).anyMatch(e -> e.contains("an explanation is a still"));
+    }
+
+    @Test
+    void choiceReactionMediaIsRetiredAndRejectedOnAnyContent() {
+        ObjectNode r = withScene(scenario("k", 1), STILL);
+        var c0 = choiceAt(r, 0, 0);
         c0.putObject("media").put("slotKey", "k.start." + c0.get("key").asText() + ".reaction")
                 .put("kind", "STILL").put("assetSha256", STILL).put("alt", "Calm reaction.");
-        assertThat(mediaErrors(partial)).anyMatch(e -> e.contains("reaction media is all-or-none"));
+        assertThat(mediaErrors(r)).anyMatch(e -> e.contains("choice (reaction) media is retired"));
+        // Rejected even when it would have been the only media in a schema-1 file.
+        ObjectNode only = scenario("k", 1);
+        choiceAt(only, 0, 0).putObject("media").put("kind", "STILL");
+        assertThat(errors(only)).anyMatch(e -> e.contains("choice (reaction) media is retired"));
+    }
 
+    @Test
+    void clipsNeedAPosterAndAShortDuration() {
         ObjectNode clip = withScene(scenario("k", 1), STILL);
         ((ObjectNode) content(clip).get("scenario").get("nodes").get(0).get("media"))
                 .put("kind", "CLIP").put("assetSha256", CLIP).put("durationMs", 12000);

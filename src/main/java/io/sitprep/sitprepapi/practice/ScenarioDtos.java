@@ -82,7 +82,9 @@ public final class ScenarioDtos {
      * the client then shows {@code feedback} alone.
      */
     public record CommittedDto(String nodeKey, String nodeTitle, String choiceKey, String choiceLabel,
-                               String consequence, String feedback, MediaDto media,
+                               String consequence, String feedback,
+                               /** The committed node's explanation still; same for every choice, null when none (EXEC-M2). */
+                               MediaDto explanationMedia,
                                List<OtherChoiceDto> otherChoices) {}
 
     /**
@@ -106,8 +108,7 @@ public final class ScenarioDtos {
      */
     public record PathStepDto(String prompt, String choiceLabel, String nodeTitle, List<PathOptionDto> options) {}
 
-    public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen,
-                                MediaDto media) {}
+    public record PathOptionDto(String key, String label, String consequence, String feedback, boolean chosen) {}
 
     /**
      * No score. {@code oneThing} (additive, redesign BE-02) is the single

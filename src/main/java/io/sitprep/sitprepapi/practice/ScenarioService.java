@@ -375,7 +375,7 @@ public class ScenarioService {
                 run.getStartedAt(), run.getCompletedAt(), decisionsTotal(v, run, showContent));
     }
 
-    private static NodeDto nodeDto(Node n) {
+    static NodeDto nodeDto(Node n) {
         List<ChoiceDto> choices = n.choices().stream().map(c -> new ChoiceDto(c.key(), c.label())).toList();
         List<ScenarioDtos.MessageDto> messages = n.messages() == null ? null : n.messages().stream()
                 .map(m -> new ScenarioDtos.MessageDto(m.from(), m.text(), Boolean.TRUE.equals(m.outgoing())))
@@ -390,7 +390,7 @@ public class ScenarioService {
                 r.width(), r.height(), r.focal(), r.durationMs(), r.posterUrl(), r.alt());
     }
 
-    private static CommittedDto lastCommit(Version v, List<TraceStep> trace) {
+    static CommittedDto lastCommit(Version v, List<TraceStep> trace) {
         if (trace == null || trace.isEmpty()) return null;
         TraceStep last = trace.get(trace.size() - 1);
         Optional<Node> node = ScenarioEngine.node(v, last.nodeKey());
@@ -401,7 +401,7 @@ public class ScenarioService {
                 .map(o -> new ScenarioDtos.OtherChoiceDto(o.key(), o.label(), o.consequence(), o.feedback()))
                 .toList();
         return new CommittedDto(last.nodeKey(), node.get().title(), last.choiceKey(),
-                choice.get().label(), choice.get().consequence(), choice.get().feedback(), mediaDto(choice.get().media()),
+                choice.get().label(), choice.get().consequence(), choice.get().feedback(), mediaDto(node.get().explanationMedia()),
                 others);
     }
 
@@ -417,7 +417,7 @@ public class ScenarioService {
                             path.add(new PathStepDto(n.prompt(), c.label(), n.title(),
                                     n.choices().stream()
                                             .map(o -> new ScenarioDtos.PathOptionDto(o.key(), o.label(),
-                                                    o.consequence(), o.feedback(), o.key().equals(c.key()), mediaDto(o.media())))
+                                                    o.consequence(), o.feedback(), o.key().equals(c.key())))
                                             .toList()))));
         }
         return new DebriefDto(d.outcome().title(), d.outcome().body(), d.strongChoices(),

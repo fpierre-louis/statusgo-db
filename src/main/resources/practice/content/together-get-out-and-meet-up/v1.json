@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "key": "together-get-out-and-meet-up",
   "version": 1,
   "kind": "FAMILY_ACTIVITY",
@@ -101,7 +101,14 @@
       "nextPrompt": "Check your meeting place in your plan.",
       "nextLabel": "Review your plan",
       "nextNote": "Opens your real plan. Nothing changes unless you save it.",
-      "topic": "Home fire"
-    }
+      "topic": "Home fire",
+      "heroMedia": {
+        "slotKey": "together-get-out-and-meet-up.hero",
+        "kind": "STILL",
+        "assetSha256": "sha256:af13f4b9149d99dd1edb562f68b75215ba4aecd232fd62c42ec0676dddf23e3e",
+        "alt": "An adult, a child and a teen point to the front door of their home."
+      }
+    },
+    "mediaStyle": "ILLUSTRATION"
   }
 }

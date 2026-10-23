@@ -173,7 +173,9 @@ public final class PracticeContent {
             String scene,
             List<Message> messages,
             /** Neutral scene still shown before a choice (schema 2). Never answer-revealing. */
-            Media media) {}
+            Media media,
+            /** Node-level explanation still, identical on every path, shown only after the commit (EXEC-M2). */
+            Media explanationMedia) {}
 
     /** One in-story text message. {@code outgoing} = sent by the household (drawn on the right). */
     public record Message(
@@ -201,7 +203,7 @@ public final class PracticeContent {
             String feedback,
             List<String> tags,
             String next,
-            /** Reaction media, withheld until this choice is committed; all-or-none per choice set. */
+            /** RETIRED (EXEC-M2): REACTION media no longer exists. Kept only so the validator can reject it. */
             Media media) {}
 
     /** A terminal state. {@code defaultAction} is the next step when no "Worth practicing" tag names one. */
@@ -223,8 +225,8 @@ public final class PracticeContent {
      * Content never carries a URL: the asset's SHA-256 is part of the hashed
      * content, so changing a single pixel means a new version and a new review
      * (scenario engagement spec §5.2). {@code slotKey} must be
-     * {@code <scenario>.<node>.scene}, {@code <scenario>.<node>.<choice>.reaction}
-     * or {@code <scenario>.<outcome>.ending}.
+     * {@code <scenario>.<node>.scene}, {@code <scenario>.<node>.explanation},
+     * {@code <scenario>.<outcome>.ending} or (TOGETHER) {@code <activity>.hero}.
      */
     public record Media(
             String slotKey,
@@ -264,7 +266,9 @@ public final class PracticeContent {
             String talkAboutIt,
             List<String> followUps,
             /* TOGETHER only, optional: the setup overline's topic ("Home fire"). */
-            String topic) {}
+            String topic,
+            /* TOGETHER only, optional: the setup hero still (slot {activityKey}.hero). */
+            Media heroMedia) {}
 
     /**
      * One step of an adult-led Together session. {@code rhythm} is a {@link TogetherRhythm} name,

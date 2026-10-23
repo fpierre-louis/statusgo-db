@@ -34,7 +34,7 @@ class PracticeTogetherContentTest {
     static final Path PILOT = Path.of("src/main/resources/practice/content/together-get-out-and-meet-up/v1.json");
 
     /** The hash the reviewer must read. Any edit to the pilot fails here first. */
-    static final String PILOT_DRAFT_HASH = "sha256:b23c1017ca28138b0d9a16016287209b8a1df5b3221851d139ecee396e256b96";
+    static final String PILOT_DRAFT_HASH = "sha256:82c9d5ef37bbe938a11f86afb5c798e3d88510bf11b1eeb1031d523234d79bf6";
 
     static ObjectNode together() {
         try {
@@ -322,5 +322,68 @@ class PracticeTogetherContentTest {
                 .containsExactlyInAnyOrder(TogetherRole.UTILITIES, TogetherRole.MEDICAL, TogetherRole.DRIVER);
         assertThat(TogetherRole.HEAD_COUNTER.label()).isEqualTo("Head counter");
         assertThat(TogetherRole.PET_BUDDY.adultOnly()).isFalse();
+    }
+
+    // -- hero media (EXEC-M2) ------------------------------------------------
+
+    static final String HERO = "sha256:af13f4b9149d99dd1edb562f68b75215ba4aecd232fd62c42ec0676dddf23e3e";
+
+    @Test
+    void thePilotHeroIsAStillInTheManifestWithItsSlotAndResolvesInTheDto() {
+        Version v = version(together());
+        var hero = v.body().activity().heroMedia();
+        assertThat(hero.slotKey()).isEqualTo("together-get-out-and-meet-up.hero");
+        assertThat(hero.alt()).isEqualTo("An adult, a child and a teen point to the front door of their home.");
+        var dto = ScenarioService.mediaDto(hero);
+        assertThat(dto.url()).isEqualTo("/images/practice/together-fire-hero-af13f4b9-640.jpg");
+        assertThat(dto.srcSet()).contains("-960.jpg 960w").contains("-1254.jpg 1254w");
+        assertThat(dto.width()).isEqualTo(1254);
+        assertThat(dto.height()).isEqualTo(705);
+        assertThat(dto.focal()).isEqualTo("center 40%");
+    }
+
+    @Test
+    void heroMediaNeedsItsSlotAKnownAssetAStillAndSchema2() {
+        ObjectNode badSlot = together();
+        ((ObjectNode) activity(badSlot).get("heroMedia")).put("slotKey", "together-get-out-and-meet-up.scene");
+        assertRejected(badSlot, "slotKey must be together-get-out-and-meet-up.hero");
+
+        ObjectNode unknown = together();
+        ((ObjectNode) activity(unknown).get("heroMedia")).put("assetSha256", "sha256:" + "9".repeat(64));
+        assertRejected(unknown, "not in the media manifest");
+
+        ObjectNode clip = together();
+        ((ObjectNode) activity(clip).get("heroMedia")).put("kind", "CLIP");
+        assertRejected(clip, "a hero is a still");
+
+        ObjectNode s1 = together();
+        s1.put("schema", 1);
+        assertRejected(s1, "media requires schema 2");
+
+        ObjectNode noStyle = together();
+        ((ObjectNode) noStyle.get("content")).remove("mediaStyle");
+        assertRejected(noStyle, "mediaStyle is required");
+
+        ObjectNode wrongStyle = together();
+        ((ObjectNode) wrongStyle.get("content")).put("mediaStyle", "REALISM");
+        assertRejected(wrongStyle, "style does not match");
+    }
+
+    @Test
+    void heroMediaIsRejectedOnAnItemSort() {
+        ObjectNode sort = PracticeFixtures.family("k", 1);
+        sort.put("schema", 2);
+        ((ObjectNode) sort.get("content")).put("mediaStyle", "ILLUSTRATION");
+        activity(sort).putObject("heroMedia").put("slotKey", "k.hero").put("kind", "STILL")
+                .put("assetSha256", HERO).put("alt", "A hero.");
+        assertRejected(sort, "hero media belongs only to a TOGETHER activity");
+    }
+
+    @Test
+    void itemSortStaysHeroFreeAndAMediaStyleWithoutAHeroIsRejected() {
+        assertThat(errors(PracticeFixtures.family("k", 1))).isEmpty();
+        ObjectNode none = together();
+        activity(none).remove("heroMedia");
+        assertRejected(none, "mediaStyle is only valid with media");
     }
 }

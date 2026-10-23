@@ -139,6 +139,7 @@ public final class PracticeContentValidator {
             }
         } else if (f.kind() == PracticeKind.FAMILY_ACTIVITY && b.activity() != null) {
             validateActivity(b, where, errors);
+            validateActivityMedia(f.schema(), f.key(), b, b.activity(), manifest, where, errors);
         } else if (f.kind() == PracticeKind.SKILL) {
             validateSkill(b, where, errors);
         } else if (f.kind() == PracticeKind.CHECKIN) {
@@ -168,18 +169,18 @@ public final class PracticeContentValidator {
                 count++;
                 validateMedia(n.media(), b.mediaStyle(), key + "." + n.key() + ".scene", manifest, at + " media", errors);
             }
-            List<PracticeContent.Choice> choices = n.choices() == null ? List.of() : n.choices();
-            int withMedia = 0;
-            for (PracticeContent.Choice c : choices) {
-                if (c == null || c.media() == null) continue;
-                withMedia++;
+            if (n.explanationMedia() != null) {
                 count++;
-                validateMedia(c.media(), b.mediaStyle(), key + "." + n.key() + "." + c.key() + ".reaction", manifest,
-                        at + " choice " + c.key() + " media", errors);
+                validateMedia(n.explanationMedia(), b.mediaStyle(), key + "." + n.key() + ".explanation", manifest,
+                        at + " explanationMedia", errors);
+                if (n.explanationMedia().kind() != PracticeContent.MediaKind.STILL) {
+                    errors.add(at + " explanationMedia: an explanation is a still");
+                }
             }
-            if (withMedia != 0 && withMedia != choices.size()) {
-                // Media on some options and not others would grade the choice.
-                errors.add(at + ": reaction media is all-or-none per choice set (" + withMedia + " of " + choices.size() + ")");
+            for (PracticeContent.Choice c : n.choices() == null ? List.<PracticeContent.Choice>of() : n.choices()) {
+                if (c != null && c.media() != null) {
+                    errors.add(at + " choice " + c.key() + ": choice (reaction) media is retired; use node explanationMedia");
+                }
             }
         }
         for (PracticeContent.Outcome o : s.outcomes() == null ? List.<PracticeContent.Outcome>of() : s.outcomes()) {
@@ -192,6 +193,24 @@ public final class PracticeContentValidator {
         if (count > 0 && b.mediaStyle() == null) errors.add(where + ": content.mediaStyle is required when media is present");
         if (count == 0 && b.mediaStyle() != null) errors.add(where + ": content.mediaStyle is only valid with media");
         if (count > 0 && !manifest.problems().isEmpty()) errors.add(where + ": media manifest is invalid: " + manifest.problems());
+    }
+
+    private static void validateActivityMedia(Integer schema, String key, Body b, Activity a,
+                                              PracticeMediaManifest manifest, String where, List<String> errors) {
+        if (a.heroMedia() == null) {
+            if (b.mediaStyle() != null) errors.add(where + ": content.mediaStyle is only valid with media");
+            return;
+        }
+        String at = where + ": activity heroMedia";
+        if (!"TOGETHER".equals(a.type())) {
+            errors.add(at + ": hero media belongs only to a TOGETHER activity");
+            return;
+        }
+        validateMedia(a.heroMedia(), b.mediaStyle(), key + ".hero", manifest, at, errors);
+        if (a.heroMedia().kind() != PracticeContent.MediaKind.STILL) errors.add(at + ": a hero is a still");
+        if (schema == null || schema < 2) errors.add(where + ": media requires schema 2");
+        if (b.mediaStyle() == null) errors.add(where + ": content.mediaStyle is required when media is present");
+        if (!manifest.problems().isEmpty()) errors.add(where + ": media manifest is invalid: " + manifest.problems());
     }
 
     private static void validateMedia(PracticeContent.Media m, PracticeContent.MediaStyle style, String slot,

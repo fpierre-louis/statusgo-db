@@ -128,6 +128,22 @@
       "focal": "center center",
       "bytes": 211707,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:af13f4b9149d99dd1edb562f68b75215ba4aecd232fd62c42ec0676dddf23e3e",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/together-fire-hero-af13f4b9",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center 40%",
+      "bytes": 106317,
+      "durationMs": null
     }
   ]
 }
