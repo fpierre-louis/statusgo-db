@@ -1,0 +1,257 @@
+{
+  "schema": 2,
+  "key": "flash-flood-turn-around-route",
+  "version": 4,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Flash Flood v3 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v3 stays PUBLISHED, approved at sha256:60992c7a...) plus schema 2, mediaStyle REALISM, SCENE water_over_road <- MEDIA-024 (master a0de6c00..., a stopped vehicle on dry pavement before opaque moving water that hides the road; no turn-around or other answer shown), SCENE barricade <- MEDIA-025 (master 75a2a488..., a complete striped road closure with dry-looking pavement beyond; no bypass, detour or wait shown), and the ending MEDIA-013 (master d90094c4..., design-approved PREP) on the single outcome route_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a parked car on a dry hilltop lot above a faintly damp lower road under a clearing sky, a neutral post-practice state with no floodwater, crossing, barricade, damage or reward cue, so it restates the outcome's own 'higher ground' planning question and does not grade the player's choices. Reviewers should confirm that reading at both gates. NOT PLANNED OR FILLED: choose_route and second_low_spot carry no media (no approved image). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Flash flood: turn around route",
+    "summary": "Floodwater blocks the road you expected to use. Practice choosing a route without crossing water or a barricade.",
+    "objective": "Practice turning around at floodwater and using official information to choose a safer route.",
+    "estimatedMinutes": 4,
+    "sources": [
+      {
+        "label": "National Weather Service — During a Flood",
+        "url": "https://www.weather.gov/safety/flood-during"
+      },
+      {
+        "label": "National Weather Service — Before a Flood",
+        "url": "https://www.weather.gov/safety/flood-before"
+      },
+      {
+        "label": "National Weather Service — Flood Warning vs. Watch",
+        "url": "https://www.weather.gov/safety/flood-watch-warning"
+      },
+      {
+        "label": "National Weather Service — Turn Around Don't Drown®",
+        "url": "https://www.weather.gov/safety/flood-turn-around-dont-drown"
+      }
+    ],
+    "tags": {
+      "avoided_floodwater": {
+        "text": "You kept the vehicle and everyone in it out of floodwater."
+      },
+      "followed_road_closure": {
+        "text": "You treated the barricade as a closed route and stayed away from it."
+      },
+      "recognized_official_source": {
+        "text": "You used official alerts and road closures to guide the next move."
+      },
+      "needs_route_review": {
+        "text": "Identify another route that avoids low crossings and flood-prone roads.",
+        "action": "OPEN_EVACUATION_PLAN",
+        "params": {
+          "step": "routes"
+        }
+      },
+      "needs_floodwater_rule": {
+        "text": "Agree that no one walks or drives into floodwater, then name the low crossings on your usual drive you would skip in heavy rain.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "flood-underpass-scan"
+        }
+      }
+    },
+    "scenario": {
+      "startNode": "water_over_road",
+      "nodes": [
+        {
+          "key": "water_over_road",
+          "title": "Water covers the road",
+          "body": "You are stopped before a low crossing. Water is moving across the road, and you cannot see the pavement underneath.",
+          "prompt": "What do you do first?",
+          "choices": [
+            {
+              "key": "wait_for_other_car",
+              "label": "Wait to see whether another vehicle makes it through",
+              "consequence": "The water keeps moving, and another driver's attempt cannot show what is safe for you.",
+              "feedback": "You cannot judge the water's depth or the road beneath it by watching another vehicle. The National Weather Service says water may be deeper than it appears.",
+              "tags": [
+                "needs_route_review"
+              ],
+              "next": "choose_route"
+            },
+            {
+              "key": "turn_around",
+              "label": "Turn around without entering the water",
+              "consequence": "You stay on dry pavement and put distance between the vehicle and the crossing.",
+              "feedback": "The National Weather Service says never to drive or walk into floodwater. Water can hide a washed-out road and other hazards.",
+              "tags": [
+                "avoided_floodwater"
+              ],
+              "next": "choose_route"
+            },
+            {
+              "key": "test_the_edge",
+              "label": "Ease forward to test how deep the water is",
+              "consequence": "The water's depth and the condition of the road are still hidden.",
+              "feedback": "The National Weather Service says it is never safe to drive into floodwater. Turn around before the vehicle enters it.",
+              "tags": [
+                "needs_floodwater_rule"
+              ],
+              "next": "choose_route"
+            }
+          ],
+          "scene": "6:15 PM · Heavy rain on the drive home",
+          "media": {
+            "slotKey": "flash-flood-turn-around-route.water_over_road.scene",
+            "kind": "STILL",
+            "assetSha256": "sha256:a0de6c004ed9d05a5245f1298575933f5a8254d1665bcdde450416debe6531f9",
+            "alt": "From inside a stopped vehicle, opaque brown water flows across the road ahead and hides the pavement beneath it."
+          }
+        },
+        {
+          "key": "choose_route",
+          "title": "Choose another route",
+          "body": "Away from the crossing, in a dry, higher parking area, you need another way around. A map still shows the usual road, but an official flash flood warning is active.",
+          "prompt": "What information do you use?",
+          "choices": [
+            {
+              "key": "usual_shortcut",
+              "label": "Take the familiar shortcut through another low spot",
+              "consequence": "That route also leads toward low ground where water can collect.",
+              "feedback": "A familiar road can still flood. The National Weather Service recommends knowing where water collects and how to reach higher ground.",
+              "tags": [
+                "needs_route_review"
+              ],
+              "next": "second_low_spot"
+            },
+            {
+              "key": "official_updates",
+              "label": "Check official alerts and road-closure information",
+              "consequence": "The official update shows a marked detour away from the low crossing.",
+              "feedback": "Flood conditions can change quickly. The National Weather Service recommends staying informed through radio, television, and official alerts, and obeying evacuation orders.",
+              "tags": [
+                "recognized_official_source"
+              ],
+              "next": "barricade"
+            },
+            {
+              "key": "unverified_post",
+              "label": "Follow an unverified post that says a shortcut is open",
+              "consequence": "The post does not show when the route was checked or whether conditions changed.",
+              "feedback": "Use current official alerts and closures for a fast-changing flood rather than relying on an unverified route report.",
+              "tags": [
+                "needs_route_review"
+              ],
+              "next": "second_low_spot"
+            }
+          ],
+          "scene": "6:20 PM · Dry, higher parking area"
+        },
+        {
+          "key": "second_low_spot",
+          "title": "Water across the shortcut",
+          "body": "The shortcut dips toward a small creek. Water is running across the low spot ahead, and you cannot tell how deep it is. The flash flood warning is still active.",
+          "prompt": "What do you do here?",
+          "choices": [
+            {
+              "key": "wait_by_creek",
+              "label": "Park near the low spot and wait for the water to go down",
+              "consequence": "You stay beside the creek while the rain keeps falling.",
+              "feedback": "A flash flood warning means a flash flood is happening or about to happen. The National Weather Service says to move immediately to high ground if you are in a flood-prone area, and that water levels can change quickly.",
+              "tags": [
+                "needs_route_review"
+              ],
+              "next": "barricade"
+            },
+            {
+              "key": "walk_to_check",
+              "label": "Get out and walk to the water's edge to see how deep it is",
+              "consequence": "You stand at the edge of moving water you still cannot see through.",
+              "feedback": "The National Weather Service warns against walking into or near floodwater. Six inches of moving water can knock you off your feet, and water can hide hazards such as electrical wires.",
+              "tags": [
+                "needs_floodwater_rule"
+              ],
+              "next": "barricade"
+            },
+            {
+              "key": "turn_back_official",
+              "label": "Turn around and check official alerts for an open route",
+              "consequence": "You leave the low spot behind, and the official update points you to a marked detour.",
+              "feedback": "The National Weather Service says never to drive or walk into floodwater, and to stay informed through official alerts while conditions change.",
+              "tags": [
+                "avoided_floodwater",
+                "recognized_official_source"
+              ],
+              "next": "barricade"
+            }
+          ],
+          "scene": "6:25 PM · The shortcut"
+        },
+        {
+          "key": "barricade",
+          "title": "A road-closed barricade ahead",
+          "body": "Later, at another intersection, a road-closed barricade blocks the road. A marked detour is longer, and the road beyond the barrier looks dry from where you are stopped. A dry parking area on higher ground is a short distance back.",
+          "prompt": "What do you do?",
+          "choices": [
+            {
+              "key": "go_around",
+              "label": "Go around the barricade because the pavement looks dry",
+              "consequence": "The barrier still marks the road as closed, including hazards you cannot see from here.",
+              "feedback": "Do not drive around a barricade. Floodwater, a washed-out road, or another hazard may be beyond your view.",
+              "tags": [
+                "needs_route_review"
+              ],
+              "next": "route_rehearsed"
+            },
+            {
+              "key": "take_detour",
+              "label": "Stay behind the barricade and take the marked detour",
+              "consequence": "You remain on the open route and continue away from the closed road.",
+              "feedback": "The National Weather Service says not to drive around a flood barricade. The road beyond it may have collapsed under the water.",
+              "tags": [
+                "followed_road_closure"
+              ],
+              "next": "route_rehearsed"
+            },
+            {
+              "key": "wait_for_update",
+              "label": "Go back to the dry, higher parking area and wait for an official update",
+              "consequence": "You move away from the closed road and check whether the route changes.",
+              "feedback": "Moving to a dry, higher place keeps you away from floodwater while you monitor official information. The National Weather Service says to stay informed during a flood.",
+              "tags": [
+                "recognized_official_source",
+                "followed_road_closure"
+              ],
+              "next": "route_rehearsed"
+            }
+          ],
+          "scene": "6:35 PM · Another intersection",
+          "media": {
+            "slotKey": "flash-flood-turn-around-route.barricade.scene",
+            "kind": "STILL",
+            "assetSha256": "sha256:75a2a4881ac7b585b51e80b48376b875f133dafb1b18eb7b14d3b7e6bb13af08",
+            "alt": "A striped barricade completely blocks a wet road while the pavement beyond it appears dry and curves out of view."
+          }
+        }
+      ],
+      "outcomes": [
+        {
+          "key": "route_rehearsed",
+          "title": "You practiced the turn-around decision",
+          "body": "This practice walked through one pattern at each decision point: stay out of floodwater, on foot or in a vehicle, use current official information, and treat barricades as closed routes. If you'd like, talk it over together: where does water collect on the roads you use most, and what is the fastest way to higher ground from home?",
+          "defaultAction": "OPEN_EVACUATION_PLAN",
+          "defaultParams": {
+            "step": "routes"
+          },
+          "media": {
+            "slotKey": "flash-flood-turn-around-route.route_rehearsed.ending",
+            "kind": "STILL",
+            "assetSha256": "sha256:d90094c47c5b22b8d21a44a6cd5497511bd19ab70a706f541efab81812868963",
+            "alt": "A parked gray crossover sits on a dry hilltop lot above a lower neighborhood road under a clearing sky."
+          }
+        }
+      ]
+    },
+    "mediaStyle": "REALISM"
+  }
+}

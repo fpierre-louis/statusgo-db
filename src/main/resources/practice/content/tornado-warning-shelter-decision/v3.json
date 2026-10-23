@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT (EXEC-M3, authored 2026-10-23 by Claude, agent): Tornado v2 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v2 stays PUBLISHED, approved at sha256:83619bb7...) plus schema 2, mediaStyle ILLUSTRATION, the intro still MEDIA-016 (master 3cbf96be..., design-approved PREP 2026-10-23) and the ending MEDIA-011 (master 2909a881..., design-approved PREP) on the single outcome warning_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a household stepping out of a windowless bathroom into a hallway, a neutral post-practice state with no hazard, damage, protective posture or reward cue, so it restates the outcome's own guidance and does not grade the player's choices. Reviewers should confirm that reading at both gates. PLANNED EMPTY SLOTS, filled one at a time as each image clears Gate 1 and Gate 2 (each fill is a new hash and a new review): SCENE warning_issued <- MEDIA-017 (revising); CHOICE_THUMB on warning_issued, all three options or none <- MEDIA-018 bedroom (upstairs_window), MEDIA-019 bathroom (interior_room), tornado.rooms.outside (look_outside; requested from Codex Media; MEDIA-020 kitchen retired as unmatched); EXPLANATION in_shelter <- MEDIA-021 (revising). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "notes": "DRAFT (EXEC-M3 + EXEC-M4, authored 2026-10-23 by Claude, agent): Tornado v2 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v2 stays PUBLISHED, approved at sha256:83619bb7...) plus schema 2, mediaStyle ILLUSTRATION, the SCENE still MEDIA-017 v2 on warning_issued (master 659b8f0e..., a pre-choice cue only: three people stay seated and look at a lit phone as storm clouds gather; no room, route or protective action is shown), the intro still MEDIA-016 (master 3cbf96be..., design-approved PREP 2026-10-23) and the ending MEDIA-011 (master 2909a881..., design-approved PREP) on the single outcome warning_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a household stepping out of a windowless bathroom into a hallway, a neutral post-practice state with no hazard, damage, protective posture or reward cue, so it restates the outcome's own guidance and does not grade the player's choices. Reviewers should confirm that reading at both gates. PLANNED EMPTY SLOTS, filled one at a time as each image clears Gate 1 and Gate 2 (each fill is a new hash and a new review): CHOICE_THUMB on warning_issued, all three options or none <- MEDIA-018 bedroom (upstairs_window), MEDIA-019 bathroom (interior_room), tornado.rooms.outside (look_outside; requested from Codex Media; MEDIA-020 kitchen retired as unmatched); EXPLANATION in_shelter <- MEDIA-021 (revising). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -101,7 +101,13 @@
               ],
               "next": "storm_closer"
             }
-          ]
+          ],
+          "media": {
+            "slotKey": "tornado-warning-shelter-decision.warning_issued.scene",
+            "kind": "STILL",
+            "assetSha256": "sha256:659b8f0ec14c3d9e25e256c15c8639be78494f36c3042897b529b4018c24a724",
+            "alt": "Three family members sit attentively in a living room, looking toward a brightly lit phone on the coffee table as dark storm clouds gather outside."
+          }
         },
         {
           "key": "storm_closer",

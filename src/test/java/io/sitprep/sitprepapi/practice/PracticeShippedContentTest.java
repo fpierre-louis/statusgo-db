@@ -450,7 +450,7 @@ class PracticeShippedContentTest {
     // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (DRAFT) ----
 
     static final String TORNADO_V2_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
-    static final String TORNADO_V3_DRAFT_HASH = "sha256:20c903ded235e6a80eb95515f19050620440439475c0d50d97c3b5d65d185fb0";
+    static final String TORNADO_V3_DRAFT_HASH = "sha256:eae85f06b43f834ba3497f10293be87303c26f69679ecdf29cc600bc97446341";
 
     private static com.fasterxml.jackson.databind.node.ObjectNode tornadoFile(int v) throws java.io.IOException {
         return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
@@ -470,23 +470,30 @@ class PracticeShippedContentTest {
         assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
         assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
         assertThat(v3.file().lifecycle().safetyReview().notes())
-                .contains("MEDIA-017", "MEDIA-018", "MEDIA-019", "tornado.rooms.outside", "MEDIA-021", "PLANNED EMPTY SLOTS");
+                .contains("MEDIA-017 v2", "MEDIA-018", "MEDIA-019", "tornado.rooms.outside", "MEDIA-021", "PLANNED EMPTY SLOTS")
+                .doesNotContain("SCENE warning_issued <- MEDIA-017");
 
         // Text verbatim: strip the media additions from v3 and the tree equals v2's content.
         var c2 = tornadoFile(2).get("content");
         var c3 = tornadoFile(3).get("content").deepCopy();
         ((com.fasterxml.jackson.databind.node.ObjectNode) c3).remove("mediaStyle");
         ((com.fasterxml.jackson.databind.node.ObjectNode) c3.get("scenario")).remove("introMedia");
+        c3.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("media"));
         c3.get("scenario").get("outcomes").forEach(o -> ((com.fasterxml.jackson.databind.node.ObjectNode) o).remove("media"));
         assertThat(c3).isEqualTo(c2);
 
-        // Media: the intro and the single outcome's ending only; no scene, thumb or explanation yet.
+        // Media (EXEC-M4): the intro, the warning_issued SCENE (MEDIA-017 v2) and the single outcome's ending; no thumb or explanation yet.
         assertThat(v3.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
         assertThat(v3.body().scenario().introMedia().assetSha256()).endsWith("3cbf96be93c67f4e9c466159e79ed94b0160997e031df3d7806d2f142f6b08cf");
         assertThat(v3.body().scenario().outcomes()).singleElement()
                 .satisfies(o -> assertThat(o.media().assetSha256()).endsWith("2909a881eaf03d2d231861d65bc2050ff38cc2b001d5b174b15144fb62eb385f"));
         assertThat(v3.body().scenario().nodes()).allSatisfy(n -> {
-            assertThat(n.media()).isNull();
+            if (n.key().equals("warning_issued")) {
+                assertThat(n.media().slotKey()).isEqualTo("tornado-warning-shelter-decision.warning_issued.scene");
+                assertThat(n.media().assetSha256()).endsWith("659b8f0ec14c3d9e25e256c15c8639be78494f36c3042897b529b4018c24a724");
+            } else {
+                assertThat(n.media()).isNull();
+            }
             assertThat(n.explanationMedia()).isNull();
             assertThat(n.choices()).allSatisfy(ch -> assertThat(ch.thumb()).isNull());
         });
@@ -789,5 +796,150 @@ class PracticeShippedContentTest {
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(PETS)).singleElement()
                 .satisfies(e -> assertThat(e.preview()).isFalse());
+    }
+
+    // -- EXEC-M4: Flood v4 and Pets v2 = published text verbatim + approved stills (DRAFT) ----
+
+    static final String FLOOD_V4_DRAFT_HASH = "sha256:0ec42254f52403cd5d5f1e1a34cc4700e704b3bd5ffd60b46de527e7a0921fbc";
+    static final String PETS_V2_DRAFT_HASH = "sha256:e6664765761cbf02f138fbc16badafa513b95855fcabf92c0340aaefd1365179";
+
+    private static com.fasterxml.jackson.databind.node.ObjectNode contentFile(String key, int v) throws java.io.IOException {
+        return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                java.nio.file.Files.readString(java.nio.file.Path.of(
+                        "src/main/resources/practice/content/" + key + "/v" + v + ".json")));
+    }
+
+    /** Strips the media additions (style, scene/explanation media, outcome media) from a content tree. */
+    private static com.fasterxml.jackson.databind.JsonNode withoutMedia(com.fasterxml.jackson.databind.JsonNode content) {
+        var c = (com.fasterxml.jackson.databind.node.ObjectNode) content.deepCopy();
+        c.remove("mediaStyle");
+        c.get("scenario").get("nodes").forEach(n -> {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("media");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("explanationMedia");
+        });
+        c.get("scenario").get("outcomes").forEach(o -> ((com.fasterxml.jackson.databind.node.ObjectNode) o).remove("media"));
+        return c;
+    }
+
+    private static void assertStill(PracticeContent.Media m, String slot, String masterSha) {
+        assertThat(m.slotKey()).isEqualTo(slot);
+        assertThat(m.kind()).isEqualTo(PracticeContent.MediaKind.STILL);
+        assertThat(m.assetSha256()).isEqualTo("sha256:" + masterSha);
+    }
+
+    private static PracticeAvailabilityService availability(PracticeCatalog catalog, boolean preview) {
+        PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
+        when(repo.findAll()).thenReturn(List.of());
+        when(repo.findById(any())).thenReturn(Optional.empty());
+        Clock clock = Clock.fixed(Instant.parse("2026-10-23T12:00:00Z"), ZoneOffset.UTC);
+        return new PracticeAvailabilityService(catalog, repo, true, preview, clock);
+    }
+
+    @Test
+    void floodV4IsADraftThatAddsOnlyApprovedMediaToV3AndV3IsUntouched() throws Exception {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v3 = catalog.exact(FLOOD, 3).orElseThrow();
+        Version v4 = catalog.exact(FLOOD, 4).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v4)).isEmpty();
+        assertThat(v3.contentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
+        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.contentHash()).isEqualTo(FLOOD_V4_DRAFT_HASH);
+        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        assertThat(v4.file().lifecycle().safetyReview().notes()).contains("MEDIA-024", "MEDIA-025", "MEDIA-013", "neutral post-practice");
+        assertThat(v4.file().schema()).isEqualTo(2);
+        assertThat(v4.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
+
+        // Text verbatim: strip the media additions and the tree equals v3's content.
+        assertThat(withoutMedia(contentFile(FLOOD, 4).get("content"))).isEqualTo(contentFile(FLOOD, 3).get("content"));
+
+        var byKey = new HashMap<String, Node>();
+        v4.body().scenario().nodes().forEach(n -> byKey.put(n.key(), n));
+        assertStill(byKey.get("water_over_road").media(), "flash-flood-turn-around-route.water_over_road.scene",
+                "a0de6c004ed9d05a5245f1298575933f5a8254d1665bcdde450416debe6531f9");
+        assertStill(byKey.get("barricade").media(), "flash-flood-turn-around-route.barricade.scene",
+                "75a2a4881ac7b585b51e80b48376b875f133dafb1b18eb7b14d3b7e6bb13af08");
+        assertThat(byKey.get("choose_route").media()).isNull();
+        assertThat(byKey.get("second_low_spot").media()).isNull();
+        assertThat(byKey.values()).allSatisfy(n -> {
+            assertThat(n.explanationMedia()).isNull();
+            assertThat(n.choices()).allSatisfy(ch -> { assertThat(ch.thumb()).isNull(); assertThat(ch.media()).isNull(); });
+        });
+        assertThat(v4.body().scenario().introMedia()).isNull();
+        assertThat(v4.body().scenario().outcomes()).singleElement().satisfies(o -> assertStill(o.media(),
+                "flash-flood-turn-around-route.route_rehearsed.ending",
+                "d90094c47c5b22b8d21a44a6cd5497511bd19ab70a706f541efab81812868963"));
+    }
+
+    @Test
+    void productionStillStartsFloodV3AndPetsV1WhileV4AndV2ArePreviewOnly() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        for (Object[] c : new Object[][] {{FLOOD, 3, 4}, {PETS, 1, 2}}) {
+            String key = (String) c[0];
+            assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(key)).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isFalse())
+                    .satisfies(e -> assertThat(e.version().version()).as(key + " production").isEqualTo(c[1]));
+            assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(key)).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isTrue())
+                    .satisfies(e -> assertThat(e.version().version()).as(key + " preview").isEqualTo(c[2]));
+        }
+    }
+
+    @Test
+    void petsV2IsADraftThatAddsOnlyApprovedMediaToV1AndV1IsUntouched() throws Exception {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v1 = catalog.exact(PETS, 1).orElseThrow();
+        Version v2 = catalog.exact(PETS, 2).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v2)).isEmpty();
+        assertThat(v1.contentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
+        assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.contentHash()).isEqualTo(PETS_V2_DRAFT_HASH);
+        assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        assertThat(v2.file().lifecycle().safetyReview().notes()).contains("MEDIA-027", "MEDIA-014", "MEDIA-026", "PLANNED EMPTY SLOTS");
+        assertThat(v2.file().schema()).isEqualTo(2);
+        assertThat(v2.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
+
+        assertThat(withoutMedia(contentFile(PETS, 2).get("content"))).isEqualTo(contentFile(PETS, 1).get("content"));
+
+        var byKey = new HashMap<String, Node>();
+        v2.body().scenario().nodes().forEach(n -> byKey.put(n.key(), n));
+        var cat = byKey.get("cat_hiding").explanationMedia();
+        assertStill(cat, "evacuating-with-pets.cat_hiding.explanation",
+                "483cbd78b48acfcacfe5ef77a6bd9785336578cf80db143cf8b81692f742d74d");
+        assertThat(cat.alt()).isEqualTo("A calm gray tabby is found in its usual hiding spot under the bed, with its familiar carrier ready nearby.");
+        assertThat(byKey.values()).allSatisfy(n -> {
+            assertThat(n.media()).as(n.key() + " has no pre-choice scene").isNull();
+            assertThat(n.choices()).allSatisfy(ch -> { assertThat(ch.thumb()).isNull(); assertThat(ch.media()).isNull(); });
+        });
+        assertThat(byKey.get("order_issued").explanationMedia()).isNull();
+        assertThat(v2.body().scenario().introMedia()).isNull();
+        assertThat(v2.body().scenario().outcomes()).singleElement().satisfies(o -> assertStill(o.media(),
+                "evacuating-with-pets.pets_plan_rehearsed.ending",
+                "0f67ca77d3e7ba4bfe72a88187364d193923f956214a62b91e894f6bc057b155"));
+    }
+
+    @Test
+    void m4ManifestEntriesAreHashNamedAndMatchTheirMasters() {
+        var manifest = PracticeMediaManifest.getDefault();
+        for (String[] a : new String[][] {
+                {"659b8f0ec14c3d9e25e256c15c8639be78494f36c3042897b529b4018c24a724", "ILLUSTRATION", "tornado-warning"},
+                {"a0de6c004ed9d05a5245f1298575933f5a8254d1665bcdde450416debe6531f9", "REALISM", "flood-water-over-road"},
+                {"75a2a4881ac7b585b51e80b48376b875f133dafb1b18eb7b14d3b7e6bb13af08", "REALISM", "flood-barricade"},
+                {"d90094c47c5b22b8d21a44a6cd5497511bd19ab70a706f541efab81812868963", "REALISM", "flood-ending"},
+                {"0f67ca77d3e7ba4bfe72a88187364d193923f956214a62b91e894f6bc057b155", "REALISM", "pets-ending"},
+                {"483cbd78b48acfcacfe5ef77a6bd9785336578cf80db143cf8b81692f742d74d", "REALISM", "pets-cat-hiding"}}) {
+            var asset = manifest.find("sha256:" + a[0]).orElseThrow();
+            assertThat(asset.style().name()).isEqualTo(a[1]);
+            assertThat(asset.stem()).isEqualTo("/images/practice/" + a[2] + "-" + a[0].substring(0, 8));
+            assertThat(asset.widths()).containsExactly(640, 960, 1254);
+            assertThat(asset.width()).isEqualTo(1254);
+            assertThat(asset.height()).isEqualTo(705);
+        }
+        assertThat(manifest.problems()).isEmpty();
     }
 }

@@ -481,6 +481,8 @@ class PracticeContentValidatorTest {
     private static final String T43 = "sha256:" + "4".repeat(64);      // REALISM 1440x1080 (4:3)
     private static final String T43_NEAR = "sha256:" + "5".repeat(64); // REALISM 1000x751 (within 1%)
     private static final String T43_OFF = "sha256:" + "6".repeat(64);  // REALISM 1000x780 (outside 1%)
+    private static final String T2116 = "sha256:" + "7".repeat(64);    // REALISM 168x128 (21:16, the 84x64 thumb slot @2x)
+    private static final String T2116_NEAR = "sha256:" + "8".repeat(64); // REALISM 1000x763 (21:16 within 1%)
 
     private static PracticeMediaManifest testManifest() {
         var style = PracticeContent.MediaStyle.REALISM;
@@ -490,7 +492,9 @@ class PracticeContentValidatorTest {
                 new PracticeMediaManifest.Asset(CLIP, style, PracticeContent.MediaKind.CLIP, "/media/c", null, 1280, 720, "center", 5L, 8000),
                 new PracticeMediaManifest.Asset(T43, style, PracticeContent.MediaKind.STILL, "/images/t", List.of(640), 1440, 1080, "center", 5L, null),
                 new PracticeMediaManifest.Asset(T43_NEAR, style, PracticeContent.MediaKind.STILL, "/images/tn", List.of(640), 1000, 751, "center", 5L, null),
-                new PracticeMediaManifest.Asset(T43_OFF, style, PracticeContent.MediaKind.STILL, "/images/to", List.of(640), 1000, 780, "center", 5L, null))));
+                new PracticeMediaManifest.Asset(T43_OFF, style, PracticeContent.MediaKind.STILL, "/images/to", List.of(640), 1000, 780, "center", 5L, null),
+                new PracticeMediaManifest.Asset(T2116, style, PracticeContent.MediaKind.STILL, "/images/t21", List.of(168), 168, 128, "center", 5L, null),
+                new PracticeMediaManifest.Asset(T2116_NEAR, style, PracticeContent.MediaKind.STILL, "/images/t21n", List.of(640), 1000, 763, "center", 5L, null))));
     }
 
     private static List<String> mediaErrors(ObjectNode root) {
@@ -649,9 +653,12 @@ class PracticeContentValidatorTest {
     }
 
     @Test
-    void aThumbIsA4by3StillWithinOnePercent() {
-        assertThat(mediaErrors(withThumbs(scenario("k", 1), STILL))).anyMatch(e -> e.contains("a choice thumb is 4:3 (asset is 1280x720)"));
-        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43_OFF))).anyMatch(e -> e.contains("a choice thumb is 4:3 (asset is 1000x780)"));
+    void aThumbIsA4by3Or21by16StillWithinOnePercent() {
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43))).isEmpty();
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T2116))).isEmpty();      // 168x128 @2x of the 84x64 slot
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T2116_NEAR))).isEmpty(); // 21:16 within 1%
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), STILL))).anyMatch(e -> e.contains("a choice thumb is 4:3 or 21:16 (asset is 1280x720)")); // 16:9
+        assertThat(mediaErrors(withThumbs(scenario("k", 1), T43_OFF))).anyMatch(e -> e.contains("a choice thumb is 4:3 or 21:16 (asset is 1000x780)"));
 
         ObjectNode clip = withThumbs(scenario("k", 1), CLIP);
         thumbOf(clip, 0).put("kind", "CLIP").put("posterSha256", T43).put("durationMs", 8000);
@@ -701,6 +708,8 @@ class PracticeContentValidatorTest {
     void anIntroIsA4by3StillInItsSlotAndCountsTowardTheSchema2Rules() {
         assertThat(mediaErrors(withIntro(scenario("k", 1), T43))).isEmpty();
         assertThat(mediaErrors(withIntro(scenario("k", 1), STILL))).anyMatch(e -> e.contains("an intro is 4:3 (asset is 1280x720)"));
+        // 21:16 is for thumbs only; the intro stays strictly 4:3.
+        assertThat(mediaErrors(withIntro(scenario("k", 1), T2116))).anyMatch(e -> e.contains("an intro is 4:3 (asset is 168x128)"));
 
         ObjectNode badSlot = withIntro(scenario("k", 1), T43);
         ((ObjectNode) content(badSlot).get("scenario").get("introMedia")).put("slotKey", "k.start.scene");

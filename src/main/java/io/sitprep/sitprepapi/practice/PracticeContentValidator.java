@@ -167,7 +167,7 @@ public final class PracticeContentValidator {
         int count = 0;
         if (s.introMedia() != null) {
             count++;
-            validateThumbOrIntro(s.introMedia(), b.mediaStyle(), key + ".intro", manifest, where + ": introMedia", "an intro", errors);
+            validateThumbOrIntro(s.introMedia(), b.mediaStyle(), key + ".intro", manifest, where + ": introMedia", "an intro", false, errors);
         }
         for (PracticeContent.Node n : s.nodes() == null ? List.<PracticeContent.Node>of() : s.nodes()) {
             if (n == null) continue;
@@ -195,7 +195,7 @@ public final class PracticeContentValidator {
                     thumbs++;
                     count++;
                     validateThumbOrIntro(c.thumb(), b.mediaStyle(), key + "." + n.key() + "." + c.key() + ".thumb", manifest,
-                            at + " choice " + c.key() + " thumb", "a choice thumb", errors);
+                            at + " choice " + c.key() + " thumb", "a choice thumb", true, errors);
                 }
             }
             if (thumbs != 0 && thumbs != choices.size()) {
@@ -215,9 +215,12 @@ public final class PracticeContentValidator {
         if (count > 0 && !manifest.problems().isEmpty()) errors.add(where + ": media manifest is invalid: " + manifest.problems());
     }
 
-    /** CHOICE_THUMB and INTRO: a still, 4:3 within 1% by the manifest's own dimensions. */
+    /**
+     * CHOICE_THUMB and INTRO: a still, by the manifest's own dimensions. The intro is 4:3 within 1%. A choice thumb is
+     * 4:3 or 21:16 within 1% (the handoff's thumb slot is 84x64 = 21:16, so its @2x derivative is 168x128).
+     */
     private static void validateThumbOrIntro(PracticeContent.Media m, PracticeContent.MediaStyle style, String slot,
-                                      PracticeMediaManifest manifest, String at, String what, List<String> errors) {
+                                      PracticeMediaManifest manifest, String at, String what, boolean thumb, List<String> errors) {
         validateMedia(m, style, slot, manifest, at, errors);
         if (m.kind() != PracticeContent.MediaKind.STILL) errors.add(at + ": " + what + " is a still");
         if (m.assetSha256() == null) return;
@@ -225,10 +228,14 @@ public final class PracticeContentValidator {
             Integer w = a.width(), h = a.height();
             if (w == null || h == null || w <= 0 || h <= 0) {
                 errors.add(at + ": the manifest asset has no width/height to check the 4:3 aspect");
-            } else if (Math.abs(w * 3.0 - h * 4.0) > 0.01 * h * 4.0) {
-                errors.add(at + ": " + what + " is 4:3 (asset is " + w + "x" + h + ")");
+            } else if (!withinOnePercent(w, h, 4, 3) && !(thumb && withinOnePercent(w, h, 21, 16))) {
+                errors.add(at + ": " + what + " is " + (thumb ? "4:3 or 21:16" : "4:3") + " (asset is " + w + "x" + h + ")");
             }
         });
+    }
+
+    private static boolean withinOnePercent(int w, int h, int rw, int rh) {
+        return Math.abs((double) w * rh - (double) h * rw) <= 0.01 * h * rw;
     }
 
     private static void validateActivityMedia(Integer schema, String key, Body b, Activity a,
