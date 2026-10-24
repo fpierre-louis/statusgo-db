@@ -94,13 +94,13 @@
             "slotKey": "earthquake-first-five-minutes.shaking_starts.scene",
             "kind": "STILL",
             "assetSha256": "sha256:771f448ea8eb11d7fcb8636eaea2880a06578f9eb44933c3cc7003d18e3f7711",
-            "alt": "An intact kitchen where a pendant lamp hangs at a strong angle, cups and a saucer have shifted apart on the counter, and a wall picture is tilted as gentle shaking begins."
+            "alt": "An intact kitchen where a pendant lamp hangs at a strong angle, cups and a saucer have shifted apart on the counter, and a wall picture is tilted as strong shaking begins."
           },
           "explanationMedia": {
             "slotKey": "earthquake-first-five-minutes.shaking_starts.explanation",
             "kind": "STILL",
             "assetSha256": "sha256:3441f1fe22b004cb8bfe9812a4675aa39d9a28d9d475c78b524fc03ddc6c61a2",
-            "alt": "An adult and child shelter under a sturdy kitchen table, holding its legs; nearby, away from the windows, a wheelchair user with both wheels locked bends low and covers head and neck."
+            "alt": "An adult and child shelter under a sturdy kitchen table, covering their heads and holding its legs; nearby, away from windows, a wheelchair user with locked wheels bends low and covers head and neck."
           }
         },
         {

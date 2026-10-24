@@ -953,7 +953,7 @@ class PracticeShippedContentTest {
 
     // -- EXEC-M5: Earthquake v5 = v4 text + four kitchen scene labels + approved stills (DRAFT) ----
 
-    static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:b8351d74f7fb0a9e9db070cfbb12e2b93ab718ef3d5c9366418b71b352233647";
+    static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:c50b30cbe00434be7016990ed292453f48fbfefcfadc034f8b2573c657fddb2d";
 
     @Test
     void earthquakeV5IsADraftThatChangesOnlyFourSceneLabelsAndAddsApprovedMediaAndV4IsUntouched() throws Exception {
