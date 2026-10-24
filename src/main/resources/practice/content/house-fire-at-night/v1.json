@@ -127,7 +127,7 @@
               "key": "feel_door",
               "label": "Feel the door with the back of your hand",
               "consequence": "You rest the back of your hand against the door.",
-              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
+              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door, the doorknob, and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
               "tags": [
                 "checked_door_first"
               ],
@@ -148,7 +148,7 @@
             "slotKey": "house-fire-at-night.door_check.explanation",
             "kind": "STILL",
             "assetSha256": "sha256:255c36b15ffe0dcde3d7e80eebcc1b71a301bc7950d49fe0232d9afc572cef75",
-            "alt": "The backs of an adult's curled fingers touch a fully closed bedroom door while the palm faces inward and the doorknob remains untouched."
+            "alt": "The backs of an adult's curled fingers touch a fully closed bedroom door while the palm faces inward, without gripping or turning the knob."
           }
         },
         {
@@ -185,7 +185,7 @@
         {
           "key": "escape_rehearsed",
           "title": "You practiced a smoke alarm at night",
-          "body": "You practiced a smoke alarm at night at home: getting low and out, checking a closed door, and staying out. The Red Cross says to get out, stay out, and call for help. The U.S. Fire Administration says to find 2 ways out of every room and choose an outside meeting place. NFPA says to practice your home fire escape plan twice a year. If you'd like, talk it over together: what are your two ways out of each bedroom, and where is your meeting spot outside?",
+          "body": "You practiced what to do when the smoke alarm sounds at night: getting low and out, checking a closed door, and staying out. The Red Cross says to get out, stay out, and call for help. The U.S. Fire Administration says to find two ways out of every room and choose an outside meeting place. NFPA says to practice your home fire escape plan twice a year. If you'd like, talk it over together: what are your two ways out of each bedroom, and where is your meeting spot outside?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "exit-drill"

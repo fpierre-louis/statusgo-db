@@ -23,7 +23,7 @@ class PracticeHouseFireContentTest {
     static final String FIRE = "house-fire-at-night";
     static final String ROUTINE = "fire-exit-routine";
     /** The hashes Gate 1 must read. Any edit to either file fails here first. */
-    static final String FIRE_V1_DRAFT_HASH = "sha256:af14215ef423aedcc619be072b3df73e3fe21352aff079a5f7ab31cb314678a7";
+    static final String FIRE_V1_DRAFT_HASH = "sha256:0465874ccc22b961108879f16b2b66866cb27a283f838098e03cec1ad1aac8fd";
     static final String ROUTINE_V2_DRAFT_HASH = "sha256:5bab24d612b3a1aedfd754e3f5010c27f30d7c7194f7749fca5421a733e5106e";
     static final String ROUTINE_V1_HASH = "sha256:38d93ca7e9788474883eb64f5bf9bb07b25e093f7eb1f2de2ea3e91291065349";
 
@@ -83,6 +83,12 @@ class PracticeHouseFireContentTest {
         // MEDIA-029 v2 shows the back of the hand: every path's feedback says so, so it never reads as a knock.
         assertThat(nodes.get("door_check").choices())
                 .allSatisfy(c -> assertThat(c.feedback()).contains("back of your hand").doesNotContainIgnoringCase("knock"));
+        // The full check the sources teach: top of the door, the doorknob, and the crack around it (FireSafety.gov;
+        // Ready.gov "feel the doorknob and door"). The picture shows the hand not gripping or turning the knob.
+        assertThat(nodes.get("door_check").choices()).filteredOn(c -> c.key().equals("feel_door")).singleElement()
+                .satisfies(c -> assertThat(c.feedback()).contains("top of the door", "doorknob", "crack"));
+        assertThat(nodes.get("door_check").explanationMedia().alt()).contains("without gripping or turning the knob")
+                .doesNotContain("untouched");
         // The wrong-answer distractors are ones the sources address, never an unsupported "don't open windows".
         assertThat(v.body().scenario().nodes().toString()).doesNotContainIgnoringCase("window");
         // No unsupported wording survives.
