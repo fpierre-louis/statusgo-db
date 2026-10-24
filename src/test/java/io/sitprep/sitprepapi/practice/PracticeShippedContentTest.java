@@ -566,6 +566,78 @@ class PracticeShippedContentTest {
         assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
     }
 
+    // -- EXEC-M7: Comms v5 = v4 text + MEDIA-030 intro + MEDIA-031 ending (DRAFT) ----
+
+    static final String COMMS_V5_DRAFT_HASH = "sha256:c1bc8799681275b9e8fc5e3fba2be26e58c277dc7f98ab642658b8f6cbbd276a";
+
+    /** Strips the two EXEC-M7 additions: the intro and the ending assets (slot keys stay). */
+    private static com.fasterxml.jackson.databind.JsonNode withoutCommsV5Media(com.fasterxml.jackson.databind.JsonNode content) {
+        var c = (com.fasterxml.jackson.databind.node.ObjectNode) content.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) c.get("scenario")).remove("introMedia");
+        c.get("scenario").get("outcomes").forEach(o -> {
+            var m = (com.fasterxml.jackson.databind.node.ObjectNode) o.get("media");
+            m.remove("assetSha256");
+            m.remove("alt");
+        });
+        return c;
+    }
+
+    @Test
+    void commsV5IsADraftThatOnlyAddsTheIntroAndSwapsTheEndingAndV4IsUntouched() throws Exception {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v4 = catalog.exact(COMMS, 4).orElseThrow();
+        Version v5 = catalog.exact(COMMS, 5).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v5)).isEmpty();
+        assertThat(v4.contentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
+        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v5.contentHash()).isEqualTo(COMMS_V5_DRAFT_HASH);
+        assertThat(v5.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-030", "MEDIA-031", "0fe5b545", "Gate 1");
+        assertThat(v5.file().schema()).isEqualTo(2);
+        assertThat(v5.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
+
+        // Text and scene stills verbatim: strip the intro and the ending assets and the trees are equal.
+        assertThat(withoutCommsV5Media(contentFile(COMMS, 5).get("content")))
+                .isEqualTo(withoutCommsV5Media(contentFile(COMMS, 4).get("content")));
+        var n4 = v4.body().scenario().nodes();
+        var n5 = v5.body().scenario().nodes();
+        for (int i = 0; i < n5.size(); i++) {
+            assertThat(n5.get(i).media()).as(n5.get(i).key() + " scene still kept").isEqualTo(n4.get(i).media());
+        }
+
+        assertThat(v4.body().scenario().introMedia()).isNull();
+        assertStill(v5.body().scenario().introMedia(), "comms-outage-family-reconnect.intro",
+                "e6baa291194114e3cc4cb492863469887bbd1bc884d05917449d9765ed8e8758");
+        assertThat(v5.body().scenario().introMedia().alt()).hasSizeLessThanOrEqualTo(200);
+        assertThat(v5.body().scenario().outcomes()).hasSize(2).allSatisfy(o -> {
+            assertThat(o.media().assetSha256()).isEqualTo(
+                    "sha256:d7133dc01fddb7b280fe29831aac2ce0a772916513b3f97f1dd5d4ff171e4cb5");
+            assertThat(o.media().alt()).hasSizeLessThanOrEqualTo(200);
+        });
+        assertThat(v5.body().scenario().outcomes()).extracting(o -> o.media().slotKey()).containsExactly(
+                "comms-outage-family-reconnect.reconnected.ending",
+                "comms-outage-family-reconnect.reconnected_check_sources.ending");
+        assertThat(ScenarioService.mediaDto(v5.body().scenario().introMedia()).url())
+                .startsWith("/images/practice/comms-intro-e6baa291");
+        assertThat(ScenarioService.mediaDto(v5.body().scenario().outcomes().get(0).media()).url())
+                .startsWith("/images/practice/comms-reconnected-d7133dc0");
+    }
+
+    @Test
+    void productionStartsCommsV4WhileV5IsPreviewOnly() {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(4))
+                .satisfies(e -> assertThat(e.preview()).isFalse());
+        assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
+
     // -- Earthquake v3: a mid-shaking branch and two calm endings (handoff Phase 5) --
 
     static final String EARTHQUAKE = "earthquake-first-five-minutes";
