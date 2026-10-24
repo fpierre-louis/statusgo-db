@@ -4,12 +4,15 @@
   "version": 4,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Flash Flood v3 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v3 stays PUBLISHED, approved at sha256:60992c7a...) plus schema 2, mediaStyle REALISM, SCENE water_over_road <- MEDIA-024 (master a0de6c00..., a stopped vehicle on dry pavement before opaque moving water that hides the road; no turn-around or other answer shown), SCENE barricade <- MEDIA-025 (master 75a2a488..., a complete striped road closure with dry-looking pavement beyond; no bypass, detour or wait shown), and the ending MEDIA-013 (master d90094c4..., design-approved PREP) on the single outcome route_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a parked car on a dry hilltop lot above a faintly damp lower road under a clearing sky, a neutral post-practice state with no floodwater, crossing, barricade, damage or reward cue, so it restates the outcome's own 'higher ground' planning question and does not grade the player's choices. Reviewers should confirm that reading at both gates. NOT PLANNED OR FILLED: choose_route and second_low_spot carry no media (no approved image). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:0ec42254f52403cd5d5f1e1a34cc4700e704b3bd5ffd60b46de527e7a0921fbc",
+      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Flash Flood v3 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v3 stays PUBLISHED, approved at sha256:60992c7a...) plus schema 2, mediaStyle REALISM, SCENE water_over_road <- MEDIA-024 (master a0de6c00..., a stopped vehicle on dry pavement before opaque moving water that hides the road; no turn-around or other answer shown), SCENE barricade <- MEDIA-025 (master 75a2a488..., a complete striped road closure with dry-looking pavement beyond; no bypass, detour or wait shown), and the ending MEDIA-013 (master d90094c4..., design-approved PREP) on the single outcome route_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a parked car on a dry hilltop lot above a faintly damp lower road under a clearing sky, a neutral post-practice state with no floodwater, crossing, barricade, damage or reward cue, so it restates the outcome's own 'higher ground' planning question and does not grade the player's choices. Reviewers should confirm that reading at both gates. NOT PLANNED OR FILLED: choose_route and second_low_spot carry no media (no approved image). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Gate 1 APPROVED as content version C1 (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md §Content version C1): text equals v3 with media stripped; MEDIA-024/025/013 at their approved hashes; no scene reveals its step; the ending suits every path. Published lifecycle-only; v3 retired; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

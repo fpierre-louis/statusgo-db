@@ -4,7 +4,7 @@
   "version": 3,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "Flash Flood v3: second low spot (flash flood warning meaning, walking into or near floodwater), one ending with NWS planning questions. sha256:5bdc8b96... CHANGES REQUIRED (ending untrue on most paths; continuity; tag/drill match); sha256:8fcfd3fc... APPROVED WITH NOTES; this hash APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-23"
   },
   "content": {
     "title": "Flash flood: turn around route",
