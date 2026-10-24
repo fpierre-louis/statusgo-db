@@ -945,7 +945,7 @@ class PracticeShippedContentTest {
 
     // -- EXEC-M5: Earthquake v5 = v4 text + four kitchen scene labels + approved stills (DRAFT) ----
 
-    static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:5c7e687715283e95c56f60b902ad9d81142d3b55776a3ecbade61db6ebc1931d";
+    static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:b8351d74f7fb0a9e9db070cfbb12e2b93ab718ef3d5c9366418b71b352233647";
 
     @Test
     void earthquakeV5IsADraftThatChangesOnlyFourSceneLabelsAndAddsApprovedMediaAndV4IsUntouched() throws Exception {
@@ -959,7 +959,7 @@ class PracticeShippedContentTest {
         assertThat(v5.publishState()).isEqualTo(PublishState.DRAFT);
         assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
         assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
-        assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-022", "MEDIA-023", "kitchen", "4:30 PM", "design decision 2026-10-23");
+        assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-022", "MEDIA-023", "kitchen", "6:15 PM", "design decision 2026-10-23");
         assertThat(v5.file().schema()).isEqualTo(2);
         assertThat(v5.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
 
@@ -969,10 +969,10 @@ class PracticeShippedContentTest {
         var labels = new java.util.LinkedHashMap<String, String>();
         c5.get("scenario").get("nodes").forEach(n -> labels.put(n.get("key").asText(), n.get("scene").asText()));
         assertThat(labels).containsExactly(
-                Map.entry("shaking_starts", "Tuesday, 4:30 PM \u00b7 Kitchen"),
-                Map.entry("still_shaking", "4:30 PM \u00b7 Still shaking"),
-                Map.entry("shaking_stops", "4:31 PM \u00b7 Inside, right after the shaking"),
-                Map.entry("aftershock", "4:34 PM \u00b7 A few minutes later"));
+                Map.entry("shaking_starts", "Tuesday, 6:15 PM \u00b7 Kitchen"),
+                Map.entry("still_shaking", "6:15 PM \u00b7 Still shaking"),
+                Map.entry("shaking_stops", "6:16 PM \u00b7 Inside, right after the shaking"),
+                Map.entry("aftershock", "6:19 PM \u00b7 A few minutes later"));
         var s4 = (com.fasterxml.jackson.databind.node.ObjectNode) c4.deepCopy();
         s4.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("scene"));
         c5.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("scene"));

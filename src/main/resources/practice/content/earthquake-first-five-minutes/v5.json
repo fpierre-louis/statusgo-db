@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT (authored 2026-10-23 by Claude, agent): Earthquake v4 text VERBATIM except exactly four node scene labels (shaking_starts 'Tuesday, 4:30 PM · Kitchen'; still_shaking '4:30 PM · Still shaking'; shaking_stops '4:31 PM · Inside, right after the shaking'; aftershock '4:34 PM · A few minutes later'), changed from the 7:30 PM evening / living-room labels because the approved picture is a sunlit kitchen (design decision 2026-10-23); nodes, choices, consequences, feedback, tags, outcomes and sources are unchanged (v4 stays PUBLISHED, approved at sha256:25697331...). Adds schema 2, mediaStyle ILLUSTRATION, node shaking_starts SCENE <- MEDIA-022 v2 (master 771f448e..., Gate 1 APPROVED_FINAL: an intact kitchen with an angled pendant, shifted cups and a tilted picture; no person, protective posture or answer action shown) and EXPLANATION <- MEDIA-023 v2 (master 3441f1fe..., Gate 1 APPROVED_FINAL: adult and child under a sturdy table, wheelchair user with wheels locked in clear floor space; shown after the choice identically on every answer path). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "notes": "DRAFT (authored 2026-10-23 by Claude, agent): Earthquake v4 text VERBATIM except exactly four node scene labels (shaking_starts 'Tuesday, 6:15 PM · Kitchen'; still_shaking '6:15 PM · Still shaking'; shaking_stops '6:16 PM · Inside, right after the shaking'; aftershock '6:19 PM · A few minutes later'), changed from the 7:30 PM evening / living-room labels because the approved picture is a sunlit kitchen (design decision 2026-10-23); nodes, choices, consequences, feedback, tags, outcomes and sources are unchanged (v4 stays PUBLISHED, approved at sha256:25697331...). Adds schema 2, mediaStyle ILLUSTRATION, node shaking_starts SCENE <- MEDIA-022 v2 (master 771f448e..., Gate 1 APPROVED_FINAL: an intact kitchen with an angled pendant, shifted cups and a tilted picture; no person, protective posture or answer action shown) and EXPLANATION <- MEDIA-023 v2 (master 3441f1fe..., Gate 1 APPROVED_FINAL: adult and child under a sturdy table, wheelchair user with wheels locked in clear floor space; shown after the choice identically on every answer path). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Labels set to an early-evening October timeline (6:15/6:15/6:16/6:19 PM) on Gate 1's language/flow note: the step-3 darkness, flashlight answer and candle distractor need the light to be going; the 022 v2 light is warm and low."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -89,7 +89,7 @@
               "next": "still_shaking"
             }
           ],
-          "scene": "Tuesday, 4:30 PM · Kitchen",
+          "scene": "Tuesday, 6:15 PM · Kitchen",
           "media": {
             "slotKey": "earthquake-first-five-minutes.shaking_starts.scene",
             "kind": "STILL",
@@ -100,7 +100,7 @@
             "slotKey": "earthquake-first-five-minutes.shaking_starts.explanation",
             "kind": "STILL",
             "assetSha256": "sha256:3441f1fe22b004cb8bfe9812a4675aa39d9a28d9d475c78b524fc03ddc6c61a2",
-            "alt": "An adult and child shelter under a sturdy kitchen table, holding its legs, heads and necks covered; nearby in clear floor space, a wheelchair user with wheels locked bends low, head and neck covered."
+            "alt": "An adult and child shelter under a sturdy kitchen table, holding its legs; nearby, away from the windows, a wheelchair user with both wheels locked bends low and covers head and neck."
           }
         },
         {
@@ -140,7 +140,7 @@
               "next": "shaking_stops"
             }
           ],
-          "scene": "4:30 PM · Still shaking"
+          "scene": "6:15 PM · Still shaking"
         },
         {
           "key": "shaking_stops",
@@ -179,7 +179,7 @@
               "next": "aftershock"
             }
           ],
-          "scene": "4:31 PM · Inside, right after the shaking",
+          "scene": "6:16 PM · Inside, right after the shaking",
           "messages": [
             {
               "from": "Household adult",
@@ -225,7 +225,7 @@
               "next": "first_minutes_rehearsed"
             }
           ],
-          "scene": "4:34 PM · A few minutes later"
+          "scene": "6:19 PM · A few minutes later"
         }
       ],
       "outcomes": [
