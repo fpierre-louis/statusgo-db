@@ -446,10 +446,10 @@ class PracticeShippedContentTest {
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
                 .satisfies(e -> assertThat(e.preview()).isFalse())
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2));
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(3));
     }
 
-    // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (DRAFT) ----
+    // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (PUBLISHED at Gate 1 C4) ----
 
     static final String TORNADO_V2_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
     static final String TORNADO_V3_DRAFT_HASH = "sha256:b52b3b6c3300c85a4e635cd35f800196312c6292fe444dc82cb734cf5bcd2daa";
@@ -461,16 +461,18 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void tornadoV3IsADraftThatAddsOnlyMediaToV2AndV2IsUntouched() throws Exception {
+    void tornadoV3IsPublishedAtItsGate1HashAndAddsOnlyMediaToV2() throws Exception {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
         Version v3 = catalog.exact(TORNADO, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v3)).isEmpty();
         assertThat(v2.contentHash()).isEqualTo(TORNADO_V2_HASH);
-        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v3.contentHash()).isEqualTo(TORNADO_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        // Gate 1 APPROVED as content version C4, final under the single-gate ruling (2026-10-23).
+        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v3.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(TORNADO_V3_DRAFT_HASH);
         assertThat(v3.file().lifecycle().safetyReview().notes())
                 .contains("MEDIA-017 v2", "MEDIA-018", "MEDIA-019", "MEDIA-032", "MEDIA-021 v3", "No planned slots remain")
                 .doesNotContain("PLANNED EMPTY SLOTS", "tornado.rooms.outside")
@@ -530,20 +532,21 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void productionStillStartsTornadoV2WhileV3IsPreviewOnly() {
+    void productionAndPreviewBothServeTornadoV3() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
         when(repo.findById(any())).thenReturn(Optional.empty());
         Clock clock = Clock.fixed(Instant.parse("2026-10-23T12:00:00Z"), ZoneOffset.UTC);
-        assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isFalse())
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2));
-        assertThat(new PracticeAvailabilityService(catalog, repo, true, true, clock).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(3))
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+        for (boolean preview : new boolean[] {false, true}) {
+            assertThat(new PracticeAvailabilityService(catalog, repo, true, preview, clock).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
+                    .satisfies(e -> assertThat(e.version().version()).isEqualTo(3))
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+        }
+        // Runs pinned to the retired v2 still finish.
+        Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
+        assertThat(availability(catalog, false).checkRun(TORNADO, 2, v2.contentHash()).canContinue()).isTrue();
     }
 
     // -- EXEC-M: Comms v4 = reviewed v3 text + hashed stills ------------------
@@ -838,7 +841,7 @@ class PracticeShippedContentTest {
         Version v2 = catalog.exact(TORNADO, 2).orElseThrow();
         assertThat(PracticeContentValidator.validate(v2)).isEmpty();
         assertThat(v2.contentHash()).isEqualTo(TORNADO_V2_DRAFT_HASH);
-        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.publishState()).isEqualTo(PublishState.RETIRED); // retired 2026-10-23 when v3 published
         assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(TORNADO_V2_DRAFT_HASH);
         assertThat(v2.body().sources()).allSatisfy(src ->
                 assertThat(src.url()).matches("https://www\\.(weather\\.gov|ready\\.gov|spc\\.noaa\\.gov)/.*"));
@@ -861,7 +864,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(TORNADO)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production starts v2; runs pinned to v1 still finish").isEqualTo(2));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v3 (Gate 1 C4); runs pinned to v1/v2 still finish").isEqualTo(3));
     }
 
     // -- Evacuating with Pets v1 ------------------------------------------------
