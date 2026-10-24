@@ -63,7 +63,14 @@ class PracticeRoutineContentTest {
             Version v = SHIPPED.exact(e.getKey(), 1).orElseThrow();
             assertThat(v.contentHash()).as(e.getKey()).isEqualTo(e.getValue());
             assertThat(v.body().sources()).hasSizeBetween(1, 3);
-            if (PUBLISHED.contains(e.getKey())) {
+            if (SUPERSEDED.containsKey(e.getKey())) {
+                // v1 was approved and published at this hash, then retired when the next version shipped.
+                assertThat(v.publishState()).as(e.getKey()).isEqualTo(PublishState.RETIRED);
+                assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+                assertThat(v.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(v.contentHash());
+                assertThat(SHIPPED.latestStartable(e.getKey(), false)).as("production serves " + e.getKey())
+                        .hasValueSatisfying(n -> assertThat(n.version()).isEqualTo(SUPERSEDED.get(e.getKey())));
+            } else if (PUBLISHED.contains(e.getKey())) {
                 // Published lifecycle-only at the hash Gate 2 approved (two-gate process, 2026-10-23).
                 assertThat(v.publishState()).as(e.getKey()).isEqualTo(PublishState.PUBLISHED);
                 assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
@@ -84,6 +91,9 @@ class PracticeRoutineContentTest {
      */
     static final java.util.Set<String> PUBLISHED = java.util.Set.of("comms-reconnect-routine",
             "tornado-night-routine", "fire-exit-routine", "earthquake-protect-routine", "flood-road-routine", "pets-evac-routine");
+
+    /** v1 retired; production serves this later version (fire-exit-routine v2 offers House Fire, 2026-10-24). */
+    static final Map<String, Integer> SUPERSEDED = Map.of("fire-exit-routine", 2);
 
     @Test
     void reviewTiersAndOfferedByFollowTheContract() {

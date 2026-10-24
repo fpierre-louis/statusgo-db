@@ -4,12 +4,15 @@
   "version": 2,
   "kind": "ROUTINE",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT (Practice redesign CT-06, authored 2026-10-23 by Claude, agent): v1 text VERBATIM (title, summary, sources, If/Then template, slot and activity offer unchanged; v1 stays PUBLISHED, approved at sha256:38d93ca7...). The only change is offeredBy.scenarios gaining house-fire-at-night, so the new House Fire scenario offers this routine at its debrief. Review tier LIFE_SAFETY: needs the independent Gate 1 review at the exact hash, together with the scenario, before it can be PUBLISHED; the author does not approve it. Production keeps serving v1; the preview gate serves this draft."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-24",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:5bab24d612b3a1aedfd754e3f5010c27f30d7c7194f7749fca5421a733e5106e",
+      "notes": "DRAFT (Practice redesign CT-06, authored 2026-10-23 by Claude, agent): v1 text VERBATIM (title, summary, sources, If/Then template, slot and activity offer unchanged; v1 stays PUBLISHED, approved at sha256:38d93ca7...). The only change is offeredBy.scenarios gaining house-fire-at-night, so the new House Fire scenario offers this routine at its debrief. Review tier LIFE_SAFETY: needs the independent Gate 1 review at the exact hash, together with the scenario, before it can be PUBLISHED; the author does not approve it. Production keeps serving v1; the preview gate serves this draft. Gate 1 APPROVED at this hash (SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md). Published lifecycle-only together with house-fire-at-night v1, so the offer never names an unpublished scenario; v1 retired. The author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-24",
     "retiredAt": null
   },
   "content": {

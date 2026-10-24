@@ -17,14 +17,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** CT-06: House Fire at Night v1 and Fire exit routine v2, both DRAFT until the independent Gate 1 review. */
+/**
+ * CT-06: House Fire at Night v1 and Fire exit routine v2, published together lifecycle-only at the hashes Gate 1
+ * APPROVED (2026-10-24, final under the owner's single-gate ruling); routine v1 retired.
+ */
 class PracticeHouseFireContentTest {
 
     static final String FIRE = "house-fire-at-night";
     static final String ROUTINE = "fire-exit-routine";
-    /** The hashes Gate 1 must read. Any edit to either file fails here first. */
-    static final String FIRE_V1_DRAFT_HASH = "sha256:edc68812ca2a4d4d82cd0cd2440bed1340f2a6733e8bf87efa50cf4467d89a99";
-    static final String ROUTINE_V2_DRAFT_HASH = "sha256:5bab24d612b3a1aedfd754e3f5010c27f30d7c7194f7749fca5421a733e5106e";
+    /** The hashes Gate 1 approved. Any edit to either file fails here first. */
+    static final String FIRE_V1_HASH = "sha256:edc68812ca2a4d4d82cd0cd2440bed1340f2a6733e8bf87efa50cf4467d89a99";
+    static final String ROUTINE_V2_HASH = "sha256:5bab24d612b3a1aedfd754e3f5010c27f30d7c7194f7749fca5421a733e5106e";
     static final String ROUTINE_V1_HASH = "sha256:38d93ca7e9788474883eb64f5bf9bb07b25e093f7eb1f2de2ea3e91291065349";
 
     private static final PracticeCatalog CATALOG = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
@@ -38,12 +41,13 @@ class PracticeHouseFireContentTest {
     }
 
     @Test
-    void houseFireV1IsAPinnedLifeSafetyDraftWithTwoApprovedStills() {
+    void houseFireV1IsPublishedAtItsGate1HashWithTwoApprovedStills() {
         Version v = CATALOG.exact(FIRE, 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(v)).isEmpty();
-        assertThat(v.contentHash()).isEqualTo(FIRE_V1_DRAFT_HASH);
-        assertThat(v.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v.contentHash()).isEqualTo(FIRE_V1_HASH);
+        assertThat(v.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(FIRE_V1_HASH);
         assertThat(v.file().lifecycle().safetyReview().notes()).contains("LIFE_SAFETY", "MEDIA-028 v2", "MEDIA-029 v2");
         assertThat(v.file().schema()).isEqualTo(2);
         assertThat(v.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
@@ -104,16 +108,17 @@ class PracticeHouseFireContentTest {
     }
 
     @Test
-    void routineV2OffersHouseFireAndV1StaysPublishedUntouched() {
+    void routineV2OffersHouseFireAndV1IsRetiredUntouched() {
         Version v1 = CATALOG.exact(ROUTINE, 1).orElseThrow();
         Version v2 = CATALOG.exact(ROUTINE, 2).orElseThrow();
         assertThat(v1.contentHash()).isEqualTo(ROUTINE_V1_HASH);
-        assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v1.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v1.body().routine().offeredBy().scenarios()).isEmpty();
         assertThat(PracticeContentValidator.validate(v2)).isEmpty();
-        assertThat(v2.contentHash()).isEqualTo(ROUTINE_V2_DRAFT_HASH);
-        assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v2.contentHash()).isEqualTo(ROUTINE_V2_HASH);
+        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(ROUTINE_V2_HASH);
         assertThat(v2.body().routine().offeredBy().scenarios()).containsExactly(FIRE);
         assertThat(v2.body().routine().offeredBy().activities()).isEqualTo(v1.body().routine().offeredBy().activities());
         // v1 text verbatim: only the offer differs.
@@ -126,20 +131,18 @@ class PracticeHouseFireContentTest {
     }
 
     @Test
-    void productionServesNeitherDraftAndPreviewServesBoth() {
-        assertThat(availability(false).startable(PracticeKind.ADULT_SCENARIO))
-                .noneMatch(e -> e.version().key().equals(FIRE));
-        assertThat(availability(false).startable(PracticeKind.ROUTINE))
-                .filteredOn(e -> e.version().key().equals(ROUTINE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(1))
-                .satisfies(e -> assertThat(e.preview()).isFalse());
-        assertThat(availability(true).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(FIRE)).singleElement()
-                .satisfies(e -> assertThat(e.preview()).isTrue());
-        assertThat(availability(true).startable(PracticeKind.ROUTINE))
-                .filteredOn(e -> e.version().key().equals(ROUTINE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2))
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+    void productionServesHouseFireV1AndRoutineV2Together() {
+        // Published together: production never offers the routine's House Fire link without the scenario.
+        for (boolean preview : new boolean[]{false, true}) {
+            assertThat(availability(preview).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(FIRE)).singleElement()
+                    .satisfies(e -> assertThat(e.version().version()).isEqualTo(1))
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+            assertThat(availability(preview).startable(PracticeKind.ROUTINE))
+                    .filteredOn(e -> e.version().key().equals(ROUTINE)).singleElement()
+                    .satisfies(e -> assertThat(e.version().version()).isEqualTo(2))
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+        }
     }
 
     @Test

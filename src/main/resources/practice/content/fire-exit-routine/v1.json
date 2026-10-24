@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "ROUTINE",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-23",
@@ -13,7 +13,7 @@
       "notes": "DRAFT household routine template (redesign EXEC-R1), authored 2026-10-23 by Claude (agent). The If/Then wording is the owner-approved example text from EXEC-R1; every source is a page already cited by reviewed or pilot content in this repo for the same hazard. Review tier LIFE_SAFETY: needs the independent safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Only visible under the local preview gate until then. Revised 2026-10-23 for Gate 1 + Gate 2 (REVISION_REQUIRED at sha256:ea8fc767…): adds calling 911 from outside (NFPA/USFA); keeps the nearest-safe-way-out wording, the meeting place and the stay-out instruction. Gate 1 round 2 APPROVED at this hash (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md, §Round 2 and §Single gate); the owner confirmed the single-gate ruling directly to the Practice lane on 2026-10-23. Published lifecycle-only; the author did not approve it."
     },
     "publishedAt": "2026-10-23",
-    "retiredAt": null
+    "retiredAt": "2026-10-24"
   },
   "content": {
     "title": "Smoke alarm exit",
