@@ -4,12 +4,15 @@
   "version": 5,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT (EXEC-M7, authored 2026-10-23 by Claude, agent): Comms v4 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome text and sources unchanged; v4 stays PUBLISHED, approved at sha256:75cc5709...) plus v4's four SCENE stills kept unchanged, plus scenario introMedia MEDIA-030 (master e6baa291..., a quiet residential street after a modest storm: wet pavement and a few small branches near the curb; no people, flood, damage or emergency response) and both endings (reconnected, reconnected_check_sources) replaced by MEDIA-031 (master d7133dc0..., two adults and a teen with a backpack standing together in their kitchen as the tan dog greets them; household together again, an ordinary calm moment with no celebration or reward cue, so it suits both endings). v4's ending still (0fe5b545...) retires with v4. Both images are PREP tier and design-APPROVED 2026-10-23. Awaits Gate 1 at this exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:10be289accac8e014cb3ed05e785cbaed0f7d2417d901b43a55d9660be798912",
+      "notes": "DRAFT (EXEC-M7, authored 2026-10-23 by Claude, agent): Comms v4 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome text and sources unchanged; v4 stays PUBLISHED, approved at sha256:75cc5709...) plus v4's four SCENE stills kept unchanged, plus scenario introMedia MEDIA-030 (master e6baa291..., a quiet residential street after a modest storm: wet pavement and a few small branches near the curb; no people, flood, damage or emergency response) and both endings (reconnected, reconnected_check_sources) replaced by MEDIA-031 (master d7133dc0..., two adults and a teen with a backpack standing together in their kitchen as the tan dog greets them; household together again, an ordinary calm moment with no celebration or reward cue, so it suits both endings). v4's ending still (0fe5b545...) retires with v4. Both images are PREP tier and design-APPROVED 2026-10-23. Awaits Gate 1 at this exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Gate 1 APPROVED as content version C3 (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md §C3 re-review). Published lifecycle-only; v4 retired; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

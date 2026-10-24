@@ -4,7 +4,7 @@
   "version": 4,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "EXEC-M: reviewed v3 text + hashed realism stills (text and images reviewed together). sha256:0aa08180... CHANGES REQUIRED (finding_numbers still pre-taught the wallet card); fixes applied (no still there; one shared ending still; neutral rumor alt); this hash re-reviewed APPROVED WITH NOTES 2026-10-20 (near-duplicate stills, regeneration only). Record: SitPrep Docs docs/epics/design_handoff_scenarios_story_and_media/07_reconciliation_2026-10-20.md. The author did not approve it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-23"
   },
   "content": {
     "title": "Communications outage: family reconnect",

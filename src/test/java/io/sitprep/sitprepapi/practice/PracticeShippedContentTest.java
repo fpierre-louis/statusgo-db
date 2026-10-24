@@ -307,8 +307,8 @@ class PracticeShippedContentTest {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v1 = catalog.exact(COMMS, 1).orElseThrow();
         Version v2 = catalog.exact(COMMS, 2).orElseThrow();
-        // v4 = EXEC-M (reviewed v3 text + hashed stills, 2026-10-20); v1-v3 are RETIRED.
-        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
+        // v5 = Gate 1 C3 (v4 text + MEDIA-030/031, 2026-10-23); v1-v4 are RETIRED.
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(5);
 
         PracticeContentControlRepo repo = mock(PracticeContentControlRepo.class);
         when(repo.findAll()).thenReturn(List.of());
@@ -318,10 +318,12 @@ class PracticeShippedContentTest {
         assertThat(prod.startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
                 .satisfies(e -> {
-                    assertThat(e.version().version()).isEqualTo(4);
+                    assertThat(e.version().version()).isEqualTo(5);
                     assertThat(e.preview()).isFalse();
                 });
-        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(4);
+        assertThat(prod.checkStart(COMMS).entry().version().version()).isEqualTo(5);
+        Version v4r = catalog.exact(COMMS, 4).orElseThrow();
+        assertThat(prod.checkRun(COMMS, 4, v4r.contentHash()).canContinue()).isTrue();
         Version v3 = catalog.exact(COMMS, 3).orElseThrow();
         assertThat(prod.checkRun(COMMS, 3, v3.contentHash()).canContinue()).isTrue();
         assertThat(prod.checkRun(COMMS, 1, v1.contentHash()).canContinue()).isTrue();
@@ -413,7 +415,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 5 : key.equals(FLOOD) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> v5 (Gate 1 C2), Flood -> v4 (Gate 1 C1), 2026-10-23
+                        .isEqualTo(key.equals(COMMS) ? 5 : key.equals(EARTHQUAKE) ? 5 : key.equals(FLOOD) ? 4 : (int) d[0]))); // Comms -> v5 (Gate 1 C3), Earthquake -> v5 (Gate 1 C2), Flood -> v4 (Gate 1 C1), 2026-10-23
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -534,7 +536,7 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(COMMS, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v4)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.publishState()).isEqualTo(PublishState.RETIRED); // retired 2026-10-23 when v5 published
         assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
         assertThat(v3.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v4.file().schema()).isEqualTo(2);
@@ -570,7 +572,7 @@ class PracticeShippedContentTest {
         // No ending reads as the reward: both share one still.
         assertThat(b4.scenario().outcomes()).extracting(o -> o.media().assetSha256()).containsOnly(
                 b4.scenario().outcomes().get(0).media().assetSha256());
-        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(4);
+        assertThat(catalog.latestStartable(COMMS, false)).map(Version::version).contains(5);
     }
 
     // -- EXEC-M7: Comms v5 = v4 text + MEDIA-030 intro + MEDIA-031 ending (DRAFT) ----
@@ -590,17 +592,18 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void commsV5IsADraftThatOnlyAddsTheIntroAndSwapsTheEndingAndV4IsUntouched() throws Exception {
+    void commsV5IsPublishedAtItsGate1HashAndOnlyAddsTheIntroAndSwapsTheEnding() throws Exception {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v4 = catalog.exact(COMMS, 4).orElseThrow();
         Version v5 = catalog.exact(COMMS, 5).orElseThrow();
         assertThat(PracticeContentValidator.validate(v5)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(COMMS_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v5.contentHash()).isEqualTo(COMMS_V5_DRAFT_HASH);
-        assertThat(v5.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
-        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        // Gate 1 APPROVED as content version C3, final under the single-gate ruling (2026-10-23).
+        assertThat(v5.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(COMMS_V5_DRAFT_HASH);
         assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-030", "MEDIA-031", "0fe5b545", "Gate 1");
         assertThat(v5.file().schema()).isEqualTo(2);
         assertThat(v5.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
@@ -633,16 +636,14 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void productionStartsCommsV4WhileV5IsPreviewOnly() {
+    void productionAndPreviewBothServeCommsV5() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
-        assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(4))
-                .satisfies(e -> assertThat(e.preview()).isFalse());
-        assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+        for (boolean preview : new boolean[] {false, true}) {
+            assertThat(availability(catalog, preview).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(COMMS)).singleElement()
+                    .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+        }
     }
 
     // -- Earthquake v3: a mid-shaking branch and two calm endings (handoff Phase 5) --
