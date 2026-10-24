@@ -4,12 +4,15 @@
   "version": 5,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT (authored 2026-10-23 by Claude, agent): Earthquake v4 text VERBATIM except exactly four node scene labels (shaking_starts 'Tuesday, 6:15 PM · Kitchen'; still_shaking '6:15 PM · Still shaking'; shaking_stops '6:16 PM · Inside, right after the shaking'; aftershock '6:19 PM · A few minutes later'), changed from the 7:30 PM evening / living-room labels because the approved picture is a sunlit kitchen (design decision 2026-10-23); nodes, choices, consequences, feedback, tags, outcomes and sources are unchanged (v4 stays PUBLISHED, approved at sha256:25697331...). Adds schema 2, mediaStyle ILLUSTRATION, node shaking_starts SCENE <- MEDIA-022 v2 (master 771f448e..., Gate 1 APPROVED_FINAL: an intact kitchen with an angled pendant, shifted cups and a tilted picture; no person, protective posture or answer action shown) and EXPLANATION <- MEDIA-023 v2 (master 3441f1fe..., Gate 1 APPROVED_FINAL: adult and child under a sturdy table, wheelchair user with wheels locked in clear floor space; shown after the choice identically on every answer path). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Labels set to an early-evening October timeline (6:15/6:15/6:16/6:19 PM) on Gate 1's language/flow note: the step-3 darkness, flashlight answer and candle distractor need the light to be going; the 022 v2 light is warm and low."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:c50b30cbe00434be7016990ed292453f48fbfefcfadc034f8b2573c657fddb2d",
+      "notes": "DRAFT (authored 2026-10-23 by Claude, agent): Earthquake v4 text VERBATIM except exactly four node scene labels (shaking_starts 'Tuesday, 6:15 PM · Kitchen'; still_shaking '6:15 PM · Still shaking'; shaking_stops '6:16 PM · Inside, right after the shaking'; aftershock '6:19 PM · A few minutes later'), changed from the 7:30 PM evening / living-room labels because the approved picture is a sunlit kitchen (design decision 2026-10-23); nodes, choices, consequences, feedback, tags, outcomes and sources are unchanged (v4 stays PUBLISHED, approved at sha256:25697331...). Adds schema 2, mediaStyle ILLUSTRATION, node shaking_starts SCENE <- MEDIA-022 v2 (master 771f448e..., Gate 1 APPROVED_FINAL: an intact kitchen with an angled pendant, shifted cups and a tilted picture; no person, protective posture or answer action shown) and EXPLANATION <- MEDIA-023 v2 (master 3441f1fe..., Gate 1 APPROVED_FINAL: adult and child under a sturdy table, wheelchair user with wheels locked in clear floor space; shown after the choice identically on every answer path). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Labels set to an early-evening October timeline (6:15/6:15/6:16/6:19 PM) on Gate 1's language/flow note: the step-3 darkness, flashlight answer and candle distractor need the light to be going; the 022 v2 light is warm and low. Gate 1 APPROVED as content version C2 after one alt-text fix (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md §Content version C2 and §C2 re-review). Published lifecycle-only; v4 retired; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

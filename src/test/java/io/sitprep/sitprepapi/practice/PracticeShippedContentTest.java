@@ -413,7 +413,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : key.equals(FLOOD) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3, Flood -> v4 (Gate 1 C1, 2026-10-23)
+                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 5 : key.equals(FLOOD) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> v5 (Gate 1 C2), Flood -> v4 (Gate 1 C1), 2026-10-23
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -611,7 +611,8 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(EARTHQUAKE, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v4)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        // Retired 2026-10-23 when v5 (v4 text + four aligned scene labels + approved media) was published.
+        assertThat(v4.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
         assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
         assertThat(v4.body().tags()).isEqualTo(v3.body().tags());
@@ -642,7 +643,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production starts v4; runs pinned to v3 and v2 still finish").isEqualTo(4));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v5 (v4 text + aligned labels + approved media); runs pinned to v2-v4 still finish").isEqualTo(5));
     }
 
     private static Map<String, String> edges(Node n) {
@@ -956,17 +957,18 @@ class PracticeShippedContentTest {
     static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:c50b30cbe00434be7016990ed292453f48fbfefcfadc034f8b2573c657fddb2d";
 
     @Test
-    void earthquakeV5IsADraftThatChangesOnlyFourSceneLabelsAndAddsApprovedMediaAndV4IsUntouched() throws Exception {
+    void earthquakeV5IsPublishedAtItsGate1HashAndChangesOnlyFourSceneLabelsAndAddsApprovedMedia() throws Exception {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v4 = catalog.exact(EARTHQUAKE, 4).orElseThrow();
         Version v5 = catalog.exact(EARTHQUAKE, 5).orElseThrow();
         assertThat(PracticeContentValidator.validate(v5)).isEmpty();
         assertThat(v4.contentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v5.contentHash()).isEqualTo(EARTHQUAKE_V5_DRAFT_HASH);
-        assertThat(v5.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
-        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        // Gate 1 APPROVED as content version C2, final under the single-gate ruling (2026-10-23).
+        assertThat(v5.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(EARTHQUAKE_V5_DRAFT_HASH);
         assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-022", "MEDIA-023", "kitchen", "6:15 PM", "design decision 2026-10-23");
         assertThat(v5.file().schema()).isEqualTo(2);
         assertThat(v5.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
@@ -1005,15 +1007,13 @@ class PracticeShippedContentTest {
         assertThat(v5.body().scenario().introMedia()).isNull();
         assertThat(v5.body().scenario().outcomes()).allSatisfy(o -> assertThat(o.media()).isNull());
 
-        // Production serves v4, preview serves v5.
-        assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(4))
-                .satisfies(e -> assertThat(e.preview()).isFalse());
-        assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
-                .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
-                .satisfies(e -> assertThat(e.preview()).isTrue());
+        // Published 2026-10-23: production and preview both serve v5 (runs pinned to v2-v4 still finish).
+        for (boolean preview : new boolean[] {false, true}) {
+            assertThat(availability(catalog, preview).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
+                    .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
+                    .satisfies(e -> assertThat(e.preview()).isFalse());
+        }
     }
 
     @Test

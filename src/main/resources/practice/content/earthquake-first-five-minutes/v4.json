@@ -4,7 +4,7 @@
   "version": 4,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "PUBLISHED",
+    "publishState": "RETIRED",
     "safetyReview": {
       "status": "APPROVED",
       "reviewedAt": "2026-10-20",
@@ -13,7 +13,7 @@
       "notes": "Earthquake v4 from the retrospective audit of live v3 (adversarial review NEW VERSION REQUIRED: A outside ending, B open-area prompt, C interior wall, D aftershock mobility, E pre-aftershock damage claim). sha256:8182bdcd... APPROVED WITH NOTES; sha256:8c780e19... APPROVED WITH NOTES (mobility line alignment); this hash APPROVED 2026-10-20. Record: SitPrep Docs docs/epics/readiness/scenarios-and-youth/EXEC-I-scenario-depth.md. Published under the owner's autonomous-review delegation of 2026-10-20. The author did not approve it."
     },
     "publishedAt": "2026-10-20",
-    "retiredAt": null
+    "retiredAt": "2026-10-23"
   },
   "content": {
     "title": "Earthquake: first five minutes",
