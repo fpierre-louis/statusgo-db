@@ -272,6 +272,38 @@
       "focal": "center center",
       "bytes": 136309,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:771f448ea8eb11d7fcb8636eaea2880a06578f9eb44933c3cc7003d18e3f7711",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/quake-shaking-771f448e",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 172486,
+      "durationMs": null
+    },
+    {
+      "sha256": "sha256:3441f1fe22b004cb8bfe9812a4675aa39d9a28d9d475c78b524fc03ddc6c61a2",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/quake-drop-cover-3441f1fe",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 161612,
+      "durationMs": null
     }
   ]
 }

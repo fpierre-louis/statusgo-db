@@ -942,4 +942,85 @@ class PracticeShippedContentTest {
         }
         assertThat(manifest.problems()).isEmpty();
     }
+
+    // -- EXEC-M5: Earthquake v5 = v4 text + four kitchen scene labels + approved stills (DRAFT) ----
+
+    static final String EARTHQUAKE_V5_DRAFT_HASH = "sha256:5c7e687715283e95c56f60b902ad9d81142d3b55776a3ecbade61db6ebc1931d";
+
+    @Test
+    void earthquakeV5IsADraftThatChangesOnlyFourSceneLabelsAndAddsApprovedMediaAndV4IsUntouched() throws Exception {
+        PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
+        Version v4 = catalog.exact(EARTHQUAKE, 4).orElseThrow();
+        Version v5 = catalog.exact(EARTHQUAKE, 5).orElseThrow();
+        assertThat(PracticeContentValidator.validate(v5)).isEmpty();
+        assertThat(v4.contentHash()).isEqualTo(EARTHQUAKE_V4_DRAFT_HASH);
+        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v5.contentHash()).isEqualTo(EARTHQUAKE_V5_DRAFT_HASH);
+        assertThat(v5.publishState()).isEqualTo(PublishState.DRAFT);
+        assertThat(v5.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
+        assertThat(v5.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        assertThat(v5.file().lifecycle().safetyReview().notes()).contains("MEDIA-022", "MEDIA-023", "kitchen", "4:30 PM", "design decision 2026-10-23");
+        assertThat(v5.file().schema()).isEqualTo(2);
+        assertThat(v5.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
+
+        // Text verbatim except exactly the four scene labels: strip media and scene labels, trees are equal.
+        var c4 = contentFile(EARTHQUAKE, 4).get("content");
+        var c5 = withoutMedia(contentFile(EARTHQUAKE, 5).get("content"));
+        var labels = new java.util.LinkedHashMap<String, String>();
+        c5.get("scenario").get("nodes").forEach(n -> labels.put(n.get("key").asText(), n.get("scene").asText()));
+        assertThat(labels).containsExactly(
+                Map.entry("shaking_starts", "Tuesday, 4:30 PM \u00b7 Kitchen"),
+                Map.entry("still_shaking", "4:30 PM \u00b7 Still shaking"),
+                Map.entry("shaking_stops", "4:31 PM \u00b7 Inside, right after the shaking"),
+                Map.entry("aftershock", "4:34 PM \u00b7 A few minutes later"));
+        var s4 = (com.fasterxml.jackson.databind.node.ObjectNode) c4.deepCopy();
+        s4.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("scene"));
+        c5.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove("scene"));
+        assertThat(c5).isEqualTo(s4);
+
+        var byKey = new HashMap<String, Node>();
+        v5.body().scenario().nodes().forEach(n -> byKey.put(n.key(), n));
+        assertStill(byKey.get("shaking_starts").media(), "earthquake-first-five-minutes.shaking_starts.scene",
+                "771f448ea8eb11d7fcb8636eaea2880a06578f9eb44933c3cc7003d18e3f7711");
+        assertThat(byKey.get("shaking_starts").media().alt()).startsWith("An intact kitchen where a pendant lamp");
+        var expl = byKey.get("shaking_starts").explanationMedia();
+        assertStill(expl, "earthquake-first-five-minutes.shaking_starts.explanation",
+                "3441f1fe22b004cb8bfe9812a4675aa39d9a28d9d475c78b524fc03ddc6c61a2");
+        assertThat(expl.alt()).startsWith("An adult and child shelter under a sturdy kitchen table");
+        byKey.forEach((k, n) -> {
+            if (!k.equals("shaking_starts")) {
+                assertThat(n.media()).as(k).isNull();
+                assertThat(n.explanationMedia()).as(k).isNull();
+            }
+            assertThat(n.choices()).allSatisfy(ch -> { assertThat(ch.thumb()).isNull(); assertThat(ch.media()).isNull(); });
+        });
+        assertThat(v5.body().scenario().introMedia()).isNull();
+        assertThat(v5.body().scenario().outcomes()).allSatisfy(o -> assertThat(o.media()).isNull());
+
+        // Production serves v4, preview serves v5.
+        assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(4))
+                .satisfies(e -> assertThat(e.preview()).isFalse());
+        assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
+                .filteredOn(e -> e.version().key().equals(EARTHQUAKE)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(5))
+                .satisfies(e -> assertThat(e.preview()).isTrue());
+    }
+
+    @Test
+    void m5ManifestEntriesAreHashNamedAndMatchTheirMasters() {
+        var manifest = PracticeMediaManifest.getDefault();
+        for (String[] a : new String[][] {
+                {"771f448ea8eb11d7fcb8636eaea2880a06578f9eb44933c3cc7003d18e3f7711", "quake-shaking"},
+                {"3441f1fe22b004cb8bfe9812a4675aa39d9a28d9d475c78b524fc03ddc6c61a2", "quake-drop-cover"}}) {
+            var asset = manifest.find("sha256:" + a[0]).orElseThrow();
+            assertThat(asset.style().name()).isEqualTo("ILLUSTRATION");
+            assertThat(asset.stem()).isEqualTo("/images/practice/" + a[1] + "-" + a[0].substring(0, 8));
+            assertThat(asset.widths()).containsExactly(640, 960, 1254);
+            assertThat(asset.width()).isEqualTo(1254);
+            assertThat(asset.height()).isEqualTo(705);
+        }
+        assertThat(manifest.problems()).isEmpty();
+    }
 }
