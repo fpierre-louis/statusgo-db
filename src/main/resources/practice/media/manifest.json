@@ -410,6 +410,38 @@
       "focal": "center center",
       "bytes": 187765,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:6e923217ec941d93e3f259306bb7684f12a16f476a576374773b0f959c8aeba7",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/fire-alarm-6e923217",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 88175,
+      "durationMs": null
+    },
+    {
+      "sha256": "sha256:255c36b15ffe0dcde3d7e80eebcc1b71a301bc7950d49fe0232d9afc572cef75",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/fire-door-check-255c36b1",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 88891,
+      "durationMs": null
     }
   ]
 }

@@ -1,0 +1,191 @@
+{
+  "schema": 2,
+  "key": "house-fire-at-night",
+  "version": 1,
+  "kind": "ADULT_SCENARIO",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT (Practice redesign CT-06, authored 2026-10-23 by Claude, agent). Review tier LIFE_SAFETY: needs the independent Gate 1 safety review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. SCENE on alarm <- MEDIA-028 v2 (master 6e923217..., Gate 1 + design APPROVED: a smoke alarm and a thin haze high in a nighttime bedroom above a fully closed door; no person, route or action), so the step text says the smoke is near the ceiling and never in the hall. EXPLANATION on door_check <- MEDIA-029 v2 (master 255c36b1..., Gate 1 + design APPROVED: the backs of curled fingers touch a fully closed door, knob untouched; shown after the choice identically on every path), so both choices' feedback says 'back of your hand'. No intro and no ending image (none approved); the outcome media is null. Every instructional line traces to a quoted line of a fetched page (source pack: 2026-10-23, raw curl). Left out as unsupported by any fetched page: 'open windows to clear the smoke' as a wrong answer (sources say to open a window when trapped, so the distractor is 'wait to see if the smoke clears', which NFPA contradicts), 'things can be replaced' (not a Red Cross line; the Red Cross says to leave all your things where they are), 'count everyone' (no source says count; FireSafety.gov says to make sure everyone has gotten out safely), and any two-minute drill target (sources give two minutes only as a warning). The back-of-hand detail is sourced only to the archived 2009 FireSafety.gov (USFA/FEMA) factsheet and is labelled as archived. Reviewers should confirm those readings."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "House fire at night",
+    "summary": "The smoke alarm sounds in the middle of the night. Practice getting out, checking a closed door, and staying out once you are outside.",
+    "objective": "Practice leaving your home when the smoke alarm sounds at night, checking a closed door, and staying out once you are outside.",
+    "estimatedMinutes": 3,
+    "sources": [
+      {
+        "label": "Ready.gov — Home Fires",
+        "url": "https://www.ready.gov/home-fires"
+      },
+      {
+        "label": "American Red Cross — What To Do If A Fire Starts",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/fire/if-a-fire-starts.html"
+      },
+      {
+        "label": "American Red Cross — Home Fire Prevention & Safety Tips",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/fire.html"
+      },
+      {
+        "label": "NFPA — How to make a home fire escape plan",
+        "url": "https://www.nfpa.org/education-and-research/home-fire-safety/escape-planning"
+      },
+      {
+        "label": "U.S. Fire Administration — Home fire escape plans",
+        "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/"
+      },
+      {
+        "label": "FireSafety.gov (USFA and FEMA factsheet, 2009 archived copy) — Make a Fire Escape Plan",
+        "url": "https://webarchive.library.unt.edu/eot2008/20090825000513mp_/http:/www.firesafety.gov/citizens/escape/index.shtm"
+      }
+    ],
+    "tags": {
+      "got_low_and_out": {
+        "text": "You stayed under the smoke and went straight to the way out."
+      },
+      "checked_door_first": {
+        "text": "You felt the door with the back of your hand before opening it."
+      },
+      "stayed_out_told_firefighters": {
+        "text": "You stayed out, called 911 from outside, and told the firefighters about the dog."
+      },
+      "needs_fire_exit_drill": {
+        "text": "Practice leaving your home together, and plan two ways out of every room.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "exit-drill"
+        }
+      }
+    },
+    "scenario": {
+      "startNode": "alarm",
+      "nodes": [
+        {
+          "key": "alarm",
+          "title": "The smoke alarm goes off",
+          "scene": "2:10 AM · Your bedroom",
+          "body": "It is the middle of the night and the house is dark. The smoke alarm is sounding. In your bedroom, a thin haze of smoke hangs near the ceiling. Your bedroom door is closed.",
+          "prompt": "What do you do first?",
+          "choices": [
+            {
+              "key": "get_low_out",
+              "label": "Get low and get out",
+              "consequence": "You stay under the haze and head for the way out.",
+              "feedback": "Ready.gov says to crawl low, under any smoke to your exit, since smoke collects first along the ceiling. The Red Cross says to go outside right away and leave all your things where they are.",
+              "tags": [
+                "got_low_and_out"
+              ],
+              "next": "door_check"
+            },
+            {
+              "key": "grab_devices",
+              "label": "Grab your phone and laptop first",
+              "consequence": "You spend moments gathering things while the alarm keeps sounding.",
+              "feedback": "The Red Cross says to leave all your things where they are and save yourself. FireSafety.gov, a USFA and FEMA factsheet, says not to waste any time saving property.",
+              "tags": [
+                "needs_fire_exit_drill"
+              ],
+              "next": "door_check"
+            },
+            {
+              "key": "wait_and_see",
+              "label": "Wait a few minutes to see if the smoke clears",
+              "consequence": "The alarm keeps sounding while you wait.",
+              "feedback": "NFPA says that when a smoke alarm sounds, get out immediately. The U.S. Fire Administration says residents could have less than 2 minutes to escape once the smoke alarm sounds.",
+              "tags": [
+                "needs_fire_exit_drill"
+              ],
+              "next": "door_check"
+            }
+          ],
+          "media": {
+            "slotKey": "house-fire-at-night.alarm.scene",
+            "kind": "STILL",
+            "assetSha256": "sha256:6e923217ec941d93e3f259306bb7684f12a16f476a576374773b0f959c8aeba7",
+            "alt": "A smoke alarm and thin haze are high in a nighttime bedroom above a fully closed door."
+          }
+        },
+        {
+          "key": "door_check",
+          "title": "A closed bedroom door",
+          "scene": "Still in the bedroom · The door is closed",
+          "body": "The alarm is still sounding. Your bedroom door is closed, and you can't see what is on the other side.",
+          "prompt": "What do you do before opening it?",
+          "choices": [
+            {
+              "key": "feel_door",
+              "label": "Feel the door with the back of your hand",
+              "consequence": "You rest the back of your hand on the door and leave the knob alone.",
+              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door, the doorknob, and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
+              "tags": [
+                "checked_door_first"
+              ],
+              "next": "outside"
+            },
+            {
+              "key": "open_quickly",
+              "label": "Open it quickly",
+              "consequence": "You reach for the knob without checking the door.",
+              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to check a closed door with the back of your hand first. The Red Cross says never to open doors that are warm to the touch.",
+              "tags": [
+                "needs_fire_exit_drill"
+              ],
+              "next": "outside"
+            }
+          ],
+          "explanationMedia": {
+            "slotKey": "house-fire-at-night.door_check.explanation",
+            "kind": "STILL",
+            "assetSha256": "sha256:255c36b15ffe0dcde3d7e80eebcc1b71a301bc7950d49fe0232d9afc572cef75",
+            "alt": "The backs of an adult's curled fingers touch a fully closed bedroom door while the palm faces inward and the doorknob remains untouched."
+          }
+        },
+        {
+          "key": "outside",
+          "title": "Outside",
+          "scene": "A few minutes later · Outside",
+          "body": "Everyone is out of the house. The dog did not come out with the group, and no one has called 911 yet.",
+          "prompt": "What do you do now?",
+          "choices": [
+            {
+              "key": "meet_call_tell",
+              "label": "Go to your meeting spot, make sure everyone is out, call 911, and tell the firefighters about the dog",
+              "consequence": "Everyone is together at the meeting spot, and the call is made.",
+              "feedback": "The Red Cross says to go to your meeting place, then send one person to call the fire department. Ready.gov says to tell firefighters right away if pets are trapped inside.",
+              "tags": [
+                "stayed_out_told_firefighters"
+              ],
+              "next": "escape_rehearsed"
+            },
+            {
+              "key": "go_back_dog",
+              "label": "Go back in for the dog",
+              "consequence": "You turn back toward the front door, and no one has called 911 yet.",
+              "feedback": "Wanting to reach the dog makes sense. The Red Cross says never to go back inside for anything or anyone. NFPA says firefighters have the skills and equipment to perform rescues. Ready.gov says to tell them right away.",
+              "tags": [
+                "needs_fire_exit_drill"
+              ],
+              "next": "escape_rehearsed"
+            }
+          ]
+        }
+      ],
+      "outcomes": [
+        {
+          "key": "escape_rehearsed",
+          "title": "You walked through a smoke alarm at night",
+          "body": "You walked through a smoke alarm at night at home: getting low and out, checking a closed door, and staying out. The Red Cross says to get out, stay out, and call for help. The U.S. Fire Administration says to find 2 ways out of every room and choose an outside meeting place. NFPA says to practice your home fire escape plan twice a year. If you'd like, talk it over together: what are your two ways out of each bedroom, and where is your meeting spot outside?",
+          "defaultAction": "OPEN_DRILL",
+          "defaultParams": {
+            "drillId": "exit-drill"
+          }
+        }
+      ]
+    },
+    "mediaStyle": "ILLUSTRATION"
+  }
+}

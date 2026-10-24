@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "key": "fire-exit-routine",
+  "version": 2,
+  "kind": "ROUTINE",
+  "lifecycle": {
+    "publishState": "DRAFT",
+    "safetyReview": {
+      "status": "PENDING",
+      "notes": "DRAFT (Practice redesign CT-06, authored 2026-10-23 by Claude, agent): v1 text VERBATIM (title, summary, sources, If/Then template, slot and activity offer unchanged; v1 stays PUBLISHED, approved at sha256:38d93ca7...). The only change is offeredBy.scenarios gaining house-fire-at-night, so the new House Fire scenario offers this routine at its debrief. Review tier LIFE_SAFETY: needs the independent Gate 1 review at the exact hash, together with the scenario, before it can be PUBLISHED; the author does not approve it. Production keeps serving v1; the preview gate serves this draft."
+    },
+    "publishedAt": null,
+    "retiredAt": null
+  },
+  "content": {
+    "title": "Smoke alarm exit",
+    "summary": "Keep a short home fire routine on your household plan: leave by the nearest safe exit, meet at your spot outside, and stay out.",
+    "sources": [
+      {
+        "label": "American Red Cross — Home fire safety and escape plans",
+        "url": "https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/fire.html"
+      },
+      {
+        "label": "U.S. Fire Administration — Home fire escape plans",
+        "url": "https://www.usfa.fema.gov/prevention/home-fires/prepare-for-fire/home-fire-escape-plans/"
+      },
+      {
+        "label": "NFPA — How to make a home fire escape plan",
+        "url": "https://www.nfpa.org/education-and-research/home-fire-safety/escape-planning"
+      }
+    ],
+    "routine": {
+      "hazard": "home-fire",
+      "title": "Smoke alarm exit",
+      "ifText": "If the smoke alarm sounds",
+      "thenTemplate": "We use the nearest safe way out and meet at {place}. Once we're out, we stay out and call 911 from outside.",
+      "reviewTier": "LIFE_SAFETY",
+      "slots": [
+        {
+          "key": "place",
+          "source": "PLACE",
+          "tier": "OUTSIDE_HOME",
+          "fallback": "our meeting spot outside"
+        }
+      ],
+      "offeredBy": {
+        "scenarios": [
+          "house-fire-at-night"
+        ],
+        "activities": [
+          "together-get-out-and-meet-up"
+        ]
+      }
+    }
+  }
+}

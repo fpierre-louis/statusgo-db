@@ -181,6 +181,7 @@ public class ScenarioService {
         if (hazard != null) return hazard;
         if ("comms-outage-family-reconnect".equals(scenarioKey)) return "communications";
         if ("evacuating-with-pets".equals(scenarioKey)) return "pets";
+        if ("house-fire-at-night".equals(scenarioKey)) return "home-fire"; // same topic tag as the fire-exit routine
         return null;
     }
 

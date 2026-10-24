@@ -45,6 +45,12 @@ public enum DebriefTag {
     NEEDS_TORNADO_DRILL(Polarity.PRACTICE),
     NEEDS_UPDATE_CHECK(Polarity.PRACTICE),
 
+    // Adult scenarios — House Fire at Night (CT-06)
+    GOT_LOW_AND_OUT(Polarity.STRONG),
+    CHECKED_DOOR_FIRST(Polarity.STRONG),
+    STAYED_OUT_TOLD_FIREFIGHTERS(Polarity.STRONG),
+    NEEDS_FIRE_EXIT_DRILL(Polarity.PRACTICE),
+
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),
     DISCUSSED_HOUSEHOLD_SPECIFIC_NEEDS(Polarity.STRONG),
