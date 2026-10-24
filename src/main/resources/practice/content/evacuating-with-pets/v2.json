@@ -4,12 +4,15 @@
   "version": 2,
   "kind": "ADULT_SCENARIO",
   "lifecycle": {
-    "publishState": "DRAFT",
+    "publishState": "PUBLISHED",
     "safetyReview": {
-      "status": "PENDING",
-      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Evacuating with Pets v1 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v1 stays PUBLISHED, approved at sha256:578235f3...) plus schema 2, mediaStyle REALISM, EXPLANATION cat_hiding <- MEDIA-027 (master 483cbd78..., re-slotted from SCENE to the post-choice explanation and Gate 1 approved in that role: a calm gray tabby under a guest bed with a closed empty carrier nearby; no person, reaching or response shown; the pre-choice step carries no media) and the ending MEDIA-014 (master 0f67ca77..., design-approved PREP) on the single outcome pets_plan_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows an adult beside a parked car with a calm dog on a leash and a cat secured in a belted carrier, a neutral post-practice state that restates the outcome's own planning guidance and does not grade the player's choices (reviewers should confirm that reading, and the pet-presence assumption: the outcome speaks of pets generally). SCENE order_issued = MEDIA-026 v3 (1cf690e7…, Gate 1 R8 + design APPROVED: no carrier or leash, both pets equal, neutral adult; v2 pre-taught the answer and was revised). No planned slots remain. Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "status": "APPROVED",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Gate 1: Claude Opus 5.5 (ms-bootcamp-4c), safety/flow/language — final under owner single-gate ruling 2026-10-23",
+      "reviewedContentHash": "sha256:3c76a84aea757fb691be2be91afce82ee992e59f235dfadb3d3787db3a9d8152",
+      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Evacuating with Pets v1 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v1 stays PUBLISHED, approved at sha256:578235f3...) plus schema 2, mediaStyle REALISM, EXPLANATION cat_hiding <- MEDIA-027 (master 483cbd78..., re-slotted from SCENE to the post-choice explanation and Gate 1 approved in that role: a calm gray tabby under a guest bed with a closed empty carrier nearby; no person, reaching or response shown; the pre-choice step carries no media) and the ending MEDIA-014 (master 0f67ca77..., design-approved PREP) on the single outcome pets_plan_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows an adult beside a parked car with a calm dog on a leash and a cat secured in a belted carrier, a neutral post-practice state that restates the outcome's own planning guidance and does not grade the player's choices (reviewers should confirm that reading, and the pet-presence assumption: the outcome speaks of pets generally). SCENE order_issued = MEDIA-026 v3 (1cf690e7…, Gate 1 R8 + design APPROVED: no carrier or leash, both pets equal, neutral adult; v2 pre-taught the answer and was revised). No planned slots remain. Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only. Gate 1 APPROVED as content version C5 (§Content version C5) (record: SitPrep Docs docs/SitPrep-Practice-Redesign-Handoff/reviews/GATE_1_SAFETY_REVIEW_2026-10-23.md). Published lifecycle-only; v1 retired; the author did not approve it."
     },
-    "publishedAt": null,
+    "publishedAt": "2026-10-23",
     "retiredAt": null
   },
   "content": {

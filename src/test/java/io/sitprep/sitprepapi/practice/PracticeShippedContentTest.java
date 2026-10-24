@@ -878,7 +878,7 @@ class PracticeShippedContentTest {
         Version v1 = catalog.exact(PETS, 1).orElseThrow();
         assertThat(PracticeContentValidator.validate(v1)).isEmpty();
         assertThat(v1.contentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
-        assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v1.publishState()).isEqualTo(PublishState.RETIRED); // retired 2026-10-23 when v2 published
         assertThat(v1.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
         assertThat(v1.body().sources()).allSatisfy(src ->
                 assertThat(src.url()).matches("https://www\\.(ready\\.gov|redcross\\.org)/.*"));
@@ -901,10 +901,12 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-21T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(PETS)).singleElement()
+                .satisfies(e -> assertThat(e.version().version()).isEqualTo(2))
                 .satisfies(e -> assertThat(e.preview()).isFalse());
+        assertThat(availability(catalog, false).checkRun(PETS, 1, v1.contentHash()).canContinue()).isTrue();
     }
 
-    // -- EXEC-M4: Flood v4 and Pets v2 = published text verbatim + approved stills (DRAFT) ----
+    // -- EXEC-M4: Flood v4 and Pets v2 = published text verbatim + approved stills (Pets v2 PUBLISHED at Gate 1 C5) ----
 
     static final String FLOOD_V4_DRAFT_HASH = "sha256:0ec42254f52403cd5d5f1e1a34cc4700e704b3bd5ffd60b46de527e7a0921fbc";
     static final String PETS_V2_DRAFT_HASH = "sha256:3c76a84aea757fb691be2be91afce82ee992e59f235dfadb3d3787db3a9d8152";
@@ -980,7 +982,7 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void productionStartsFloodV4AndPetsV1WhilePetsV2IsPreviewOnly() {
+    void productionAndPreviewBothServeFloodV4AndPetsV2() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         for (boolean preview : new boolean[] {false, true}) {
             assertThat(availability(catalog, preview).startable(PracticeKind.ADULT_SCENARIO))
@@ -988,31 +990,27 @@ class PracticeShippedContentTest {
                     .satisfies(e -> assertThat(e.preview()).isFalse())
                     .satisfies(e -> assertThat(e.version().version()).as("flood, preview gate " + preview).isEqualTo(4));
         }
-        for (Object[] c : new Object[][] {{PETS, 1, 2}}) {
-            String key = (String) c[0];
-            assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
-                    .filteredOn(e -> e.version().key().equals(key)).singleElement()
+        for (boolean preview : new boolean[] {false, true}) {
+            assertThat(availability(catalog, preview).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(PETS)).singleElement()
                     .satisfies(e -> assertThat(e.preview()).isFalse())
-                    .satisfies(e -> assertThat(e.version().version()).as(key + " production").isEqualTo(c[1]));
-            assertThat(availability(catalog, true).startable(PracticeKind.ADULT_SCENARIO))
-                    .filteredOn(e -> e.version().key().equals(key)).singleElement()
-                    .satisfies(e -> assertThat(e.preview()).isTrue())
-                    .satisfies(e -> assertThat(e.version().version()).as(key + " preview").isEqualTo(c[2]));
+                    .satisfies(e -> assertThat(e.version().version()).as("pets, preview gate " + preview).isEqualTo(2));
         }
     }
 
     @Test
-    void petsV2IsADraftThatAddsOnlyApprovedMediaToV1AndV1IsUntouched() throws Exception {
+    void petsV2IsPublishedAtItsGate1HashAndAddsOnlyApprovedMediaToV1() throws Exception {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v1 = catalog.exact(PETS, 1).orElseThrow();
         Version v2 = catalog.exact(PETS, 2).orElseThrow();
         assertThat(PracticeContentValidator.validate(v2)).isEmpty();
         assertThat(v1.contentHash()).isEqualTo(PETS_V1_DRAFT_HASH);
-        assertThat(v1.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v1.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v2.contentHash()).isEqualTo(PETS_V2_DRAFT_HASH);
-        assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
-        assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        // Gate 1 APPROVED as content version C5, final under the single-gate ruling (2026-10-23).
+        assertThat(v2.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(PETS_V2_DRAFT_HASH);
         assertThat(v2.file().lifecycle().safetyReview().notes()).contains("MEDIA-027", "MEDIA-014", "MEDIA-026 v3", "No planned slots remain");
         assertThat(v2.file().schema()).isEqualTo(2);
         assertThat(v2.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
