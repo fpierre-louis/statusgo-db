@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Evacuating with Pets v1 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v1 stays PUBLISHED, approved at sha256:578235f3...) plus schema 2, mediaStyle REALISM, EXPLANATION cat_hiding <- MEDIA-027 (master 483cbd78..., re-slotted from SCENE to the post-choice explanation and Gate 1 approved in that role: a calm gray tabby under a guest bed with a closed empty carrier nearby; no person, reaching or response shown; the pre-choice step carries no media) and the ending MEDIA-014 (master 0f67ca77..., design-approved PREP) on the single outcome pets_plan_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows an adult beside a parked car with a calm dog on a leash and a cat secured in a belted carrier, a neutral post-practice state that restates the outcome's own planning guidance and does not grade the player's choices (reviewers should confirm that reading, and the pet-presence assumption: the outcome speaks of pets generally). PLANNED EMPTY SLOTS: SCENE order_issued <- MEDIA-026 (revising). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "notes": "DRAFT (EXEC-M4, authored 2026-10-23 by Claude, agent): Evacuating with Pets v1 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v1 stays PUBLISHED, approved at sha256:578235f3...) plus schema 2, mediaStyle REALISM, EXPLANATION cat_hiding <- MEDIA-027 (master 483cbd78..., re-slotted from SCENE to the post-choice explanation and Gate 1 approved in that role: a calm gray tabby under a guest bed with a closed empty carrier nearby; no person, reaching or response shown; the pre-choice step carries no media) and the ending MEDIA-014 (master 0f67ca77..., design-approved PREP) on the single outcome pets_plan_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows an adult beside a parked car with a calm dog on a leash and a cat secured in a belted carrier, a neutral post-practice state that restates the outcome's own planning guidance and does not grade the player's choices (reviewers should confirm that reading, and the pet-presence assumption: the outcome speaks of pets generally). SCENE order_issued = MEDIA-026 v3 (1cf690e7…, Gate 1 R8 + design APPROVED: no carrier or leash, both pets equal, neutral adult; v2 pre-taught the answer and was revised). No planned slots remain. Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -96,7 +96,13 @@
               ],
               "next": "loading_car"
             }
-          ]
+          ],
+          "media": {
+            "slotKey": "evacuating-with-pets.order_issued.scene",
+            "kind": "STILL",
+            "assetSha256": "sha256:1cf690e7eec73ad5284b73719ce11f040f5eb699756fbf8315982540a6869beb",
+            "alt": "An adult looks down at two packed bags between a gray tabby and a black-and-white dog beside a fully closed front door."
+          }
         },
         {
           "key": "loading_car",

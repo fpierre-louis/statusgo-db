@@ -394,6 +394,22 @@
       "focal": "center center",
       "bytes": 6872,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:1cf690e7eec73ad5284b73719ce11f040f5eb699756fbf8315982540a6869beb",
+      "style": "REALISM",
+      "kind": "STILL",
+      "stem": "/images/practice/pets-order-1cf690e7",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 187765,
+      "durationMs": null
     }
   ]
 }

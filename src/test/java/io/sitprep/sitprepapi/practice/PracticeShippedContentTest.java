@@ -904,7 +904,7 @@ class PracticeShippedContentTest {
     // -- EXEC-M4: Flood v4 and Pets v2 = published text verbatim + approved stills (DRAFT) ----
 
     static final String FLOOD_V4_DRAFT_HASH = "sha256:0ec42254f52403cd5d5f1e1a34cc4700e704b3bd5ffd60b46de527e7a0921fbc";
-    static final String PETS_V2_DRAFT_HASH = "sha256:e6664765761cbf02f138fbc16badafa513b95855fcabf92c0340aaefd1365179";
+    static final String PETS_V2_DRAFT_HASH = "sha256:3c76a84aea757fb691be2be91afce82ee992e59f235dfadb3d3787db3a9d8152";
 
     private static com.fasterxml.jackson.databind.node.ObjectNode contentFile(String key, int v) throws java.io.IOException {
         return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
@@ -1010,7 +1010,7 @@ class PracticeShippedContentTest {
         assertThat(v2.publishState()).isEqualTo(PublishState.DRAFT);
         assertThat(v2.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
         assertThat(v2.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
-        assertThat(v2.file().lifecycle().safetyReview().notes()).contains("MEDIA-027", "MEDIA-014", "MEDIA-026", "PLANNED EMPTY SLOTS");
+        assertThat(v2.file().lifecycle().safetyReview().notes()).contains("MEDIA-027", "MEDIA-014", "MEDIA-026 v3", "No planned slots remain");
         assertThat(v2.file().schema()).isEqualTo(2);
         assertThat(v2.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
 
@@ -1022,8 +1022,12 @@ class PracticeShippedContentTest {
         assertStill(cat, "evacuating-with-pets.cat_hiding.explanation",
                 "483cbd78b48acfcacfe5ef77a6bd9785336578cf80db143cf8b81692f742d74d");
         assertThat(cat.alt()).isEqualTo("A calm gray tabby is found in its usual hiding spot under the bed, with its familiar carrier ready nearby.");
+        // Only order_issued carries a pre-choice scene: MEDIA-026 v3 (no carrier or leash; favours no option).
+        assertStill(byKey.get("order_issued").media(), "evacuating-with-pets.order_issued.scene",
+                "1cf690e7eec73ad5284b73719ce11f040f5eb699756fbf8315982540a6869beb");
+        assertThat(byKey.get("order_issued").media().alt()).doesNotContainIgnoringCase("carrier").doesNotContainIgnoringCase("leash");
         assertThat(byKey.values()).allSatisfy(n -> {
-            assertThat(n.media()).as(n.key() + " has no pre-choice scene").isNull();
+            if (!n.key().equals("order_issued")) assertThat(n.media()).as(n.key() + " has no pre-choice scene").isNull();
             assertThat(n.choices()).allSatisfy(ch -> { assertThat(ch.thumb()).isNull(); assertThat(ch.media()).isNull(); });
         });
         assertThat(byKey.get("order_issued").explanationMedia()).isNull();
