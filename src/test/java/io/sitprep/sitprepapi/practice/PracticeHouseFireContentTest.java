@@ -23,7 +23,7 @@ class PracticeHouseFireContentTest {
     static final String FIRE = "house-fire-at-night";
     static final String ROUTINE = "fire-exit-routine";
     /** The hashes Gate 1 must read. Any edit to either file fails here first. */
-    static final String FIRE_V1_DRAFT_HASH = "sha256:917e2f1dea4d0aa307128793760962bc4508501be9081de6fd729ca27d4124ae";
+    static final String FIRE_V1_DRAFT_HASH = "sha256:af14215ef423aedcc619be072b3df73e3fe21352aff079a5f7ab31cb314678a7";
     static final String ROUTINE_V2_DRAFT_HASH = "sha256:5bab24d612b3a1aedfd754e3f5010c27f30d7c7194f7749fca5421a733e5106e";
     static final String ROUTINE_V1_HASH = "sha256:38d93ca7e9788474883eb64f5bf9bb07b25e093f7eb1f2de2ea3e91291065349";
 
@@ -87,6 +87,7 @@ class PracticeHouseFireContentTest {
         assertThat(v.body().scenario().nodes().toString()).doesNotContainIgnoringCase("window");
         // No unsupported wording survives.
         assertThat(CATALOG.exact(FIRE, 1).orElseThrow().file().content().toString())
+                .doesNotContain("leave the knob alone").doesNotContain("called 911 yet").doesNotContain("less than 2 minutes")
                 .doesNotContain("Things can be replaced").doesNotContainIgnoringCase("count everyone");
     }
 

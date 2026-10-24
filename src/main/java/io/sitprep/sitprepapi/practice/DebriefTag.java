@@ -50,6 +50,7 @@ public enum DebriefTag {
     CHECKED_DOOR_FIRST(Polarity.STRONG),
     STAYED_OUT_TOLD_FIREFIGHTERS(Polarity.STRONG),
     NEEDS_FIRE_EXIT_DRILL(Polarity.PRACTICE),
+    NEEDS_STAY_OUT_REMINDER(Polarity.PRACTICE),
 
     // Family Practice — Kit Builder
     DISCUSSED_CORE_KIT_ITEMS(Polarity.STRONG),

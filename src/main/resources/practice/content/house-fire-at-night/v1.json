@@ -51,7 +51,14 @@
         "text": "You felt the door with the back of your hand before opening it."
       },
       "stayed_out_told_firefighters": {
-        "text": "You stayed out, called 911 from outside, and told the firefighters about the dog."
+        "text": "You went to your meeting spot and called 911 from outside."
+      },
+      "needs_stay_out_reminder": {
+        "text": "Once you are out, stay out, and tell the firefighters about anyone or any pet still inside.",
+        "action": "OPEN_DRILL",
+        "params": {
+          "drillId": "exit-drill"
+        }
       },
       "needs_fire_exit_drill": {
         "text": "Practice leaving your home together, and plan two ways out of every room.",
@@ -75,7 +82,7 @@
               "key": "get_low_out",
               "label": "Get low and get out",
               "consequence": "You stay under the haze and head for the way out.",
-              "feedback": "Ready.gov says to crawl low, under any smoke to your exit, since smoke collects first along the ceiling. The Red Cross says to go outside right away and leave all your things where they are.",
+              "feedback": "Ready.gov says to crawl low, under any smoke to your exit, and that smoke collects first along the ceiling. The Red Cross says to go outside right away and leave all your things where they are.",
               "tags": [
                 "got_low_and_out"
               ],
@@ -95,7 +102,7 @@
               "key": "wait_and_see",
               "label": "Wait a few minutes to see if the smoke clears",
               "consequence": "The alarm keeps sounding while you wait.",
-              "feedback": "NFPA says that when a smoke alarm sounds, get out immediately. The U.S. Fire Administration says residents could have less than 2 minutes to escape once the smoke alarm sounds.",
+              "feedback": "NFPA says that when a smoke alarm sounds, get out immediately.",
               "tags": [
                 "needs_fire_exit_drill"
               ],
@@ -119,8 +126,8 @@
             {
               "key": "feel_door",
               "label": "Feel the door with the back of your hand",
-              "consequence": "You rest the back of your hand on the door and leave the knob alone.",
-              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door, the doorknob, and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
+              "consequence": "You rest the back of your hand against the door.",
+              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
               "tags": [
                 "checked_door_first"
               ],
@@ -148,14 +155,14 @@
           "key": "outside",
           "title": "Outside",
           "scene": "A few minutes later · Outside",
-          "body": "Everyone is out of the house. The dog did not come out with the group, and no one has called 911 yet.",
+          "body": "Everyone is out of the house. The dog did not come out with the group.",
           "prompt": "What do you do now?",
           "choices": [
             {
               "key": "meet_call_tell",
-              "label": "Go to your meeting spot, make sure everyone is out, call 911, and tell the firefighters about the dog",
+              "label": "Go to your meeting spot and call 911",
               "consequence": "Everyone is together at the meeting spot, and the call is made.",
-              "feedback": "The Red Cross says to go to your meeting place, then send one person to call the fire department. Ready.gov says to tell firefighters right away if pets are trapped inside.",
+              "feedback": "The Red Cross says to go to your meeting place, then send one person to call the fire department. Ready.gov says to tell firefighters right away if pets are trapped inside, so let them know about the dog.",
               "tags": [
                 "stayed_out_told_firefighters"
               ],
@@ -164,10 +171,10 @@
             {
               "key": "go_back_dog",
               "label": "Go back in for the dog",
-              "consequence": "You turn back toward the front door, and no one has called 911 yet.",
+              "consequence": "You turn back toward the front door.",
               "feedback": "Wanting to reach the dog makes sense. The Red Cross says never to go back inside for anything or anyone. NFPA says firefighters have the skills and equipment to perform rescues. Ready.gov says to tell them right away.",
               "tags": [
-                "needs_fire_exit_drill"
+                "needs_stay_out_reminder"
               ],
               "next": "escape_rehearsed"
             }
@@ -177,8 +184,8 @@
       "outcomes": [
         {
           "key": "escape_rehearsed",
-          "title": "You walked through a smoke alarm at night",
-          "body": "You walked through a smoke alarm at night at home: getting low and out, checking a closed door, and staying out. The Red Cross says to get out, stay out, and call for help. The U.S. Fire Administration says to find 2 ways out of every room and choose an outside meeting place. NFPA says to practice your home fire escape plan twice a year. If you'd like, talk it over together: what are your two ways out of each bedroom, and where is your meeting spot outside?",
+          "title": "You practiced a smoke alarm at night",
+          "body": "You practiced a smoke alarm at night at home: getting low and out, checking a closed door, and staying out. The Red Cross says to get out, stay out, and call for help. The U.S. Fire Administration says to find 2 ways out of every room and choose an outside meeting place. NFPA says to practice your home fire escape plan twice a year. If you'd like, talk it over together: what are your two ways out of each bedroom, and where is your meeting spot outside?",
           "defaultAction": "OPEN_DRILL",
           "defaultParams": {
             "drillId": "exit-drill"
