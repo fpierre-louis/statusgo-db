@@ -413,7 +413,7 @@ class PracticeShippedContentTest {
                 .filteredOn(e -> e.version().key().equals(key))
                 .singleElement()
                 .satisfies(e -> assertThat(e.version().version()).as(key)
-                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : key.equals(FLOOD) ? 3 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3
+                        .isEqualTo(key.equals(COMMS) ? 4 : key.equals(EARTHQUAKE) ? 4 : key.equals(FLOOD) ? 4 : (int) d[0]))); // Comms -> EXEC-M v4, Earthquake -> branching v3, Flood -> v4 (Gate 1 C1, 2026-10-23)
     }
 
     // -- EXEC-I6: Tornado draft ---------------------------------------------
@@ -699,7 +699,8 @@ class PracticeShippedContentTest {
         Version v3 = catalog.exact(FLOOD, 3).orElseThrow();
         assertThat(PracticeContentValidator.validate(v3)).isEmpty();
         assertThat(v3.contentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        // Retired 2026-10-23 when v4 (same text + approved media) was published.
+        assertThat(v3.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v3.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
         assertThat(catalog.exact(FLOOD, 2).orElseThrow().publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v3.body().sources()).allSatisfy(src -> assertThat(src.url()).startsWith("https://www.weather.gov/safety/"));
@@ -722,7 +723,7 @@ class PracticeShippedContentTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC);
         assertThat(new PracticeAvailabilityService(catalog, repo, true, false, clock).startable(PracticeKind.ADULT_SCENARIO))
                 .filteredOn(e -> e.version().key().equals(FLOOD)).singleElement()
-                .satisfies(e -> assertThat(e.version().version()).as("production starts v3; runs pinned to v2 still finish").isEqualTo(3));
+                .satisfies(e -> assertThat(e.version().version()).as("production starts v4 (v3 text + approved media); runs pinned to v2/v3 still finish").isEqualTo(4));
     }
 
     // -- Tornado v2: the storm gets closer (no more silent move to the bathroom) --
@@ -836,17 +837,18 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void floodV4IsADraftThatAddsOnlyApprovedMediaToV3AndV3IsUntouched() throws Exception {
+    void floodV4IsPublishedAtItsGate1HashAndAddsOnlyApprovedMediaToV3() throws Exception {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
         Version v3 = catalog.exact(FLOOD, 3).orElseThrow();
         Version v4 = catalog.exact(FLOOD, 4).orElseThrow();
         assertThat(PracticeContentValidator.validate(v4)).isEmpty();
         assertThat(v3.contentHash()).isEqualTo(FLOOD_V3_DRAFT_HASH);
-        assertThat(v3.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v3.publishState()).isEqualTo(PublishState.RETIRED);
         assertThat(v4.contentHash()).isEqualTo(FLOOD_V4_DRAFT_HASH);
-        assertThat(v4.publishState()).isEqualTo(PublishState.DRAFT);
-        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
-        assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isNull();
+        // Gate 1 APPROVED as content version C1, final under the single-gate ruling (2026-10-23).
+        assertThat(v4.publishState()).isEqualTo(PublishState.PUBLISHED);
+        assertThat(v4.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.APPROVED);
+        assertThat(v4.file().lifecycle().safetyReview().reviewedContentHash()).isEqualTo(FLOOD_V4_DRAFT_HASH);
         assertThat(v4.file().lifecycle().safetyReview().notes()).contains("MEDIA-024", "MEDIA-025", "MEDIA-013", "neutral post-practice");
         assertThat(v4.file().schema()).isEqualTo(2);
         assertThat(v4.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.REALISM);
@@ -873,9 +875,15 @@ class PracticeShippedContentTest {
     }
 
     @Test
-    void productionStillStartsFloodV3AndPetsV1WhileV4AndV2ArePreviewOnly() {
+    void productionStartsFloodV4AndPetsV1WhilePetsV2IsPreviewOnly() {
         PracticeCatalog catalog = new PracticeCatalog(PracticeCatalog.DEFAULT_LOCATION);
-        for (Object[] c : new Object[][] {{FLOOD, 3, 4}, {PETS, 1, 2}}) {
+        for (boolean preview : new boolean[] {false, true}) {
+            assertThat(availability(catalog, preview).startable(PracticeKind.ADULT_SCENARIO))
+                    .filteredOn(e -> e.version().key().equals(FLOOD)).singleElement()
+                    .satisfies(e -> assertThat(e.preview()).isFalse())
+                    .satisfies(e -> assertThat(e.version().version()).as("flood, preview gate " + preview).isEqualTo(4));
+        }
+        for (Object[] c : new Object[][] {{PETS, 1, 2}}) {
             String key = (String) c[0];
             assertThat(availability(catalog, false).startable(PracticeKind.ADULT_SCENARIO))
                     .filteredOn(e -> e.version().key().equals(key)).singleElement()
