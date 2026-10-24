@@ -100,7 +100,7 @@
                 "slotKey": "tornado-warning-shelter-decision.warning_issued.interior_room.thumb",
                 "kind": "STILL",
                 "assetSha256": "sha256:9931a713b8bb09430988aec8cbb241387a843d4e68dc93e26ce814b324a6297e",
-                "alt": "A small interior bathroom with a bathtub, towels and solid walls, with no windows or glass."
+                "alt": "A small bathroom in the middle of the house, with a bathtub, towels and tiled walls."
               }
             },
             {
@@ -174,7 +174,7 @@
             "slotKey": "tornado-warning-shelter-decision.in_shelter.explanation",
             "kind": "STILL",
             "assetSha256": "sha256:c0952566b34c3474c730d29e1b334f4838a11d0ccd8e16e60032a055ef8830ff",
-            "alt": "A family crouches low in a windowless bathroom, each protecting the head and back of the neck with both arms while a blanket lies closely over their heads and shoulders."
+            "alt": "A family crouches low in a windowless bathroom, faces down, hands clasped over the backs of their necks, each with a blanket over their head and shoulders."
           },
           "body": "Heavy wind and rain are hitting the house. The warning is still in effect.",
           "messages": [

@@ -452,7 +452,7 @@ class PracticeShippedContentTest {
     // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (DRAFT) ----
 
     static final String TORNADO_V2_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
-    static final String TORNADO_V3_DRAFT_HASH = "sha256:110e735c42f92a4534f1b9fa4bf7115bb8aeed7c2302f31c7022d3081c3a2f4e";
+    static final String TORNADO_V3_DRAFT_HASH = "sha256:b52b3b6c3300c85a4e635cd35f800196312c6292fe444dc82cb734cf5bcd2daa";
 
     private static com.fasterxml.jackson.databind.node.ObjectNode tornadoFile(int v) throws java.io.IOException {
         return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
