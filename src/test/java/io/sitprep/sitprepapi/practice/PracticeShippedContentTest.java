@@ -575,7 +575,7 @@ class PracticeShippedContentTest {
 
     // -- EXEC-M7: Comms v5 = v4 text + MEDIA-030 intro + MEDIA-031 ending (DRAFT) ----
 
-    static final String COMMS_V5_DRAFT_HASH = "sha256:c1bc8799681275b9e8fc5e3fba2be26e58c277dc7f98ab642658b8f6cbbd276a";
+    static final String COMMS_V5_DRAFT_HASH = "sha256:10be289accac8e014cb3ed05e785cbaed0f7d2417d901b43a55d9660be798912";
 
     /** Strips the two EXEC-M7 additions: the intro and the ending assets (slot keys stay). */
     private static com.fasterxml.jackson.databind.JsonNode withoutCommsV5Media(com.fasterxml.jackson.databind.JsonNode content) {
