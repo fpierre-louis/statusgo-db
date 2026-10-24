@@ -7,7 +7,7 @@
     "publishState": "DRAFT",
     "safetyReview": {
       "status": "PENDING",
-      "notes": "DRAFT (EXEC-M3 + EXEC-M4, authored 2026-10-23 by Claude, agent): Tornado v2 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v2 stays PUBLISHED, approved at sha256:83619bb7...) plus schema 2, mediaStyle ILLUSTRATION, the SCENE still MEDIA-017 v2 on warning_issued (master 659b8f0e..., a pre-choice cue only: three people stay seated and look at a lit phone as storm clouds gather; no room, route or protective action is shown), the intro still MEDIA-016 (master 3cbf96be..., design-approved PREP 2026-10-23) and the ending MEDIA-011 (master 2909a881..., design-approved PREP) on the single outcome warning_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a household stepping out of a windowless bathroom into a hallway, a neutral post-practice state with no hazard, damage, protective posture or reward cue, so it restates the outcome's own guidance and does not grade the player's choices. Reviewers should confirm that reading at both gates. Node in_shelter EXPLANATION <- MEDIA-021 v3 (master c0952566..., Gate 1 R6 and design approved: a family crouched low in a windowless bathroom, each protecting the head and back of the neck with the arms and a blanket over each head and shoulders; shown after the choice identically on every answer path, matching the approved MEDIA-005 v3 posture). PLANNED EMPTY SLOTS, filled one at a time as each image clears Gate 1 and Gate 2 (each fill is a new hash and a new review): CHOICE_THUMB on warning_issued, all three options or none <- MEDIA-018 bedroom (upstairs_window), MEDIA-019 bathroom (interior_room), tornado.rooms.outside (look_outside; requested from Codex Media; MEDIA-020 kitchen retired as unmatched). Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
+      "notes": "DRAFT (EXEC-M3 + EXEC-M4, authored 2026-10-23 by Claude, agent): Tornado v2 text VERBATIM (nodes, choices, consequences, feedback, tags, outcome and sources unchanged; v2 stays PUBLISHED, approved at sha256:83619bb7...) plus schema 2, mediaStyle ILLUSTRATION, the SCENE still MEDIA-017 v2 on warning_issued (master 659b8f0e..., a pre-choice cue only: three people stay seated and look at a lit phone as storm clouds gather; no room, route or protective action is shown), the intro still MEDIA-016 (master 3cbf96be..., design-approved PREP 2026-10-23) and the ending MEDIA-011 (master 2909a881..., design-approved PREP) on the single outcome warning_rehearsed. That outcome is the path-neutral walk-through debrief shown on every path; the still shows a household stepping out of a windowless bathroom into a hallway, a neutral post-practice state with no hazard, damage, protective posture or reward cue, so it restates the outcome's own guidance and does not grade the player's choices. Reviewers should confirm that reading at both gates. Node in_shelter EXPLANATION <- MEDIA-021 v3 (master c0952566..., Gate 1 R6 and design approved: a family crouched low in a windowless bathroom, each protecting the head and back of the neck with the arms and a blanket over each head and shoulders; shown after the choice identically on every answer path, matching the approved MEDIA-005 v3 posture). CHOICE_THUMB on warning_issued, all three options, filled 2026-10-23 (each Gate 1 R7 APPROVED and design APPROVED; 168x128 = 21:16): upstairs_window <- MEDIA-018 bedroom (master c7f9175f..., an upstairs bedroom with two large windows; attribute-only, no person, action or damage), interior_room <- MEDIA-019 bathroom (master 9931a713..., a small windowless interior bathroom; no window, mirror or glass), look_outside <- MEDIA-032 outside (master 02c364e9..., a closed front door beside a narrow window showing a stormy sky; no person, route, funnel or damage); MEDIA-020 kitchen retired as unmatched. No planned slots remain. The three thumbs are answer-neutral and show only attributes already in the choice labels. Needs the independent two-gate review at the exact hash before it can be PUBLISHED; the author does not approve it. Preview gate only."
     },
     "publishedAt": null,
     "retiredAt": null
@@ -79,7 +79,13 @@
               "tags": [
                 "needs_tornado_drill"
               ],
-              "next": "storm_closer"
+              "next": "storm_closer",
+              "thumb": {
+                "slotKey": "tornado-warning-shelter-decision.warning_issued.upstairs_window.thumb",
+                "kind": "STILL",
+                "assetSha256": "sha256:c7f9175fe20aab0ff2b27c2d9ce9475e59b4549b3f209c96f2fc7d5f9af6f26d",
+                "alt": "An upstairs bedroom with a bed and two large windows overlooking nearby rooftops under darkening clouds."
+              }
             },
             {
               "key": "interior_room",
@@ -89,7 +95,13 @@
               "tags": [
                 "sheltered_lowest_interior"
               ],
-              "next": "in_shelter"
+              "next": "in_shelter",
+              "thumb": {
+                "slotKey": "tornado-warning-shelter-decision.warning_issued.interior_room.thumb",
+                "kind": "STILL",
+                "assetSha256": "sha256:9931a713b8bb09430988aec8cbb241387a843d4e68dc93e26ce814b324a6297e",
+                "alt": "A small interior bathroom with a bathtub, towels and solid walls, with no windows or glass."
+              }
             },
             {
               "key": "look_outside",
@@ -99,7 +111,13 @@
               "tags": [
                 "needs_tornado_drill"
               ],
-              "next": "storm_closer"
+              "next": "storm_closer",
+              "thumb": {
+                "slotKey": "tornado-warning-shelter-decision.warning_issued.look_outside.thumb",
+                "kind": "STILL",
+                "assetSha256": "sha256:02c364e9b4ec22ddac2054bdb433148e53cffeded168d2d2cf4762be615d28a9",
+                "alt": "A closed front door beside a narrow window showing a dark, windy storm outside."
+              }
             }
           ],
           "media": {

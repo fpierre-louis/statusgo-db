@@ -352,6 +352,48 @@
       "focal": "center center",
       "bytes": 99903,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:c7f9175fe20aab0ff2b27c2d9ce9475e59b4549b3f209c96f2fc7d5f9af6f26d",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-room-bed-c7f9175f",
+      "widths": [
+        168
+      ],
+      "width": 168,
+      "height": 128,
+      "focal": "center center",
+      "bytes": 8152,
+      "durationMs": null
+    },
+    {
+      "sha256": "sha256:9931a713b8bb09430988aec8cbb241387a843d4e68dc93e26ce814b324a6297e",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-room-bath-9931a713",
+      "widths": [
+        168
+      ],
+      "width": 168,
+      "height": 128,
+      "focal": "center center",
+      "bytes": 7058,
+      "durationMs": null
+    },
+    {
+      "sha256": "sha256:02c364e9b4ec22ddac2054bdb433148e53cffeded168d2d2cf4762be615d28a9",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-room-outside-02c364e9",
+      "widths": [
+        168
+      ],
+      "width": 168,
+      "height": 128,
+      "focal": "center center",
+      "bytes": 6872,
+      "durationMs": null
     }
   ]
 }

@@ -452,7 +452,7 @@ class PracticeShippedContentTest {
     // -- EXEC-M3: Tornado v3 = v2 text verbatim + intro and ending stills (DRAFT) ----
 
     static final String TORNADO_V2_HASH = "sha256:83619bb763e6a52285b794584e553a72d3706eb2040ccf22215dcb666302b3f5";
-    static final String TORNADO_V3_DRAFT_HASH = "sha256:6e98b075f086ee272d27a741dbc0256e0f20457e9d458751eb309b72e1a62b67";
+    static final String TORNADO_V3_DRAFT_HASH = "sha256:110e735c42f92a4534f1b9fa4bf7115bb8aeed7c2302f31c7022d3081c3a2f4e";
 
     private static com.fasterxml.jackson.databind.node.ObjectNode tornadoFile(int v) throws java.io.IOException {
         return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(
@@ -472,7 +472,8 @@ class PracticeShippedContentTest {
         assertThat(v3.publishState()).isEqualTo(PublishState.DRAFT);
         assertThat(v3.file().lifecycle().safetyReview().status()).isEqualTo(SafetyReviewStatus.PENDING);
         assertThat(v3.file().lifecycle().safetyReview().notes())
-                .contains("MEDIA-017 v2", "MEDIA-018", "MEDIA-019", "tornado.rooms.outside", "MEDIA-021 v3", "PLANNED EMPTY SLOTS")
+                .contains("MEDIA-017 v2", "MEDIA-018", "MEDIA-019", "MEDIA-032", "MEDIA-021 v3", "No planned slots remain")
+                .doesNotContain("PLANNED EMPTY SLOTS", "tornado.rooms.outside")
                 .doesNotContain("SCENE warning_issued <- MEDIA-017");
 
         // Text verbatim: strip the media additions from v3 and the tree equals v2's content.
@@ -481,10 +482,11 @@ class PracticeShippedContentTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode) c3).remove("mediaStyle");
         ((com.fasterxml.jackson.databind.node.ObjectNode) c3.get("scenario")).remove("introMedia");
         c3.get("scenario").get("nodes").forEach(n -> ((com.fasterxml.jackson.databind.node.ObjectNode) n).remove(java.util.List.of("media", "explanationMedia")));
+        c3.get("scenario").get("nodes").forEach(n -> n.get("choices").forEach(ch -> ((com.fasterxml.jackson.databind.node.ObjectNode) ch).remove("thumb")));
         c3.get("scenario").get("outcomes").forEach(o -> ((com.fasterxml.jackson.databind.node.ObjectNode) o).remove("media"));
         assertThat(c3).isEqualTo(c2);
 
-        // Media (EXEC-M4): the intro, the warning_issued SCENE (MEDIA-017 v2) and the single outcome's ending, plus the in_shelter EXPLANATION (MEDIA-021 v3); no thumb yet.
+        // Media (EXEC-M4): the intro, the warning_issued SCENE (MEDIA-017 v2) and the single outcome's ending, plus the in_shelter EXPLANATION (MEDIA-021 v3), and the three warning_issued CHOICE_THUMBs (MEDIA-018/019/032, 21:16).
         assertThat(v3.body().mediaStyle()).isEqualTo(PracticeContent.MediaStyle.ILLUSTRATION);
         assertThat(v3.body().scenario().introMedia().assetSha256()).endsWith("3cbf96be93c67f4e9c466159e79ed94b0160997e031df3d7806d2f142f6b08cf");
         assertThat(v3.body().scenario().outcomes()).singleElement()
@@ -504,7 +506,26 @@ class PracticeShippedContentTest {
             } else {
                 assertThat(n.explanationMedia()).isNull();
             }
-            assertThat(n.choices()).allSatisfy(ch -> assertThat(ch.thumb()).isNull());
+            if (n.key().equals("warning_issued")) {
+                java.util.Map<String, String[]> expect = java.util.Map.of(
+                        "upstairs_window", new String[] {"c7f9175f", "tornado-room-bed", "bedroom", "windows"},
+                        "interior_room", new String[] {"9931a713", "tornado-room-bath", "bathroom", "no windows"},
+                        "look_outside", new String[] {"02c364e9", "tornado-room-outside", "door", "storm"});
+                assertThat(n.choices()).extracting(ch -> ch.key()).containsExactlyInAnyOrderElementsOf(expect.keySet());
+                assertThat(n.choices()).allSatisfy(ch -> {
+                    String[] e = expect.get(ch.key());
+                    assertThat(ch.thumb().slotKey()).isEqualTo("tornado-warning-shelter-decision.warning_issued." + ch.key() + ".thumb");
+                    assertThat(ch.thumb().assetSha256()).startsWith("sha256:" + e[0]);
+                    assertThat(ch.thumb().alt()).hasSizeLessThanOrEqualTo(200).contains(e[2].equals("door") ? "door" : e[2].equals("bedroom") ? "bedroom" : "bathroom");
+                    var dto = ScenarioService.mediaDto(ch.thumb());
+                    assertThat(dto.url()).isEqualTo("/images/practice/" + e[1] + "-" + e[0] + "-168.jpg");
+                    assertThat(dto.srcSet()).isEqualTo(dto.url() + " 168w");
+                    assertThat(dto.width()).isEqualTo(168);
+                    assertThat(dto.height()).isEqualTo(128);
+                });
+            } else {
+                assertThat(n.choices()).allSatisfy(ch -> assertThat(ch.thumb()).isNull());
+            }
         });
     }
 
