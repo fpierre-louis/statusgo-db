@@ -304,6 +304,22 @@
       "focal": "center center",
       "bytes": 161612,
       "durationMs": null
+    },
+    {
+      "sha256": "sha256:c0952566b34c3474c730d29e1b334f4838a11d0ccd8e16e60032a055ef8830ff",
+      "style": "ILLUSTRATION",
+      "kind": "STILL",
+      "stem": "/images/practice/tornado-protective-action-c0952566",
+      "widths": [
+        640,
+        960,
+        1254
+      ],
+      "width": 1254,
+      "height": 705,
+      "focal": "center center",
+      "bytes": 175846,
+      "durationMs": null
     }
   ]
 }
