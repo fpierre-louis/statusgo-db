@@ -19,6 +19,10 @@
     "estimatedMinutes": 3,
     "sources": [
       {
+        "label": "U.S. Fire Administration — Pictographs: Fire Escape Plans",
+        "url": "https://www.usfa.fema.gov/gallery/pictographs/escape-planning.html"
+      },
+      {
         "label": "Ready.gov — Home Fires",
         "url": "https://www.ready.gov/home-fires"
       },
@@ -51,7 +55,7 @@
         "text": "You felt the door with the back of your hand before opening it."
       },
       "stayed_out_told_firefighters": {
-        "text": "You went to your meeting spot and called 911 from outside."
+        "text": "You went to your meeting spot, called 911 from outside, and told firefighters about the dog."
       },
       "needs_stay_out_reminder": {
         "text": "Once you are out, stay out, and tell the firefighters about anyone or any pet still inside.",
@@ -127,7 +131,7 @@
               "key": "feel_door",
               "label": "Feel the door with the back of your hand",
               "consequence": "You rest the back of your hand against the door.",
-              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to use the back of your hand to feel the top of the door, the doorknob, and the crack between the door and door frame. If it feels hot, use your secondary escape route.",
+              "feedback": "The U.S. Fire Administration says to feel the door and doorknob with the back of your hand. If it is hot or smoke is coming around it, keep it closed and use your second way out. If it feels cool, open it slowly and be ready to shut it quickly if smoke or fire is there.",
               "tags": [
                 "checked_door_first"
               ],
@@ -137,7 +141,7 @@
               "key": "open_quickly",
               "label": "Open it quickly",
               "consequence": "You reach for the knob without checking the door.",
-              "feedback": "FireSafety.gov, a USFA and FEMA factsheet, says to check a closed door with the back of your hand first. The Red Cross says never to open doors that are warm to the touch.",
+              "feedback": "The U.S. Fire Administration says to feel a closed door with the back of your hand first. The Red Cross says never to open doors that are warm to the touch. Ready.gov says that if it feels cool, open it slowly and be ready to shut it quickly if smoke or fire is there.",
               "tags": [
                 "needs_fire_exit_drill"
               ],
